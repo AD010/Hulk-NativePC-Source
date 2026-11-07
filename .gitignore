@@ -1,0 +1,44 @@
+# The verified source files and codegen manifests are tracked intentionally.
+# Do not ignore native_port/missing_funcs.toml or native_port/indirect_funcs.toml.
+
+# Local game copies, extracted Xbox 360 Title Updates, generated PPC and SDK builds
+native_port/game/
+native_port/sdk-src/
+native_port/native_x_renderer/
+native_port/native_x_renderer_git/
+native_port/tu1-overlay/
+native_port/generated/default/
+native_port/out/
+native_port/runs/
+
+# Build output and diagnostics
+native_port/HULK_BUILD_LOG.txt
+native_port/*.map
+**/__pycache__/
+**/.pytest_cache/
+*.pyc
+*.pyo
+*.obj
+*.o
+*.pdb
+*.ilk
+*.log
+
+# Never commit retail game files or content extracted from a user's disc
+*.xex
+*.xexp
+*.iso
+*.arc
+*.ARC
+*.ind
+*.IND
+
+# Protect source-only public repository
+*.zip
+*.bin
+*.pe
+*.stfs
+*.xcp
+*.pak
+*.dat
+native_port/generated/default/
