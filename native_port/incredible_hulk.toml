@@ -1,0 +1,50 @@
+# Hulk NativePC - the only user configuration file.
+# Launch incredible_hulk.exe directly (no CMD or PowerShell).
+# If the original assets are elsewhere, the first launch opens a native
+# Windows file picker for default.xex and saves the folder here automatically.
+# You can also set the path manually, with forward slashes:
+# game_data_root = "E:/Games/IncredibleHulk/games/incredible_hulk/game"
+game_data_root = ""
+
+# Keyboard and mouse on the host, translated to the game's XInput state.
+hulk_native_mnk = true
+hulk_native_mnk_force = true
+mnk_mode = false
+hulk_mouse_sensitivity = 4.0
+hulk_mouse_invert_y = false
+hulk_mouse_diagnostics = false
+
+# Display. The old Xenos scaled-resolve implementation corrupts Hulk's
+# 3D image beyond 1x; this value avoids *additional* pixelization, but
+# does NOT increase the game's internal native resolution.
+# User-confirmed red-screen fix in Vulkan/Xenos fallback: choose the
+# Fragment Shader Interlock target path at renderer initialization.
+# NativeXRenderer will use its own native target pipeline when validated.
+render_target_path_vulkan = "fsi"
+resolution_scale = 1
+draw_resolution_scale_x = 1
+draw_resolution_scale_y = 1
+video_mode_width = 1280
+video_mode_height = 720
+# SDL3 interprets these as LOGICAL window coordinates. At 175% DPI,
+# 1280x800 maps to roughly 2240x1400 physical pixels, not 4480x2800.
+# Borderless fullscreen uses the monitor's actual 2560x1600 mode instead.
+window_width = 1280
+window_height = 800
+fullscreen = true
+fullscreen_exclusive = false
+present_letterbox = true
+present_effect = "bilinear"
+
+# Standalone NativeX bring-up requested: Vulkan native drawing is enabled
+# at startup. The Hulk XDK 6534 profile is not yet verified; fail-closed
+# validation keeps the Vulkan/Xenos FSI fallback available rather than
+# displaying an uninitialized native black image. This config does NOT
+# claim completed native Vulkan game drawing.
+native_x_renderer = true
+# Native renderer's own 2x scale, independent of legacy EDRAM resolve scaling.
+native_x_renderer_resolution_scale = 2.0
+
+# Developer counters do not run in normal gaming builds.
+hulk_gpu_hook_probe = false
+hulk_frame_probe = false
