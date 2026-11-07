@@ -1,0 +1,30 @@
+// File details (version, product name). The UTF-8 code page manifest (incredible_hulk.manifest) is a source of the
+// target, which CMake merges into the manifest it embeds.
+#include <winver.h>
+
+
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION HULK_VERSION_COMMAS
+PRODUCTVERSION HULK_VERSION_COMMAS
+FILEOS VOS_NT_WINDOWS32
+FILETYPE VFT_APP
+BEGIN
+  BLOCK "StringFileInfo"
+  BEGIN
+    BLOCK "080904B0"
+    BEGIN
+      VALUE "CompanyName", "TekRantGaming"
+      VALUE "FileDescription", "The Incredible Hulk Recompiled"
+      VALUE "FileVersion", HULK_VERSION
+      VALUE "ProductName", "The Incredible Hulk Recompiled"
+      VALUE "ProductVersion", HULK_VERSION
+      VALUE "OriginalFilename", "incredible_hulk.exe"
+    END
+  END
+  BLOCK "VarFileInfo"
+  BEGIN
+    VALUE "Translation", 0x0809, 1200
+  END
+END
+
+// NativeX profile RCDATA 3001 is generated with an absolute source path by CMake.
