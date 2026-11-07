@@ -60,13 +60,20 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Guest PPC hook preflight failed' }
           python ci/patch_codegen_retry.py native_port/BUILD_WINDOWS.ps1
           if ($LASTEXITCODE -ne 0) { throw 'PPC codegen recovery patch failed' }
-      - name: Compile Vulkan NativeXRenderer Hulk under Windows
+      - name: Compile Vulkan NativeXRenderer Hulk under Windows (PRIVATE diagnostic logs)
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File native_port/BUILD_WINDOWS.ps1 -GameRoot "$env:GITHUB_WORKSPACE/native_port/game" -NativeXLink
-          if ($LASTEXITCODE -ne 0) { throw 'Windows NativeX build failed; investigate compile log (do not upload generated PPC).' }
-          if (-not (Test-Path native_port/out/HULK_NATIVE_PC_TEST/incredible_hulk.exe)) { throw 'Compiled EXE absent' }
+          $PSNativeCommandUseErrorActionPreference = $false
+          Write-Host 'Building Hulk on free Windows runner; compiler output kept off PUBLIC Actions logs.'
+          # Do not echo compiler / PPC codegen messages into a public job log.
+          $log = Join-Path $env:RUNNER_TEMP 'hulk-compiler-private.log'
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File native_port/BUILD_WINDOWS.ps1 -GameRoot "$env:GITHUB_WORKSPACE/native_port/game" -NativeXLink *> $log
+          $rc = $LASTEXITCODE
+          New-Item -ItemType Directory -Force -Path native_port/out | Out-Null
+          Copy-Item -LiteralPath $log -Destination native_port/out/hulk-compiler-private.log -Force
+          if ($rc -ne 0) { throw "Windows NativeX build failed (exit $rc). Full diagnostics are delivered to the PRIVATE release, not public logs." }
+          if (-not (Test-Path native_port/out/HULK_NATIVE_PC_TEST/incredible_hulk.exe)) { throw 'Compiled EXE absent; see private diagnostics.' }
       - name: Verify source-free output ZIP
         shell: pwsh
         run: |
@@ -86,5 +93,19 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Unable to upload compiled ZIP to PRIVATE release; requires Contents read/write.' }
           Write-Host 'Success: compiled game ZIP is on the PRIVATE AD010/hulk-cloud release only.'
           Write-Host 'No public downloadable game artifact or guest PPC sources were uploaded.'
+      - name: Save failure diagnostics privately (never public artifacts)
+        if: failure()
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.HULK_PRIVATE_REPO_TOKEN }}
+        run: |
+          if (-not $env:GH_TOKEN) { Write-Host 'No token available to save private diagnostic'; exit 0 }
+          $files = @('native_port/out/hulk-compiler-private.log', 'native_port/HULK_BUILD_LOG.txt') | Where-Object { Test-Path $_ }
+          if ($files.Count -eq 0) { Write-Host 'No private compiler output captured'; exit 0 }
+          $zip = Join-Path $env:RUNNER_TEMP 'Hulk-PrivateRunner-Diagnostics.zip'
+          Compress-Archive -Path $files -DestinationPath $zip -Force
+          gh release upload hulk-ci-input-on-publish $zip --repo AD010/hulk-cloud --clobber
+          if ($LASTEXITCODE -ne 0) { Write-Host 'Could not upload diagnostics to private release' }
+          else { Write-Host 'Saved compiler diagnostics to private hulk-cloud release' }
       # Intentionally NO actions/upload-artifact, NO actions/cache and NO public release.
       # Generated PPC and proprietary input exist only in this ephemeral runner.
