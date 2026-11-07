@@ -1,0 +1,90 @@
+name: Hulk NativePC - Free Public Windows Builder
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: hulk-native-public-windows
+  cancel-in-progress: false
+jobs:
+  build:
+    if: github.repository == 'AD010/Hulk-NativePC-Source' && github.ref == 'refs/heads/main'
+    runs-on: windows-2022
+    timeout-minutes: 330
+    env:
+      HULK_PINNED_XEX_SHA256: '346A73690303F6633BFDAF9850E78793FE07CDBFB8F849B89FBEE320630B11F0'
+    steps:
+      - name: Checkout public source only
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Inspect public source for accidentally committed Xbox binaries
+        shell: pwsh
+        run: |
+          python ci/check_public_source.py
+          if ($LASTEXITCODE -ne 0) { throw 'PUBLIC SOURCE AUDIT FAILED: prohibited assets in Git' }
+      - name: Enable Windows long paths
+        shell: pwsh
+        run: |
+          git config --global core.longpaths true
+      - name: Configure MSVC and clang-cl
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: amd64
+      - name: Get original input ONLY from private Hulk release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.HULK_PRIVATE_REPO_TOKEN }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (-not $env:GH_TOKEN) { throw 'Set HULK_PRIVATE_REPO_TOKEN in this PUBLIC repository Actions secrets; token must access PRIVATE AD010/hulk-cloud (Contents read/write).' }
+          New-Item -ItemType Directory -Path native_port/game -Force | Out-Null
+          gh release download hulk-ci-input-on-publish --repo AD010/hulk-cloud --pattern default.xex --dir native_port/game --clobber
+          if ($LASTEXITCODE -ne 0) { throw 'Private XEX download failed. Check PAT permissions and release asset.' }
+          $actual = (Get-FileHash native_port/game/default.xex -Algorithm SHA256).Hash.ToUpperInvariant()
+          if ($actual -ne $env:HULK_PINNED_XEX_SHA256) { throw "Source XEX fingerprint does not match verified USA codegen: $actual" }
+          Write-Host 'Private source XEX fingerprint verified. No Xbox binaries will be uploaded to public artifacts.'
+      - name: Verify XDK metadata, and prepare validated PPC recovery
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python ci/test_audit_hulk_xex_xdk.py
+          if ($LASTEXITCODE -ne 0) { throw 'XEX metadata tests failed' }
+          python ci/audit_hulk_xex_xdk.py native_port/game/default.xex --expected-sha256 $env:HULK_PINNED_XEX_SHA256
+          if ($LASTEXITCODE -ne 0) { throw 'XEX 6534 verification failed' }
+          python ci/test_prepare_hulk_tu1_stage.py
+          if ($LASTEXITCODE -ne 0) { throw 'EU TU1 source-stage test failed' }
+          python ci/check_hulk_tu1_xex.py native_port/game/default.xex
+          if ($LASTEXITCODE -ne 0) { throw 'TU1 compatibility check failed' }
+          python ci/seed_hulk_ppc_tails.py native_port/missing_funcs.toml native_port/indirect_funcs.toml
+          if ($LASTEXITCODE -ne 0) { throw 'Guest PPC hook preflight failed' }
+          python ci/patch_codegen_retry.py native_port/BUILD_WINDOWS.ps1
+          if ($LASTEXITCODE -ne 0) { throw 'PPC codegen recovery patch failed' }
+      - name: Compile Vulkan NativeXRenderer Hulk under Windows
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File native_port/BUILD_WINDOWS.ps1 -GameRoot "$env:GITHUB_WORKSPACE/native_port/game" -NativeXLink
+          if ($LASTEXITCODE -ne 0) { throw 'Windows NativeX build failed; investigate compile log (do not upload generated PPC).' }
+          if (-not (Test-Path native_port/out/HULK_NATIVE_PC_TEST/incredible_hulk.exe)) { throw 'Compiled EXE absent' }
+      - name: Verify source-free output ZIP
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Path artifacts -Force | Out-Null
+          Compress-Archive -Path native_port/out/HULK_NATIVE_PC_TEST/* -DestinationPath artifacts/Hulk-NativePC-Vulkan.zip -Force
+          python ci/verify_hulk_release.py artifacts/Hulk-NativePC-Vulkan.zip
+          if ($LASTEXITCODE -ne 0) { throw 'ZIP verification failed' }
+      - name: Deliver game ZIP to PRIVATE GitHub release, not public artifact
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.HULK_PRIVATE_REPO_TOKEN }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (-not $env:GH_TOKEN) { throw 'Missing private release token' }
+          gh release upload hulk-ci-input-on-publish artifacts/Hulk-NativePC-Vulkan.zip --repo AD010/hulk-cloud --clobber
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to upload compiled ZIP to PRIVATE release; requires Contents read/write.' }
+          Write-Host 'Success: compiled game ZIP is on the PRIVATE AD010/hulk-cloud release only.'
+          Write-Host 'No public downloadable game artifact or guest PPC sources were uploaded.'
+      # Intentionally NO actions/upload-artifact, NO actions/cache and NO public release.
+      # Generated PPC and proprietary input exist only in this ephemeral runner.

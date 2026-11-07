@@ -1,4 +1,3 @@
-# Address-only allowlist copied from validated guest/host mapping.
 guest_address,native_entry
 0x82691080,0x00140E44160
 0x8280F5C0,0x00142B45650

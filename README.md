@@ -12,4 +12,4 @@ The public Actions workflow can compile on a GitHub-hosted Windows runner **only
 
 This is an experimental recompilation: native Vulkan drawing, higher frame rates, TU1 and the water-jump physics correction are not yet verified as working. The European TU1 is incompatible with the currently pinned USA XEX and cannot just be placed next to it.
 
-See `SECURE_BUILD_SETUP_RU.md` for setup. Keep source-only contributions free of copyrighted game assets and credentials.
+**Start here:** [SECURE_BUILD_SETUP_RU.md](SECURE_BUILD_SETUP_RU.md). Keep source-only contributions free of copyrighted game assets and credentials.
