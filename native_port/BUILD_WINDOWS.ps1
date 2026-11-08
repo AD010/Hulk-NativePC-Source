@@ -184,6 +184,10 @@ try {
     # Capture complete single unhooked draws through NativeX's Vulkan command queue.
     Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_gap_draw.py')) $Source
     Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_gap_draw.py'), $NxrFull) $Source
+    # Replay ordered Xenos PM4 draws, including indirect buffers, into native Vulkan.
+    # This augments the earlier single-direct-draw path without another workflow.
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_gap_stream.py')) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_gap_stream.py'), $NxrFull) $Source
     # F10 belongs to Hulk's real PC menu, never steal it for the SDK observer.
     Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_verify_key.py')) $Source
     Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_verify_key.py'), $NxrFull) $Source
