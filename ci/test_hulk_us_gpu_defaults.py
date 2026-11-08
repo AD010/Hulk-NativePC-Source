@@ -19,6 +19,8 @@ class TestHulkUsGpuDefaults(unittest.TestCase):
             self.assertIs(config[key], False)
         self.assertFalse(config.get("hulk_gpu_hook_probe", False))
         self.assertFalse(config["native_x_renderer"])
+        self.assertTrue(config["native_x_renderer_present_with_swaps"])
+        self.assertTrue(config["native_x_renderer_thread"])
         self.assertFalse(config["hulk_world_stream_trace"])
         self.assertFalse(config["hulk_native_x_verify_only"])
         self.assertTrue(config["native_x_renderer_verify"])
