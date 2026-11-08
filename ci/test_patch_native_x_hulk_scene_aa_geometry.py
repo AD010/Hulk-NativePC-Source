@@ -28,9 +28,11 @@ class HulkNativeAAAndGeometryGuard(unittest.TestCase):
 
     def test_reject_synthetic_corrupted_topology_only(self):
         cpp = "\n".join(new for old, new in GEOM["src/renderer.cpp"])
-        self.assertIn("LastWrite(rg::XE_GPU_REG_VGT_DRAW_INITIATOR", cpp)
+        self.assertIn("LastWrite(rex::graphics::XE_GPU_REG_VGT_DRAW_INITIATOR", cpp)
         self.assertIn("topology == 0 || topology == 48 || topology == 49", cpp)
         self.assertIn("[HULK/GEOMETRY-GUARD]", cpp)
+        # OnHulkGapSingleDraw has no namespace rg alias: use an SDK-qualified register.
+        self.assertNotIn("LastWrite(rg::", cpp)
         self.assertNotIn("CaptureDraw", cpp)
 
 if __name__ == "__main__":
