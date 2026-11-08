@@ -67,6 +67,21 @@ native_x_renderer_resolution_scale = 2.0
 # the last matching full-resolution Resolve texture instead of forced black.
 native_x_renderer_hulk_front_fallback = true
 
+# Hulk GPU reverse engineering: real NativeX's Trace and Observer, from its
+# own bring-up toolkit. They are only initialized with native_x_renderer=true
+# OR hulk_native_x_verify_only=true. That separate mode keeps Xenos graphics
+# visible while comparing NativeX XDK 6534 state against actual GPU PM4 draws.
+hulk_native_x_verify_only = false
+native_x_renderer_trace = true
+native_x_renderer_trace_interval = 300
+native_x_renderer_trace_dump_frames = 1
+native_x_renderer_trace_dump_at = 900
+native_x_renderer_verify = true
+native_x_renderer_verify_frames = 1
+native_x_renderer_verify_at = 900
+# Renderer source is patched to use F11 for verify so our PC menu retains F10.
+bind_native_x_renderer_verify = "F11"
+
 # Developer counters do not run in normal gaming builds.
 hulk_gpu_hook_probe = false
 hulk_frame_probe = false

@@ -21,6 +21,12 @@
 #include <windows.h>
 #endif
 
+// Independent GPU register observer can run while Xenos still draws a
+// visible scene. This isolates XDK 6534 register/texture-state mismatches
+// from native renderer output and never takes ownership of the swap chain.
+REXCVAR_DEFINE_BOOL(hulk_native_x_verify_only, false, "Hulk",
+                    "Use NativeX Trace/Observer while Xenos still renders (no NativeX Vulkan display)");
+
 namespace hulk {
 namespace {
 
@@ -82,7 +88,9 @@ bool NativeXInitialize(
   // A shipped release with an unverified 6534 GPU layout must not silently
   // take over the display or demand an experimental INI sidecar.
   // Keep renderer code compiled; opt in only when a validated profile exists.
-  if (!rex::cvar::Query<bool>("native_x_renderer"))
+  const bool verify_only = rex::cvar::Query<bool>("hulk_native_x_verify_only") &&
+                           !rex::cvar::Query<bool>("native_x_renderer");
+  if (!rex::cvar::Query<bool>("native_x_renderer") && !verify_only)
     return false;
 
   if (!graphics || !window) {
@@ -143,6 +151,17 @@ bool NativeXInitialize(
       graphics,
       window,
       cache);
+
+  // In observer-only mode NativeX's Vulkan device intentionally stays OFF.
+  // Keep the PPC hooks and register tracker alive so the SDK Xenos GPU can
+  // execute normal draws while Observer compares actual PM4 state.
+  if (verify_only && !native_x_renderer::Renders()) {
+    g_initialized = true;
+    REXLOG_INFO("[HULK/VERIFY] Xenos visible, NativeX draw observer active; "
+                "guest XDK={}, hook count={}; F9 trace, F11 verify",
+                g_profile->version, g_profile->calls.size());
+    return false;
+  }
 
   if (!native_x_renderer::Renders()) {
     nx::Install(nullptr);
