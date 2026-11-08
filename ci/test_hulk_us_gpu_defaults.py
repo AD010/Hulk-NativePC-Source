@@ -23,6 +23,9 @@ class TestHulkUsGpuDefaults(unittest.TestCase):
         self.assertIn("346a73690303f6633bfdaf9850e78793fe07cdbfb8f849b89fbee320630b11f0", source)
         self.assertIn("IsUsXex(xex)", source)
         self.assertIn("BCRYPT_SHA256_ALGORITHM", source)
+        self.assertIn("ad22432b3484d079080047a5d6b8a0bffa54b7e8affba1d2273003d9b3c6090d", source)
+        self.assertIn("46e6c6ec9f7428ba3a1737ab7ebad564c1b027b006c3e35156d2e036ab8b2820", source)
+        self.assertIn("AuditUsIndex(candidate)", source)
         cmake = (ROOT / "native_port/CMakeLists.txt").read_text(encoding="utf-8")
         self.assertIn("comdlg32 bcrypt", cmake)
 

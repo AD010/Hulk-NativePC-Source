@@ -30,9 +30,7 @@ namespace {
 
 #if defined(_WIN32)
 // Never select PAL game data for this SHA-pinned USA recomp.
-bool IsUsXex(const std::filesystem::path& file) {
-  constexpr std::string_view kUsSha256 =
-      "346a73690303f6633bfdaf9850e78793fe07cdbfb8f849b89fbee320630b11f0";
+bool MatchesSha256(const std::filesystem::path& file, std::string_view expected) {
   std::ifstream stream(file, std::ios::binary);
   if (!stream) return false;
   BCRYPT_ALG_HANDLE algorithm = nullptr;
@@ -66,11 +64,39 @@ bool IsUsXex(const std::filesystem::path& file) {
       actual.push_back(hex[byte >> 4]);
       actual.push_back(hex[byte & 15]);
     }
-    good = actual == kUsSha256;
+    good = actual == expected;
   } while (false);
   if (hash) BCryptDestroyHash(hash);
   BCryptCloseAlgorithmProvider(algorithm, 0);
   return good;
+}
+bool IsUsXex(const std::filesystem::path& file) {
+  return MatchesSha256(file,
+      "346a73690303f6633bfdaf9850e78793fe07cdbfb8f849b89fbee320630b11f0");
+}
+// The user's USA global index differs from the older Xbox index by
+// 4250 resource entries. Localized indexes may legitimately differ.
+void AuditUsIndex(const std::filesystem::path& root) {
+  constexpr std::string_view known_us =
+      "ad22432b3484d079080047a5d6b8a0bffa54b7e8affba1d2273003d9b3c6090d";
+  constexpr std::string_view prior =
+      "46e6c6ec9f7428ba3a1737ab7ebad564c1b027b006c3e35156d2e036ab8b2820";
+  const std::array<std::filesystem::path, 3> candidates = {
+      root / "DATA" / "XENON" / "INDEX.IND",
+      root / "DATA" / "XENON" / "USENGLISH" / "INDEX.IND",
+      root / "DATA" / "XENON" / "UKENGLISH" / "INDEX.IND"};
+  for (const auto& file : candidates) {
+    std::error_code ec;
+    if (!std::filesystem::is_regular_file(file, ec)) continue;
+    if (MatchesSha256(file, known_us)) {
+      REXLOG_INFO("[HULK/US] User USA INDEX.IND verified: {}", file.string());
+    } else if (MatchesSha256(file, prior)) {
+      REXLOG_WARN("[HULK/US] Older Xbox INDEX.IND detected, 4250 data "
+                  "differences versus user's USA index: {}", file.string());
+    } else {
+      REXLOG_INFO("[HULK/US] Additional regional INDEX.IND: {}", file.string());
+    }
+  }
 }
 #endif
 
@@ -196,12 +222,22 @@ std::optional<std::filesystem::path> LocateOrSelectGameData(
   const auto from_toml = rex::cvar::Query<std::string>("game_data_root");
   if (!from_toml.empty()) {
     const auto candidate = ToFolder(rex::to_path(from_toml));
-    if (ContainsXex(candidate)) return candidate;
+    if (ContainsXex(candidate)) {
+#if defined(_WIN32)
+      AuditUsIndex(candidate);
+#endif
+      return candidate;
+    }
     REXLOG_WARN("[HULK/US] Data root absent or XEX does not match pinned USA SHA256: {}",
                 candidate.string());
   }
   const auto preferred_dir = ToFolder(preferred);
-  if (ContainsXex(preferred_dir)) return preferred_dir;
+  if (ContainsXex(preferred_dir)) {
+#if defined(_WIN32)
+    AuditUsIndex(preferred_dir);
+#endif
+    return preferred_dir;
+  }
 
   const auto exe = rex::filesystem::GetExecutableFolder();
   const std::array<std::filesystem::path, 4> candidates = {
@@ -214,6 +250,7 @@ std::optional<std::filesystem::path> LocateOrSelectGameData(
   const auto selected = SelectDefaultXex();
   if (!selected) return std::nullopt;
   const auto folder = std::filesystem::absolute(*selected);
+  AuditUsIndex(folder);
 
   // Save into the existing and ONLY TOML, never a sidecar or new script.
   // Sync the live cvar too, so ReXGlue's F4 "Save" doesn't lose the path.
