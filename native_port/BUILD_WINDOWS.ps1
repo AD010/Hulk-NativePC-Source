@@ -151,6 +151,7 @@ try {
     Write-Host "HULK NATIVE GPU upstream bf965e9 (D125 hidden frame, D126 steady pipeline waits)"
   }
   Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_gen_native_x_hooks_probe.py')) $Source
+  Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_hulk_present_hook_profile.py')) $Source
   # Compile and run standalone input tests before the larger game build.
   $TestDir = Join-Path $Source 'out\input-tests'
   Invoke-Checked 'cmake' @('-S', (Join-Path $Source 'tests'), '-B', $TestDir, '-G', 'Ninja',
