@@ -43,6 +43,29 @@ PATCHES = {
  ]
 }
 
+
+# Log the actual guest Resolve return addresses to identify pre-HUD scene edge.
+# The HUD and front buffer must NOT be antialiased speculatively.
+PATCHES["src/renderer.cpp"].append((
+ "  ITextureView* target_view = target ? target->SliceView(slice) : nullptr;",
+ "  if (surface && source && target && !surface.depth &&\n"
+ "      ((surface.msaa() == 2 && surface.width == 640 && surface.height == 360) ||\n"
+ "       (target->guest_width == g_profile->output_width &&\n"
+ "        target->guest_height == g_profile->output_height))) {\n"
+ "    const bool scene4x = surface.msaa() == 2 && surface.width == 640 && surface.height == 360;\n"
+ "    static std::atomic<uint32_t> scene_seen{0}, output_seen{0};\n"
+ "    const uint32_t count = (scene4x ? scene_seen : output_seen).fetch_add(1, std::memory_order_relaxed) + 1;\n"
+ "    if (count <= 16 || count % 10000 == 0)\n"
+ "      REXLOG_INFO(\"[HULK/RESOLVE-CALLER] kind={} #{} LR={:#x} src={}x{} {}xMSAA\"\n"
+ "                  \" host={}x{} dst={}x{} host={}x{} flags={:#x}\",\n"
+ "                  scene4x ? \"scene4x\" : \"output\", count, c.caller,\n"
+ "                  surface.width, surface.height, surface.samples(),\n"
+ "                  source->width, source->height, target->guest_width, target->guest_height,\n"
+ "                  target->width, target->height, flags);\n"
+ "  }\n"
+ "  ITextureView* target_view = target ? target->SliceView(slice) : nullptr;"
+))
+
 def transform(source, rules):
     marks = [new in source for old, new in rules]
     if all(marks):
