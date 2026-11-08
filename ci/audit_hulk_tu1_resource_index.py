@@ -47,7 +47,7 @@ def parse_index(raw: bytes) -> dict:
         n = abs(count)
         if n > 100000 or table_end - table_start != 4 + n*16:
             raise ValueError(f"Category {name} malformed")
-        hashes = struct.unpack_from(f">{n}I", raw, table_start+4) if n else []
+        hashes = struct.unpack_from(f">{n}I", raw, table_start+4) if n else ()
         if hashes != tuple(sorted(set(hashes))):
             raise ValueError(f"Category {name} resource hashes unsorted or repeated")
         base = table_start+4+4*n

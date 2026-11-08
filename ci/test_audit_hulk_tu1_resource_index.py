@@ -30,6 +30,10 @@ class TestHulkTu1Audit(unittest.TestCase):
         self.assertFalse(report["code_patch_compatible_with_us"])
         report2 = audit(base, delta, {"Objects": bytes(12)})
         self.assertFalse(report2["all_delta_ranges_in_bounds"])
+    def test_zero_entry_base_category(self):
+        hdr = struct.pack(">4I", 2, 16, 24, 28) + b"Actions\x00" + struct.pack(">i", 0)
+        self.assertEqual(parse_index(hdr)["Actions"]["entries"], {})
+
     def test_bad_index_refused(self):
         with self.assertRaises(ValueError):
             parse_index(bytes(20))
