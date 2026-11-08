@@ -25,3 +25,5 @@ Source analysis:
 - No change to Raw Input, F4 cursor, guest shader translation,
   TU1/Europe XEXP, 30fps physics, Xenos FSI implementation.
 - Must Windows compile/test before calling either defect fixed.
+
+Additional verified fix: rexglue-sdk/recomp src/graphics/flags.cpp defines gpu_guest_fps_limit=0 (unlimited). src/graphics/command_processor.cpp ExecutePacketType3_SWAP has production implementation that sleeps after each guest swap when gpu_guest_fps_limit>0, throttling the guest thread via GPU ring-buffer backpressure. Set gpu_guest_fps_limit=30 in user TOML without shader/physics changes. This is a real limiter (not only an FPS counter), but its effectiveness on the user's hanging city gameplay is not yet playtested.

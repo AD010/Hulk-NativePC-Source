@@ -28,6 +28,11 @@ vulkan_allow_present_mode_fifo_relaxed = false
 vsync = true
 vblank_follows_display = false
 
+# ReXGlue command_processor.cpp has a native guest-swap throttle.
+# Default 0 = unlimited; force the original Hulk 30-FPS gameplay pacing.
+# Prevents the ring-buffer producer from running hundreds of frames ahead.
+gpu_guest_fps_limit = 30
+
 # Console dashboard language and country for this USA recomp.
 user_country = 103
 user_language = 1
