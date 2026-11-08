@@ -29,6 +29,7 @@ try {
   # Fail early if a future update reintroduces PAL data acceptance or unbounded GPU.
   Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_hulk_us_gpu_defaults.py')) $Source
   Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_hulk_pc_menu.py')) $Source
+  Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_audit_hulk_world_visuals.py')) $Source
   Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_audit_hulk_tu1_resource_index.py')) $Source
   if (-not $GameRoot) {
     $known = 'E:\Games\IncredibleHulk\games\incredible_hulk\game'
