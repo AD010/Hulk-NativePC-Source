@@ -21,6 +21,7 @@ set(INCREDIBLEHULK_SOURCES
     src/main.cpp
     src/crash_report.cpp
     src/assets_locator.cpp
+    src/pc_menu.cpp
     # Existing game-side input/window hooks; no separate launcher is built.
     src/launcher/input_hook.cpp
     src/launcher/native_input_map.cpp

@@ -10,6 +10,7 @@
 #include <memory>
 
 #include "assets_locator.h"
+#include "pc_menu.h"
 
 #include <rex/rex_app.h>
 #include <rex/logging.h>
@@ -106,10 +107,17 @@ class IncredibleHulkApp : public rex::ReXApp {
     REXLOG_INFO("[HULK/WINDOW] restored; requesting host repaint");
     if (window()) window()->RequestPaint();
   }
-  // void OnCreateDialogs(rex::ui::ImGuiDrawer* drawer) override {}
+  void OnCreateDialogs(rex::ui::ImGuiDrawer* drawer) override {
+    pc_menu_ = hulk::CreatePcMenu(drawer, window(), [this] {
+      if (window()) window()->RequestClose();
+    });
+  }
+  void OnShutdown() override { pc_menu_.reset(); }
   // std::unique_ptr<rex::ui::ImGuiDialog> CreateAchievementsOverlay() override;
   // std::unique_ptr<rex::ui::AchievementNotificationDialog>
   // CreateAchievementNotificationDialog() override;
   // void OnShutdown() override {}
   // void OnConfigurePaths(rex::PathConfig& paths) override {}
+ private:
+  std::unique_ptr<rex::ui::ImGuiDialog> pc_menu_;
 };

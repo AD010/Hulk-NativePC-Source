@@ -24,6 +24,7 @@
 #include <cstring>
 #include <array>
 
+#include "pc_menu.h"
 #include <rex/cvar.h>
 
 REXCVAR_DECLARE(bool, hulk_from_launcher);  // return_to_launcher.cpp
@@ -42,9 +43,21 @@ namespace {
 std::atomic<HWND> g_window{nullptr};
 std::atomic<WNDPROC> g_old_proc{nullptr};
 std::atomic<bool> g_hidden{false};
+
 POINT g_last_mouse{-100000, -100000};
 
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+  // F10 host PC menu is not an Xbox guest controller command.
+  // It releases RawInput capture so UI mouse clicks work.
+  if (msg == WM_KEYDOWN && wp == VK_F10 && !(lp & (1L << 30))) {
+    PcMenuToggle();
+    NativeInputReleaseCapture();
+    g_hidden = false;
+    SetCursor(LoadCursorA(nullptr, IDC_ARROW));
+    PostMessageW(hwnd, WM_SETCURSOR, reinterpret_cast<WPARAM>(hwnd),
+                 MAKELPARAM(HTCLIENT, WM_MOUSEMOVE));
+    return 0;
+  }
   if (msg == WM_INPUT && NativeInputCapturing()) {
     // A mouse RAWINPUT packet has a fixed C ABI size; avoid a heap allocation
     // and a separate size-query syscall for every motion message on SDL's UI
