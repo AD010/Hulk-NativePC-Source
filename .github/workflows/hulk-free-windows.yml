@@ -8,7 +8,7 @@ on:
     paths:
       - 'native_port/hulk_native_x_profile.ini'
 permissions:
-  contents: read
+  contents: write
 concurrency:
   group: hulk-native-public-windows
   cancel-in-progress: false
@@ -123,3 +123,27 @@ jobs:
           else { Write-Host 'Saved compiler diagnostics to private hulk-cloud release' }
       # Intentionally NO actions/upload-artifact, NO actions/cache and NO public release.
       # Generated PPC and proprietary input exist only in this ephemeral runner.
+      # Cleanup is only after verified private publication and is nonfatal.
+      - name: Prune merged Hulk temporary branches
+        if: success()
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $names = @('hulk-2026-11-08-city-lod-trace',
+                     'hulk-2026-11-08-f10-native-diagnostics',
+                     'hulk-2026-11-08-heap-guard',
+                     'hulk-2026-11-08-native-front-resolve',
+                     'hulk-2026-11-08-present-abi-fix',
+                     'hulk-2026-11-08-us-assets-fifo')
+          foreach ($name in $names) {
+            $j = gh api "repos/$env:GITHUB_REPOSITORY/compare/$name...main" 2>$null
+            if ($LASTEXITCODE -ne 0 -or -not $j) { Write-Host "Skipped $name"; continue }
+            try { $x = $j | ConvertFrom-Json }
+            catch { Write-Host "Invalid compare for $name"; continue }
+            if ([int]$x.behind_by -ne 0) { Write-Host "Unmerged $name preserved"; continue }
+            gh api -X DELETE "repos/$env:GITHUB_REPOSITORY/git/refs/heads/$name" 2>$null
+            if ($LASTEXITCODE -eq 0) { Write-Host "Removed merged $name" }
+            else { Write-Host "Could not remove $name (token or protection)" }
+          }

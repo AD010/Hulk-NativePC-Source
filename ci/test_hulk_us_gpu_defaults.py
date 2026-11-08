@@ -18,7 +18,7 @@ class TestHulkUsGpuDefaults(unittest.TestCase):
                     "vulkan_allow_present_mode_fifo_relaxed"):
             self.assertIs(config[key], False)
         self.assertFalse(config.get("hulk_gpu_hook_probe", False))
-        self.assertFalse(config["native_x_renderer"])
+        self.assertTrue(config["native_x_renderer"])
         self.assertTrue(config["native_x_renderer_present_with_swaps"])
         self.assertTrue(config["native_x_renderer_thread"])
         self.assertFalse(config["hulk_world_stream_trace"])

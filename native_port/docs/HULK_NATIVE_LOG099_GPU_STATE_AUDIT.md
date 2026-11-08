@@ -32,3 +32,7 @@ Resolve 0x828897F8, RT 0x8287F2C0, depth 0x8287F628,
 BeginTiling 0x8288A900, EndTiling 0x8288AD98,
 logical Present inner Swap 0x82880778 (outer 0x82880D10 is wrong).
 These are VIRTUAL guest addresses, not file offsets.
+
+The user requested NativeX enabled by default in the new test build.
+Black remains possible: native_x_renderer=false restores Xenos FSI.
+F11 DID capture actual GPU observer frames 221..655 in log099, but has no visual UI.
