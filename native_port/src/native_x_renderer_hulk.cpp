@@ -90,8 +90,13 @@ bool NativeXInitialize(
   // Keep renderer code compiled; opt in only when a validated profile exists.
   const bool verify_only = rex::cvar::Query<bool>("hulk_native_x_verify_only") &&
                            !rex::cvar::Query<bool>("native_x_renderer");
-  if (!rex::cvar::Query<bool>("native_x_renderer") && !verify_only)
+  if (!rex::cvar::Query<bool>("native_x_renderer") && !verify_only) {
+    REXLOG_INFO("[HULK/GPU-MODE] Xenos selected; F11 inactive unless "
+                "hulk_native_x_verify_only=true");
     return false;
+  }
+  REXLOG_INFO("[HULK/GPU-MODE] NativeX={} verify_only={}",
+              rex::cvar::Query<bool>("native_x_renderer"), verify_only);
 
   if (!graphics || !window) {
     REXLOG_ERROR(

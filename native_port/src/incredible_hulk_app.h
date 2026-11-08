@@ -111,6 +111,7 @@ class IncredibleHulkApp : public rex::ReXApp {
     pc_menu_ = hulk::CreatePcMenu(drawer, window(), [this] {
       if (window()) window()->RequestClose();
     });
+    REXLOG_INFO("[HULK/PCMENU] NativePC UI registered; F10 opens controls and Exit");
   }
   void OnShutdown() override { pc_menu_.reset(); }
   // std::unique_ptr<rex::ui::ImGuiDialog> CreateAchievementsOverlay() override;

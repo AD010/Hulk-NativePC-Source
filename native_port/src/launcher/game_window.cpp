@@ -26,6 +26,7 @@
 
 #include "pc_menu.h"
 #include <rex/cvar.h>
+#include <rex/logging.h>
 
 REXCVAR_DECLARE(bool, hulk_from_launcher);  // return_to_launcher.cpp
 
@@ -49,14 +50,29 @@ POINT g_last_mouse{-100000, -100000};
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
   // F10 host PC menu is not an Xbox guest controller command.
   // It releases RawInput capture so UI mouse clicks work.
-  if (msg == WM_KEYDOWN && wp == VK_F10 && !(lp & (1L << 30))) {
+  // F10 is a Windows system key, so it may arrive as WM_SYSKEYDOWN.
+  if ((msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN) && wp == VK_F10 &&
+      !(lp & (1L << 30))) {
     PcMenuToggle();
+    REXLOG_INFO("[HULK/PCMENU] F10 message={} open={}",
+                msg == WM_SYSKEYDOWN ? "WM_SYSKEYDOWN" : "WM_KEYDOWN",
+                PcMenuIsOpen());
     NativeInputReleaseCapture();
     g_hidden = false;
-    SetCursor(LoadCursorA(nullptr, IDC_ARROW));
+    SetCursor(LoadCursorW(nullptr, IDC_ARROW));
     PostMessageW(hwnd, WM_SETCURSOR, reinterpret_cast<WPARAM>(hwnd),
                  MAKELPARAM(HTCLIENT, WM_MOUSEMOVE));
     return 0;
+  }
+  // Suppress Win32 menu activation when F10 is released.
+  if ((msg == WM_KEYUP || msg == WM_SYSKEYUP) && wp == VK_F10) return 0;
+  // F11 only produces a GPU verification report if the observer is active.
+  // Log delivery without swallowing the SDK's own F11 bind.
+  if ((msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN) && wp == VK_F11 &&
+      !(lp & (1L << 30))) {
+    REXLOG_INFO("[HULK/PCMENU] F11 pressed NativeX={} verify_only={}",
+                rex::cvar::Query<bool>("native_x_renderer"),
+                rex::cvar::Query<bool>("hulk_native_x_verify_only"));
   }
   if (msg == WM_INPUT && NativeInputCapturing()) {
     // A mouse RAWINPUT packet has a fixed C ABI size; avoid a heap allocation

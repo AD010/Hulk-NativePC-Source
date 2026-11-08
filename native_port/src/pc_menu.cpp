@@ -6,6 +6,7 @@
 #include <rex/ui/imgui_dialog.h>
 #include <rex/ui/imgui_drawer.h>
 #include <rex/ui/window.h>
+#include <rex/logging.h>
 #include <imgui.h>
 #include <atomic>
 #include <functional>
@@ -106,7 +107,8 @@ bool PcMenuIsOpen() {
   return visible.load(std::memory_order_acquire);
 }
 void PcMenuSetOpen(bool open) {
-  visible.store(open, std::memory_order_release);
+  const bool old = visible.exchange(open, std::memory_order_acq_rel);
+  if (old != open) REXLOG_INFO("[HULK/PCMENU] visible={}", open);
   if (game_window) game_window->RequestPaint();
 }
 void PcMenuToggle() { PcMenuSetOpen(!PcMenuIsOpen()); }
