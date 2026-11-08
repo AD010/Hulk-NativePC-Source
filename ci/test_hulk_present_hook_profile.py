@@ -3,8 +3,10 @@
 
 The verified USA/EU PPC calls the lower-level Swap with a front-buffer pointer
 in r4, while the outer Present wrapper takes only the device in r3.
-NativeXRenderer's Present capture reads r4 and must use the inner Swap.
-This checks the profile only; real frame output still requires a gameplay test.
+NativeXRenderer's default capture reads Present.r4, but Hulk's outer Present
+has no front-buffer r4. The Hulk-only patch captures nested Swap.r4 and
+finishes on the outer Present, avoiding double frame-end events.
+This only tests the profile: real image output still needs a gameplay test.
 """
 from configparser import ConfigParser
 from pathlib import Path
@@ -20,9 +22,10 @@ class TestHulkPresentABI(unittest.TestCase):
         with PROFILE.open(encoding="utf-8") as stream:
             config.read_file(stream)
         hooks = dict(config.items("hooks"))
-        self.assertEqual(hooks.get("0x82880778"), "Present")
-        self.assertNotIn("0x82880D10", hooks)
+        self.assertEqual(hooks.get("0x82880778"), "Swap")
+        self.assertEqual(hooks.get("0x82880D10"), "Present")
         self.assertEqual(sum(role == "Present" for role in hooks.values()), 1)
+        self.assertEqual(sum(role == "Swap" for role in hooks.values()), 1)
         self.assertEqual(hooks.get("0x8288DF30"), "DrawVertices")
         self.assertEqual(hooks.get("0x8288E318"), "DrawIndexedVertices")
         self.assertEqual(hooks.get("0x828897F8"), "Resolve")

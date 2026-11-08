@@ -149,6 +149,13 @@ try {
       throw "NativeXRenderer checkout not pinned: $ActualNativeX"
     }
     Write-Host "HULK NATIVE GPU upstream bf965e9 (D125 hidden frame, D126 steady pipeline waits)"
+    # The crash dump proved a null mapped buffer after dynamic heap exhaustion;
+    # fail closed on a changed upstream checkout, do not bump the heap to mask it.
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_heap_guard.py')) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_heap_guard.py'), $NxrFull) $Source
+    # Collect nested Swap's r4 front texture, but end frame only on outer Present.
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_present_semantics.py')) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_present_semantics.py'), $NxrFull) $Source
   }
   Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_gen_native_x_hooks_probe.py')) $Source
   Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_hulk_present_hook_profile.py')) $Source
