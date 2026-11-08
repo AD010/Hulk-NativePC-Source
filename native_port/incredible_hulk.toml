@@ -82,6 +82,10 @@ native_x_renderer_verify_at = 900
 # Renderer source is patched to use F11 for verify so our PC menu retains F10.
 bind_native_x_renderer_verify = "F11"
 
+# Read-only city asset streaming map. OFF for gameplay: enable temporarily
+# on a rooftop to correlate ARC/IND offsets to actual zone/LOD resources.
+hulk_world_stream_trace = false
+
 # Developer counters do not run in normal gaming builds.
 hulk_gpu_hook_probe = false
 hulk_frame_probe = false
