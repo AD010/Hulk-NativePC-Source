@@ -212,6 +212,12 @@ try {
     # smaller target. Trace real Resolve callers for later exact profile.
     Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_resolve_scale.py')) $Source
     Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_resolve_scale.py'), $NxrFull) $Source
+    # Hulk actual Xenos 1280/1x and 640/4x scene surfaces share EDRAM
+    # base/pitch layout, but must share the newest native Vulkan pixel data.
+    # Resolve the 1x view from the last-written matching 4x native target,
+    # without reintroducing EDRAM emulation or guest surface mutations.
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_reverse_alias.py')) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_reverse_alias.py'), $NxrFull) $Source
     # F10 belongs to Hulk's real PC menu, never steal it for the SDK observer.
     Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_verify_key.py')) $Source
     Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_verify_key.py'), $NxrFull) $Source
