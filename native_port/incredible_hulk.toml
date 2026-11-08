@@ -72,8 +72,10 @@ native_x_renderer_hulk_front_fallback = true
 native_x_renderer_hulk_gap_single_draw = true
 # Experimental native Vulkan MSAA scene: the *guest* surface remains
 # 640x360 / 4 samples with its original pitch, 4x flags and GPU registers.
-# Its host-only target scales to the full 2560x1440 scene (at Vulkan scale 2),
-# and Resolve covers the whole 1280x720 guest destination.
+# Its host-only target scales to 2560x1440. Resolve now also finds the
+# newest 640x360/4x native image when the game reads the matching 1280x720/1x
+# descriptor at the SAME EDRAM base (pitch 640 vs 1280). This is native Vulkan
+# resource aliasing, not an emulated Xenos EDRAM backing store.
 # No Xenos EDRAM/FBO fallback. Switch to false to compare rendering.
 native_x_renderer_hulk_expand_msaa_sample_grid = true
 # NativeX log124: output 1280x720 uses an unbounded 8192 viewport but
