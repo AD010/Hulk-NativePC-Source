@@ -76,6 +76,11 @@ native_x_renderer_hulk_gap_single_draw = true
 # and Resolve covers the whole 1280x720 guest destination.
 # No Xenos EDRAM/FBO fallback. Switch to false to compare rendering.
 native_x_renderer_hulk_expand_msaa_sample_grid = true
+# NativeX log124: output 1280x720 uses an unbounded 8192 viewport but
+# a legacy 640-column scissor, clipping the final output's right half.
+# Correct only exact half-width full-output passes (not game 3D tile scissors).
+# Off for A/B if a legitimate partial scissor is ever affected.
+native_x_renderer_hulk_full_output_scissor = true
 # NativeX: do not present 400+ times/sec for a game capped at 30/60 fps.
 # Use the SDK command processor's real guest swap-completion events when
 # available; the native renderer logs a warning and uses old mode otherwise.
