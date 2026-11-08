@@ -81,6 +81,14 @@ native_x_renderer_hulk_expand_msaa_sample_grid = true
 # Correct only exact half-width full-output passes (not game 3D tile scissors).
 # Off for A/B if a legitimate partial scissor is ever affected.
 native_x_renderer_hulk_full_output_scissor = true
+# AA is limited to the observed 640x360/4x MSAA scene -> 1280x720 Resolve.
+# It is NEVER applied to the final front buffer with UI; if that exact scene
+# boundary is not found, no AA is applied and the log reports zero passes.
+native_x_renderer_hulk_auto_scene_aa = true
+native_x_renderer_antialiasing = "smaa"
+# When 4x MSAA scene has more native host pixels than its resolve texture,
+# resample the complete image instead of clipping it to half-width/height.
+# Enabled through native_x_renderer_hulk_expand_msaa_sample_grid above.
 # NativeX: do not present 400+ times/sec for a game capped at 30/60 fps.
 # Use the SDK command processor's real guest swap-completion events when
 # available; the native renderer logs a warning and uses old mode otherwise.
