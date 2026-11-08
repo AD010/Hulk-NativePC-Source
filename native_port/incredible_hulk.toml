@@ -70,10 +70,11 @@ native_x_renderer_hulk_front_fallback = true
 # Includes first-level indirect buffers; each draw gets its own shader/register snapshot.
 # Existing 8 verified hooks, no Xenos host fallback, no EDRAM emulation.
 native_x_renderer_hulk_gap_single_draw = true
-# Experimental Hulk-only MSAA sample-grid mapping: the guest main 3D pass
-# uses 640x360 with 4 samples, while its resolved image is 1280x720.
-# Render those samples directly as 1280x720 host pixels at 2x Vulkan scale.
-# No Xenos EDRAM texture or legacy FBO path. Switch to false to compare.
+# Experimental native Vulkan MSAA scene: the *guest* surface remains
+# 640x360 / 4 samples with its original pitch, 4x flags and GPU registers.
+# Its host-only target scales to the full 2560x1440 scene (at Vulkan scale 2),
+# and Resolve covers the whole 1280x720 guest destination.
+# No Xenos EDRAM/FBO fallback. Switch to false to compare rendering.
 native_x_renderer_hulk_expand_msaa_sample_grid = true
 # NativeX: do not present 400+ times/sec for a game capped at 30/60 fps.
 # Use the SDK command processor's real guest swap-completion events when
