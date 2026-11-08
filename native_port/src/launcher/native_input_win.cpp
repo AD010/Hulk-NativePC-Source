@@ -4,6 +4,7 @@
 // Otherwise, the original right-stick fallback remains for playability.
 #include "native_input_map.h"
 #include "native_camera_direct.h"
+#include "pc_menu.h"
 #include <rex/cvar.h>
 #include <rex/logging.h>
 #include <atomic>
@@ -229,7 +230,9 @@ bool NativeInputApply(uint32_t user, bool real_pad_connected, uint8_t* state, ui
 #if defined(_WIN32)
   HWND hwnd = g_game_window;
   const bool focused = hwnd && GetForegroundWindow() == hwnd;
-  if (focused) {
+  // Neutral Xbox state while the PC host menu captures keyboard/mouse;
+  // gameplay input is untouched once the menu closes.
+  if (focused && !PcMenuIsOpen()) {
     const auto add = [&](std::string_view name, uint32_t bit) {
       if (BindDown(name)) f.keys |= bit;
     };

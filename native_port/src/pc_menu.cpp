@@ -67,6 +67,16 @@ class PcMenu final : public rex::ui::ImGuiDialog {
       ImGui::Text("Pause / Start: %s", Bind("hulk_bind_start").c_str());
       ImGui::Text("Walk: %s", Bind("hulk_bind_walk").c_str());
       ImGui::Separator();
+      ImGui::Text("Guest FPS limiter: %d", rex::cvar::Query<int32_t>("gpu_guest_fps_limit"));
+      if (ImGui::Button("30 FPS (console physics)")) {
+        (void)rex::cvar::SetFlagByName("gpu_guest_fps_limit", "30");
+      }
+      ImGui::SameLine();
+      if (ImGui::Button("60 FPS (experimental)")) {
+        (void)rex::cvar::SetFlagByName("gpu_guest_fps_limit", "60");
+      }
+      ImGui::TextUnformatted("Use F4 Settings > Save to persist changed FPS.");
+      ImGui::Separator();
       ImGui::TextUnformatted("F4 - PC settings | F8 - recapture mouse");
       ImGui::TextUnformatted("F10 - toggle PC menu | Alt+F4 - close game");
       if (ImGui::Button("Resume game", ImVec2(210, 36))) {
