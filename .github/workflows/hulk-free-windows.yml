@@ -147,3 +147,7 @@ jobs:
             if ($LASTEXITCODE -eq 0) { Write-Host "Removed merged $name" }
             else { Write-Host "Could not remove $name (token or protection)" }
           }
+          # Best-effort cleanup: a missing temporary branch makes gh exit 1.
+          # Explicitly return success after checking all branches. The build,
+          # ZIP verification and private release upload already succeeded.
+          exit 0
