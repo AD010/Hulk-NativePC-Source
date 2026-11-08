@@ -153,7 +153,7 @@ try {
     # fail closed on a changed upstream checkout, do not bump the heap to mask it.
     Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_heap_guard.py')) $Source
     Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_heap_guard.py'), $NxrFull) $Source
-    # Collect nested Swap's r4 front texture, but end frame only on outer Present.
+    # Log 087: recover frame completion via inner Swap, keep Resolve/front metadata.
     Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_present_semantics.py')) $Source
     Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_present_semantics.py'), $NxrFull) $Source
   }

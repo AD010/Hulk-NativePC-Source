@@ -1,23 +1,24 @@
 #!/usr/bin/env python3
-"""Fail-closed regression: one source patch with nested Swap/front + outer Present/frame."""
+"""Regression: logical Swap frame-end retains Present.r4 front fetch."""
 import unittest
-from patch_native_x_hulk_present_semantics import RULES, patch_text
+from patch_native_x_hulk_present_semantics import OLD, NEW, PRESENT_R4, patch_text
 
 class TestHulkPresentSemantics(unittest.TestCase):
-    def test_source_patch_and_idempotence(self):
-        baseline = "\n// separated\n".join(old for old, _ in RULES)
+    def test_source_patch_preserves_front_setter(self):
+        baseline = "void f() {\n" + PRESENT_R4 + "\n" + OLD + "\n}"
         result, changed = patch_text(baseline)
         self.assertTrue(changed)
-        for _, new in RULES:
-            self.assertEqual(result.count(new), 1)
-        self.assertFalse(patch_text(result)[1])
-        self.assertEqual(result, patch_text(result)[0])
-    def test_mismatch_refused(self):
-        baseline = "\n// separated\n".join(old for old, _ in RULES)
+        self.assertIn(PRESENT_R4, result)
+        self.assertIn("[HULK/NATIVEX] present", result)
+        self.assertEqual(patch_text(result), (result, False))
+    def test_missing_setter_refused(self):
         with self.assertRaises(ValueError):
-            patch_text(baseline.replace(RULES[0][0], "incorrect upstream"),)
+            patch_text(OLD)
+    def test_stale_split_swap_refused(self):
         with self.assertRaises(ValueError):
-            patch_text(baseline.replace(RULES[0][0], RULES[0][1]))
-
+            patch_text(PRESENT_R4 + "\n if (call == Call::kSwap) {\n" + OLD)
+    def test_unknown_compose_refused(self):
+        with self.assertRaises(ValueError):
+            patch_text(PRESENT_R4 + "\n changed renderer")
 if __name__ == "__main__":
     unittest.main()

@@ -1,66 +1,46 @@
 #!/usr/bin/env python3
-"""Hulk XDK 6534 NativeX outer Present vs nested Swap calling-convention fix.
+"""Hulk NativeX: preserve working logical Swap frame-end, add front-buffer telemetry.
 
-Pinned upstream NativeXRenderer assumes its Call::kPresent receives a front
-texture in PPC r4. The actual Hulk external Present(dev) does not: the inner
-Swap(dev, frontBuffer, params) receives that texture in r4. Capture it there,
-even inside the outer call; finish/capture the frame on Present's return.
-Also add sparse read-only front-buffer resolve telemetry for black frames.
-This does not change gameplay, Raw Input, audio, or guest ABI.
+Log 079 confirms Swap at USA 0x82880778, mapped to native logical Present,
+finished 31800 GPU frames but displayed black. Log 087 mapped the separate
+outer guest Present to native Present: no finished frames, 256 MiB dynamic
+heap exhaustion. The Hulk profile therefore maps Swap to NativeX Present
+until a real guest frame boundary is verified. Preserve upstream
+Present.r4 semantics: here r4 contains the inner Swap front-buffer object.
+
+This pinned source edit ONLY adds sparse read-only Resolve lookup logging.
+It does not modify input, shaders, guest XDK code or frame pacing.
 """
 from pathlib import Path
 import subprocess
 import sys
 
 PIN = "bf965e952c98e050753e91d08f32685a9f754b12"
-RULES = [
-    (
-        "void OnEnter(Call call, PPCContext& ctx, uint8_t* base, bool nested) {\n"
-        "  if (call == Call::kClearF) {",
-        "void OnEnter(Call call, PPCContext& ctx, uint8_t* base, bool nested) {\n"
-        "  // Hulk XDK 6534: a nested Swap(dev, frontBuffer, params) passes the actual\n"
-        "  // screen texture in r4. The enclosing Present(dev) has no frontBuffer r4.\n"
-        "  // Record Swap even when nested, but ONLY Present ends the output frame.\n"
-        "  if (call == Call::kSwap) {\n"
-        "    g_front_buffer = ctx.r4.u32;\n"
-        "    return;\n"
-        "  }\n"
-        "  if (call == Call::kClearF) {",
-    ),
-    (
-        "  if (call == Call::kPresent) g_front_buffer = ctx.r4.u32;",
-        "  // Do not take the front buffer from Present's unrelated r4 parameter.",
-    ),
-    (
-        "  ComposePicture(front ? front->srv : nullptr, front ? front->width : 0, front ? front->height : 0, fetch1 & 0x3F,",
-        "  // Hulk bring-up: black is expected if no matching guest resolve exists.\n"
-        "  // Sparse, read-only telemetry distinguishes a missing front texture from\n"
-        "  // a resolved texture whose rendered pixels are black. No capture/draw edits.\n"
-        "  static uint64_t hulk_present_samples = 0;\n"
-        "  if (++hulk_present_samples == 1 || hulk_present_samples % 600 == 0) {\n"
-        "    REXLOG_INFO(\"[HULK/NATIVEX] present {} guest_front={:#x} has_fetch={} fetch1={:#x} \"\n"
-        "                \"resolved={} size={}x{}\",\n"
-        "                hulk_present_samples, g_front_buffer, c.has_texture, fetch1,\n"
-        "                front != nullptr && front->srv != nullptr,\n"
-        "                front ? front->width : 0, front ? front->height : 0);\n"
-        "  }\n"
-        "  ComposePicture(front ? front->srv : nullptr, front ? front->width : 0, front ? front->height : 0, fetch1 & 0x3F,",
-    ),
-]
+PRESENT_R4 = "  if (call == Call::kPresent) g_front_buffer = ctx.r4.u32;"
+OLD = "  ComposePicture(front ? front->srv : nullptr, front ? front->width : 0, front ? front->height : 0, fetch1 & 0x3F,"
+NEW = """  // If no matching guest Resolve exists, ComposePicture only clears black.
+  // Sample once and every 600 presents, without logging resource contents.
+  static uint64_t hulk_present_samples = 0;
+  if (++hulk_present_samples == 1 || hulk_present_samples % 600 == 0) {
+    REXLOG_INFO("[HULK/NATIVEX] present {} guest_front={:#x} has_fetch={} fetch1={:#x} "
+                "resolved={} size={}x{}",
+                hulk_present_samples, g_front_buffer, c.has_texture, fetch1,
+                front != nullptr && front->srv != nullptr,
+                front ? front->width : 0, front ? front->height : 0);
+  }
+""" + OLD
 
 
 def patch_text(source: str) -> tuple[str, bool]:
-    applied = [new in source for _, new in RULES]
-    if all(applied):
+    if source.count(PRESENT_R4) != 1:
+        raise ValueError("NativeX Present r4 front setter missing, refusing zero-frame regression")
+    if "if (call == Call::kSwap) {" in source:
+        raise ValueError("Stale split Swap/Present patch detected")
+    if source.count(NEW) == 1:
         return source, False
-    if any(applied):
-        raise ValueError("Partially patched NativeXRenderer; refusing mixed revisions")
-    for old, new in RULES:
-        if old == new or source.count(old) != 1:
-            raise ValueError("Pinned NativeXRenderer source anchor mismatch")
-    for old, new in RULES:
-        source = source.replace(old, new)
-    return source, True
+    if source.count(OLD) != 1:
+        raise ValueError("Pinned NativeXRenderer ComposePicture anchor mismatch")
+    return source.replace(OLD, NEW), True
 
 
 def main() -> None:
@@ -71,10 +51,10 @@ def main() -> None:
     if sha != PIN:
         raise ValueError(f"Unexpected NativeXRenderer revision {sha}, expected {PIN}")
     target = root / "src" / "renderer.cpp"
-    patched, changed = patch_text(target.read_text(encoding="utf-8"))
+    updated, changed = patch_text(target.read_text(encoding="utf-8"))
     if changed:
-        target.write_text(patched, encoding="utf-8", newline="\n")
-    print("NativeX Hulk Present/Swap ABI:", "patched" if changed else "already installed")
+        target.write_text(updated, encoding="utf-8", newline="\n")
+    print("NativeX Hulk Swap frame-end:", "telemetry patched" if changed else "already patched")
 
 
 if __name__ == "__main__":
