@@ -159,6 +159,10 @@ try {
     # Log 087: recover frame completion via inner Swap, keep Resolve/front metadata.
     Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_present_semantics.py')) $Source
     Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_present_semantics.py'), $NxrFull) $Source
+    # Diagnostic black-frame repair: use actual recent guest color Resolve
+    # if the XDK front object's fetch pointer never matches a Resolve.
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_front_fallback.py')) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_front_fallback.py'), $NxrFull) $Source
   }
   Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_gen_native_x_hooks_probe.py')) $Source
   Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_hulk_present_hook_profile.py')) $Source
