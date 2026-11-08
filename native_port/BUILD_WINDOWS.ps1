@@ -26,6 +26,8 @@ function Invoke-Checked([string]$exe, [string[]]$arguments, [string]$dir) {
 }
 try {
   foreach ($cmd in @('git', 'cmake', 'ninja', 'clang++', 'python')) { Require-Command $cmd }
+  # Fail early if a future update reintroduces PAL data acceptance or unbounded GPU.
+  Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_hulk_us_gpu_defaults.py')) $Source
   if (-not $GameRoot) {
     $known = 'E:\Games\IncredibleHulk\games\incredible_hulk\game'
     if (Test-Path (Join-Path $known 'default.xex')) { $GameRoot = $known }
