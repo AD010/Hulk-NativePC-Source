@@ -4,7 +4,7 @@ import unittest
 from patch_native_x_hulk_front_fallback import (
     CPP_ANCHOR, CPP_NEW, H_ANCHOR, H_NEW,
     R_CVAR, R_CVAR_NEW, R_LOOKUP, R_LOOKUP_NEW,
-    R_LOG, R_LOG_NEW, R_COMPOSE, R_COMPOSE_NEW,
+    R_LOG, R_LOG_NEW, R_INTERVAL, R_INTERVAL_NEW, R_COMPOSE, R_COMPOSE_NEW,
     patch_renderer, patch_targets_header, patch_targets_cpp,
 )
 
@@ -22,17 +22,19 @@ class TestHulkFrontFallback(unittest.TestCase):
         self.assertEqual(patch_targets_cpp(got), (got, False))
     def test_renderer(self):
         prefix = '  if (call == Call::kPresent) g_front_buffer = ctx.r4.u32;'
-        baseline = "\n".join((prefix, R_CVAR, R_LOOKUP, R_LOG, R_COMPOSE))
+        baseline = "\n".join((prefix, R_CVAR, R_LOOKUP, R_LOG, R_INTERVAL, R_COMPOSE))
         updated, changed = patch_renderer(baseline)
         self.assertTrue(changed)
         self.assertIn("FindNewestPresentable(", updated)
         self.assertIn("hulk_front_fallback", updated)
-        self.assertIn("fallback={} selected={:#x}", updated)
+        self.assertIn("fallback={} direct_found={} direct_seq={}", updated)
+        self.assertIn("candidate_newer_full_size", updated)
+        self.assertIn("hulk_present_samples % 60", updated)
         self.assertIn("present_swizzle", updated)
         self.assertEqual(patch_renderer(updated), (updated, False))
     def test_missing_front_capture_refused(self):
         with self.assertRaises(ValueError):
-            patch_renderer("\n".join((R_CVAR, R_LOOKUP, R_LOG, R_COMPOSE)))
+            patch_renderer("\n".join((R_CVAR, R_LOOKUP, R_LOG, R_INTERVAL, R_COMPOSE)))
     def test_unknown_upstream_refused(self):
         with self.assertRaises(ValueError):
             patch_targets_cpp("changed upstream")
@@ -40,7 +42,7 @@ class TestHulkFrontFallback(unittest.TestCase):
         with self.assertRaises(ValueError):
             patch_renderer("\n".join((
                 '  if (call == Call::kPresent) g_front_buffer = ctx.r4.u32;',
-                R_CVAR_NEW, R_LOOKUP, R_LOG, R_COMPOSE
+                R_CVAR_NEW, R_LOOKUP, R_LOG, R_INTERVAL, R_COMPOSE
             )))
 
 if __name__ == "__main__":

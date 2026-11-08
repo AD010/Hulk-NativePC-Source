@@ -10,7 +10,8 @@ This strictly pinned, build-time source patch enables an opt-out,
 small, Hulk-specific color Resolve fallback. It chooses the latest
 valid, non-shadow, non-cube color Resolve, prioritizing a guest texture
 that matches the game's output size, and keeps its identity swizzle.
-It only runs if the normal front lookup fails and never changes guest
+It also prefers a fresher exact-output color Resolve over a stale valid front
+texture; never changes guest
 PowerPC, the original XDK hooks, RawInput, shader compiler or textures.
 It is an experimental repair, not proof of visual correctness.
 """
@@ -58,7 +59,7 @@ R_CVAR_NEW = """// Hulk experiment: recover a non-black host picture from a *cap
 // Resolve* when the Xbox 360 front-buffer object fetch address is untracked.
 // Off is always available for exact/native debugging.
 REXCVAR_DEFINE_BOOL(native_x_renderer_hulk_front_fallback, true, "NativeXRenderer",
-                    "Hulk fallback to latest valid output-size guest color resolve if front fetch misses");
+                    "Hulk fallback to recent full-size color resolve if front fetch missing or stale");
 """ + R_CVAR
 R_LOOKUP = """  if (c.has_texture) {
     fetch1 = c.fetch[1];
@@ -71,28 +72,40 @@ R_LOOKUP_NEW = """  if (c.has_texture) {
     front = g_resolved.FindNewest(GpuAddress(fetch1 & 0xFFFFF000u));
     if (front) g_resolved.MarkUsed(front);
   }
-  // The Hulk XDK 6534 front object's fetch shadow may not be the same
-  // guest address as the most recently resolved full-screen color.
-  // Do not replace valid direct-front resolutions.
+  // A direct fetch may resolve to a valid *stale* front texture,
+  // still yielding black even when the scene resolved a newer color image.
+  // Prefer a fresh exact-output-size color resolve if it was written more
+  // recently than the front-fetch target; otherwise preserve direct fetch.
   bool hulk_front_fallback = false;
-  if (!front && REXCVAR_GET(native_x_renderer_hulk_front_fallback)) {
-    front = g_resolved.FindNewestPresentable(
-        g_profile->output_width, g_profile->output_height, 600);
-    if (front) {
+  const bool hulk_direct_found = front && front->srv;
+  const uint64_t hulk_direct_resolve_seq = front ? front->last_resolve : 0;
+  if (REXCVAR_GET(native_x_renderer_hulk_front_fallback)) {
+    auto* candidate = g_resolved.FindNewestPresentable(
+        g_profile->output_width, g_profile->output_height, 60);
+    const bool candidate_newer_full_size =
+        candidate && candidate != front &&
+        candidate->guest_width == g_profile->output_width &&
+        candidate->guest_height == g_profile->output_height &&
+        candidate->last_resolve > hulk_direct_resolve_seq;
+    if (candidate && (!hulk_direct_found || candidate_newer_full_size)) {
+      front = candidate;
       hulk_front_fallback = true;
       g_resolved.MarkUsed(front);
     }
   }
   const auto& desc = g_device->swap_chain()->GetDesc();"""
+R_INTERVAL = "  if (++hulk_present_samples == 1 || hulk_present_samples % 600 == 0) {"
+R_INTERVAL_NEW = "  if (++hulk_present_samples <= 12 || hulk_present_samples % 60 == 0) {"
 R_LOG = """    REXLOG_INFO("[HULK/NATIVEX] present {} guest_front={:#x} has_fetch={} fetch1={:#x} "
                 "resolved={} size={}x{}",
                 hulk_present_samples, g_front_buffer, c.has_texture, fetch1,
                 front != nullptr && front->srv != nullptr,
                 front ? front->width : 0, front ? front->height : 0);"""
 R_LOG_NEW = """    REXLOG_INFO("[HULK/NATIVEX] present {} guest_front={:#x} has_fetch={} fetch1={:#x} "
-                "resolved={} fallback={} selected={:#x} guest_size={}x{} host_size={}x{}",
+                "resolved={} fallback={} direct_found={} direct_seq={} selected={:#x} guest_size={}x{} host_size={}x{}",
                 hulk_present_samples, g_front_buffer, c.has_texture, fetch1,
                 front != nullptr && front->srv != nullptr, hulk_front_fallback,
+                hulk_direct_found, hulk_direct_resolve_seq,
                 front ? front->address : 0,
                 front ? front->guest_width : 0, front ? front->guest_height : 0,
                 front ? front->width : 0, front ? front->height : 0);"""
@@ -130,7 +143,8 @@ def patch_renderer(source: str) -> tuple[str, bool]:
         raise ValueError("Missing Hulk logical Swap front setter")
     changes = []
     for old, new in ((R_CVAR, R_CVAR_NEW), (R_LOOKUP, R_LOOKUP_NEW),
-                     (R_LOG, R_LOG_NEW), (R_COMPOSE, R_COMPOSE_NEW)):
+                     (R_LOG, R_LOG_NEW), (R_INTERVAL, R_INTERVAL_NEW),
+                     (R_COMPOSE, R_COMPOSE_NEW)):
         source, changed = replace_exact(source, old, new)
         changes.append(changed)
     if any(changes) and not all(changes):
