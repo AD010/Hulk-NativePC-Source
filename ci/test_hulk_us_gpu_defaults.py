@@ -18,6 +18,7 @@ class TestHulkUsGpuDefaults(unittest.TestCase):
                     "vulkan_allow_present_mode_fifo_relaxed"):
             self.assertIs(config[key], False)
         self.assertFalse(config.get("hulk_gpu_hook_probe", False))
+        self.assertFalse(config["native_x_renderer"])
     def test_asset_root_rejects_pal_xex(self):
         source = (ROOT / "native_port/src/assets_locator.cpp").read_text(encoding="utf-8")
         self.assertIn("346a73690303f6633bfdaf9850e78793fe07cdbfb8f849b89fbee320630b11f0", source)
