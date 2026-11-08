@@ -66,6 +66,9 @@ native_x_renderer_resolution_scale = 2.0
 # Experimental native fallback: when the front fetch points nowhere, show
 # the last matching full-resolution Resolve texture instead of forced black.
 native_x_renderer_hulk_front_fallback = true
+# Replay single complete unhooked PM4 draws as native Vulkan commands.
+# Multi-draw and indirect PM4 gaps stay excluded to avoid corrupt state.
+native_x_renderer_hulk_gap_single_draw = true
 # NativeX: do not present 400+ times/sec for a game capped at 30/60 fps.
 # Use the SDK command processor's real guest swap-completion events when
 # available; the native renderer logs a warning and uses old mode otherwise.
