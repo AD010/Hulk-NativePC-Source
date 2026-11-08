@@ -59,7 +59,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 PcMenuIsOpen());
     NativeInputReleaseCapture();
     g_hidden = false;
-    SetCursor(LoadCursorW(nullptr, IDC_ARROW));
+    SetCursor(LoadCursorA(nullptr, IDC_ARROW));
     PostMessageW(hwnd, WM_SETCURSOR, reinterpret_cast<WPARAM>(hwnd),
                  MAKELPARAM(HTCLIENT, WM_MOUSEMOVE));
     return 0;
