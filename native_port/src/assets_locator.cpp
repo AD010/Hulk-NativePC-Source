@@ -22,15 +22,68 @@
 #endif
 #include <windows.h>
 #include <commdlg.h>
+#include <bcrypt.h>
 #endif
 
 namespace hulk::assets {
 namespace {
 
+#if defined(_WIN32)
+// Never select PAL game data for this SHA-pinned USA recomp.
+bool IsUsXex(const std::filesystem::path& file) {
+  constexpr std::string_view kUsSha256 =
+      "346a73690303f6633bfdaf9850e78793fe07cdbfb8f849b89fbee320630b11f0";
+  std::ifstream stream(file, std::ios::binary);
+  if (!stream) return false;
+  BCRYPT_ALG_HANDLE algorithm = nullptr;
+  BCRYPT_HASH_HANDLE hash = nullptr;
+  if (!BCRYPT_SUCCESS(BCryptOpenAlgorithmProvider(
+          &algorithm, BCRYPT_SHA256_ALGORITHM, nullptr, 0))) return false;
+  bool good = false;
+  do {
+    if (!BCRYPT_SUCCESS(BCryptCreateHash(
+            algorithm, &hash, nullptr, 0, nullptr, 0, 0))) break;
+    std::array<unsigned char, 65536> bytes{};
+    bool hash_error = false;
+    while (stream) {
+      stream.read(reinterpret_cast<char*>(bytes.data()),
+                  static_cast<std::streamsize>(bytes.size()));
+      const auto n = stream.gcount();
+      if (n && !BCRYPT_SUCCESS(BCryptHashData(
+                   hash, bytes.data(), static_cast<ULONG>(n), 0))) {
+        hash_error = true;
+        break;
+      }
+    }
+    if (hash_error || stream.bad()) break;
+    std::array<unsigned char, 32> digest{};
+    if (!BCRYPT_SUCCESS(BCryptFinishHash(
+            hash, digest.data(), static_cast<ULONG>(digest.size()), 0))) break;
+    constexpr char hex[] = "0123456789abcdef";
+    std::string actual;
+    actual.reserve(64);
+    for (const auto byte : digest) {
+      actual.push_back(hex[byte >> 4]);
+      actual.push_back(hex[byte & 15]);
+    }
+    good = actual == kUsSha256;
+  } while (false);
+  if (hash) BCryptDestroyHash(hash);
+  BCryptCloseAlgorithmProvider(algorithm, 0);
+  return good;
+}
+#endif
+
 bool ContainsXex(const std::filesystem::path& folder) {
   std::error_code ec;
-  return !folder.empty() &&
-      std::filesystem::is_regular_file(folder / "default.xex", ec);
+  const auto xex = folder / "default.xex";
+  if (folder.empty() || !std::filesystem::is_regular_file(xex, ec))
+    return false;
+#if defined(_WIN32)
+  return IsUsXex(xex);
+#else
+  return true;
+#endif
 }
 
 std::filesystem::path ToFolder(std::filesystem::path path) {
@@ -110,7 +163,7 @@ std::optional<std::filesystem::path> SelectDefaultXex() {
   request.lpstrFile = result.data();
   request.nMaxFile = static_cast<DWORD>(result.size());
   request.lpstrTitle =
-      L"Select The Incredible Hulk (Xbox 360) - default.xex";
+      L"Select The Incredible Hulk USA Xbox 360 default.xex";
   request.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST |
                   OFN_NOCHANGEDIR | OFN_EXPLORER;
   if (!GetOpenFileNameW(&request)) {
@@ -126,7 +179,7 @@ std::optional<std::filesystem::path> SelectDefaultXex() {
   if (_wcsicmp(selected.filename().c_str(), L"default.xex") != 0 ||
       !ContainsXex(selected.parent_path())) {
     MessageBoxW(nullptr,
-                L"Please select the original Xbox 360 default.xex.",
+                L"Select the original USA default.xex; this recomp cannot use a PAL XEX.",
                 L"Hulk NativePC", MB_OK | MB_ICONWARNING);
     return std::nullopt;
   }
@@ -144,7 +197,7 @@ std::optional<std::filesystem::path> LocateOrSelectGameData(
   if (!from_toml.empty()) {
     const auto candidate = ToFolder(rex::to_path(from_toml));
     if (ContainsXex(candidate)) return candidate;
-    REXLOG_WARN("[HULK/ASSETS] Configured folder has no default.xex: {}",
+    REXLOG_WARN("[HULK/US] Data root absent or XEX does not match pinned USA SHA256: {}",
                 candidate.string());
   }
   const auto preferred_dir = ToFolder(preferred);

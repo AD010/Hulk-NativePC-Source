@@ -20,6 +20,18 @@ hulk_mouse_diagnostics = false
 # User-confirmed red-screen fix in Vulkan/Xenos fallback: choose the
 # Fragment Shader Interlock target path at renderer initialization.
 # NativeXRenderer will use its own native target pipeline when validated.
+# Log 088: Vulkan presenter mode 0 = IMMEDIATE without VSync.
+# Select guaranteed FIFO before presenting. Real hang cause unproven.
+vulkan_allow_present_mode_immediate = false
+vulkan_allow_present_mode_mailbox = false
+vulkan_allow_present_mode_fifo_relaxed = false
+vsync = true
+vblank_follows_display = false
+
+# Console dashboard language and country for this USA recomp.
+user_country = 103
+user_language = 1
+
 render_target_path_vulkan = "fsi"
 resolution_scale = 1
 draw_resolution_scale_x = 1
