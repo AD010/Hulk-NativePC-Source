@@ -17,12 +17,38 @@ OLD_EXACT="  if (HulkPacketSurfaces(tracker, base, device, packet_surfaces)) {\n
 NEW_EXACT="  if (HulkPacketSurfaces(tracker, base, device, packet_surfaces)) {\n    bool has_late_xdk_object = false;\n    for (uint32_t slot = 0; slot < 5; ++slot)\n      has_late_xdk_object |= bool(ReadBoundSurface(base, device, slot));\n    if (!has_late_xdk_object) {\n      static std::atomic<uint64_t> packet_only{0};\n      const uint64_t n = ++packet_only;\n      if (n <= 8 || n % 10000 == 0)\n        REXLOG_INFO(\"[HULK/PM4-REGISTER-ONLY] Vulkan draw restored from recorded \"\n                    \"GPU state and genuine XDK surface history; total={}\", n);\n    }\n    CaptureDraw(synthetic, tracker, base, &packet_surfaces);"
 
 def patch_text(source):
-    done=(NEW_GUARD in source, NEW_EXACT in source)
-    if all(done): return source,False
-    if any(done): raise ValueError("Partial Hulk PM4 register-only repair")
-    if source.count(OLD_GUARD)!=1 or source.count(OLD_EXACT)!=1:
-        raise ValueError("Unexpected pinned NativeX / preceding Hulk patch anchors")
-    return source.replace(OLD_GUARD,NEW_GUARD,1).replace(OLD_EXACT,NEW_EXACT,1),True
+    """Patch the actual integrated renderer; fail closed if its structure changed."""
+    import re
+    if NEW_GUARD in source and NEW_EXACT in source:
+        return source, False
+    if NEW_GUARD in source or NEW_EXACT in source:
+        raise ValueError("Partial Hulk PM4 register-first repair")
+
+    guard_matches = list(re.finditer(
+        r"(?ms)^  (?:// PM4 indirect helpers[^\\n]*\\n)?"
+        r"(?:  // Keep tracker state[^\\n]*\\n)?"
+        r"  bool has_surface = false;\\n"
+        r".*?^  TrackedCall synthetic\\{\\};", source))
+    guard_matches = [m for m in guard_matches
+                     if m.group().count("hulk_no_target_skipped") == 2
+                     and "if (!has_surface)" in m.group()
+                     and "return;" in m.group()]
+    if len(guard_matches) != 1:
+        raise ValueError(
+            f"PM4 guard mismatch: exact={source.count(OLD_GUARD)} "
+            f"marker={source.count('hulk_no_target_skipped')} "
+            f"candidates={len(guard_matches)}")
+    old_guard = guard_matches[0].group()
+    # Constrain the second edit to the exact packet identity capture path.
+    capture_matches = list(re.finditer(
+        r"(?m)^  if \\(HulkPacketSurfaces\\(tracker, base, device, packet_surfaces\\)\\) \\{\\n"
+        r"    CaptureDraw\\(synthetic, tracker, base, &packet_surfaces\\);", source))
+    if len(capture_matches) != 1:
+        raise ValueError(
+            f"PM4 packet capture mismatch: exact={source.count(OLD_EXACT)} "
+            f"candidates={len(capture_matches)}")
+    return (source.replace(old_guard, NEW_GUARD, 1)
+                  .replace(capture_matches[0].group(), NEW_EXACT, 1)), True
 
 def main():
     if len(sys.argv)!=2:raise SystemExit("Usage: patch_native_x_hulk_packet_first.py <NativeX checkout>")

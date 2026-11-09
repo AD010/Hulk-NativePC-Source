@@ -63,6 +63,11 @@ jobs:
         uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: amd64
+      - name: Preflight complete pinned NativeX patch chain before private build
+        shell: pwsh
+        run: |
+          python ci/test_native_x_patch_chain.py
+          if ($LASTEXITCODE -ne 0) { throw 'NativeX full patch chain preflight FAILED. No private game data used.' }
       - name: Get original input ONLY from private Hulk release
         shell: pwsh
         env:
