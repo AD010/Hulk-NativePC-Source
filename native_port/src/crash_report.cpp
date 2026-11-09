@@ -14,6 +14,8 @@
 #include <dbghelp.h>
 
 #include <cstdio>
+#include <cwchar>
+#include <cstring>
 
 #pragma comment(lib, "dbghelp.lib")
 
@@ -25,10 +27,72 @@ LONG WINAPI WriteCrashReport(EXCEPTION_POINTERS* info) {
   const DWORD n = GetModuleFileNameW(nullptr, path, MAX_PATH);
   if (!n || n >= MAX_PATH) return EXCEPTION_CONTINUE_SEARCH;
   wchar_t* slash = wcsrchr(path, L'\\');
-  if (!slash) return EXCEPTION_CONTINUE_SEARCH;
+  if (!slash || !info || !info->ExceptionRecord || !info->ContextRecord)
+    return EXCEPTION_CONTINUE_SEARCH;
   wcscpy_s(slash + 1, MAX_PATH - (slash + 1 - path), L"crash-report.txt");
   FILE* f = _wfopen(path, L"w");
+  // Installed games can be in a read-only directory. Keep crash diagnostics
+  // under the CURRENT user's profile, never upload them or write to public CI.
+  if (!f) {
+    wchar_t local[MAX_PATH] = {};
+    DWORD count = GetEnvironmentVariableW(L"LOCALAPPDATA", local, MAX_PATH);
+    if (count && count < MAX_PATH) {
+      wchar_t directory[MAX_PATH] = {};
+      if (swprintf_s(directory, L"%ls\\HulkNativePC", local) > 0) {
+        CreateDirectoryW(directory, nullptr);
+        if (swprintf_s(path, L"%ls\\crash-report.txt", directory) > 0)
+          f = _wfopen(path, L"w");
+      }
+    }
+  }
   if (!f) return EXCEPTION_CONTINUE_SEARCH;
+
+  // The text report identifies the exception and frames; a small, local-only
+  // minidump additionally preserves the native thread stacks, unloaded module
+  // list and CPU context needed to distinguish driver/compiler crashes from
+  // ReXGlue/NativeXRenderer races. The dump is NOT MiniDumpWithFullMemory and
+  // must never be bundled into the publicly distributed game ZIP.
+  wchar_t dump_path[MAX_PATH] = {};
+  wcscpy_s(dump_path, path);
+  wchar_t* dump_name = wcsrchr(dump_path, L'\\');
+  if (dump_name) {
+    wcscpy_s(dump_name + 1, MAX_PATH - (dump_name + 1 - dump_path),
+             L"crash-report.dmp");
+  }
+  BOOL dump_ok = FALSE;
+  DWORD dump_error = ERROR_INVALID_NAME;
+  if (dump_name) {
+    HANDLE file = CreateFileW(dump_path, GENERIC_WRITE, FILE_SHARE_READ, nullptr,
+                              CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file != INVALID_HANDLE_VALUE) {
+      MINIDUMP_EXCEPTION_INFORMATION crash = {};
+      crash.ThreadId = GetCurrentThreadId();
+      crash.ExceptionPointers = info;
+      crash.ClientPointers = FALSE;
+      dump_ok = MiniDumpWriteDump(
+          GetCurrentProcess(), GetCurrentProcessId(), file,
+          static_cast<MINIDUMP_TYPE>(MiniDumpNormal | MiniDumpWithThreadInfo |
+                                     MiniDumpWithUnloadedModules),
+          &crash, nullptr, nullptr);
+      dump_error = dump_ok ? ERROR_SUCCESS : GetLastError();
+      CloseHandle(file);
+      if (!dump_ok) DeleteFileW(dump_path);
+    } else {
+      dump_error = GetLastError();
+    }
+  }
+  SYSTEMTIME now = {};
+  GetLocalTime(&now);
+  std::fprintf(f, "Hulk NativePC local crash report\\n");
+  std::fprintf(f, "time %04u-%02u-%02u %02u:%02u:%02u.%03u thread %lu process %lu\\n",
+               now.wYear, now.wMonth, now.wDay, now.wHour, now.wMinute,
+               now.wSecond, now.wMilliseconds,
+               static_cast<unsigned long>(GetCurrentThreadId()),
+               static_cast<unsigned long>(GetCurrentProcessId()));
+  std::fprintf(f, "minidump %s (error %lu)\\n",
+               dump_ok ? "saved as crash-report.dmp" : "unavailable",
+               static_cast<unsigned long>(dump_error));
+  std::fflush(f);
 
   const EXCEPTION_RECORD* rec = info->ExceptionRecord;
   std::fprintf(f, "exception 0x%08lX at %p\n", rec->ExceptionCode, rec->ExceptionAddress);
