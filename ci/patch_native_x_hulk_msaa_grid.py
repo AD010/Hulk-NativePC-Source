@@ -138,7 +138,7 @@ if PIN == LEGACY_PIN:
     )
     old, new = PATCHES["src/targets.cpp"][0]
     def legacy_scale(text):
-        return (text.replace("  static const RenderScale kNativeScale;\\n", "")
+        return (text.replace("  static const RenderScale kNativeScale;\n", "")
                     .replace(" : native ? kNativeScale : scale_", " : scale_")
                     .replace("&& !shadow && !native &&", "&& !shadow &&"))
     PATCHES["src/targets.cpp"][0] = (legacy_scale(old), legacy_scale(new))
