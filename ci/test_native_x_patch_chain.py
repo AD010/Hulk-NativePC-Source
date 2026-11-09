@@ -85,6 +85,12 @@ def run(sha=SHA):
                 "HULK/PM4-SURFACE","HULK/MSAA-GRID","HULK/UNBOUND-MRT"]
         missing=[mark for mark in needed if mark not in renderer]
         if "bool DrawPath::Draw(" not in draw:missing.append("bool DrawPath::Draw(")
+        if sha == CANDIDATE_SHA:
+            targets=(source/"src/targets.cpp").read_text(encoding="utf-8")
+            if "native ? kNativeScale : scale_" not in targets or "&& !native &&" not in targets:
+                missing.append("D127 native-scale target preserved by Hulk MSAA grid")
+            if "source->scale.x != target->scale.x" not in renderer:
+                missing.append("D127 scaled resolves preserved")
         if missing:raise RuntimeError(f"NativeX patch chain markers absent: {missing}")
         print(f"[NativeX/preflight] All {len(scripts)} real pinned-source patches pass")
 if __name__=="__main__":
