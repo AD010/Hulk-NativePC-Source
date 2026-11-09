@@ -103,9 +103,11 @@ PATCHES = {
   ],
   "src/targets.cpp": [
     (
-      "  static const RenderScale kNativeScale;\n"\n      "  const RenderScale& scale = reduced ? reduced_scale_ : shadow ? shadow_scale_ : native ? kNativeScale : scale_;\n"
+      "  static const RenderScale kNativeScale;\n"
+      "  const RenderScale& scale = reduced ? reduced_scale_ : shadow ? shadow_scale_ : native ? kNativeScale : scale_;\n"
       "  desc.Name = name.c_str();",
-      "  static const RenderScale kNativeScale;\n"\n      "  RenderScale scale = reduced ? reduced_scale_ : shadow ? shadow_scale_ : native ? kNativeScale : scale_;\n"
+      "  static const RenderScale kNativeScale;\n"
+      "  RenderScale scale = reduced ? reduced_scale_ : shadow ? shadow_scale_ : native ? kNativeScale : scale_;\n"
       "  // Only Hulk's output/2 4x scene render/depth targets: give them the\n"
       "  // same full host pixel extent as the output target, without changing\n"
       "  // the Xbox surface identity, EDRAM address, guest pitch or sample flags.\n"
