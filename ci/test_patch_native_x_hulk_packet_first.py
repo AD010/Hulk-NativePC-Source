@@ -20,7 +20,7 @@ class TestPacketFirst(unittest.TestCase):
  def test_integrated_anchor_with_added_cpp_comment(self):
   # Synthetic-only tests are not sufficient; the CI preflight also applies all
   # patches to the real upstream SHA. This protects tolerable comment drift.
-  source=OLD_GUARD.replace("  // Keep tracker state", "  // Keep tracker state") + "\\n" + OLD_EXACT
+  source=OLD_GUARD + "\n" + OLD_EXACT
   out,changed=patch_text(source)
   self.assertTrue(changed)
   self.assertIn("HULK/PM4-REGISTER-ONLY",out)

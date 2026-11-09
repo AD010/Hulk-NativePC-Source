@@ -26,7 +26,7 @@ def commands():
     names=[]
     for line in BUILDER.read_text(encoding="utf-8").splitlines():
         if "Invoke-Checked 'python'" not in line:continue
-        match=re.search(r"'(ci/(?:test_)?patch_native_x_hulk_[a-z_]+\\.py)'",line)
+        match=re.search(r"'(ci/(?:test_)?patch_native_x_hulk_[a-z_]+\.py)'",line)
         if match:
             names.append(match.group(1))
     # Append unshipped experiments in their real production order; never

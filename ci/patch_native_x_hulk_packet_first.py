@@ -25,10 +25,10 @@ def patch_text(source):
         raise ValueError("Partial Hulk PM4 register-first repair")
 
     guard_matches = list(re.finditer(
-        r"(?ms)^  (?:// PM4 indirect helpers[^\\n]*\\n)?"
-        r"(?:  // Keep tracker state[^\\n]*\\n)?"
-        r"  bool has_surface = false;\\n"
-        r".*?^  TrackedCall synthetic\\{\\};", source))
+        r"(?ms)^  (?:// PM4 indirect helpers[^\n]*\n)?"
+        r"(?:  // Keep tracker state[^\n]*\n)?"
+        r"  bool has_surface = false;\n"
+        r".*?^  TrackedCall synthetic\{\};", source))
     guard_matches = [m for m in guard_matches
                      if m.group().count("hulk_no_target_skipped") == 2
                      and "if (!has_surface)" in m.group()
@@ -41,8 +41,8 @@ def patch_text(source):
     old_guard = guard_matches[0].group()
     # Constrain the second edit to the exact packet identity capture path.
     capture_matches = list(re.finditer(
-        r"(?m)^  if \\(HulkPacketSurfaces\\(tracker, base, device, packet_surfaces\\)\\) \\{\\n"
-        r"    CaptureDraw\\(synthetic, tracker, base, &packet_surfaces\\);", source))
+        r"(?m)^  if \(HulkPacketSurfaces\(tracker, base, device, packet_surfaces\)\) \{\n"
+        r"    CaptureDraw\(synthetic, tracker, base, &packet_surfaces\);", source))
     if len(capture_matches) != 1:
         raise ValueError(
             f"PM4 packet capture mismatch: exact={source.count(OLD_EXACT)} "
