@@ -15,6 +15,7 @@ import tempfile
 ROOT=Path(__file__).resolve().parents[1]
 BUILDER=ROOT/"native_port"/"BUILD_WINDOWS.ps1"
 SHA="bf965e952c98e050753e91d08f32685a9f754b12"
+CANDIDATE_SHA="919371b5bdae0c9c4c7120ca321f5a4d72b7e78e"  # D127-D135: source-only migration gate, NOT the production renderer
 EXPERIMENTS=[
  "ci/test_patch_native_x_hulk_packet_first.py",
  "ci/patch_native_x_hulk_packet_first.py",
@@ -58,14 +59,20 @@ def checked(args,cwd=ROOT):
         raise RuntimeError(f"Source-only NativeX preflight failed: {Path(args[1]).name}")
     return result.stdout
 
-def run():
+def run(sha=SHA):
+    if sha not in (SHA, CANDIDATE_SHA):
+        raise ValueError("NativeX revision must be one of the two explicitly audited pins")
+    # Every separate Hulk patch script compares its *actual* checkout HEAD
+    # with this value. The candidate is not disguised as the old revision.
+    os.environ["HULK_NATIVEX_SOURCE_SHA"] = sha
+    print(f"[NativeX/preflight] source SHA={sha}; mode={'candidate-only' if sha != SHA else 'production'}", flush=True)
     scripts=commands()
     with tempfile.TemporaryDirectory(prefix="hulk-nxr-patch-") as directory:
         source=Path(directory)/"NativeXRenderer"
         checked(["git","clone","--no-checkout","--depth","1",
                  "https://github.com/ElGuslml/NativeXRenderer.git",str(source)])
-        checked(["git","-C",str(source),"fetch","--depth","1","origin",SHA])
-        checked(["git","-C",str(source),"checkout","--detach",SHA])
+        checked(["git","-C",str(source),"fetch","--depth","1","origin",sha])
+        checked(["git","-C",str(source),"checkout","--detach",sha])
         for name in scripts:
             file=ROOT/name
             command=[sys.executable,str(file)]
@@ -80,4 +87,7 @@ def run():
         if "bool DrawPath::Draw(" not in draw:missing.append("bool DrawPath::Draw(")
         if missing:raise RuntimeError(f"NativeX patch chain markers absent: {missing}")
         print(f"[NativeX/preflight] All {len(scripts)} real pinned-source patches pass")
-if __name__=="__main__":run()
+if __name__=="__main__":
+    if len(sys.argv) > 2 or (len(sys.argv) == 2 and sys.argv[1] != "--candidate"):
+        raise SystemExit("Usage: python ci/test_native_x_patch_chain.py [--candidate]")
+    run(CANDIDATE_SHA if len(sys.argv) == 2 else SHA)

@@ -16,7 +16,8 @@ import subprocess
 import sys
 from pathlib import Path
 
-PIN = "bf965e952c98e050753e91d08f32685a9f754b12"
+import os
+PIN = os.environ.get("HULK_NATIVEX_SOURCE_SHA", "bf965e952c98e050753e91d08f32685a9f754b12")
 HEADER_OLD = "  HostTarget* FindMsaaAlias(const GuestSurface& surface, uint32_t& samples_x, uint32_t& samples_y);"
 HEADER_NEW = HEADER_OLD + """
   // Two exact Xbox sample-grid views can own the same native image.

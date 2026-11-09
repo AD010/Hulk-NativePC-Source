@@ -9,7 +9,8 @@ from pathlib import Path
 import subprocess
 import sys
 
-PIN = "bf965e952c98e050753e91d08f32685a9f754b12"
+import os
+PIN = os.environ.get("HULK_NATIVEX_SOURCE_SHA", "bf965e952c98e050753e91d08f32685a9f754b12")
 PATCHES = {
  "src/draw.h": [("  void Draw(const StateTracker::Program& vertex_program, const StateTracker::Program& pixel_program,\n            std::span<const Copy> copies, const std::array<HostTarget*, 5>& targets, bool tiled);", "  // True only if DrawInternal submitted host rasterization.\n  bool Draw(const StateTracker::Program& vertex_program, const StateTracker::Program& pixel_program,\n            std::span<const Copy> copies, const std::array<HostTarget*, 5>& targets, bool tiled);")],
  "src/draw.cpp": [

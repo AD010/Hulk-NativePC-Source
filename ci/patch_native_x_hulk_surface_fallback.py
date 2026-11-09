@@ -8,7 +8,8 @@ from pathlib import Path
 import subprocess
 import sys
 
-PIN="bf965e952c98e050753e91d08f32685a9f754b12"
+import os
+PIN = os.environ.get("HULK_NATIVEX_SOURCE_SHA", "bf965e952c98e050753e91d08f32685a9f754b12")
 CVAR="REXCVAR_DEFINE_BOOL(native_x_renderer_hulk_surface_fallback, true, \"NativeXRenderer\",\n                    \"Recover Hulk's unmatched PM4 Vulkan draws with genuine bound XDK RT/depth objects. \"\n                    \"Strict packet-time mapping remains first; no Xenos graphics fallback.\");\n"
 DECL_ANCHOR="// Resolve synthetic PM4 draws using the GPU register image at each packet,"
 DRAW_OLD="  synthetic.device = device;\n  std::array<GuestSurface, 5> packet_surfaces{};\n  if (!HulkPacketSurfaces(tracker, base, device, packet_surfaces)) return;\n  CaptureDraw(synthetic, tracker, base, &packet_surfaces);"

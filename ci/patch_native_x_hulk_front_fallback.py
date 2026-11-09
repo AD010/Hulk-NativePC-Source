@@ -19,7 +19,8 @@ from pathlib import Path
 import subprocess
 import sys
 
-PIN = "bf965e952c98e050753e91d08f32685a9f754b12"
+import os
+PIN = os.environ.get("HULK_NATIVEX_SOURCE_SHA", "bf965e952c98e050753e91d08f32685a9f754b12")
 H_ANCHOR = """  ResolvedTexture* FindNewest(uint32_t address, bool cube);"""
 H_NEW = """  // Hulk: best recent non-shadow, non-cube color Resolve when the front
   // object's guest fetch address does not match a captured Resolve.

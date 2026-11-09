@@ -9,7 +9,8 @@ from pathlib import Path
 import subprocess
 import sys
 
-PIN = "bf965e952c98e050753e91d08f32685a9f754b12"
+import os
+PIN = os.environ.get("HULK_NATIVEX_SOURCE_SHA", "bf965e952c98e050753e91d08f32685a9f754b12")
 OLD_BIND = 'rex::ui::RegisterBind("bind_native_x_renderer_verify", "F10",'
 NEW_BIND = 'rex::ui::RegisterBind("bind_native_x_renderer_verify", "F11",'
 OLD_LOG = 'REXLOG_INFO("[native_x_renderer] verify on: F10 (bind_native_x_renderer_verify)'

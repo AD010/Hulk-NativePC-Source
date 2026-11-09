@@ -19,7 +19,8 @@ guest surface metadata. The precise descriptor key prevents unrelated aliases.
 from pathlib import Path
 import subprocess
 import sys
-PIN = "bf965e952c98e050753e91d08f32685a9f754b12"
+import os
+PIN = os.environ.get("HULK_NATIVEX_SOURCE_SHA", "bf965e952c98e050753e91d08f32685a9f754b12")
 PATCHES = {
  "src/targets.h": [
   (

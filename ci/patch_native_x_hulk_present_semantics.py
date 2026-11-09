@@ -15,7 +15,8 @@ from pathlib import Path
 import subprocess
 import sys
 
-PIN = "bf965e952c98e050753e91d08f32685a9f754b12"
+import os
+PIN = os.environ.get("HULK_NATIVEX_SOURCE_SHA", "bf965e952c98e050753e91d08f32685a9f754b12")
 PRESENT_R4 = "  if (call == Call::kPresent) g_front_buffer = ctx.r4.u32;"
 OLD = "  ComposePicture(front ? front->srv : nullptr, front ? front->width : 0, front ? front->height : 0, fetch1 & 0x3F,"
 NEW = """  // If no matching guest Resolve exists, ComposePicture only clears black.
