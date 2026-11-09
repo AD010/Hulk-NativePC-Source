@@ -245,6 +245,10 @@ try {
     Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_packet_first.py'), $NxrFull) $Source
     Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_draw_write_ownership.py')) $Source
     Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_draw_write_ownership.py'), $NxrFull) $Source
+    # Hulk 158: nonzero color masks on NEVER bound RT1..3 are not MRT attachments.
+    # Keep strict matching of RT0, depth and every observed real MRT.
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_unbound_mrt.py')) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_unbound_mrt.py'), $NxrFull) $Source
     # F10 belongs to Hulk's real PC menu, never steal it for the SDK observer.
     Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_verify_key.py')) $Source
     Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_verify_key.py'), $NxrFull) $Source
