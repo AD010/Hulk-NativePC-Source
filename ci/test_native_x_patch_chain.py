@@ -96,7 +96,7 @@ def run(sha=SHA):
             if "source->scale.x != target->scale.x" not in renderer:
                 missing.append("D127 scaled resolves preserved")
         if missing:raise RuntimeError(f"NativeX patch chain markers absent: {missing}")
-        print(f"[NativeX/preflight] All {len(scripts)} real pinned-source patches pass")
+        print(f"[NativeX/preflight] All {len(scripts)} real NativeX {sha[:8]} source patches pass")
 if __name__=="__main__":
     if len(sys.argv) > 2 or (len(sys.argv) == 2 and sys.argv[1] != "--candidate"):
         raise SystemExit("Usage: python ci/test_native_x_patch_chain.py [--candidate]")
