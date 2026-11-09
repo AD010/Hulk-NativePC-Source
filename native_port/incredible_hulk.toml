@@ -1,107 +1,40 @@
-# Hulk NativePC - the only user configuration file.
-# Launch incredible_hulk.exe directly (no CMD or PowerShell).
-# If the original assets are elsewhere, the first launch opens a native
-# Windows file picker for default.xex and saves the folder here automatically.
-# You can also set the path manually, with forward slashes:
-# game_data_root = "E:/Games/IncredibleHulk/games/incredible_hulk/game"
 game_data_root = ""
-
-# Keyboard and mouse on the host, translated to the game's XInput state.
 hulk_native_mnk = true
 hulk_native_mnk_force = true
 mnk_mode = false
 hulk_mouse_sensitivity = 4.0
 hulk_mouse_invert_y = false
 hulk_mouse_diagnostics = false
-
-# Display. The old Xenos scaled-resolve implementation corrupts Hulk's
-# 3D image beyond 1x; this value avoids *additional* pixelization, but
-# does NOT increase the game's internal native resolution.
-# User-confirmed red-screen fix in Vulkan/Xenos fallback: choose the
-# Fragment Shader Interlock target path at renderer initialization.
-# NativeXRenderer will use its own native target pipeline when validated.
-# Log 088: Vulkan presenter mode 0 = IMMEDIATE without VSync.
-# Select guaranteed FIFO before presenting. Real hang cause unproven.
 vulkan_allow_present_mode_immediate = false
 vulkan_allow_present_mode_mailbox = false
 vulkan_allow_present_mode_fifo_relaxed = false
 vsync = true
 vblank_follows_display = false
-
-# ReXGlue command_processor.cpp has a native guest-swap throttle.
-# Default 0 = unlimited; force the original Hulk 30-FPS gameplay pacing.
-# Prevents the ring-buffer producer from running hundreds of frames ahead.
 gpu_guest_fps_limit = 30
-
-# Console dashboard language and country for this USA recomp.
 user_country = 103
 user_language = 1
-
 render_target_path_vulkan = "fsi"
 resolution_scale = 1
 draw_resolution_scale_x = 1
 draw_resolution_scale_y = 1
 video_mode_width = 1280
 video_mode_height = 720
-# SDL3 interprets these as LOGICAL window coordinates. At 175% DPI,
-# 1280x800 maps to roughly 2240x1400 physical pixels, not 4480x2800.
-# Borderless fullscreen uses the monitor's actual 2560x1600 mode instead.
 window_width = 1280
 window_height = 800
 fullscreen = true
 fullscreen_exclusive = false
 present_letterbox = true
 present_effect = "bilinear"
-
-# Standalone NativeX bring-up requested: Vulkan native drawing is enabled
-# at startup. The Hulk XDK 6534 profile is not yet verified; fail-closed
-# validation keeps the Vulkan/Xenos FSI fallback available rather than
-# displaying an uninitialized native black image. This config does NOT
-# claim completed native Vulkan game drawing.
-# Experimental true-native PM4 gap recovery requested by user.
-# GPU-state parity / visible output not yet verified: set false for Xenos FSI.
 native_x_renderer = true
-# Native renderer's own 2x scale, independent of legacy EDRAM resolve scaling.
 native_x_renderer_resolution_scale = 2.0
-# Experimental native fallback: when the front fetch points nowhere, show
-# the last matching full-resolution Resolve texture instead of forced black.
 native_x_renderer_hulk_front_fallback = true
-# Replay validated Xenos PM4 draw packets in execution order into NativeX Vulkan.
-# Includes first-level indirect buffers; each draw gets its own shader/register snapshot.
-# Existing 8 verified hooks, no Xenos host fallback, no EDRAM emulation.
 native_x_renderer_hulk_gap_single_draw = true
-# Experimental native Vulkan MSAA scene: the *guest* surface remains
-# 640x360 / 4 samples with its original pitch, 4x flags and GPU registers.
-# Its host-only target scales to 2560x1440. Resolve now also finds the
-# newest 640x360/4x native image when the game reads the matching 1280x720/1x
-# descriptor at the SAME EDRAM base (pitch 640 vs 1280). This is native Vulkan
-# resource aliasing, not an emulated Xenos EDRAM backing store.
-# No Xenos EDRAM/FBO fallback. Switch to false to compare rendering.
 native_x_renderer_hulk_expand_msaa_sample_grid = true
-# NativeX log124: output 1280x720 uses an unbounded 8192 viewport but
-# a legacy 640-column scissor, clipping the final output's right half.
-# Correct only exact half-width full-output passes (not game 3D tile scissors).
-# Off for A/B if a legitimate partial scissor is ever affected.
 native_x_renderer_hulk_full_output_scissor = true
-# AA is limited to the observed 640x360/4x MSAA scene -> 1280x720 Resolve.
-# It is NEVER applied to the final front buffer with UI; if that exact scene
-# boundary is not found, no AA is applied and the log reports zero passes.
 native_x_renderer_hulk_auto_scene_aa = true
 native_x_renderer_antialiasing = "smaa"
-# When 4x MSAA scene has more native host pixels than its resolve texture,
-# resample the complete image instead of clipping it to half-width/height.
-# Enabled through native_x_renderer_hulk_expand_msaa_sample_grid above.
-# NativeX: do not present 400+ times/sec for a game capped at 30/60 fps.
-# Use the SDK command processor's real guest swap-completion events when
-# available; the native renderer logs a warning and uses old mode otherwise.
-# This does NOT replace the required correct output-texture Resolve.
 native_x_renderer_present_with_swaps = true
 native_x_renderer_thread = true
-
-# Hulk GPU reverse engineering: real NativeX's Trace and Observer, from its
-# own bring-up toolkit. They are only initialized with native_x_renderer=true
-# OR hulk_native_x_verify_only=true. That separate mode keeps Xenos graphics
-# visible while comparing NativeX XDK 6534 state against actual GPU PM4 draws.
 hulk_native_x_verify_only = false
 native_x_renderer_trace = true
 native_x_renderer_trace_interval = 300
@@ -110,13 +43,9 @@ native_x_renderer_trace_dump_at = 900
 native_x_renderer_verify = true
 native_x_renderer_verify_frames = 1
 native_x_renderer_verify_at = 900
-# Renderer source is patched to use F11 for verify so our PC menu retains F10.
 bind_native_x_renderer_verify = "F11"
-
-# Read-only city asset streaming map. OFF for gameplay: enable temporarily
-# on a rooftop to correlate ARC/IND offsets to actual zone/LOD resources.
 hulk_world_stream_trace = false
-
-# Developer counters do not run in normal gaming builds.
 hulk_gpu_hook_probe = false
 hulk_frame_probe = false
+native_x_renderer_pipeline_storage = false
+native_x_renderer_hulk_surface_fallback = true
