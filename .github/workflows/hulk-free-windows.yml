@@ -113,6 +113,31 @@ jobs:
           Copy-Item -LiteralPath $log -Destination native_port/out/hulk-compiler-private.log -Force
           if ($rc -ne 0) { throw "Windows NativeX build failed (exit $rc). Full diagnostics are delivered to the PRIVATE release, not public logs." }
           if (-not (Test-Path native_port/out/HULK_NATIVE_PC_TEST/incredible_hulk.exe)) { throw 'Compiled EXE absent; see private diagnostics.' }
+      - name: Publish engine render call graph privately (addresses only)
+        if: always()
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.HULK_PRIVATE_REPO_TOKEN }}
+        run: |
+          # This source-only audit is not a shader/asset dump. Preserve just
+          # the highest-level call relationships for Ghidra/IDA cross-check.
+          $source = 'native_port/out/analysis/hulk_engine_render_callgraph.json'
+          if (-not (Test-Path -LiteralPath $source)) {
+            Write-Host '[HULK/CALLGRAPH] No report yet (codegen or XDK audit did not complete)'
+            exit 0
+          }
+          if (-not $env:GH_TOKEN) {
+            Write-Host '[HULK/CALLGRAPH] No private token; report stays on runner'
+            exit 0
+          }
+          $destination = Join-Path $env:RUNNER_TEMP 'Hulk-EngineRender-Callgraph.json'
+          Copy-Item -LiteralPath $source -Destination $destination -Force
+          gh release upload hulk-ci-input-on-publish $destination --repo AD010/hulk-cloud --clobber *> $null
+          if ($LASTEXITCODE -eq 0) {
+            Write-Host '[HULK/CALLGRAPH] Updated single PRIVATE source-only callgraph report'
+          } else {
+            Write-Host '[HULK/CALLGRAPH] Private report upload unavailable; game build unaffected'
+          }
       - name: Verify source-free output ZIP
         shell: pwsh
         run: |
