@@ -142,6 +142,14 @@ try {
     '--xex', $LocalXex, '--pinned-sha256', $XexSha256,
     '--region-lo', '0x82870000', '--region-hi', '0x828B0000',
     '--output', (Join-Path $Source 'out/analysis/hulk_6534_ppc_evidence.json')) $Source
+  # Source-only reverse PowerPC call graph: identify genuine Edge of Reality
+  # scene dispatchers ABOVE Draw/Resolve/Present for the future D3D11 backend.
+  # Report contains addresses only; no game bytes leave the private runner.
+  Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_hulk_engine_render_callgraph.py')) $Source
+  Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/hulk_engine_render_callgraph.py'),
+    '--generated', (Join-Path $Source 'generated/default'),
+    '--profile', (Join-Path $Source 'hulk_native_x_profile.ini'),
+    '--output', (Join-Path $Source 'out/analysis/hulk_engine_render_callgraph.json')) $Source
   # Pin the renderer to the reviewed upstream release. D125 fixes an actual
   # NVIDIA/Vulkan crash while minimized by finishing hidden frames. D126 avoids
   # long pipeline-creation stalls on steady offscreen passes.
