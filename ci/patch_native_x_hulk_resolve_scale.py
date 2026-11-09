@@ -67,6 +67,24 @@ PATCHES["src/renderer.cpp"].append((
  "  ITextureView* target_view = target ? target->SliceView(slice) : nullptr;"
 ))
 
+# NativeX D127 already compares both host scales. Preserve this upstream
+# behavior while retaining Hulk's scene resolve trace and explicit grid flag.
+if PIN == "919371b5bdae0c9c4c7120ca321f5a4d72b7e78e":
+    old, new = PATCHES["src/renderer.cpp"][0]
+    candidate_old = ("  bool scaled = source->reduced || aliased || "
+                     "source->scale.x != target->scale.x || "
+                     "source->scale.y != target->scale.y || hulk_sample_grid;")
+    candidate_new = new.replace(
+        "  bool scaled = source->reduced || aliased || hulk_sample_grid || hulk_host_scale_mismatch;",
+        "  bool scaled = source->reduced || aliased || "
+        "source->scale.x != target->scale.x || source->scale.y != target->scale.y || "
+        "hulk_sample_grid || hulk_host_scale_mismatch;"
+    )
+    if candidate_new == new:
+        raise ValueError("NativeX D127 resolve-scale transform drift")
+    PATCHES["src/renderer.cpp"][0] = (candidate_old, candidate_new)
+
+
 def transform(source, rules):
     marks = [new in source for old, new in rules]
     if all(marks):
