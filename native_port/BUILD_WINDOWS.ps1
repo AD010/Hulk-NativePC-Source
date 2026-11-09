@@ -249,6 +249,10 @@ try {
     # Keep strict matching of RT0, depth and every observed real MRT.
     Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_unbound_mrt.py')) $Source
     Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_unbound_mrt.py'), $NxrFull) $Source
+    # Snapshot the actual missing per-draw RT/depth identities from Hulk 160.
+    # Diagnostic-only: no invented surfaces or forced drawing.
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_surface_miss_trace.py')) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_surface_miss_trace.py'), $NxrFull) $Source
     # F10 belongs to Hulk's real PC menu, never steal it for the SDK observer.
     Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_verify_key.py')) $Source
     Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_verify_key.py'), $NxrFull) $Source

@@ -8,6 +8,7 @@ on:
     paths:
       - 'native_port/hulk_native_x_profile.ini'
       - 'native_port/BUILD_WINDOWS.ps1'
+      - 'native_port/incredible_hulk.toml'
       - 'ci/test_native_x_patch_chain.py'
 permissions:
   contents: write

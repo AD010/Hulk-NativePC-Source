@@ -44,6 +44,7 @@ def commands():
         ("ci/patch_native_x_hulk_packet_surfaces.py", "ci/patch_native_x_hulk_surface_fallback.py"),
         ("ci/patch_native_x_hulk_surface_fallback.py", "ci/patch_native_x_hulk_packet_first.py"),
         ("ci/patch_native_x_hulk_packet_first.py", "ci/patch_native_x_hulk_draw_write_ownership.py"),
+        ("ci/patch_native_x_hulk_unbound_mrt.py", "ci/patch_native_x_hulk_surface_miss_trace.py"),
     ):
         if first not in names or second not in names or names.index(first) >= names.index(second):
             raise RuntimeError(f"NativeX patch ordering incorrect: {first} before {second}")
