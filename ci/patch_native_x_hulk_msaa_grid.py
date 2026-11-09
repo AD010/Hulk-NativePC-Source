@@ -78,8 +78,8 @@ PATCHES = {
       "  }"
     ),
     (
-      "  bool scaled = source->reduced || aliased;",
-      "  bool scaled = source->reduced || aliased || hulk_sample_grid;"
+      "  bool scaled = source->reduced || aliased || source->scale.x != target->scale.x || source->scale.y != target->scale.y;",
+      "  bool scaled = source->reduced || aliased || source->scale.x != target->scale.x || source->scale.y != target->scale.y || hulk_sample_grid;"
     ),
   ],
   "src/targets.h": [
@@ -103,13 +103,13 @@ PATCHES = {
   ],
   "src/targets.cpp": [
     (
-      "  const RenderScale& scale = reduced ? reduced_scale_ : shadow ? shadow_scale_ : scale_;\n"
+      "  static const RenderScale kNativeScale;\n"\n      "  const RenderScale& scale = reduced ? reduced_scale_ : shadow ? shadow_scale_ : native ? kNativeScale : scale_;\n"
       "  desc.Name = name.c_str();",
-      "  RenderScale scale = reduced ? reduced_scale_ : shadow ? shadow_scale_ : scale_;\n"
+      "  static const RenderScale kNativeScale;\n"\n      "  RenderScale scale = reduced ? reduced_scale_ : shadow ? shadow_scale_ : native ? kNativeScale : scale_;\n"
       "  // Only Hulk's output/2 4x scene render/depth targets: give them the\n"
       "  // same full host pixel extent as the output target, without changing\n"
       "  // the Xbox surface identity, EDRAM address, guest pitch or sample flags.\n"
-      "  const bool hulk_grid = hulk_sample_grid_ && !reduced && !shadow &&\n"
+      "  const bool hulk_grid = hulk_sample_grid_ && !reduced && !shadow && !native &&\n"
       "      s.msaa() == 2 && s.width == hulk_output_width_ / 2 &&\n"
       "      s.height == hulk_output_height_ / 2;\n"
       "  if (hulk_grid) {\n"
