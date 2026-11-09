@@ -29,6 +29,40 @@ jobs:
         run: |
           python ci/check_public_source.py
           if ($LASTEXITCODE -ne 0) { throw 'PUBLIC SOURCE AUDIT FAILED: prohibited assets in Git' }
+      - name: Preflight recent source-only renderer patch tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python ci/test_patch_native_x_hulk_packet_first.py
+          if ($LASTEXITCODE -ne 0) { throw 'Native PM4 packet-first patch test failed before private build.' }
+          python ci/test_patch_native_x_hulk_draw_write_ownership.py
+          if ($LASTEXITCODE -ne 0) { throw 'Native Draw ownership patch test failed before private build.' }
+      - name: Diagnose previous private NativeX failure (redacted classification only)
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.HULK_PRIVATE_REPO_TOKEN }}
+        run: |
+          $ErrorActionPreference = 'Continue'
+          if (-not $env:GH_TOKEN) { Write-Host '[HULK/LAST-FAIL] Unavailable'; exit 0 }
+          $dir = Join-Path $env:RUNNER_TEMP 'hulk-previous-failure'
+          New-Item -ItemType Directory -Path $dir -Force | Out-Null
+          gh release download hulk-ci-input-on-publish --repo AD010/hulk-cloud --pattern 'Hulk-PrivateRunner-Diagnostics.zip' --dir $dir --clobber *> $null
+          if ($LASTEXITCODE -ne 0) { Write-Host '[HULK/LAST-FAIL] No private diagnosis'; exit 0 }
+          try {
+            Expand-Archive -LiteralPath (Join-Path $dir 'Hulk-PrivateRunner-Diagnostics.zip') -DestinationPath (Join-Path $dir 'read') -Force -ErrorAction Stop
+            $file = Get-ChildItem (Join-Path $dir 'read') -Recurse -File | Where-Object { $_.Name -eq 'hulk-compiler-private.log' } | Select-Object -First 1
+            if (-not $file) { Write-Host '[HULK/LAST-FAIL] No compiler file'; exit 0 }
+            $lines = @(Get-Content -LiteralPath $file.FullName -Tail 550 -ErrorAction Stop)
+            $class = 'other'; $script = 'unknown'
+            foreach ($line in $lines) {
+              if ($line -match 'ci[\\/](test_patch_native_x_hulk_[a-z_]+\.py|patch_native_x_hulk_[a-z_]+\.py)') { $script = $Matches[1] }
+              if ($line -match '(AssertionError|unittest\.runner|FAILED \(failures)') { $class = 'source-test' }
+              if ($line -match '(Traceback|ValueError|anchor mismatch|source drift|Partial Hulk)') { $class = 'python-anchor-or-transform' }
+              if ($line -match '(error C[0-9]{4}|fatal error C[0-9]{4}|error:.*(member|identifier|undeclared|conversion))') { $class = 'cpp-compilation' }
+              if ($line -match '(LINK : fatal error|LNK[0-9]{4})') { $class = 'linker' }
+            }
+            Write-Host "[HULK/LAST-FAIL] Class=$class LastPatchScript=$script"
+          } catch { Write-Host '[HULK/LAST-FAIL] Unable to classify (private bytes withheld)' }
       - name: Enable Windows long paths
         shell: pwsh
         run: |
