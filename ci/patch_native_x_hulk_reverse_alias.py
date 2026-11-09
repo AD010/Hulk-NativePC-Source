@@ -120,6 +120,22 @@ PATCHES = {
  ]
 }
 
+# D127 already tracks the host-scale mismatch for ordinary NativeX resolves.
+# The Hulk reverse alias must preserve those terms instead of restoring the
+# earlier, incomplete scaled-copy expression.
+if PIN == "919371b5bdae0c9c4c7120ca321f5a4d72b7e78e":
+    old, new = PATCHES["src/renderer.cpp"][3]
+    baseline = "  bool scaled = source->reduced || aliased || "
+    upstream = (baseline + "source->scale.x != target->scale.x || "
+                "source->scale.y != target->scale.y || ")
+    if not old.startswith(baseline) or not new.startswith(baseline):
+        raise ValueError("NativeX D127 reverse-alias scaling transform drift")
+    PATCHES["src/renderer.cpp"][3] = (
+        old.replace(baseline, upstream, 1),
+        new.replace(baseline, upstream, 1)
+    )
+
+
 def transform(source, rules):
     ready = [new in source for old,new in rules]
     if all(ready):
