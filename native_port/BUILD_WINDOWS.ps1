@@ -225,6 +225,9 @@ try {
     # Hulk 137/RenderDoc 3: synthetic PM4 draws must use each packet's GPU RT/depth identity.
     Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_packet_surfaces.py')) $Source
     Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_packet_surfaces.py'), $NxrFull) $Source
+    # Hulk 137: skipped color/depth clears must not advance shared Vulkan image ownership.
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_clear_ownership.py')) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_clear_ownership.py'), $NxrFull) $Source
     # F10 belongs to Hulk's real PC menu, never steal it for the SDK observer.
     Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_verify_key.py')) $Source
     Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_verify_key.py'), $NxrFull) $Source
