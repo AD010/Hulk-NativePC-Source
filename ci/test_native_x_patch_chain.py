@@ -7,6 +7,7 @@ build artifacts are involved.
 """
 from pathlib import Path
 import os
+import py_compile
 import re
 import subprocess
 import sys
@@ -67,6 +68,9 @@ def run(sha=SHA):
     os.environ["HULK_NATIVEX_SOURCE_SHA"] = sha
     print(f"[NativeX/preflight] source SHA={sha}; mode={'candidate-only' if sha != SHA else 'production'}", flush=True)
     scripts=commands()
+    # Fail quickly on syntax errors before a checkout or any private compilation.
+    for name in scripts:
+        py_compile.compile(str(ROOT/name), doraise=True)
     with tempfile.TemporaryDirectory(prefix="hulk-nxr-patch-") as directory:
         source=Path(directory)/"NativeXRenderer"
         checked(["git","clone","--no-checkout","--depth","1",
