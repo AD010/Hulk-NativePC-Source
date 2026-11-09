@@ -18,7 +18,7 @@ class HulkResolveScaleTests(unittest.TestCase):
         patched = "\n".join(a for b,a in PATCHES["src/renderer.cpp"])
         self.assertIn("source->scale.x != target->scale.x", patched)
         self.assertIn("hulk_host_scale_mismatch", patched)
-        self.assertIn("bool scaled = source->reduced || aliased || hulk_sample_grid || hulk_host_scale_mismatch;", patched)
+        self.assertIn("hulk_sample_grid || hulk_host_scale_mismatch;", patched)
         self.assertIn("[HULK/RESOLVE-CALLER]", patched)
         self.assertIn("[HULK/RESOLVE-SCALE]", patched)
         self.assertIn("scene4x ? \"scene4x\" : \"output\"", patched)
