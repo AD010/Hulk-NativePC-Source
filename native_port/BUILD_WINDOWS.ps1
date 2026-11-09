@@ -154,7 +154,10 @@ try {
   # NVIDIA/Vulkan crash while minimized by finishing hidden frames. D126 avoids
   # long pipeline-creation stalls on steady offscreen passes.
   # CI should never silently change native-GPU code mid-rebuild.
-  $NativeXCommit = 'bf965e952c98e050753e91d08f32685a9f754b12'
+  # NativeX upstream D127-D135: all 43 Hulk integration stages passed on this real SHA.
+  # Each patch validates the checkout revision; never fake the pinned git HEAD.
+  $NativeXCommit = '919371b5bdae0c9c4c7120ca321f5a4d72b7e78e'
+  $env:HULK_NATIVEX_SOURCE_SHA = $NativeXCommit
   # Native profile unit tests include NativeXRenderer public headers.
   # Fetch them BEFORE configuring tests, not after the tests have compiled.
   if ($NativeXLink) {
@@ -172,7 +175,7 @@ try {
     if ($LASTEXITCODE -ne 0 -or $ActualNativeX -ne $NativeXCommit) {
       throw "NativeXRenderer checkout not pinned: $ActualNativeX"
     }
-    Write-Host "HULK NATIVE GPU upstream bf965e9 (D125 hidden frame, D126 steady pipeline waits)"
+    Write-Host "HULK NATIVE GPU upstream 919371b5 (D127-D135; Hulk's source patch chain validated)"
     # The crash dump proved a null mapped buffer after dynamic heap exhaustion;
     # fail closed on a changed upstream checkout, do not bump the heap to mask it.
     Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_heap_guard.py')) $Source

@@ -71,16 +71,14 @@ jobs:
         run: |
           python ci/test_native_x_patch_chain.py
           if ($LASTEXITCODE -ne 0) { throw 'NativeX full patch chain preflight FAILED. No private game data used.' }
-      - name: Probe upgraded NativeX D127-D135 (source only, production SHA unchanged)
+      - name: Verify production NativeX D127-D135 complete source adaptation
         shell: pwsh
-        continue-on-error: true
         run: |
           python ci/test_native_x_patch_chain.py --candidate
           if ($LASTEXITCODE -ne 0) {
-            Write-Host '[HULK/UPGRADE] Candidate 919371b5 requires rebasing the indicated patch. Original production source remains pinned.'
-            exit 1
+            throw 'Pinned NativeX 919371b5 source patch integration FAILED; refusing private Windows build.'
           }
-          Write-Host '[HULK/UPGRADE] Candidate passed SOURCE patch integration. Native Windows compilation still required before switch.'
+          Write-Host '[HULK/UPGRADE] 43 real source adaptation steps passed on production NativeX 919371b5.'
       - name: Get original input ONLY from private Hulk release
         shell: pwsh
         env:
