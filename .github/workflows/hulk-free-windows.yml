@@ -29,14 +29,6 @@ jobs:
         run: |
           python ci/check_public_source.py
           if ($LASTEXITCODE -ne 0) { throw 'PUBLIC SOURCE AUDIT FAILED: prohibited assets in Git' }
-      - name: Preflight recent source-only renderer patch tests
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          python ci/test_patch_native_x_hulk_packet_first.py
-          if ($LASTEXITCODE -ne 0) { throw 'Native PM4 packet-first patch test failed before private build.' }
-          python ci/test_patch_native_x_hulk_draw_write_ownership.py
-          if ($LASTEXITCODE -ne 0) { throw 'Native Draw ownership patch test failed before private build.' }
       - name: Diagnose previous private NativeX failure (redacted classification only)
         shell: pwsh
         env:
