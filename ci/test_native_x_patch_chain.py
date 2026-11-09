@@ -23,18 +23,30 @@ EXPERIMENTS=[
 ]
 
 def commands():
+    # Read the exact production order from the only Windows build script.
+    # Hulk's PM4 patches contain DIGITS ("pm4"), so [a-z_]+ silently omitted
+    # essential patches and made #30's preflight fail at gap_draw.
     names=[]
     for line in BUILDER.read_text(encoding="utf-8").splitlines():
-        if "Invoke-Checked 'python'" not in line:continue
-        match=re.search(r"'(ci/(?:test_)?patch_native_x_hulk_[a-z_]+\.py)'",line)
-        if match:
-            names.append(match.group(1))
-    # Append unshipped experiments in their real production order; never
-    # duplicate a patch that has already been enabled in BUILD_WINDOWS.ps1.
+        if "Invoke-Checked 'python'" not in line or "patch_native_x_hulk_" not in line:
+            continue
+        match=re.search(r"'(ci/(?:test_)?patch_native_x_hulk_[a-z0-9_]+\.py)'", line)
+        if not match:
+            raise RuntimeError("Unparsed NativeX build step: " + line.strip())
+        names.append(match.group(1))
+    if len(names) < 39 or len(names) != len(set(names)):
+        raise RuntimeError(f"NativeX production patch manifest incomplete/duplicated: {len(names)}")
     for name in EXPERIMENTS:
-        if name not in names: names.append(name)
-    if len(names)<25 or len(names)!=len(set(names)):
-        raise RuntimeError(f"NativeX patch list incomplete or duplicated: {len(names)}")
+        if name not in names:
+            raise RuntimeError(f"NativeX patch missing from real Windows build: {name}")
+    for first, second in (
+        ("ci/patch_native_x_hulk_pm4_gap.py", "ci/patch_native_x_hulk_gap_draw.py"),
+        ("ci/patch_native_x_hulk_packet_surfaces.py", "ci/patch_native_x_hulk_surface_fallback.py"),
+        ("ci/patch_native_x_hulk_surface_fallback.py", "ci/patch_native_x_hulk_packet_first.py"),
+        ("ci/patch_native_x_hulk_packet_first.py", "ci/patch_native_x_hulk_draw_write_ownership.py"),
+    ):
+        if first not in names or second not in names or names.index(first) >= names.index(second):
+            raise RuntimeError(f"NativeX patch ordering incorrect: {first} before {second}")
     return names
 
 def checked(args,cwd=ROOT):

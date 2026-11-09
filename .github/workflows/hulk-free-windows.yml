@@ -7,6 +7,8 @@ on:
     branches: [main]
     paths:
       - 'native_port/hulk_native_x_profile.ini'
+      - 'native_port/BUILD_WINDOWS.ps1'
+      - 'ci/test_native_x_patch_chain.py'
 permissions:
   contents: write
 concurrency:
