@@ -127,6 +127,25 @@ PATCHES = {
   ],
 }
 
+# The known-working pinned backend and D127+ have different native-scale
+# geometry. Keep both audited paths intact until the new Windows build passes.
+CANDIDATE_PIN = "919371b5bdae0c9c4c7120ca321f5a4d72b7e78e"
+LEGACY_PIN = "bf965e952c98e050753e91d08f32685a9f754b12"
+if PIN == LEGACY_PIN:
+    PATCHES["src/renderer.cpp"][-1] = (
+        "  bool scaled = source->reduced || aliased;",
+        "  bool scaled = source->reduced || aliased || hulk_sample_grid;"
+    )
+    old, new = PATCHES["src/targets.cpp"][0]
+    def legacy_scale(text):
+        return (text.replace("  static const RenderScale kNativeScale;\\n", "")
+                    .replace(" : native ? kNativeScale : scale_", " : scale_")
+                    .replace("&& !shadow && !native &&", "&& !shadow &&"))
+    PATCHES["src/targets.cpp"][0] = (legacy_scale(old), legacy_scale(new))
+elif PIN != CANDIDATE_PIN:
+    raise ValueError("Unsupported NativeX revision for Hulk sample grid: " + PIN)
+
+
 def transform(source, rules):
     finished = [new in source for old, new in rules]
     if all(finished):
