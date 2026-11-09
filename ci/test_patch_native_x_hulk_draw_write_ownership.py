@@ -23,6 +23,7 @@ class DrawOwnership(unittest.TestCase):
   self.assertIn("(mask >> (4 * i)) & 0xFu",out)
   self.assertIn("(depth & 6u) == 6u",out)
   self.assertNotIn("if (targets[i]) targets[i]->written",out)
+  self.assertIn("(*g_registers)[rex::graphics::reg::RB_COLOR_MASK",out)
   for mask,depth,count in ((0,0,0),(0xF,0,1),(0x10,0,1),(0,2,0),(0,6,1),(0,1,1)):
    written=sum(bool((mask>>(4*i))&0xF) for i in range(4))+bool(depth&1 or (depth&6)==6)
    self.assertEqual(written,count)
