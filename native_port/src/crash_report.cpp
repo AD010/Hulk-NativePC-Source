@@ -83,13 +83,13 @@ LONG WINAPI WriteCrashReport(EXCEPTION_POINTERS* info) {
   }
   SYSTEMTIME now = {};
   GetLocalTime(&now);
-  std::fprintf(f, "Hulk NativePC local crash report\\n");
-  std::fprintf(f, "time %04u-%02u-%02u %02u:%02u:%02u.%03u thread %lu process %lu\\n",
+  std::fprintf(f, "Hulk NativePC local crash report\n");
+  std::fprintf(f, "time %04u-%02u-%02u %02u:%02u:%02u.%03u thread %lu process %lu\n",
                now.wYear, now.wMonth, now.wDay, now.wHour, now.wMinute,
                now.wSecond, now.wMilliseconds,
                static_cast<unsigned long>(GetCurrentThreadId()),
                static_cast<unsigned long>(GetCurrentProcessId()));
-  std::fprintf(f, "minidump %s (error %lu)\\n",
+  std::fprintf(f, "minidump %s (error %lu)\n",
                dump_ok ? "saved as crash-report.dmp" : "unavailable",
                static_cast<unsigned long>(dump_error));
   std::fflush(f);
