@@ -86,7 +86,7 @@ def run(sha=SHA):
         renderer=(source/"src/renderer.cpp").read_text(encoding="utf-8")
         draw=(source/"src/draw.cpp").read_text(encoding="utf-8")
         needed=["HULK/PM4-REGISTER-ONLY","const bool submitted = g_draw->Draw(",
-                "HULK/PM4-SURFACE","HULK/MSAA-GRID","HULK/UNBOUND-MRT"]
+                "HULK/PM4-SURFACE","HULK/MSAA-GRID","HULK/RESOLVE-SCALE","HULK/UNBOUND-MRT"]
         missing=[mark for mark in needed if mark not in renderer]
         if "bool DrawPath::Draw(" not in draw:missing.append("bool DrawPath::Draw(")
         if sha == CANDIDATE_SHA:
