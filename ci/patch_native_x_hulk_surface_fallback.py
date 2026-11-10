@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Recover lost Hulk native Vulkan PM4 draws caused by strict RT identity.
+"""Optional diagnostic fallback for unmatched Hulk native Vulkan PM4 draws.
 
 Retains per-packet surfaces when known; falls back to actual XDK-bound surfaces
 for otherwise rejected draws. No game data, guest shaders or emulated graphics.
@@ -10,7 +10,7 @@ import sys
 
 import os
 PIN = os.environ.get("HULK_NATIVEX_SOURCE_SHA", "bf965e952c98e050753e91d08f32685a9f754b12")
-CVAR="REXCVAR_DEFINE_BOOL(native_x_renderer_hulk_surface_fallback, true, \"NativeXRenderer\",\n                    \"Recover Hulk's unmatched PM4 Vulkan draws with genuine bound XDK RT/depth objects. \"\n                    \"Strict packet-time mapping remains first; no Xenos graphics fallback.\");\n"
+CVAR="REXCVAR_DEFINE_BOOL(native_x_renderer_hulk_surface_fallback, false, \"NativeXRenderer\",\n                    \"Recover Hulk's unmatched PM4 Vulkan draws with genuine bound XDK RT/depth objects. \"\n                    \"Strict packet-time mapping remains first; no Xenos graphics fallback.\");\n"
 DECL_ANCHOR="// Resolve synthetic PM4 draws using the GPU register image at each packet,"
 DRAW_OLD="  synthetic.device = device;\n  std::array<GuestSurface, 5> packet_surfaces{};\n  if (!HulkPacketSurfaces(tracker, base, device, packet_surfaces)) return;\n  CaptureDraw(synthetic, tracker, base, &packet_surfaces);"
 DRAW_NEW="  synthetic.device = device;\n  std::array<GuestSurface, 5> packet_surfaces{};\n  if (HulkPacketSurfaces(tracker, base, device, packet_surfaces)) {\n    CaptureDraw(synthetic, tracker, base, &packet_surfaces);\n  } else if (REXCVAR_GET(native_x_renderer_hulk_surface_fallback)) {\n    // Runtime 146: strict mapping dropped at least 250k guest PM4 draws.\n    // Reuse the previously rendered native path only with real bound XDK objects.\n    bool has_bound_surface = false;\n    for (uint32_t slot = 0; slot < 5; ++slot)\n      has_bound_surface |= bool(ReadBoundSurface(base, device, slot));\n    if (!has_bound_surface) return;\n    CaptureDraw(synthetic, tracker, base);\n    static std::atomic<uint64_t> fallbacks{0};\n    const uint64_t n = ++fallbacks;\n    if (n == 1 || n % 10000 == 0)\n      REXLOG_WARN(\"[HULK/PM4-SURFACE] recovered native Vulkan Draw with bound XDK object; total={}\", n);\n  } else {\n    return;\n  }"
