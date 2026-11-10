@@ -63,3 +63,50 @@ to the public Hulk repository. Keep the current single Windows Release workflow.
 **Not shipped/NOT claimed:** a complete King Kong renderer integration, new EoR
 LOD logic, world texture packs, offline shader pack, working DX12 backend,
 DLSS, full missions, a final quality-approved remaster or user-GPU proof.
+
+## Additional independent audits: Blue Dragon and Fable II (10 Nov 2026)
+
+- **[re:Blue / Blue Dragon](https://github.com/zolaware/reblue)** (BSD-3-Clause):
+  a real, released ReXGlue native port with a custom `src/gpu` layer. Its
+  `src/gpu/surface_registry.cpp` keys and retires native targets explicitly,
+  `src/gpu/draw_framebuffer.cpp` manages RT/depth barriers and read-after-write
+  sampling, and `src/gpu/resolve.cpp` validates destination sample count,
+  dimensions and format before copying/aliasing. It models EDRAM resolve
+  semantics, so the GPU backend is **not** a drop-in replacement for Hulk's
+  no-EDRAM Vulkan rendering. Reuse the safety invariants and test philosophy,
+  not its game-specific targets or shader/resource formats.
+  `src/vfs/prefetch.cpp` warms known asset directories on a background thread,
+  with cancellation on shutdown. Hulk would need evidence-based EoR archive
+  prefetch scheduling rather than copying Blue Dragon's directory list.
+  Its installer and mod manager also validate user-owned disc content, preserve
+  profiles and never ship copyrighted game assets.
+- **[Fable2RE](https://github.com/Vynx-Velvet/Fable2RE)** (project-authored MIT,
+  bundled SDK code retains other licenses): reconstructs readable C++ function
+  by function, but explicitly reports an experimental port, not a finished
+  full-game remake. Its independent `tools/pm4_state.py` replays captured
+  Type 0/3 writes and compares PM4 register state with an XDK shadow image.
+  The **concept** is useful for Hulk's observed `FETCH-WRITER` and RT0
+  mismatches: obtain a safe guest PM4 snapshot and compare register state at
+  the exact draw. Do not use the Fable-specific capture format, guest offsets
+  or hardcoded addresses directly. Its `tools/validate_commit.py` also blocks
+  game-derived assets from public commits.
+- **[Fable2Remake](https://github.com/Fable2Recomp/Fable2Remake)** (MIT):
+  lists 4K, 60–240 FPS and more as *planned* capabilities. It is **not**
+  evidence of a completed or verified GPU renderer. Use its revision-specific
+  TU1 approach as a research lead, never swap a Fable XEX or profile into Hulk.
+
+## A repeatable Hulk-specific rendering evidence tool
+
+`python ci/hulk_render_log_audit.py <local-log-173.log> --compare <local-candidate.log>`
+
+The local-only report produces JSON grouped by invalid texture fetch, primitive
+topology, shader analysis, `getCompTexLOD`, PM4 color/depth mismatch,
+DMA rejection and sample `FETCH-WRITER` provenance. It also extracts the most
+recent frame's draw and pipeline-skip counters and compares observed messages
+with a later build. The cumulative `HULK/PM4-SURFACE total` is a
+**high-frequency cumulative replay metric**, not a number of unique Draws.
+This tool **does not fix GPU output** and cannot substitute for GPU frame
+captures or actual gameplay. Do not check private user log files or generated
+log reports into public Git.
+
+Source-only regression: `python ci/test_hulk_render_log_audit.py`.
