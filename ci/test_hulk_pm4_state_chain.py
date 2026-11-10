@@ -61,9 +61,26 @@ def apply_state_chain(files: dict[str, str]) -> dict[str, str]:
     return result
 
 
+def verify_existing_build_order() -> None:
+    # The actual Windows build is kept untouched. Guard source-level tests
+    # against future changes that reorder prerequisite PM4 patches.
+    build = Path(__file__).resolve().parent.parent / "native_port" / "BUILD_WINDOWS.ps1"
+    manifest = build.read_text(encoding="utf-8")
+    names = (
+        "patch_native_x_hulk_pm4_gap.py",
+        "patch_native_x_hulk_gap_draw.py",
+        "patch_native_x_hulk_gap_stream.py",
+        "patch_native_x_hulk_pm4_draw_payload.py",
+    )
+    order = [manifest.find(name) for name in names]
+    if any(i < 0 for i in order) or order != sorted(order):
+        raise ValueError("NativeX PM4 build prerequisites changed order: " + repr(order))
+
+
 def main() -> None:
     if len(sys.argv) != 2:
         raise SystemExit(__doc__)
+    verify_existing_build_order()
     root = Path(sys.argv[1]).resolve()
     files = {name: (root / name).read_text(encoding="utf-8")
              for name in ("src/state.cpp", "src/state.h")}
