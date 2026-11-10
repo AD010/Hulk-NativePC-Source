@@ -107,6 +107,20 @@ def transform(files: dict[str, str]) -> dict[str, str]:
         "      if (!draw || loaded) SendValue(reg, value);",
         "load float constants even during Draw")
     cpp = exactly(cpp, OLD_LOAD_LOOP, "", "remove delayed LOAD application")
+    # When the previous read-only fetch probe is installed, the Gather loop
+    # now includes both SET and LOAD packets. Tag the true source so the
+    # next real game trace can prove whether a later LOAD corrected an early
+    # 1280/720 SET or whether the game genuinely issued those final values.
+    if "[HULK/FETCH-WRITER]" in cpp:
+        cpp = exactly(cpp,
+            'value={:#x} indirect={}",\\n',
+            'value={:#x} indirect={} source={}",\\n',
+            "fetch provenance log format")
+        cpp = exactly(cpp,
+            '                    (reg - kFetchConstants) % 6, value, scan_.indirect);',
+            '                    (reg - kFetchConstants) % 6, value, scan_.indirect,\\n'
+            '                    loaded ? "LOAD_ALU" : "SET");',
+            "fetch provenance log source")
     # Existing frame_path_probe logs SET writes in Gather. The new ordered
     # loop includes LOAD_ALU_CONSTANT, so log provenance without rewriting the
     # existing diagnostic, and never alter the actual register values.
