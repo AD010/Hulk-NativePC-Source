@@ -23,6 +23,16 @@ def fixture():
             case 0x2D:
               out.writes.emplace_back(0, 0);
               break;
+            case 0x3F: {  // INDIRECT_BUFFER: the library's prebuilt buffers
+              uint32_t target = PhysicalToVirtual(Load32(base, p));
+              uint32_t length = Load32(base, p + 4) & 0xFFFFF;
+              ++out.indirect;
+              if (depth == 0) {
+                ScanPackets(base, target, target + 4 * length, out, depth + 1,
+                          skip_constants, copy_microcode, on_packet_draw);
+              }
+              break;
+            }
             default:
               break;
           }
@@ -105,6 +115,17 @@ class TestHulkPfpPatch(unittest.TestCase):
         self.assertIn("size > rex::graphics::RegisterFile::kRegisterCount - reg", cpp)
         self.assertLess(cpp.index("HULK/PM4-LOAD-RANGE"), cpp.index(
             "for (uint32_t i = 0; i < size; ++i) out.loads.emplace_back"))
+
+    def test_prefetch_and_nested_indirect_are_executed(self):
+        s = self.patched["src/state.cpp"]
+        self.assertIn("HULK/PM4-NESTED-IB", s)
+        self.assertIn("case 0x37:  // INDIRECT_BUFFER_PFD", s)
+        self.assertIn("case 0x3F: {  // INDIRECT_BUFFER", s)
+        self.assertIn("constexpr int kMaxIndirectDepth = 8;", s)
+        self.assertIn("uint64_t(target) + 4ull * length > 0xC0000000ull", s)
+        self.assertIn("if (!out.complete) return;", s)
+        self.assertNotIn("if (depth == 0) {", s)
+        self.assertIn("opcode == 0x37 || opcode == 0x3F", s)
 
     def test_clear_does_not_erase_bin_flags(self):
         s = self.patched["src/state.cpp"]
