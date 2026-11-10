@@ -20,12 +20,21 @@ ISSUES = {
     "invalid_get_computed_lod": re.compile(r"getCompTexLOD used with explicit LOD or gradients"),
     "pm4_missing_target": re.compile(r"\[HULK/PM4-MISS\]"),
     "pm4_dma_rejected": re.compile(r"\[HULK/PM4-DMA-REJECT\]"),
+    # Source-only split of ambiguous surface misses, available after #89fbb93:
+    "pm4_no_writable_rt": re.compile(r"\[HULK/PM4-NO-WRITABLE-RT\]"),
+    "pm4_actual_surface_miss": re.compile(r"\[HULK/PM4-ACTUAL-MISS\]"),
+    "pm4_zero_surface_pitch": re.compile(r"\[HULK/PM4-ZERO-SURFACE\]"),
     "empty_dma_draw": re.compile(r"\[HULK/EMPTY-DMA-INDEX\]"),
     "fetch_writer": re.compile(r"\[HULK/FETCH-WRITER\]"),
 }
 CUMULATIVE = {
     "pm4_ambiguous_binding": re.compile(r"\[HULK/PM4-SURFACE\] skipped ambiguous synthetic RT/depth binding; total=(\d+)"),
     "pm4_packet_draws_accepted": re.compile(r"\[HULK/PM4-ACCEPT\].*?total=(\d+)"),
+    # These three counts are throttled. Retain the highest #N and NEVER
+    # sum their log lines or present a missing sample as zero GPU work.
+    "pm4_no_writable_rt": re.compile(r"\[HULK/PM4-NO-WRITABLE-RT\] #(\d+)"),
+    "pm4_actual_surface_misses": re.compile(r"\[HULK/PM4-ACTUAL-MISS\] #(\d+)"),
+    "pm4_zero_surface_pitch": re.compile(r"\[HULK/PM4-ZERO-SURFACE\] #(\d+)"),
 }
 RT_MISS = re.compile(r"\[HULK/PM4-MISS\] slot=(\d+) kind=(\w+) reason=([\w_]+)")
 FETCH_WRITER = re.compile(r"\[HULK/FETCH-WRITER\].*?slot=(\d+) dword=(\d+) value=(0x[0-9a-fA-F]+).*?source=(\w+)")
@@ -88,6 +97,8 @@ def analyze(text: str) -> dict:
         "limitations": [
             "Some warnings are throttled; counts are logged samples, not total GPU errors.",
             "PM4-SURFACE total is a cumulative replay counter, not a count of distinct discarded draw objects.",
+            "New PM4 classifications are last observed throttled #N counters, not complete counts if samples are missing.",
+            "No-writable attachment is not necessarily a failed scene geometry draw (queries/pipe helpers may issue PM4 draws).",
             "Same-frame scene, game area, camera and settings are needed to infer improvement between logs.",
             "CI build success and log improvements cannot establish pixel-perfect GPU output.",
         ],

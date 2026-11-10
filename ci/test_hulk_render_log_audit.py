@@ -33,6 +33,28 @@ class HulkLogAuditTests(unittest.TestCase):
         self.assertEqual(r["last_renderer_frame"]["interval_ms"]["average"], 20.18)
         self.assertEqual(r["last_renderer_frame"]["skipped_pipeline_compile"], 3)
 
+    def test_separate_real_surface_misses_from_non_writable_draw_packets(self):
+        text = "\n".join([
+            "[HULK/PM4-NO-WRITABLE-RT] #1 surface=0xa020280 color_mask=0x0 depth_control=0x0",
+            "[HULK/PM4-NO-WRITABLE-RT] #50000 surface=0xa020280 color_mask=0x0 depth_control=0x0",
+            "[HULK/PM4-ACTUAL-MISS] #3 surface=0xa020280 color_mask=0xf depth_control=0x8777",
+            "[HULK/PM4-ZERO-SURFACE] #12 surface=0x0",
+            "[HULK/PM4-SURFACE] skipped ambiguous synthetic RT/depth binding; total=730000",
+        ])
+        audit = analyze(text)
+        c = audit["cumulative_reported_totals"]
+        self.assertEqual(c["pm4_no_writable_rt"], 50000)
+        self.assertEqual(c["pm4_actual_surface_misses"], 3)
+        self.assertEqual(c["pm4_zero_surface_pitch"], 12)
+        self.assertEqual(c["pm4_ambiguous_binding"], 730000)
+        self.assertEqual(audit["issue_messages_observed"]["pm4_no_writable_rt"], 2)
+        self.assertEqual(audit["issue_messages_observed"]["pm4_actual_surface_miss"], 1)
+        self.assertEqual(audit["issue_messages_observed"]["pm4_zero_surface_pitch"], 1)
+        # Empty logs have unknown classifications, not proof of 0
+        # actual GPU events. They report no observed counters.
+        self.assertEqual(analyze("")["cumulative_reported_totals"]["pm4_no_writable_rt"], 0)
+        self.assertIn("throttled", " ".join(audit["limitations"]))
+
     def test_later_frame_controls_values_and_empty_log(self):
         log = "\n".join([
             "[native_x_renderer] renderer: frame 100: 2 draw calls, 1 drawn, 0 without targets, 1 failed",
