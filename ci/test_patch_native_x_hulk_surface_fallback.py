@@ -19,4 +19,5 @@ class RecoveryTest(unittest.TestCase):
   self.assertIn("ReadBoundSurface(base, device, slot)",DRAW_NEW)
   self.assertIn("if (!has_bound_surface) return;",DRAW_NEW)
   self.assertIn("native_x_renderer_hulk_surface_fallback",CVAR)
+  self.assertIn("native_x_renderer_hulk_surface_fallback, false",CVAR)
 if __name__=="__main__":unittest.main()
