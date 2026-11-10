@@ -19,6 +19,10 @@ class FramePathProbeTests(unittest.TestCase):
         self.assertIn("resolve guest",src)
         self.assertIn("resolve host",src)
         self.assertIn("present source",src)
+        self.assertIn("[HULK/FETCH-ORIGIN]",src)
+        self.assertIn("binding.fetch_constant",src)
+        self.assertIn("[HULK/DMA-ORIGIN]",src)
+        self.assertIn("hulk_d.num_indices > hulk_s.num_words",src)
         self.assertNotIn("native_x_renderer_resolution_scale = 1",src)
 
 if __name__ == "__main__":
