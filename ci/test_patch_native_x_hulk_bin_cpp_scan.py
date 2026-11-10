@@ -26,11 +26,11 @@ struct PacketScan {
   std::vector<uint32_t> shader_ucode;
   static constexpr uint32_t kInGuestMemory=UINT32_MAX;
   uint64_t bin_mask=0xFFFFFFFFull, bin_select=0xFFFFFFFFull;
-  uint32_t bin_rejected=0,draws=0,indirect=0,predicated=0;
+  uint32_t bin_rejected=0,bin_rejected_draws=0,bin_rejected_state=0,draws=0,indirect=0,predicated=0;
   bool complete=true;
   void Clear() {
     writes.clear();predicated_writes.clear();loads.clear();shader_loads.clear();
-    shader_ucode.clear();draws=indirect=predicated=bin_rejected=0;complete=true;
+    shader_ucode.clear();draws=indirect=predicated=bin_rejected=bin_rejected_draws=bin_rejected_state=0;complete=true;
   }
 };
 uint32_t Load32(const uint8_t* b,uint32_t addr){
@@ -68,7 +68,7 @@ int main(){
               [&]{++callback;});
   assert(s.complete);
   assert(s.draws==2 && callback==2);
-  assert(s.bin_rejected==2);
+  assert(s.bin_rejected==2 && s.bin_rejected_draws==1 && s.bin_rejected_state==1);
   assert(s.writes.size()==2);
   assert(s.writes[0].second==456 && s.writes[1].second==789);
   assert(s.bin_mask==0x10 && s.bin_select==0x10);
