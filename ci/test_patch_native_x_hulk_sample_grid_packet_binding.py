@@ -24,6 +24,18 @@ class HulkPacketSampleViewTests(unittest.TestCase):
         ):
             self.assertIn(expected, NEW)
         self.assertIn("[HULK/PM4-SAMPLE-VIEW]", NEW)
+        self.assertIn("[HULK/PM4-HISTORY-ALIAS]", NEW)
+        for checked in (
+            "const HulkSurfaceIdentity xdk_key{1280u, gpu_info & 0x000F0FFFu};",
+            "g_hulk_surface_history[slot].find(xdk_key)",
+            "known.depth == (slot == 4)",
+            "known.pitch() == 1280 && known.msaa() == 0",
+            "known.width == 1280 && known.height == 720",
+            "(known.info & 0x000F0FFFu) == (gpu_info & 0x000F0FFFu)",
+            "packet_view = verified",
+            "verified.object",
+        ):
+            self.assertIn(checked, NEW)
         self.assertIn("continue;", NEW)
 
     def test_logged_surface_identity(self):
