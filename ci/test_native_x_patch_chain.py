@@ -97,6 +97,11 @@ def run(sha=SHA):
                 "HULK/PM4-SURFACE","HULK/MSAA-GRID","HULK/PM4-SAMPLE-VIEW","HULK/PM4-HISTORY-ALIAS","HULK/PM4-ACCEPT","HULK/RESOLVE-SCALE","HULK/REVERSE-ALIAS","HULK/UNBOUND-MRT"]
         missing=[mark for mark in needed if mark not in renderer]
         if "bool DrawPath::Draw(" not in draw:missing.append("bool DrawPath::Draw(")
+        if ("known.depth == (slot == 4)" not in renderer or
+            "const HulkSurfaceIdentity xdk_key{1280u, gpu_info & 0x000F0FFFu};" not in renderer):
+            missing.append("HULK history alias requires genuine same-kind/same-EDRAM object")
+        if "hulk_packet_draws_mapped" not in renderer:
+            missing.append("HULK accepted surface binding counter")
         state=(source/"src/state.cpp").read_text(encoding="utf-8")
         for name, body in (
             ("HULK/PM4-PAYLOAD",state),
