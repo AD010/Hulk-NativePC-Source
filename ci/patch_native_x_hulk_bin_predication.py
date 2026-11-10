@@ -96,6 +96,16 @@ def patch_state(source: str) -> str:
     source = once(source,
         "            default:\n              break;\n          }\n        }\n        p += 4 * count;",
         "            default:\n              break;\n          }\n        p += 4 * count;", "remove old unpredicated switch wrapper")
+    // Hulk IM_LOAD_IMMEDIATE shaders can be emitted in a recycled guest
+    // ring segment. Copy bytes at scan time even if this is a normal
+    // DrawIndexedVertices Leave scan (copy_microcode=false). The render
+    // thread must never dereference a later-reused guest command buffer.
+    source = once(source,
+        "              if (copy_microcode) {\n"
+        "                out.shader_loads.push_back(",
+        "              if (copy_microcode || immediate) {\n"
+        "                out.shader_loads.push_back(",
+        "capture IM_LOAD_IMMEDIATE code before ring reuse")
     source = once(source,
         "  draws = indirect = predicated = 0;\n  complete = true;",
         "  draws = indirect = predicated = 0;\n  bin_rejected = 0;\n  complete = true;", "Clear keeps bin state")
@@ -146,6 +156,7 @@ def transform(files: dict[str,str]) -> dict[str,str]:
     if "HULK/PFP-PREDICATE" in files["src/state.cpp"]:
         if ("hulk_bin_mask_at_gap" not in files["src/state.cpp"] or
             "HULK/PM4-PACKET-BOUNDS" not in files["src/state.cpp"] or
+            "if (copy_microcode || immediate)" not in files["src/state.cpp"] or
             "bin_rejected = 0;" not in files["src/state.cpp"]):
             raise ValueError("Partially applied bin predicate patch")
         return files
