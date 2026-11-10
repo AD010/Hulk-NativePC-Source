@@ -17,6 +17,9 @@ import unittest
 import sys
 
 FULL = (1 << 64) - 1
+# Xenia command_processor.h initializes PFP selection to the LOW 32 bits,
+# not all 64 bits. Preserve this for accurate offline parity checks.
+DEFAULT_BIN = 0xFFFFFFFF
 BIN = {0x50, 0x51, 0x60, 0x61, 0x62, 0x63}
 DRAW = {0x22, 0x36}
 INDIRECT = 0x3F
@@ -28,8 +31,8 @@ class BadPacket(ValueError):
 
 @dataclass
 class State:
-    bin_select: int = FULL
-    bin_mask: int = FULL
+    bin_select: int = DEFAULT_BIN
+    bin_mask: int = DEFAULT_BIN
     draws_seen: int = 0
     draws_selected: int = 0
     draws_skipped: int = 0
@@ -129,8 +132,11 @@ class BinParityTest(unittest.TestCase):
     auto = type3(0x36, [0x1082], True)
     plain = type3(0x36, [0x1082], False)
 
-    def test_initial_all_ones(self):
-        self.assertEqual(parse(self.auto).draws_selected, 1)
+    def test_initial_low_32_bits_selected(self):
+        first = parse(self.auto)
+        self.assertEqual(first.draws_selected, 1)
+        self.assertEqual(first.bin_mask, 0xFFFFFFFF)
+        self.assertEqual(first.bin_select, 0xFFFFFFFF)
 
     def test_zero_mask_rejects_predicated_only(self):
         s = parse(flatten(type3(0x50, [0, 0]), self.auto, self.plain))
