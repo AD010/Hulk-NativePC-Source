@@ -19,6 +19,9 @@ PRELUDE = r"""
 #include <cstring>
 #include <cassert>
 #include <iostream>
+namespace rex { namespace graphics {
+struct RegisterFile { static constexpr uint32_t kRegisterCount = 0x5000u; };
+}}
 struct PacketScan {
   std::vector<std::pair<uint32_t,uint32_t>> writes, predicated_writes, loads;
   struct ShaderLoad {uint32_t type,address,dwords,packet; bool immediate; uint32_t ucode_offset;};
@@ -85,6 +88,18 @@ int main(){
   PacketScan bad_alu;
   ScanPackets(reinterpret_cast<uint8_t*>(m.data()),alu_begin*4,off*4,bad_alu,0,false,false);
   assert(!bad_alu.complete);
+  // A syntactically valid LOAD with an invalid register class or range
+  // must not read guest memory or append spurious fetch descriptors.
+  const int bad_class_begin=off;
+  emit(off,0x2F,{0x1000,0x00050000u,1u});
+  PacketScan bad_class;
+  ScanPackets(reinterpret_cast<uint8_t*>(m.data()),bad_class_begin*4,off*4,bad_class,0,false,false);
+  assert(!bad_class.complete && bad_class.loads.empty());
+  const int bad_range_begin=off;
+  emit(off,0x2F,{0x1000,0x000407FFu,4095u});
+  PacketScan bad_range;
+  ScanPackets(reinterpret_cast<uint8_t*>(m.data()),bad_range_begin*4,off*4,bad_range,0,false,false);
+  assert(!bad_range.complete && bad_range.loads.empty());
   // A valid IM_LOAD_IMMEDIATE must retain its own immutable microcode
   // even if the guest's command ring is overwritten after scanning.
   const int shader_begin=off;
