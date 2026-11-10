@@ -62,6 +62,27 @@ class HulkPacketSampleViewTests(unittest.TestCase):
         self.assertFalse(authentic_alias(0x08010208, 0, 0x10000410, 0,
                                          1024, 1024, True, 4))
 
+    def test_real_log173_rt0_edram_rebase(self):
+        # A genuine 1280x720/1x XDK RT0 may be stale in EDRAM *base*,
+        # not in dimensions or Xenos color format. We must preserve the
+        # actual packet's GPU base=0 instead of silently binding base=1024.
+        self.assertIn("HULK/PM4-RT0-REBASE", NEW)
+        self.assertIn("gpu_surface == 0x0A020280u && gpu_info == 0u", NEW)
+        self.assertIn("bound.info == 0x400u", NEW)
+        self.assertIn("packet_view.info = gpu_info", NEW)
+        self.assertIn("packet_view.surface_info = gpu_surface", NEW)
+        self.assertIn("bound.pitch() == bound.width", NEW)
+        def accepts(surface, info, bound_surface, bound_info, width, height, msaa, depth=False):
+            return (not depth and surface == 0x0A020280 and info == 0 and
+                    bound_info == 0x400 and
+                    ((bound_surface == 0x14000500 and width == 1280 and height == 720 and msaa == 0) or
+                     (bound_surface == surface and width == 640 and height == 360 and msaa == 2)))
+        self.assertTrue(accepts(0x0A020280, 0, 0x14000500, 0x400, 1280, 720, 0))
+        self.assertTrue(accepts(0x0A020280, 0, 0x0A020280, 0x400, 640, 360, 2))
+        self.assertFalse(accepts(0x0A020280, 0x400, 0x14000500, 0x400, 1280, 720, 0))
+        self.assertFalse(accepts(0x0A020280, 0, 0x14000500, 0x401, 1280, 720, 0))
+        self.assertFalse(accepts(0x0A020280, 0, 0x14000500, 0x400, 1280, 720, 0, True))
+
     def test_logged_surface_identity(self):
         gpu_surface = 0x0A020280
         bound_surface = 0x14000500

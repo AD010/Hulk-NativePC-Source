@@ -47,6 +47,37 @@ NEW = """    const HulkSurfaceIdentity gpu_key = HulkSurfaceKey(gpu_surface, gpu
                     gpu_info & 0xFFFu, (gpu_info >> 16) & 0xFu);
       continue;
     }
+    // HULK/PM4-RT0-REBASE: real Hulk GPU packets select EDRAM base 0
+    // while the last XDK-bound color object still selects base 1024.
+    // The RT0 pitch/format/sample grid remains a verified 640x360/4x
+    // representation. Preserve the packet's actual base (never reuse the
+    // XDK base), with either observed genuine 1x or 4x XDK dimensions.
+    // Log 173: GPU surface 0x0A020280 / info 0x000, XDK info 0x400.
+    if (slot == 0 && bound && !bound.depth &&
+        g_profile->output_width == 1280 && g_profile->output_height == 720 &&
+        gpu_surface == 0x0A020280u && gpu_info == 0u &&
+        bound.info == 0x400u && bound.pitch() == bound.width &&
+        ((bound.surface_info == 0x14000500u &&
+          bound.width == 1280 && bound.height == 720 && bound.msaa() == 0) ||
+         (bound.surface_info == gpu_surface &&
+          bound.width == 640 && bound.height == 360 && bound.msaa() == 2))) {
+      GuestSurface packet_view = bound;
+      packet_view.surface_info = gpu_surface;
+      packet_view.info = gpu_info;
+      packet_view.width = 640;
+      packet_view.height = 360;
+      out[slot] = packet_view;
+      HulkRememberSurface(packet_view, slot);
+      has_target = true;
+      static std::atomic<uint64_t> hulk_rt0_rebased{0};
+      const uint64_t n = ++hulk_rt0_rebased;
+      if (n <= 12 || n % 10000 == 0)
+        REXLOG_INFO("[HULK/PM4-RT0-REBASE] #{} real XDK object={:#x} "
+                    "packet EDRAM base={} guest={}x{} 4x",
+                    n, bound.object, packet_view.edram_base(),
+                    packet_view.width, packet_view.height);
+      continue;
+    }
     // HULK/PM4-HISTORY-ALIAS: when temporarily unbound, find the
     // genuine historical XDK surface by the exact paired 1x pitch,
     // EDRAM base, format and depth/color kind. Recheck its live XDK header
