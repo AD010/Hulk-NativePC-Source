@@ -27,6 +27,13 @@ def fixture():
               for (uint32_t i = 1; i < count; ++i) out.writes.emplace_back(reg + i - 1, Load32(base, p + 4 * i));
               break;
             }
+            case 0x55:    // SET_CONSTANT2
+            case 0x56: {  // SET_SHADER_CONSTANTS
+              uint32_t reg = Load32(base, p) & 0xFFFF;
+              if (SkippedConstants(skip_constants, reg, count - 1)) break;
+              for (uint32_t i = 1; i < count; ++i) out.writes.emplace_back(reg + i - 1, Load32(base, p + 4 * i));
+              break;
+            }
             case 0x3F: {  // INDIRECT_BUFFER: the library's prebuilt buffers
               uint32_t target = PhysicalToVirtual(Load32(base, p));
               uint32_t length = Load32(base, p + 4) & 0xFFFFF;
@@ -119,6 +126,14 @@ class TestHulkPfpPatch(unittest.TestCase):
         self.assertIn("count - 1 > rex::graphics::RegisterFile::kRegisterCount - reg", cpp)
         self.assertLess(cpp.index("HULK/PM4-SET-RANGE"),
                         cpp.index("for (uint32_t i = 1; i < count; ++i) out.writes.emplace_back"))
+
+    def test_set_constant2_and_shader_constants_are_bounded(self):
+        cpp = self.patched["src/state.cpp"]
+        self.assertIn("HULK/PM4-DIRECT-SET-RANGE", cpp)
+        self.assertIn("reg >= rex::graphics::RegisterFile::kRegisterCount", cpp)
+        self.assertIn("count - 1 > rex::graphics::RegisterFile::kRegisterCount - reg", cpp)
+        self.assertIn("case 0x55:", cpp)
+        self.assertIn("case 0x56:", cpp)
 
     def test_load_range_checked_before_guest_read(self):
         cpp = self.patched["src/state.cpp"]
