@@ -300,13 +300,9 @@ try {
     Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_register_order.py'), $NxrFull) $Source
     # Do not Present pending Vulkan frames while the window has no client area.
     Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_minimized_pending_swap.py'), $NxrFull) $Source
-    # King Kong pipeline dependency lesson: opt-in wait-for-ALL diagnostic.
-    # Never change default Vulkan frame pacing; source-only test first.
-    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_pipeline_dependency_probe.py')) $Source
-    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_pipeline_dependency_probe.py'), $NxrFull) $Source
-    if (-not (Get-Content -LiteralPath (Join-Path $NxrFull 'src/renderer.cpp') -Raw).Contains('[HULK/PIPELINE-DEPENDENCY-PROBE]')) {
-      throw 'Hulk NativeX pipeline dependency diagnostic patch missing.'
-    }
+    # Preserve known-buildable NativeX pipeline scheduling. The optional
+    # wait-all experiment stays source-only until independently proven
+    # against this pinned Diligent/Vulkan build and a real Hulk frame.
   }
   Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_gen_native_x_hooks_probe.py')) $Source
   Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_hulk_present_hook_profile.py')) $Source

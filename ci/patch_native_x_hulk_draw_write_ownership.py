@@ -29,18 +29,22 @@ PATCHES = {
 # rasterize invalid indices or attempt to read outside the index buffer.
 DMA_EMPTY_OLD = """  rg::PrimitiveProcessor::ProcessingResult primitives;
   if (!primitives_->Process(primitives)) {"""
-DMA_EMPTY_NEW = """  // HULK/EMPTY-DMA-INDEX: real log173 index buffers sometimes contain
-  // ZERO indices despite nonzero DRAW_INDX count. Never rasterize an
-  // unbounded read; leave the host image untouched rather than invent indices.
+DMA_EMPTY_NEW = """  // HULK/EMPTY-DMA-INDEX: guest DRAW_INDX can reference an incomplete
+  // DMA range (Hulk log173 had 0 indices available for many requested).
+  // Check *every* indexed draw, including nonzero-but-short buffers, before
+  // PrimitiveProcessor reads it. Never fabricate indices or truncate the draw.
   const auto hulk_initiator = regs.Get<reg::VGT_DRAW_INITIATOR>();
   if (hulk_initiator.source_select == xenos::SourceSelect::kDMA &&
-      hulk_initiator.num_indices > 0 &&
-      (regs[rg::XE_GPU_REG_VGT_DMA_SIZE] & 0x00FFFFFFu) == 0u) {
-    NATIVE_X_RENDERER_WARN_ONCE("[HULK/EMPTY-DMA-INDEX] skipped indexed Draw "
-                               "with empty VGT_DMA_SIZE (requested {})",
-                               hulk_initiator.num_indices);
-    ++stats_.failed;
-    return false;
+      hulk_initiator.num_indices > 0u) {
+    const uint32_t hulk_available_indices =
+        regs[rg::XE_GPU_REG_VGT_DMA_SIZE] & 0x00FFFFFFu;
+    if (hulk_initiator.num_indices > hulk_available_indices) {
+      NATIVE_X_RENDERER_WARN_ONCE("[HULK/EMPTY-DMA-INDEX] skipped incomplete "
+                                 "DMA draw requested={} available={}",
+                                 hulk_initiator.num_indices, hulk_available_indices);
+      ++stats_.failed;
+      return false;
+    }
   }
   rg::PrimitiveProcessor::ProcessingResult primitives;
   if (!primitives_->Process(primitives)) {"""

@@ -26,8 +26,6 @@ EXPERIMENTS=[
  "ci/patch_native_x_hulk_pm4_draw_payload.py",
  "ci/test_patch_native_x_hulk_packet_dma_snapshot.py",
  "ci/patch_native_x_hulk_packet_dma_snapshot.py",
- "ci/test_patch_native_x_hulk_pipeline_dependency_probe.py",
- "ci/patch_native_x_hulk_pipeline_dependency_probe.py",
 ]
 
 def commands():
