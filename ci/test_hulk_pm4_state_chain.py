@@ -19,6 +19,7 @@ from patch_native_x_hulk_gap_draw import PATCHES as DRAW_PATCHES, transform as d
 from patch_native_x_hulk_gap_stream import PATCHES as STREAM_PATCHES, transform as stream_transform
 from patch_native_x_hulk_pm4_draw_payload import patch_text as payload_transform
 from patch_native_x_hulk_bin_predication import transform as pfp_transform
+from patch_native_x_hulk_register_order import transform as register_order_transform
 
 
 def apply_state_chain(files: dict[str, str]) -> dict[str, str]:
@@ -93,7 +94,19 @@ def main() -> None:
         test = Path(__file__).with_name("test_patch_native_x_hulk_bin_cpp_scan.py")
         subprocess.run([sys.executable, str(test), str(output)],
                        check=True)
-    print("PASS: Hulk PM4 gap -> draw -> stream -> payload -> PFP native C++ source")
+    # The C++ scan validation intentionally runs on PFP pre-ordered source:
+    # the standalone test replaces ScanDraw with its own test double. Now
+    # validate that the SAME verified stream also accepts ordered registers.
+    ordered = register_order_transform(processed)
+    if "HULK/PM4-REGISTER-ORDER" not in ordered["src/state.cpp"]:
+        raise ValueError("Chronological PM4 register patch missing")
+    if "std::vector<uint32_t> register_order;" not in ordered["src/state.h"]:
+        raise ValueError("Chronological PM4 register header missing")
+    if register_order_transform(ordered) != ordered:
+        raise ValueError("PM4 register patch not idempotent")
+    subprocess.run([sys.executable, str(Path(__file__).with_name(
+        "test_patch_native_x_hulk_register_order.py"))], check=True)
+    print("PASS: Hulk gap -> draw -> stream -> payload -> PFP -> ordered registers")
 
 
 if __name__ == "__main__":
