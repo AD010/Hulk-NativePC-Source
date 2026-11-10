@@ -73,7 +73,15 @@ bool CapturePacketDmaIndices(const StateTracker& tracker, const uint8_t* base, C
 CALL_ANCHOR="""  c.programs[1] = tracker.pixel_program_ptr();
   if ((Info(tracked.call).flags & kInlineEnd) || tracked.call == Call::kDrawVerticesUP) {"""
 CALL_NEW="""  c.programs[1] = tracker.pixel_program_ptr();
-  if (packet_surfaces && !CapturePacketDmaIndices(tracker, base, c)) return;
+  if (packet_surfaces && !CapturePacketDmaIndices(tracker, base, c)) {
+    // HULK/PM4-DMA-CANCEL: Capture::~Capture() unconditionally Publish()es
+    // the command, EVEN on early return. Returning without changing its
+    // kDraw type still runs that rejected draw on the Vulkan thread.
+    // kNone executes only c.registers (preserving ordered PM4 GPU state);
+    // it cannot enter ExecuteDraw or read the missing guest DMA indices.
+    c.type = Command::Type::kNone;
+    return;
+  }
   if ((Info(tracked.call).flags & kInlineEnd) || tracked.call == Call::kDrawVerticesUP) {"""
 
 def patch_text(source):

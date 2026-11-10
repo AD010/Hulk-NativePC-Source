@@ -29,7 +29,9 @@ class DmaSnapshotTests(unittest.TestCase):
             "[HULK/PM4-DMA-SNAPSHOT]"
         ):
             self.assertIn(token, ADDITION)
-        self.assertIn("if (packet_surfaces && !CapturePacketDmaIndices(tracker, base, c)) return;",CALL_NEW)
+        self.assertIn("if (packet_surfaces && !CapturePacketDmaIndices(tracker, base, c)) {", CALL_NEW)
+        self.assertIn("c.type = Command::Type::kNone;", CALL_NEW)
+        self.assertNotIn("base, c)) return;", CALL_NEW)
         self.assertIn("bool CapturePacketDmaIndices(", ADDITION)
         self.assertIn("const uint32_t indices = requested_indices;", ADDITION)
         self.assertIn("[HULK/PM4-DMA-REJECT]", ADDITION)
@@ -37,6 +39,21 @@ class DmaSnapshotTests(unittest.TestCase):
         self.assertNotIn("std::min(requested_indices, available_indices)", ADDITION)
         self.assertNotIn("memset",ADDITION)
 
+
+    def test_rejected_dma_draw_must_not_publish_as_draw(self):
+        # NativeX upstream Capture::~Capture publishes the command even on
+        # early return. Its Execute path applies the register record first,
+        # then ignores Command::Type::kNone.
+        self.assertIn("HULK/PM4-DMA-CANCEL", CALL_NEW)
+        self.assertIn("Capture::~Capture()", CALL_NEW)
+        self.assertIn("c.type = Command::Type::kNone;", CALL_NEW)
+        self.assertIn("return;", CALL_NEW)
+        def execute(command_type, record, old_state):
+            state = record if record is not None else old_state
+            rendered = command_type == "kDraw"
+            return state, rendered
+        self.assertEqual(execute("kNone", 7, 0), (7, False))
+        self.assertEqual(execute("kDraw", 7, 0), (7, True))
 
     def test_persistent_dma_register_values(self):
         # Packet-local LastWrite cannot observe the last valid DMA BASE/SIZE
