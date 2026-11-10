@@ -97,7 +97,7 @@ def run(sha=SHA):
                 "HULK/PM4-SURFACE","HULK/MSAA-GRID","HULK/PM4-SAMPLE-VIEW","HULK/PM4-HISTORY-ALIAS","HULK/PM4-ACCEPT","HULK/RESOLVE-SCALE","HULK/REVERSE-ALIAS","HULK/UNBOUND-MRT"]
         missing=[mark for mark in needed if mark not in renderer]
         if "bool DrawPath::Draw(" not in draw:missing.append("bool DrawPath::Draw(")
-        if ("known.depth == (slot == 4)" not in renderer or
+        if ("live.depth == (slot == 4)" not in renderer or
             "const HulkSurfaceIdentity xdk_key{2u * (gpu_surface & 0x3FFFu), gpu_info & 0x000F0FFFu};" not in renderer or
             "live.width == known.width && live.height == known.height" not in renderer or
             "bound.pitch() == 2u * (gpu_surface & 0x3FFFu)" not in renderer):
