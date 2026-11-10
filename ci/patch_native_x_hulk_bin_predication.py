@@ -98,6 +98,24 @@ def patch_state(source: str) -> str:
     source = once(source,
         "            default:\n              break;\n          }\n        }\n        p += 4 * count;",
         "            default:\n              break;\n          }\n        p += 4 * count;", "remove old unpredicated switch wrapper")
+    source = once(source,
+        "              uint32_t size = Load32(base, p + 8) & 0xFFF;\n"
+        "              uint32_t reg = ConstantBase((ot >> 16) & 0xFF) + (ot & 0x7FF);\n"
+        "              for (uint32_t i = 0; i < size; ++i) out.loads.emplace_back(reg + i, Load32(base, address + 4 * i));",
+        "              uint32_t size = Load32(base, p + 8) & 0xFFF;\n"
+        "              const uint32_t constant_type = (ot >> 16) & 0xFFu;\n"
+        "              uint32_t reg = ConstantBase(constant_type) + (ot & 0x7FFu);\n"
+        "              // HULK/PM4-LOAD-RANGE: never dereference memory for a LOAD\n"
+        "              // targeting an invalid register class or overflowing the GPU file.\n"
+        "              // Xenia only recognizes classes 0..4. Preserve complete\n"
+        "              // valid loads; reject malformed descriptors without stale replay.\n"
+        "              if (constant_type > 4 || reg >= rex::graphics::RegisterFile::kRegisterCount ||\n"
+        "                  size > rex::graphics::RegisterFile::kRegisterCount - reg) {\n"
+        "                out.complete = false;\n"
+        "                return;\n"
+        "              }\n"
+        "              for (uint32_t i = 0; i < size; ++i) out.loads.emplace_back(reg + i, Load32(base, address + 4 * i));",
+        "guard GPU memory LOAD register class and range")
     # Hulk IM_LOAD_IMMEDIATE shaders can be emitted in a recycled guest
     # ring segment. Copy bytes at scan time even if this is a normal
     # DrawIndexedVertices Leave scan (copy_microcode=false). The render
@@ -187,6 +205,7 @@ def transform(files: dict[str,str]) -> dict[str,str]:
             "hulk_bin_mask_at_gap", "HULK/PM4-PACKET-BOUNDS",
             "if (copy_microcode || immediate)", "HULK/PM4-SHADER-BOUNDS",
             "HULK/PFP-RESET", "HULK/PFP-BIN", "bin_rejected_draws", "bin_rejected_state",
+            "HULK/PM4-LOAD-RANGE",
         )
         if any(mark not in cpp for mark in required):
             raise ValueError("Partially applied bin predicate patch")
