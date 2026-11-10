@@ -271,6 +271,15 @@ try {
     # F10 belongs to Hulk's real PC menu, never steal it for the SDK observer.
     Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_verify_key.py')) $Source
     Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_verify_key.py'), $NxrFull) $Source
+    # Reconstruct real Xenos BIN-predicated commands and preserve shader
+    # microcode, nested indirect draws and GPU register write boundaries.
+    # These are retail renderer corrections, not tests shipped with the game.
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_bin_predication.py'), $NxrFull) $Source
+    # Xenos SET_CONSTANT and LOAD_ALU_CONSTANT execute in PM4 packet order:
+    # do not overwrite later fetch descriptors with earlier shadow values.
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_register_order.py'), $NxrFull) $Source
+    # Do not Present pending Vulkan frames while the window has no client area.
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_minimized_pending_swap.py'), $NxrFull) $Source
   }
   Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_gen_native_x_hooks_probe.py')) $Source
   Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_hulk_present_hook_profile.py')) $Source
