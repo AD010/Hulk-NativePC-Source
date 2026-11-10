@@ -22,7 +22,7 @@ FULL = (1 << 64) - 1
 DEFAULT_BIN = 0xFFFFFFFF
 BIN = {0x50, 0x51, 0x60, 0x61, 0x62, 0x63}
 DRAW = {0x22, 0x36}
-INDIRECT = 0x3F
+INDIRECT = {0x37, 0x3F}
 
 
 class BadPacket(ValueError):
@@ -101,7 +101,7 @@ def parse(words: Sequence[int], indirect: Mapping[int, Sequence[int]] | None = N
                     if op == 0x62: s.bin_select = (s.bin_select & 0xFFFFFFFF00000000) | val
                     if op == 0x63: s.bin_select = (s.bin_select & 0xFFFFFFFF) | (val << 32)
                 s.bin_updates[op] = s.bin_updates.get(op, 0) + 1
-            elif op == INDIRECT:
+            elif op in INDIRECT:
                 if n < 2: raise BadPacket("short INDIRECT_BUFFER")
                 addr = payload[0] & 0x3FFFFFFF
                 count = payload[1] & 0xFFFFF
@@ -163,6 +163,13 @@ class BinParityTest(unittest.TestCase):
         s = parse(flatten(type3(0x50, [0,0]), type3(0x51, [0,32]),
                           type3(0x3F, [0x2000,len(sub)]), self.auto), {0x2000:sub})
         self.assertEqual((s.draws_selected, s.indirect_buffers), (2, 1))
+
+    def test_nested_prefetch_indirect_uses_same_bin_state(self):
+        inner = flatten(self.auto)
+        middle = flatten(type3(0x37, [0x3000,len(inner)]))
+        top = flatten(type3(0x3F,[0x2000,len(middle)]))
+        s = parse(top, {0x2000:middle,0x3000:inner})
+        self.assertEqual((s.draws_selected,s.indirect_buffers),(1,2))
 
     def test_predicated_indirect_is_skipped(self):
         sub = flatten(self.plain, self.plain)
