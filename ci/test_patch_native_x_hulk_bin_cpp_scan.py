@@ -96,7 +96,7 @@ int main(){
   ScanPackets(reinterpret_cast<uint8_t*>(m.data()),bad_class_begin*4,off*4,bad_class,0,false,false);
   assert(!bad_class.complete && bad_class.loads.empty());
   const int bad_range_begin=off;
-  emit(off,0x2F,{0x1000,0x000407FFu,4095u});
+  emit(off,0x2F,{0x1000,0x000107FFu,4095u});
   PacketScan bad_range;
   ScanPackets(reinterpret_cast<uint8_t*>(m.data()),bad_range_begin*4,off*4,bad_range,0,false,false);
   assert(!bad_range.complete && bad_range.loads.empty());
