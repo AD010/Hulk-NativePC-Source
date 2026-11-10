@@ -18,21 +18,34 @@ ANCHOR="void CaptureDraw(const TrackedCall& tracked, StateTracker& tracker, cons
 ADDITION="""// HULK/PM4-DMA-SNAPSHOT: the graphics thread runs after this guest
 // ring-buffer segment may have been reused by the game. Snapshot only
 // the DMA indices named by THIS draw's PM4 initiator and DMA registers.
-void CapturePacketDmaIndices(const StateTracker& tracker, const uint8_t* base, Command& c) {
+bool CapturePacketDmaIndices(const StateTracker& tracker, const uint8_t* base, Command& c) {
   namespace rg = rex::graphics;
   uint32_t initiator = 0, dma_base = 0, dma_size = 0;
-  if (!tracker.LastWrite(rg::XE_GPU_REG_VGT_DRAW_INITIATOR, initiator) ||
-      ((initiator >> 6) & 3u) != 0) return;  // auto-indexed: no DMA
+  // A synthetic packet must not rasterize with a missing/stale DMA index
+  // buffer. Log 173 observed 99/354/1248 indices requested while
+  // VGT_DMA_SIZE was zero; previously this was still passed to DrawPath.
+  auto reject = [&](const char* why) -> bool {
+    static std::atomic<uint64_t> rejected{0};
+    const uint64_t n = ++rejected;
+    if (n <= 12 || n % 10000 == 0)
+      REXLOG_WARN("[HULK/PM4-DMA-REJECT] #{} {} initiator={:#x} base={:#x} size={:#x}",
+                  n, why, initiator, dma_base, dma_size);
+    return false;
+  };
+  if (!tracker.LastWrite(rg::XE_GPU_REG_VGT_DRAW_INITIATOR, initiator))
+    return reject("no draw initiator");
+  if (((initiator >> 6) & 3u) != 0)
+    return true;  // Auto-indexed packet; there is no DMA index buffer.
   if (!tracker.LastWrite(rg::XE_GPU_REG_VGT_DMA_BASE, dma_base) ||
-      !tracker.LastWrite(rg::XE_GPU_REG_VGT_DMA_SIZE, dma_size)) {
-    static std::atomic<uint32_t> missing{0};
-    if (missing.fetch_add(1, std::memory_order_relaxed) < 8)
-      REXLOG_WARN("[HULK/PM4-DMA-SNAPSHOT] DMA packet missing BASE or SIZE");
-    return;
-  }
+      !tracker.LastWrite(rg::XE_GPU_REG_VGT_DMA_SIZE, dma_size))
+    return reject("missing DMA BASE/SIZE");
   const uint32_t requested_indices = initiator >> 16;
   const uint32_t available_indices = dma_size & 0x00FFFFFFu;
-  const uint32_t indices = std::min(requested_indices, available_indices);
+  // Never silently truncate requested indices: DrawInternal would still
+  // interpret the original count and read outside the captured bytes.
+  if (!requested_indices || requested_indices > available_indices)
+    return reject("DMA index count missing/short");
+  const uint32_t indices = requested_indices;
   const uint32_t stride = ((initiator >> 11) & 1u) ? 4u : 2u;
   const uint64_t bytes = uint64_t(indices) * stride;
   const uint32_t physical = dma_base & 0x1FFFFFFFu;
@@ -40,7 +53,8 @@ void CapturePacketDmaIndices(const StateTracker& tracker, const uint8_t* base, C
   constexpr uint64_t kMaxSnapshotBytes = 1ull << 20;
   if (!bytes || bytes > kMaxSnapshotBytes ||
       uint64_t(physical) + bytes > kGuestPhysicalBytes ||
-      c.copy_count >= c.copies.size()) return;
+      c.copy_count >= c.copies.size())
+    return reject("DMA address/length invalid");
   const uint8_t* source = base + (0xA0000000u | physical);
   c.copies[c.copy_count++] = {dma_base, uint32_t(c.data.size()), uint32_t(bytes)};
   c.data.insert(c.data.end(), source, source + bytes);
@@ -49,13 +63,14 @@ void CapturePacketDmaIndices(const StateTracker& tracker, const uint8_t* base, C
   if (n <= 8 || n % 250000 == 0)
     REXLOG_INFO("[HULK/PM4-DMA-SNAPSHOT] #{} {} indices snapshotted ({}/{} available/requested)",
                 n, indices, available_indices, requested_indices);
+  return true;
 }
 
 """
 CALL_ANCHOR="""  c.programs[1] = tracker.pixel_program_ptr();
   if ((Info(tracked.call).flags & kInlineEnd) || tracked.call == Call::kDrawVerticesUP) {"""
 CALL_NEW="""  c.programs[1] = tracker.pixel_program_ptr();
-  if (packet_surfaces) CapturePacketDmaIndices(tracker, base, c);
+  if (packet_surfaces && !CapturePacketDmaIndices(tracker, base, c)) return;
   if ((Info(tracked.call).flags & kInlineEnd) || tracked.call == Call::kDrawVerticesUP) {"""
 
 def patch_text(source):

@@ -19,7 +19,9 @@ class DmaSnapshotTests(unittest.TestCase):
             "tracker.LastWrite(rg::XE_GPU_REG_VGT_DRAW_INITIATOR",
             "tracker.LastWrite(rg::XE_GPU_REG_VGT_DMA_BASE",
             "tracker.LastWrite(rg::XE_GPU_REG_VGT_DMA_SIZE",
-            "std::min(requested_indices, available_indices)",
+            "if (!requested_indices || requested_indices > available_indices)",
+            "return reject(\"DMA index count missing/short\")",
+            "return reject(\"DMA address/length invalid\")",
             "bytes > kMaxSnapshotBytes",
             "uint64_t(physical) + bytes > kGuestPhysicalBytes",
             "c.copy_count >= c.copies.size()",
@@ -27,7 +29,12 @@ class DmaSnapshotTests(unittest.TestCase):
             "[HULK/PM4-DMA-SNAPSHOT]"
         ):
             self.assertIn(token, ADDITION)
-        self.assertIn("if (packet_surfaces) CapturePacketDmaIndices",CALL_NEW)
+        self.assertIn("if (packet_surfaces && !CapturePacketDmaIndices(tracker, base, c)) return;",CALL_NEW)
+        self.assertIn("bool CapturePacketDmaIndices(", ADDITION)
+        self.assertIn("const uint32_t indices = requested_indices;", ADDITION)
+        self.assertIn("[HULK/PM4-DMA-REJECT]", ADDITION)
+        self.assertIn("return true;  // Auto-indexed packet", ADDITION)
+        self.assertNotIn("std::min(requested_indices, available_indices)", ADDITION)
         self.assertNotIn("memset",ADDITION)
 
 if __name__=="__main__":unittest.main()
