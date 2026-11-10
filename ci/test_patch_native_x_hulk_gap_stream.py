@@ -27,6 +27,12 @@ class HulkStreamPatchTests(unittest.TestCase):
         self.assertIn("scan_.draws <= 4096", cpp)
         self.assertIn("scan_.indirect <= 256", cpp)
         self.assertIn("if (!scan_.complete || emitted != expected)", cpp)
+        self.assertIn("const bool stream_gap = scan_.complete &&", cpp)
+        self.assertIn("const bool single_direct_draw = scan_.complete &&", cpp)
+        self.assertIn("if (scan_.complete) {", cpp)
+        self.assertIn("rejected incomplete PM4 state before Draw/Gather", cpp)
+        self.assertIn("if (single_direct_draw && keep_record_", cpp)
+
 
     def test_native_capture_uses_existing_draw_path(self):
         files = "\n".join(new for rules in PATCHES.values() for old, new in rules)
