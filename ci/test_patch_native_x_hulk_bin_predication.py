@@ -98,6 +98,16 @@ class TestHulkPfpPatch(unittest.TestCase):
         self.assertIn("bin_rejected = 0;", s)
         self.assertEqual(s.count("scan_.bin_mask = 0xFFFFFFFFull"), 1)
 
+    def test_partial_source_and_header_mismatch_fails_closed(self):
+        cpp_only = dict(self.patched)
+        cpp_only["src/state.h"] = self.original["src/state.h"]
+        with self.assertRaisesRegex(ValueError, "header/source mismatch"):
+            transform(cpp_only)
+        hdr_only = dict(self.original)
+        hdr_only["src/state.h"] = self.patched["src/state.h"]
+        with self.assertRaisesRegex(ValueError, "header/source mismatch"):
+            transform(hdr_only)
+
     def test_invalid_upstream_source_fails(self):
         orig = fixture()
         orig["src/state.cpp"] = orig["src/state.cpp"].replace("case 0x2D", "case 0x2F")
