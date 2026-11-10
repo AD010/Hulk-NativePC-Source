@@ -83,6 +83,31 @@ class HulkPacketSampleViewTests(unittest.TestCase):
         self.assertFalse(accepts(0x0A020280, 0, 0x14000500, 0x401, 1280, 720, 0))
         self.assertFalse(accepts(0x0A020280, 0, 0x14000500, 0x400, 1280, 720, 0, True))
 
+    def test_real_log175_rt0_1x_edram_rebase(self):
+        # Confirmed build 56: packet RB_SURFACE_INFO=0x14000500 / RB_COLOR_INFO=0
+        # and genuine XDK-bound RT0 RB_SURFACE_INFO=0x14000500 / INFO=0x400.
+        # Preserve format, pitch, dimensions and sample count. Never accept depth.
+        self.assertIn("[HULK/PM4-RT0-1X-REBASE]", NEW)
+        self.assertIn("gpu_surface == 0x14000500u && gpu_info == 0u", NEW)
+        self.assertIn("bound.surface_info == 0x14000500u && bound.info == 0x400u", NEW)
+        self.assertIn("bound.pitch() == 1280u && bound.msaa() == 0u", NEW)
+        self.assertIn("packet_view.info = gpu_info", NEW)
+        self.assertIn("HulkRememberSurface(packet_view, slot);", NEW)
+        def accepts(slot, depth, gpu_surface, gpu_info, xdk_surface, xdk_info,
+                    width, height, pitch, msaa):
+            return (slot == 0 and not depth and gpu_surface == 0x14000500 and
+                    gpu_info == 0 and xdk_surface == 0x14000500 and
+                    xdk_info == 0x400 and width == 1280 and height == 720 and
+                    pitch == 1280 and msaa == 0)
+        args = (0, False, 0x14000500, 0, 0x14000500, 0x400, 1280, 720, 1280, 0)
+        self.assertTrue(accepts(*args))
+        for i, invalid in ((0, 4), (1, True), (2, 0x0A020280),
+                           (3, 0x401), (4, 0x14000400), (5, 0),
+                           (6, 640), (7, 360), (8, 640), (9, 2)):
+            bad = list(args)
+            bad[i] = invalid
+            self.assertFalse(accepts(*bad), msg=f"Guard missed changed field {i}")
+
     def test_logged_surface_identity(self):
         gpu_surface = 0x0A020280
         bound_surface = 0x14000500
