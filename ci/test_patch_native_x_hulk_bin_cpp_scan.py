@@ -73,6 +73,18 @@ int main(){
   assert(s.writes[0].second==456 && s.writes[1].second==789);
   assert(s.bin_mask==0x10 && s.bin_select==0x10);
   assert(s.indirect==1);
+  // A truncated immediate shader load must be rejected before dereferencing
+  // the absent second header dword or interpreting memory as microcode.
+  const int bad_begin=off;
+  emit(off,0x2B,{0});
+  PacketScan bad;
+  ScanPackets(reinterpret_cast<uint8_t*>(m.data()),bad_begin*4,off*4,bad,0,false,false);
+  assert(!bad.complete);
+  const int alu_begin=off;
+  emit(off,0x2F,{0,0});
+  PacketScan bad_alu;
+  ScanPackets(reinterpret_cast<uint8_t*>(m.data()),alu_begin*4,off*4,bad_alu,0,false,false);
+  assert(!bad_alu.complete);
   std::cout<<"full PM4 scanner: passed";
 }
 """
