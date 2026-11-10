@@ -97,6 +97,14 @@ int main(){
   ScanPackets(reinterpret_cast<uint8_t*>(m.data()),invalid_ib_begin*4,off*4,
               bad_ib,0,false,false);
   assert(!bad_ib.complete && bad_ib.draws==0);
+  // Cyclic guest IB cannot loop indefinitely or spawn unlimited Draws.
+  m[300/4] = 0xC0013700u;
+  m[300/4+1] = 0x300u;
+  m[300/4+2] = 3u;
+  PacketScan cyclic;
+  ScanPackets(reinterpret_cast<uint8_t*>(m.data()),nested_begin*4,(nested_begin+3)*4,
+              cyclic,0,false,false);
+  assert(!cyclic.complete && cyclic.indirect==9 && cyclic.draws==0);
   // A truncated immediate shader load must be rejected before dereferencing
   // the absent second header dword or interpreting memory as microcode.
   const int bad_begin=off;
