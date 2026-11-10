@@ -199,6 +199,9 @@ try {
     # This augments the earlier single-direct-draw path without another workflow.
     Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_gap_stream.py')) $Source
     Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_gap_stream.py'), $NxrFull) $Source
+    # Only complete Xenos DRAW_INDX(_2) packets can reach the native Vulkan callback.
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_pm4_draw_payload.py')) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_pm4_draw_payload.py'), $NxrFull) $Source
     # Logs 115/116: guest 1280x720 inside 2560x1440 host, screenshot quarter-frame.
     # Audit native viewport, resolve rectangles and final blit without faking scaling.
     Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_frame_path_probe.py')) $Source
@@ -252,6 +255,10 @@ try {
     # Keep strict matching of RT0, depth and every observed real MRT.
     Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_unbound_mrt.py')) $Source
     Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_unbound_mrt.py'), $NxrFull) $Source
+    # Before the guest command-buffer ring is reused, preserve only actual
+    # bounded DMA-index bytes for synthetic per-packet Vulkan captures.
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_packet_dma_snapshot.py')) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_packet_dma_snapshot.py'), $NxrFull) $Source
     # Hulk log 167: actual GPU 640x360/4x view can differ from real XDK
     # 1280x720/1x surface header at the SAME EDRAM base and format.
     # Recover only that exact proven pair; reject all other mismatches.
