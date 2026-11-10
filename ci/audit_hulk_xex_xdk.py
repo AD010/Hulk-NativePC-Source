@@ -35,6 +35,13 @@ def inspect(data: bytes) -> dict:
     security_offset = be32(data, 0x10)
     if not 0x18 + optional_count * 8 <= security_offset < pe_offset <= len(data):
         raise ValueError("Corrupt XEX2 security and PE offsets")
+    # A region/format audit must never consume optional-header garbage as
+    # signed security metadata. XEX2 security fields are big-endian; the
+    # retail PAL file verified in the user's archive has mask 0x00FF0000.
+    if security_offset + 0x180 > pe_offset:
+        raise ValueError("Truncated XEX2 security region/media metadata")
+    game_region = be32(data, security_offset + 0x178)
+    allowed_media_types = be32(data, security_offset + 0x17C)
     headers = {}
     for n in range(optional_count):
         key, value = struct.unpack_from('>II', data, 0x18 + 8 * n)
@@ -58,9 +65,25 @@ def inspect(data: bytes) -> dict:
         major, minor, build, flags = struct.unpack('>HHHH', raw[8:16])
         libraries.append(dict(name=name, version=f'{major}.{minor}.{build}',
                               major=major, minor=minor, build=build, flags=f'0x{flags:04X}'))
+    format_info = None
+    if 0x000003FF in headers:
+        pos = headers[0x000003FF]
+        if pos < 0 or pos + 8 > pe_offset:
+            raise ValueError("Invalid XEX2 base-file format offset")
+        info_length = be32(data, pos)
+        if info_length < 8 or pos + info_length > pe_offset:
+            raise ValueError("Invalid XEX2 base-file format length")
+        encryption_type, compression_type = struct.unpack_from('>HH', data, pos + 4)
+        if encryption_type not in (0, 1) or compression_type not in (0, 1, 2, 3):
+            raise ValueError("Unsupported XEX2 encryption/compression type")
+        format_info = dict(encryption_type=encryption_type,
+                           compression_type=compression_type)
     return dict(sha256=hashlib.sha256(data).hexdigest(), bytes=len(data),
                 pe_offset=pe_offset, title_id=f'{title_id:08X}',
                 media_id=f'{media_id:08X}', version=version, base_version=base_version,
+                game_region_mask=f'{game_region:08X}',
+                allowed_media_types=f'{allowed_media_types:08X}',
+                base_file_format=format_info,
                 static_libraries=libraries, has_import_libs=IMPORT_LIBRARIES in headers)
 
 

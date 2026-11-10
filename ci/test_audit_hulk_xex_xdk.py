@@ -38,6 +38,39 @@ class TestXex2Xdk(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'Not an Xbox 360 XEX2'):
             inspect(make_xex()[:10])
 
+    def test_region_and_encrypted_basic_format_provenance(self):
+        d = bytearray(make_xex())
+        # Fixture derived from XEX2 field offsets, never from a guest binary.
+        struct.pack_into('>II', d, 0x90 + 0x178, 0x00FF0000, 0x00000004)
+        struct.pack_into('>I', d, 0x14, 3)
+        struct.pack_into('>II', d, 0x28, 0x000003FF, 0x390)
+        struct.pack_into('>IHH', d, 0x390, 8, 1, 1)
+        result = inspect(bytes(d))
+        verify_xdk_6534(result)
+        self.assertEqual(result['game_region_mask'], '00FF0000')
+        self.assertEqual(result['allowed_media_types'], '00000004')
+        self.assertEqual(result['base_file_format'], {
+            'encryption_type': 1, 'compression_type': 1,
+        })
+        # A different region can have the same Title ID and XDK version.
+        struct.pack_into('>I', d, 0x90 + 0x178, 0x000000FF)
+        self.assertEqual(inspect(bytes(d))['game_region_mask'], '000000FF')
+        # Media ID zero and region-free does not establish the USA codegen.
+        struct.pack_into('>I', d, 0x90 + 0x178, 0xFFFFFFFF)
+        self.assertEqual(inspect(bytes(d))['game_region_mask'], 'FFFFFFFF')
+
+    def test_invalid_security_format_is_rejected(self):
+        d = bytearray(make_xex())
+        struct.pack_into('>I', d, 0x14, 3)
+        struct.pack_into('>II', d, 0x28, 0x000003FF, 0x390)
+        struct.pack_into('>IHH', d, 0x390, 8, 1, 1)
+        struct.pack_into('>I', d, 0x390, 0xFFFFFFFF)
+        with self.assertRaisesRegex(ValueError, 'format length'):
+            inspect(bytes(d))
+        struct.pack_into('>IHH', d, 0x390, 8, 2, 1)
+        with self.assertRaisesRegex(ValueError, 'Unsupported XEX2 encryption'):
+            inspect(bytes(d))
+
     def test_rejects_invalid_static_libs(self):
         d = bytearray(make_xex())
         struct.pack_into('>I', d, 0x250, 9999999)
