@@ -25,6 +25,7 @@ int main() {
   PacketScan p;
   ScanPackets(reinterpret_cast<uint8_t*>(m.data()),0,off*4,p,0,false,true);
   assert(p.complete && p.writes.size()==1 && p.loads.size()==1);
+  assert(p.writes[0].first==0x4806u && p.loads[0].first==0x4806u);
   assert(p.register_order.size()==2);
   assert(p.register_order[0]==0u && p.register_order[1]==1u);
   uint32_t latest=0;
@@ -61,6 +62,11 @@ def main():
     if "HulkOrderedLoad(out" not in scanner or "HULK/PFP-PREDICATE" not in scanner:
         raise ValueError("Expected fully patched Hulk NativeX PM4 scanner")
     prelude=PRELUDE.replace(
+        "uint32_t ConstantBase(uint32_t){return 800;}",
+        "uint32_t ConstantBase(uint32_t type){return type==1 ? 0x4800 : 0x4000;}")
+    if "type==1 ? 0x4800" not in prelude:
+        raise ValueError("Unable to model Xenos fetch constant register base")
+    prelude=prelude.replace(
         "  std::vector<uint32_t> shader_ucode;",
         "  std::vector<uint32_t> shader_ucode;\n  std::vector<uint32_t> register_order;")
     prelude=prelude.replace(
