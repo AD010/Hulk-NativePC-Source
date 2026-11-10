@@ -252,6 +252,11 @@ try {
     # Keep strict matching of RT0, depth and every observed real MRT.
     Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_unbound_mrt.py')) $Source
     Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_unbound_mrt.py'), $NxrFull) $Source
+    # Hulk log 167: actual GPU 640x360/4x view can differ from real XDK
+    # 1280x720/1x surface header at the SAME EDRAM base and format.
+    # Recover only that exact proven pair; reject all other mismatches.
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_sample_grid_packet_binding.py')) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_sample_grid_packet_binding.py'), $NxrFull) $Source
     # Snapshot the actual missing per-draw RT/depth identities from Hulk 160.
     # Diagnostic-only: no invented surfaces or forced drawing.
     Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_surface_miss_trace.py')) $Source
