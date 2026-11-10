@@ -88,6 +88,54 @@ PATCHES = {
     ],
 }
 
+# Hulk #167: record the ACTUAL shader and fetch slot responsible for the
+# recurring 0x44A00000 (1280.0) / 0x44340000 (720.0) bogus texture descriptor.
+# This is a read-only provenance check; no fabricated texture is substituted.
+PATCHES["src/draw.cpp"].append((
+    "  // Textures and samplers. Drawn at the reduced scale (D49), the samplers take the mip bias for it: log2 of",
+    "  // HULK/FETCH-ORIGIN: screen-size float constants appearing in a pixel/vertex\n"
+    "  // texture descriptor indicate a wrong shader fetch binding or PM4 state.\n"
+    "  // Log the shader identity and exact slot, not game asset contents.\n"
+    "  for (uint32_t stage = 0; stage < 2; ++stage) {\n"
+    "    const rg::SpirvShader* shader = stage_shaders[stage];\n"
+    "    if (!shader) continue;\n"
+    "    for (const auto& binding : shader->GetTextureBindingsAfterTranslation()) {\n"
+    "      if (binding.fetch_constant >= 32) continue;\n"
+    "      const auto fetch = regs.GetTextureFetch(binding.fetch_constant);\n"
+    "      if (fetch.dword_0 != 0x44A00000u || fetch.dword_3 != 0x44340000u) continue;\n"
+    "      static std::atomic<uint32_t> bad_fetches{0};\n"
+    "      const uint32_t n = bad_fetches.fetch_add(1, std::memory_order_relaxed) + 1;\n"
+    "      if (n <= 24 || n % 10000 == 0)\n"
+    "        REXLOG_WARN(\"[HULK/FETCH-ORIGIN] #{} frame={} stage={} shader={:016X} \"\n"
+    "                    \"fetch_slot={} fetch={:08X}:{:08X}:{:08X}:{:08X}:{:08X}:{:08X}\",\n"
+    "                    n, frame, stage, shader->ucode_data_hash(), binding.fetch_constant,\n"
+    "                    fetch.dword_0, fetch.dword_1, fetch.dword_2, fetch.dword_3,\n"
+    "                    fetch.dword_4, fetch.dword_5);\n"
+    "    }\n"
+    "  }\n"
+    "  // Textures and samplers. Drawn at the reduced scale (D49), the samplers take the mip bias for it: log2 of"
+))
+PATCHES["src/draw.cpp"].append((
+    "  // Primitives and indices (this may upload the index range).",
+    "  // HULK/DMA-ORIGIN: distinguish malformed/short DMA packets from\n"
+    "  // legitimately bounded Xenos indices before any PrimitiveProcessor clip.\n"
+    "  const auto hulk_d = regs.Get<reg::VGT_DRAW_INITIATOR>();\n"
+    "  const auto hulk_s = regs.Get<reg::VGT_DMA_SIZE>();\n"
+    "  if (hulk_d.source_select == xenos::SourceSelect::kDMA &&\n"
+    "      hulk_d.num_indices > hulk_s.num_words) {\n"
+    "    static std::atomic<uint32_t> hulk_bad_dma{0};\n"
+    "    const uint32_t n = hulk_bad_dma.fetch_add(1, std::memory_order_relaxed) + 1;\n"
+    "    if (n <= 24 || n % 10000 == 0)\n"
+    "      REXLOG_WARN(\"[HULK/DMA-ORIGIN] #{} requested={} available={} \"\n"
+    "                  \"base={:#x} initiator={:#x} dma_size={:#x} vs={:016X}\",\n"
+    "                  n, hulk_d.num_indices, hulk_s.num_words,\n"
+    "                  regs[rg::XE_GPU_REG_VGT_DMA_BASE], hulk_d.value, hulk_s.value,\n"
+    "                  vertex_shader->ucode_data_hash());\n"
+    "  }\n"
+    "  // Primitives and indices (this may upload the index range)."
+))
+
+
 def transform(source, rules):
     done = [new in source for old, new in rules]
     if all(done):
