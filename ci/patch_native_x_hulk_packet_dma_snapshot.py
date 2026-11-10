@@ -65,7 +65,14 @@ bool CapturePacketDmaIndices(const StateTracker& tracker, const uint8_t* base, C
   const uint32_t indices = requested_indices;
   const uint32_t stride = ((initiator >> 11) & 1u) ? 4u : 2u;
   const uint64_t bytes = uint64_t(indices) * stride;
-  const uint32_t physical = dma_base & 0x1FFFFFFFu;
+  // HULK/PM4-DMA-ADDRESS-PARITY: ReXGlue's PrimitiveProcessor uses
+  // reg(VGT_DMA_BASE) & ~(index_stride - 1) as its physical index address.
+  // The previous snapshot read from (dma_base & 0x1FFFFFFF) unaligned,
+  // and submitted a Copy at raw dma_base. Those can differ from the
+  // exact byte range that Vulkan's index processor consumes.
+  // Do NOT silently drop high address bits: PrimitiveProcessor itself
+  // rejects anything outside the physical 512 MiB buffer.
+  const uint32_t physical = dma_base & ~(stride - 1u);
   constexpr uint64_t kGuestPhysicalBytes = 0x20000000ull;
   constexpr uint64_t kMaxSnapshotBytes = 1ull << 20;
   if (!bytes || bytes > kMaxSnapshotBytes ||
@@ -73,7 +80,9 @@ bool CapturePacketDmaIndices(const StateTracker& tracker, const uint8_t* base, C
       c.copy_count >= c.copies.size())
     return reject("DMA address/length invalid");
   const uint8_t* source = base + (0xA0000000u | physical);
-  c.copies[c.copy_count++] = {dma_base, uint32_t(c.data.size()), uint32_t(bytes)};
+  // The GPU mirror and PrimitiveProcessor must receive the SAME aligned
+  // address; physical is within 512 MiB after the bounds check above.
+  c.copies[c.copy_count++] = {physical, uint32_t(c.data.size()), uint32_t(bytes)};
   c.data.insert(c.data.end(), source, source + bytes);
   static std::atomic<uint64_t> snapped{0};
   const uint64_t n = ++snapped;

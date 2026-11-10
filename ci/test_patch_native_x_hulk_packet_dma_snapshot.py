@@ -26,6 +26,9 @@ class DmaSnapshotTests(unittest.TestCase):
             "uint64_t(physical) + bytes > kGuestPhysicalBytes",
             "c.copy_count >= c.copies.size()",
             "c.data.insert(c.data.end(), source, source + bytes)",
+            "HULK/PM4-DMA-ADDRESS-PARITY",
+            "const uint32_t physical = dma_base & ~(stride - 1u)",
+            "c.copies[c.copy_count++] = {physical",
             "[HULK/PM4-DMA-SNAPSHOT]"
         ):
             self.assertIn(token, ADDITION)
@@ -87,6 +90,38 @@ class DmaSnapshotTests(unittest.TestCase):
                           14, 15, 16, 17, 18, 19, 20, 21, 22):
             self.assertEqual(decision(primitive), "dma_snapshot")
 
+    def test_exact_sdk_dma_index_address_parity(self):
+        # Verified from bundled ReXGlue SDK
+        # src/graphics/primitive_processor.cpp:
+        # guest_index_base = regs[VGT_DMA_BASE] & ~(stride - 1)
+        # SharedMemory::kBufferSize = 1 << 29.
+        self.assertIn("HULK/PM4-DMA-ADDRESS-PARITY", ADDITION)
+        self.assertIn("const uint32_t physical = dma_base & ~(stride - 1u)", ADDITION)
+        self.assertIn("{physical, uint32_t(c.data.size()), uint32_t(bytes)}", ADDITION)
+        self.assertNotIn("const uint32_t physical = dma_base & 0x1FFFFFFFu", ADDITION)
+        self.assertNotIn("{dma_base, uint32_t(c.data.size()), uint32_t(bytes)}", ADDITION)
+
+        def snapshot_span(address, requested, stride):
+            physical = address & ~(stride - 1)
+            size = requested * stride
+            if not size or size > (1 << 20) or physical + size > (1 << 29):
+                return None
+            return (physical, size)
+
+        self.assertEqual(snapshot_span(0x1721D701, 24, 2),
+                         (0x1721D700, 48))
+        self.assertEqual(snapshot_span(0x1721D703, 24, 4),
+                         (0x1721D700, 96))
+        self.assertEqual(snapshot_span(0x1721D700, 24, 2),
+                         (0x1721D700, 48))
+        # Masking to 29 bits used to turn this INVALID host address into
+        # a valid low-memory address and capture the wrong index bytes.
+        self.assertIsNone(snapshot_span(0xA0010001, 24, 2))
+        self.assertIsNone(snapshot_span(0x20000000, 24, 2))
+        self.assertIsNone(snapshot_span(0x1FFFFFFF, 24, 4))
+        self.assertIsNone(snapshot_span(0x1721D701, 0, 2))
+        self.assertIsNone(snapshot_span(0x1721D700, 524289, 2))
+
     def test_persistent_dma_register_values(self):
         # Packet-local LastWrite cannot observe the last valid DMA BASE/SIZE
         # before a preceding synthetic draw's scan_.Clear(). The effective GPU
@@ -112,7 +147,7 @@ class DmaSnapshotTests(unittest.TestCase):
             requested = initiator >> 16
             available = effective_size & 0xFFFFFF
             stride = 4 if (initiator >> 11) & 1 else 2
-            physical = effective_base & 0x1FFFFFFF
+            physical = effective_base & ~(stride - 1)
             return (bool(requested) and requested <= available and
                     requested * stride <= (1 << 20) and
                     physical + requested * stride <= 0x20000000)
