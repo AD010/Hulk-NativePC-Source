@@ -152,6 +152,7 @@ try {
   Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_hulk_engine_render_callgraph.py')) $Source
   Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/hulk_engine_render_callgraph.py'),
     '--generated', (Join-Path $Source 'generated/default'),
+    '--source-xex', $LocalXex,
     '--profile', (Join-Path $Source 'hulk_native_x_profile.ini'),
     '--output', (Join-Path $Source 'out/analysis/hulk_engine_render_callgraph.json')) $Source
   # Pin the renderer to the reviewed upstream release. D125 fixes an actual
