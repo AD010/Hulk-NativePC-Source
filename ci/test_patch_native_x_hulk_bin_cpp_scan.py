@@ -97,6 +97,26 @@ int main(){
   assert(shader.shader_ucode[0]==0x11111111);
   m[shader_begin+3]=0xDEADBEEF;
   assert(shader.shader_ucode[0]==0x11111111);
+  // No partial shader is allowed: the parser must not turn the next
+  // command packet into the remaining bytes of a truncated program.
+  const int truncated_shader_begin=off;
+  emit(off,0x2B,{0,5,0x11111111,0x22222222});
+  PacketScan truncated_shader;
+  ScanPackets(reinterpret_cast<uint8_t*>(m.data()),truncated_shader_begin*4,off*4,
+              truncated_shader,0,false,false);
+  assert(!truncated_shader.complete && truncated_shader.shader_loads.empty());
+  const int nonzero_start_begin=off;
+  emit(off,0x2B,{0,0x00010002,0x11111111,0x22222222});
+  PacketScan nonzero_start;
+  ScanPackets(reinterpret_cast<uint8_t*>(m.data()),nonzero_start_begin*4,off*4,
+              nonzero_start,0,false,false);
+  assert(!nonzero_start.complete && nonzero_start.shader_loads.empty());
+  const int invalid_type_begin=off;
+  emit(off,0x2B,{2,2,0x11111111,0x22222222});
+  PacketScan invalid_type;
+  ScanPackets(reinterpret_cast<uint8_t*>(m.data()),invalid_type_begin*4,off*4,
+              invalid_type,0,false,false);
+  assert(!invalid_type.complete && invalid_type.shader_loads.empty());
   std::cout<<"full PM4 scanner: passed";
 }
 """
