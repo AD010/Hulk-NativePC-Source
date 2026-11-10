@@ -50,6 +50,9 @@ hulk_frame_probe = false
 native_x_renderer_pipeline_storage = false
 native_x_renderer_hulk_surface_fallback = false
 native_x_renderer_wait_offscreen_pipelines = true
+# Diagnostic only: true waits for EVERY shader/pipeline draw; can stall the GPU.
+# Compare identical scenes to test if skipped compiling pipelines cause flicker.
+native_x_renderer_hulk_wait_all_pipelines = false
 native_x_renderer_skip_steady_passes = false
 native_x_renderer_dynamic_rendering = true
 native_x_renderer_pipeline_library = "auto"
