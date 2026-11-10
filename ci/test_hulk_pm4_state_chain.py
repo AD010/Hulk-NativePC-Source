@@ -104,6 +104,13 @@ def main() -> None:
         raise ValueError("Chronological PM4 register header missing")
     if register_order_transform(ordered) != ordered:
         raise ValueError("PM4 register patch not idempotent")
+    with tempfile.TemporaryDirectory(prefix="hulk_pm4_ordered_") as tmp:
+        output = Path(tmp)
+        (output / "src").mkdir()
+        for name, content in ordered.items():
+            (output / name).write_text(content, encoding="utf-8", newline="\\n")
+        scanner_test = Path(__file__).with_name("test_patch_native_x_hulk_register_order_cpp_scan.py")
+        subprocess.run([sys.executable, str(scanner_test), str(output)], check=True)
     subprocess.run([sys.executable, str(Path(__file__).with_name(
         "test_patch_native_x_hulk_register_order.py"))], check=True)
     print("PASS: Hulk gap -> draw -> stream -> payload -> PFP -> ordered registers")
