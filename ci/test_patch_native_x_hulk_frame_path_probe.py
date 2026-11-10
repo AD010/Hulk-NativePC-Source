@@ -21,6 +21,12 @@ class FramePathProbeTests(unittest.TestCase):
         self.assertIn("present source",src)
         self.assertIn("[HULK/FETCH-ORIGIN]",src)
         self.assertIn("[HULK/FETCH-WRITER]",src)
+        self.assertIn("[HULK/SHADER-LIFETIME]", src)
+        self.assertIn("const bool copied = load.ucode_offset != PacketScan::kInGuestMemory", src)
+        self.assertIn("const uint64_t captured_hash = XXH3_64bits(ucode, size)", src)
+        self.assertIn("const uint64_t live_hash = XXH3_64bits(live, size)", src)
+        self.assertIn("captured_hash != live_hash", src)
+
         self.assertIn("(reg - kFetchConstants) / 6",src)
         self.assertIn("binding.fetch_constant",src)
         self.assertIn("[HULK/DMA-ORIGIN]",src)
