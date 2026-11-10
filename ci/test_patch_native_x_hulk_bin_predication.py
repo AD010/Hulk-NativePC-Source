@@ -29,8 +29,6 @@ def fixture():
         }
         p += 4 * count;
               if (immediate && dwords > count - 2) dwords = count - 2;
-              if (copy_microcode) {
-                out.shader_loads.push_back(
   draws = indirect = predicated = 0;
   complete = true;
   inline_begin_ = {};
