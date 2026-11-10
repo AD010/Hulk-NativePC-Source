@@ -121,6 +121,66 @@ def evidence_for(ins: list[tuple[int, str]]) -> dict:
             'validated_d3d_method': None}
 
 
+def rank_rectlist_clear_candidates(bodies: dict[int, list[tuple[int, str]]],
+                                   callers: dict[int, list[dict]],
+                                   limit: int = 25) -> list[dict]:
+    """Only PPC evidence of XDK-style IM_LOAD + DRAW_INDX_2.
+
+    In other games this pattern covers ClearF, Resolve and GPR pipe-flush.
+    It NEVER proves the particular game's ABI, primitive type, or clear flags.
+    The caller's country-specific XEX SHA is verified elsewhere in audit().
+    """
+    if not 1 <= limit <= 200:
+        raise ValueError("Invalid PM4 candidate ranking limit")
+    ranked = []
+    for func_addr, ins in bodies.items():
+        evidence = evidence_for(ins)
+        pm4 = evidence["pm4_literal_candidates"]
+        # Xenos Type3 count is encoded as count_minus_one at bits 16..29.
+        # Reject impossible 1/2-word IM_LOAD_IMMEDIATE candidates; they
+        # cannot carry the two-word header plus actual shader microcode.
+        shaders = [
+            x for x in pm4 if x["opcode"] == "IM_LOAD_IMMEDIATE"
+            and ((int(x["immediate"], 16) >> 16) & 0x3FFF) + 1 >= 3
+        ]
+        draws = [x for x in pm4 if x["opcode"] in ("DRAW_INDX", "DRAW_INDX_2")
+                 and ((int(x["immediate"], 16) >> 16) & 0x3FFF) + 1 >=
+                 (2 if x["opcode"] == "DRAW_INDX" else 1)]
+        if not shaders or not draws:
+            continue
+        # Avoid treating a shader load *after* the last draw as proof
+        # of a draw consuming that shader. Function-local assembly ordering
+        # is merely heuristic because emitted basic blocks may reorder.
+        first_shader = min(int(x["at"], 16) for x in shaders)
+        later_draws = [d for d in draws if int(d["at"], 16) > first_shader]
+        if not later_draws:
+            continue
+        direct_draws = sum(x["opcode"] == "DRAW_INDX_2" for x in later_draws)
+        # Weaken the ranking of indirect DRAW_INDX because GPR-allocation
+        # and other internal helper paths can generate the same PM4 pattern.
+        score = (3 if direct_draws else 1) + min(len(shaders), 2) * 2
+        score += min(direct_draws, 2)
+        score += int(any(x["opcode"] == "SET_CONSTANT" for x in pm4))
+        score += int(bool(evidence["r3_direct_memory_accesses"]))
+        ranked.append({
+            "guest_function": f"0x{func_addr:08X}",
+            "candidate_score": score,
+            "immediate_shader_loads": len(shaders),
+            "draw_packets": len(draws),
+            "draw_indx2_after_im_load": direct_draws,
+            "pm4_opcode_evidence": [x["opcode"] for x in pm4],
+            "direct_callers_in_scanned_region": len(callers.get(func_addr, [])),
+            "confidence": "pattern_only_not_hook_abi",
+            "candidate_roles": [
+                "ClearF_OR_Resolve_OR_GPR_flush_OR_other_XDK_helper"
+            ],
+        })
+    ranked.sort(key=lambda row: (-row["candidate_score"],
+                                 -row["draw_indx2_after_im_load"],
+                                 int(row["guest_function"], 16)))
+    return ranked[:limit]
+
+
 def audit(gen: Path, csv_path: Path, xex: Path, pinned_sha: str,
           extra_lo: int = 0, extra_hi: int = 0) -> dict:
     actual = hashlib.sha256(xex.read_bytes()).hexdigest()
@@ -150,7 +210,12 @@ def audit(gen: Path, csv_path: Path, xex: Path, pinned_sha: str,
         'missing_guest_definitions': [f'0x{x:08X}' for x in sorted(targets - bodies.keys())],
         'exploratory_region': [f'0x{extra_lo:08X}', f'0x{extra_hi:08X}'],
         'regional_functions_with_r3_or_pm4_evidence': regional,
+        # USA XEX candidates only, not automatic native hooks or ABI facts.
+        'unverified_xdk_rectlist_clear_candidates': (
+            rank_rectlist_clear_candidates(bodies, callers)),
         'limitations': [
+            'IM_LOAD_IMMEDIATE + DRAW does NOT prove ClearF or RECTLIST',
+            'Identify RB_MODECONTROL, RB_COLOR_CLEAR, depth/stencil and PPC ABI before hooking',
             'PM4 constants do not establish Draw/Resolve/Present signatures',
             'r3 offsets are not DeviceLayout proof unless r3 is verified as device',
             'codegen PPC text alone does not prove runtime call frequency or frame content',
@@ -182,6 +247,15 @@ def main() -> int:
           f'{report["candidate_count"]} candidate PPC bodies, '
           f'{report["generated_files_scanned"]} generated files; PM4 literals: {dict(stats)}; '
           f'report {args.output}')
+    clear_hits = report["unverified_xdk_rectlist_clear_candidates"]
+    if clear_hits:
+        # No game code/asset bytes or guessed hooks in public CI logs.
+        print("[HULK/XDK/CLEAR-CANDIDATES] source=SHA-pinned-USA "
+              "pattern-only addresses=" +
+              ", ".join(row["guest_function"] for row in clear_hits[:12]))
+    else:
+        print("[HULK/XDK/CLEAR-CANDIDATES] no function-local IM_LOAD+DRAW "
+              "pattern in audited region; cannot conclude ClearF is absent")
     if report['missing_guest_definitions']:
         print(f'[HULK/XDK] WARNING: unmapped candidate definitions: '
               f'{report["missing_guest_definitions"][:12]}')
