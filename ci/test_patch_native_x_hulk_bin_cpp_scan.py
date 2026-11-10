@@ -135,6 +135,20 @@ int main(){
   ScanPackets(reinterpret_cast<uint8_t*>(m.data()),set_range_begin*4,off*4,
               invalid_set_range,0,false,false);
   assert(!invalid_set_range.complete && invalid_set_range.writes.empty());
+  // SET_CONSTANT2 / SET_SHADER_CONSTANTS beyond GPU register file
+  // must fail without submitting corrupted state.
+  const int direct_set_begin=off;
+  emit(off,0x55,{0x4FFFu,0x12345678u,0x87654321u});
+  PacketScan invalid_direct;
+  ScanPackets(reinterpret_cast<uint8_t*>(m.data()),direct_set_begin*4,off*4,
+              invalid_direct,0,false,false);
+  assert(!invalid_direct.complete && invalid_direct.writes.empty());
+  const int shader_const_begin=off;
+  emit(off,0x56,{0x5000u,0xAAu});
+  PacketScan invalid_shader_const;
+  ScanPackets(reinterpret_cast<uint8_t*>(m.data()),shader_const_begin*4,off*4,
+              invalid_shader_const,0,false,false);
+  assert(!invalid_shader_const.complete && invalid_shader_const.writes.empty());
   // A syntactically valid LOAD with an invalid register class or range
   // must not read guest memory or append spurious fetch descriptors.
   const int bad_class_begin=off;
