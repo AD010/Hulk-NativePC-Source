@@ -42,6 +42,46 @@ NEW = """    const HulkSurfaceIdentity gpu_key = HulkSurfaceKey(gpu_surface, gpu
                     "matches GPU 640x360/4x EDRAM base={} format={}",
                     n, slot, bound.object, gpu_info & 0xFFFu, (gpu_info >> 16) & 0xFu);
       continue;
+    }
+    // HULK/PM4-HISTORY-ALIAS: a real XDK surface may have been unbound
+    // before the GPU's 640x360 4x packet. Recover ONLY the known 1280x720
+    // 1x view at the identical EDRAM base, storage format and attachment
+    // type; do not use a late XDK target and never invent an object.
+    if ((slot == 0 || slot == 4) &&
+        g_profile->output_width == 1280 && g_profile->output_height == 720 &&
+        (gpu_surface & 0x3FFFu) == 640u &&
+        ((gpu_surface >> 16) & 3u) == 2u) {
+      GuestSurface verified{};
+      {
+        std::lock_guard<std::mutex> guard(g_hulk_surface_history_mutex);
+        const HulkSurfaceIdentity xdk_key{1280u, gpu_info & 0x000F0FFFu};
+        const auto it = g_hulk_surface_history[slot].find(xdk_key);
+        if (it != g_hulk_surface_history[slot].end()) {
+          const GuestSurface& known = it->second;
+          if (known && known.depth == (slot == 4) &&
+              known.pitch() == 1280 && known.msaa() == 0 &&
+              known.width == 1280 && known.height == 720 &&
+              (known.info & 0x000F0FFFu) == (gpu_info & 0x000F0FFFu))
+            verified = known;
+        }
+      }
+      if (verified) {
+        GuestSurface packet_view = verified;
+        packet_view.surface_info = gpu_surface;
+        packet_view.info = gpu_info;
+        packet_view.width = 640;
+        packet_view.height = 360;
+        out[slot] = packet_view;
+        HulkRememberSurface(packet_view, slot);
+        has_target = true;
+        static std::atomic<uint64_t> history_aliases{0};
+        const uint64_t n = ++history_aliases;
+        if (n <= 12 || n % 10000 == 0)
+          REXLOG_INFO("[HULK/PM4-HISTORY-ALIAS] #{} slot={} authentic_object={:#x} "
+                      "edram={} format={} samples=4",
+                      n, slot, verified.object, packet_view.edram_base(), packet_view.format());
+        continue;
+      }
     }"""
 
 def patch_text(source: str):
