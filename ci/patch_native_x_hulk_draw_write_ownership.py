@@ -23,6 +23,29 @@ PATCHES = {
  ]
 }
 
+# Log173: Xenia's PrimitiveProcessor reports real DMA-index draws with
+# 99 / 354 / 1248 requested but VGT_DMA_SIZE=0. Skip these before Process()
+# for both real XDK and synthetic PM4 paths: otherwise the latter can
+# rasterize invalid indices or attempt to read outside the index buffer.
+DMA_EMPTY_OLD = """  rg::PrimitiveProcessor::ProcessingResult primitives;
+  if (!primitives_->Process(primitives)) {"""
+DMA_EMPTY_NEW = """  // HULK/EMPTY-DMA-INDEX: real log173 index buffers sometimes contain
+  // ZERO indices despite nonzero DRAW_INDX count. Never rasterize an
+  // unbounded read; leave the host image untouched rather than invent indices.
+  const auto hulk_initiator = regs.Get<reg::VGT_DRAW_INITIATOR>();
+  if (hulk_initiator.source_select == xenos::SourceSelect::kDMA &&
+      hulk_initiator.num_indices > 0 &&
+      (regs[rg::XE_GPU_REG_VGT_DMA_SIZE] & 0x00FFFFFFu) == 0u) {
+    NATIVE_X_RENDERER_WARN_ONCE("[HULK/EMPTY-DMA-INDEX] skipped indexed Draw "
+                               "with empty VGT_DMA_SIZE (requested {})",
+                               hulk_initiator.num_indices);
+    ++stats_.failed;
+    return false;
+  }
+  rg::PrimitiveProcessor::ProcessingResult primitives;
+  if (!primitives_->Process(primitives)) {"""
+PATCHES["src/draw.cpp"].append((DMA_EMPTY_OLD, DMA_EMPTY_NEW))
+
 def transform(source, replacements):
     has_new=[new in source for old,new in replacements]
     if all(has_new):return source,False
