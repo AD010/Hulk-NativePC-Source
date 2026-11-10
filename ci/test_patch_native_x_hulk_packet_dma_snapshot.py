@@ -35,7 +35,10 @@ class DmaSnapshotTests(unittest.TestCase):
         self.assertIn("bool CapturePacketDmaIndices(", ADDITION)
         self.assertIn("const uint32_t indices = requested_indices;", ADDITION)
         self.assertIn("[HULK/PM4-DMA-REJECT]", ADDITION)
-        self.assertIn("return true;  // Auto-indexed packet", ADDITION)
+        self.assertIn("return true;  // Xenos kAutoIndex", ADDITION)
+        self.assertIn("HULK/PM4-PRIMITIVE-SOURCE", ADDITION)
+        self.assertIn('return reject("invalid Xenos primitive type")', ADDITION)
+        self.assertIn('return reject("PM4 immediate/reserved indices not captured")', ADDITION)
         self.assertNotIn("std::min(requested_indices, available_indices)", ADDITION)
         self.assertNotIn("memset",ADDITION)
 
@@ -55,6 +58,35 @@ class DmaSnapshotTests(unittest.TestCase):
         self.assertEqual(execute("kNone", 7, 0), (7, False))
         self.assertEqual(execute("kDraw", 7, 0), (7, True))
 
+    def test_xenos_primitive_and_index_source_classification(self):
+        # Cross-checked against Xenia xenos::PrimitiveType and SourceSelect:
+        # 0: no primitive, 1..8 and 12..22 are defined primitive values.
+        # Source 0=DMA, 1=immediate, 2=auto, 3=reserved.
+        # Immediate source requires copying packet-embedded indices, which
+        # this path does NOT do; passing it through uses stale GPU DMA state.
+        def decision(initiator):
+            primitive = initiator & 0x3F
+            source_select = (initiator >> 6) & 3
+            if not (1 <= primitive <= 8 or 12 <= primitive <= 22):
+                return "reject_primitive"
+            if source_select == 2:
+                return "auto_index"
+            if source_select != 0:
+                return "reject_uncaptured_source"
+            return "dma_snapshot"
+        self.assertEqual(decision((180 << 16) | 4), "dma_snapshot")
+        self.assertEqual(decision((180 << 16) | (2 << 6) | 4), "auto_index")
+        self.assertEqual(decision((180 << 16) | (1 << 6) | 4),
+                         "reject_uncaptured_source")
+        self.assertEqual(decision((180 << 16) | (3 << 6) | 4),
+                         "reject_uncaptured_source")
+        self.assertEqual(decision((180 << 16) | 49), "reject_primitive")
+        for primitive in (0, 9, 10, 11, 23, 31, 49, 63):
+            self.assertEqual(decision(primitive), "reject_primitive")
+        for primitive in (1, 2, 3, 4, 5, 6, 7, 8, 12, 13,
+                          14, 15, 16, 17, 18, 19, 20, 21, 22):
+            self.assertEqual(decision(primitive), "dma_snapshot")
+
     def test_persistent_dma_register_values(self):
         # Packet-local LastWrite cannot observe the last valid DMA BASE/SIZE
         # before a preceding synthetic draw's scan_.Clear(). The effective GPU
@@ -69,8 +101,14 @@ class DmaSnapshotTests(unittest.TestCase):
         # Legal inherited binding: earlier packet wrote base/size, current
         # packet updates only initiator; request must stay within limits.
         def accepted(initiator, effective_base, effective_size):
+            primitive = initiator & 0x3F
+            if not (1 <= primitive <= 8 or 12 <= primitive <= 22):
+                return False
             source = (initiator >> 6) & 3
-            if source: return True
+            if source == 2:
+                return True
+            if source != 0:
+                return False
             requested = initiator >> 16
             available = effective_size & 0xFFFFFF
             stride = 4 if (initiator >> 11) & 1 else 2

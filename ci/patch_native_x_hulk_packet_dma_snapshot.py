@@ -34,8 +34,22 @@ bool CapturePacketDmaIndices(const StateTracker& tracker, const uint8_t* base, C
   };
   if (!tracker.LastWrite(rg::XE_GPU_REG_VGT_DRAW_INITIATOR, initiator))
     return reject("no draw initiator");
-  if (((initiator >> 6) & 3u) != 0)
-    return true;  // Auto-indexed packet; there is no DMA index buffer.
+  // HULK/PM4-PRIMITIVE-SOURCE: Xenos VGT_DRAW_INITIATOR[5:0]
+  // names only primitive types 1..8, 12..22 (Xenia xenos::PrimitiveType).
+  // Build 56 repeatedly submitted type 49, which is not any Xenos
+  // primitive: never let stale register bits reach PrimitiveProcessor.
+  const uint32_t primitive = initiator & 0x3Fu;
+  if (!((primitive >= 1u && primitive <= 8u) ||
+        (primitive >= 12u && primitive <= 22u)))
+    return reject("invalid Xenos primitive type");
+  const uint32_t source_select = (initiator >> 6) & 3u;
+  if (source_select == 2u)
+    return true;  // Xenos kAutoIndex: no DMA index buffer is required.
+  // kImmediate embeds indices in the PM4 payload; this snapshot path has
+  // not captured them and MUST NOT reinterpret stale DMA registers.
+  // Source 3 is reserved by the Xenos source-select enumeration.
+  if (source_select != 0u)
+    return reject("PM4 immediate/reserved indices not captured");
   // HULK/PM4-PERSISTENT-DMA: Xenos DMA BASE/SIZE registers persist between
   // draw packets. Gather() has already applied this packet's ordered updates
   // to the GPU register image; LastWrite() only sees this packet span, and
