@@ -85,6 +85,18 @@ int main(){
   PacketScan bad_alu;
   ScanPackets(reinterpret_cast<uint8_t*>(m.data()),alu_begin*4,off*4,bad_alu,0,false,false);
   assert(!bad_alu.complete);
+  // A valid IM_LOAD_IMMEDIATE must retain its own immutable microcode
+  // even if the guest's command ring is overwritten after scanning.
+  const int shader_begin=off;
+  emit(off,0x2B,{0,3,0x11111111,0x22222222,0x33333333});
+  PacketScan shader;
+  ScanPackets(reinterpret_cast<uint8_t*>(m.data()),shader_begin*4,off*4,
+              shader,0,false,false);
+  assert(shader.complete && shader.shader_loads.size()==1);
+  assert(shader.shader_ucode.size()==3);
+  assert(shader.shader_ucode[0]==0x11111111);
+  m[shader_begin+3]=0xDEADBEEF;
+  assert(shader.shader_ucode[0]==0x11111111);
   std::cout<<"full PM4 scanner: passed";
 }
 """
