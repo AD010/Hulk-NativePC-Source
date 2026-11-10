@@ -153,6 +153,45 @@ PATCHES["src/state.cpp"] = [(
 )]
 
 
+# Hulk #50: diagnose possible command-ring reuse between IM_LOAD_IMMEDIATE
+# capture and Gather. Hash only: never log proprietary shader bytes. This
+# does NOT reject or alter a shader based on PM4-looking instruction bits.
+PATCHES["src/state.cpp"].append((
+    "    uint64_t hash = XXH3_64bits(ucode, size_t(load.dwords) * sizeof(uint32_t));",
+    "    // HULK/SHADER-LIFETIME: compare the immutable scan-time program to\n"
+    "    // the guest command ring at Gather; a difference proves reuse.\n"
+    "    if (load.immediate && load.dwords && load.dwords <= 1024) {\n"
+    "      static std::atomic<uint32_t> immediate_checked{0};\n"
+    "      const uint32_t checked = ++immediate_checked;\n"
+    "      const bool copied = load.ucode_offset != PacketScan::kInGuestMemory;\n"
+    "      if (!copied) {\n"
+    "        static std::atomic<uint32_t> no_copy{0};\n"
+    "        if (++no_copy <= 12)\n"
+    "          REXLOG_WARN(\"[HULK/SHADER-LIFETIME] immediate was NOT snapshotted: type={} words={} packet={:#x}\",\n"
+    "                      load.type, load.dwords, load.packet);\n"
+    "      } else {\n"
+    "        const uint32_t* live = reinterpret_cast<const uint32_t*>(\n"
+    "            GuestPointer(base, load.address));\n"
+    "        const size_t size = size_t(load.dwords) * sizeof(uint32_t);\n"
+    "        const uint64_t captured_hash = XXH3_64bits(ucode, size);\n"
+    "        const uint64_t live_hash = XXH3_64bits(live, size);\n"
+    "        if (captured_hash != live_hash) {\n"
+    "          static std::atomic<uint32_t> reused{0};\n"
+    "          const uint32_t n = ++reused;\n"
+    "          if (n <= 16 || n % 10000 == 0)\n"
+    "            REXLOG_WARN(\"[HULK/SHADER-LIFETIME] ring changed #{} call={} type={} words={} packet={:#x} capture_hash={:016X} live_hash={:016X}\",\n"
+    "                        n, uint32_t(call), load.type, load.dwords, load.packet,\n"
+    "                        captured_hash, live_hash);\n"
+    "        } else if (checked <= 8) {\n"
+    "          REXLOG_INFO(\"[HULK/SHADER-LIFETIME] stable #{} call={} type={} words={} packet={:#x}\",\n"
+    "                      checked, uint32_t(call), load.type, load.dwords, load.packet);\n"
+    "        }\n"
+    "      }\n"
+    "    }\n"
+    "    uint64_t hash = XXH3_64bits(ucode, size_t(load.dwords) * sizeof(uint32_t));"
+))
+
+
 def transform(source, rules):
     done = [new in source for old, new in rules]
     if all(done):
