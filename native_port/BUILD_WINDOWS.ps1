@@ -264,6 +264,13 @@ try {
     # Recover only that exact proven pair; reject all other mismatches.
     Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_sample_grid_packet_binding.py')) $Source
     Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_sample_grid_packet_binding.py'), $NxrFull) $Source
+    # Log 173: verify the packet-time RT0 EDRAM base correction actually
+    # reached the generated NativeX C++ before the expensive Windows link.
+    $HulkNativeRendererSource = Get-Content -LiteralPath (Join-Path $NxrFull 'src/renderer.cpp') -Raw
+    if (-not $HulkNativeRendererSource.Contains('[HULK/PM4-RT0-REBASE]')) {
+      throw 'Hulk log173 PM4 RT0 EDRAM rebase missing from compiled renderer.'
+    }
+    Remove-Variable HulkNativeRendererSource
     # Snapshot the actual missing per-draw RT/depth identities from Hulk 160.
     # Diagnostic-only: no invented surfaces or forced drawing.
     Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_surface_miss_trace.py')) $Source
