@@ -110,3 +110,27 @@ captures or actual gameplay. Do not check private user log files or generated
 log reports into public Git.
 
 Source-only regression: `python ci/test_hulk_render_log_audit.py`.
+
+## Independent Hulk PM4 register oracle (source-only)
+
+A standalone experimental diagnostic, inspired by Fable2RE's PM4-vs-shadow
+cross-check, is in `ci/hulk_pm4_register_oracle.py` with synthetic unit tests
+`ci/test_hulk_pm4_register_oracle.py`. Run locally on **user-owned** raw
+big-endian PM4 command bytes:
+
+`python ci/hulk_pm4_register_oracle.py <local-pm4-stream.bin> --output <local-report.json>`
+
+The parser reconstructs only directly observed Type0/Type1/SET_CONSTANT
+register writes and reports watched fetch/RT/viewport state at DRAW_INDX.
+LOAD_ALU_CONSTANT without an authenticated guest-memory snapshot explicitly
+invalidates the known value of that register. BIN-predicated state, indirect
+buffers and malformed packet tails are flagged **incomplete**, never invented.
+Unlike Fable2RE's game-specific capture reader, this takes plain PM4 bytes.
+Nothing runs automatically in the game and no private PM4 buffers are
+distributed. A further **actual game command-buffer capture** is necessary
+to locate the first incorrect Hulk fetch register value.
+
+Example register class from NativeX itself: class=1 writes fetch constants
+beginning at GPU register 0x4800. A fetch writer recording
+`0x44A00000` / `0x44340000` equals IEEE754 1280.0/720.0, respectively,
+but the float-like bits alone do not prove the actual guest stream is wrong.
