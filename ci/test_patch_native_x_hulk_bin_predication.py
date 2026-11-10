@@ -74,6 +74,8 @@ class TestHulkPfpPatch(unittest.TestCase):
         s = self.patched["src/state.cpp"]
         self.assertIn("(out.bin_mask & out.bin_select) == 0", s)
         self.assertIn("++out.bin_rejected;", s)
+        self.assertIn("++out.bin_rejected_draws;", s)
+        self.assertIn("++out.bin_rejected_state;", s)
         self.assertNotIn("out.predicated_writes.emplace_back", s)
         self.assertIn("out.writes.emplace_back", s)
 
@@ -82,7 +84,7 @@ class TestHulkPfpPatch(unittest.TestCase):
         self.assertIn("const uint64_t hulk_bin_mask_at_gap = scan_.bin_mask", s)
         self.assertIn("scan_.bin_mask = hulk_bin_mask_at_gap;", s)
         self.assertIn("scan_.bin_select = hulk_bin_select_at_gap;", s)
-        self.assertIn("[HULK/PFP-BIN] predicated PM4 packets skipped", s)
+        self.assertIn("[HULK/PFP-BIN] skipped={} draw={} state={}", s)
         self.assertIn("if (!scan_.complete)", s)
 
     def test_immediate_shader_bounds_fail_closed(self):
@@ -95,7 +97,7 @@ class TestHulkPfpPatch(unittest.TestCase):
 
     def test_clear_does_not_erase_bin_flags(self):
         s = self.patched["src/state.cpp"]
-        self.assertIn("bin_rejected = 0;", s)
+        self.assertIn("bin_rejected = bin_rejected_draws = bin_rejected_state = 0;", s)
         self.assertEqual(s.count("scan_.bin_mask = 0xFFFFFFFFull"), 1)
 
     def test_partial_source_and_header_mismatch_fails_closed(self):
