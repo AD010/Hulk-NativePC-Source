@@ -14,29 +14,53 @@ class HulkPacketSampleViewTests(unittest.TestCase):
 
     def test_exact_real_view_only(self):
         for expected in (
-            "bound.width == 1280 && bound.height == 720",
-            "bound.pitch() == 1280 && bound.msaa() == 0",
-            "(gpu_surface & 0x3FFFu) == 640u",
+            "bound.depth == (slot == 4)",
+            "bound.width >= 2 && bound.height >= 2",
+            "!(bound.width & 1u) && !(bound.height & 1u)",
+            "bound.width / 2 <= (gpu_surface & 0x3FFFu)",
+            "bound.pitch() == 2u * (gpu_surface & 0x3FFFu)",
+            "bound.msaa() == 0",
             "((gpu_surface >> 16) & 3u) == 2u",
             "(gpu_info & 0x000F0FFFu) == (bound.info & 0x000F0FFFu)",
-            "packet_view = bound", "packet_view.surface_info = gpu_surface",
+            "packet_view = bound",
+            "packet_view.width = bound.width / 2",
+            "packet_view.height = bound.height / 2",
             "HulkRememberSurface(packet_view, slot);",
+            "[HULK/PM4-HISTORY-ALIAS]",
+            "2u * (gpu_surface & 0x3FFFu)",
+            "const GuestSurface live = known ? ReadSurface(base, known.object",
+            "live.surface_info == known.surface_info && live.info == known.info",
+            "live.width == known.width && live.height == known.height",
+            "live.depth == (slot == 4)",
+            "packet_view = verified",
         ):
             self.assertIn(expected, NEW)
         self.assertIn("[HULK/PM4-SAMPLE-VIEW]", NEW)
-        self.assertIn("[HULK/PM4-HISTORY-ALIAS]", NEW)
-        for checked in (
-            "const HulkSurfaceIdentity xdk_key{1280u, gpu_info & 0x000F0FFFu};",
-            "g_hulk_surface_history[slot].find(xdk_key)",
-            "known.depth == (slot == 4)",
-            "known.pitch() == 1280 && known.msaa() == 0",
-            "known.width == 1280 && known.height == 720",
-            "(known.info & 0x000F0FFFu) == (gpu_info & 0x000F0FFFu)",
-            "packet_view = verified",
-            "verified.object",
-        ):
-            self.assertIn(checked, NEW)
         self.assertIn("continue;", NEW)
+
+    def test_general_paired_pitch_and_format(self):
+        # The two *real* pairs from user logs; these do NOT invent GPU surfaces.
+        def authentic_alias(gpu_surface, gpu_info, xdk_surface, xdk_info, w, h, depth, slot):
+            pitch = gpu_surface & 0x3FFF
+            return (bool(pitch) and (gpu_surface >> 16) & 3 == 2 and
+                    (xdk_surface >> 16) & 3 == 0 and
+                    (xdk_surface & 0x3FFF) == 2 * pitch and
+                    w >= 2 and h >= 2 and w % 2 == 0 and h % 2 == 0 and
+                    w // 2 <= pitch and depth == (slot == 4) and
+                    (gpu_info & 0x000F0FFF) == (xdk_info & 0x000F0FFF))
+        self.assertTrue(authentic_alias(0x0A020280, 0x400, 0x14000500, 0x400,
+                                        1280, 720, False, 0))
+        # #48 log 171: genuine 1024x1024 depth, pitch 1040, vs GPU 4x pitch 520.
+        self.assertTrue(authentic_alias(0x08020208, 0, 0x10000410, 0,
+                                        1024, 1024, True, 4))
+        self.assertFalse(authentic_alias(0x08020208, 1, 0x10000410, 0,
+                                         1024, 1024, True, 4))
+        self.assertFalse(authentic_alias(0x08020208, 0, 0x10000411, 0,
+                                         1024, 1024, True, 4))
+        self.assertFalse(authentic_alias(0x08020208, 0, 0x10000410, 0,
+                                         1024, 1024, False, 4))
+        self.assertFalse(authentic_alias(0x08010208, 0, 0x10000410, 0,
+                                         1024, 1024, True, 4))
 
     def test_logged_surface_identity(self):
         gpu_surface = 0x0A020280
