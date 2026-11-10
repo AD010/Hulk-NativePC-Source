@@ -41,7 +41,7 @@ PAYLOAD_GUARD = '''        // HULK/PM4-PACKET-BOUNDS: shader/ALU and indirect lo
         // a one-dword IM_LOAD_IMMEDIATE reads p+4 outside its payload and
         // count-2 underflows; this can submit invalid shader microcode.
         if ((opcode == 0x2F && count < 3) ||
-            ((opcode == 0x27 || opcode == 0x2B || opcode == 0x3F) && count < 2)) {
+            ((opcode == 0x27 || opcode == 0x2B || opcode == 0x37 || opcode == 0x3F) && count < 2)) {
           out.complete = false;
           return;
         }
