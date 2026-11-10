@@ -113,12 +113,12 @@ def transform(files: dict[str, str]) -> dict[str, str]:
     # 1280/720 SET or whether the game genuinely issued those final values.
     if "[HULK/FETCH-WRITER]" in cpp:
         cpp = exactly(cpp,
-            'value={:#x} indirect={}",\\n',
-            'value={:#x} indirect={} source={}",\\n',
+            'value={:#x} indirect={}",\n',
+            'value={:#x} indirect={} source={}",\n',
             "fetch provenance log format")
         cpp = exactly(cpp,
             '                    (reg - kFetchConstants) % 6, value, scan_.indirect);',
-            '                    (reg - kFetchConstants) % 6, value, scan_.indirect,\\n'
+            '                    (reg - kFetchConstants) % 6, value, scan_.indirect,\n'
             '                    loaded ? "LOAD_ALU" : "SET");',
             "fetch provenance log source")
     # Existing frame_path_probe logs SET writes in Gather. The new ordered
