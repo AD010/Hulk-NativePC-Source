@@ -58,9 +58,9 @@ def once(source: str, old: str, new: str, label: str) -> str:
 def patch_header(source: str) -> str:
     source = once(source,
         "  uint32_t draws = 0, indirect = 0, predicated = 0;\n  bool complete = true;",
-        "  // Persistent PFP bin state: Xenia defaults to all bins selected. Do\n"
+        "  // Persistent PFP bin state: Xenia defaults to the low 32 bins selected. Do\n"
         "  // not reset these in Clear(), which is called after each replayed Draw.\n"
-        "  uint64_t bin_mask = UINT64_MAX, bin_select = UINT64_MAX;\n"
+        "  uint64_t bin_mask = 0xFFFFFFFFull, bin_select = 0xFFFFFFFFull;\n"
         "  uint32_t bin_rejected = 0;\n"
         "  uint32_t draws = 0, indirect = 0, predicated = 0;\n  bool complete = true;", "header fields")
     source = once(source,
@@ -90,7 +90,7 @@ def patch_state(source: str) -> str:
         "  draws = indirect = predicated = 0;\n  bin_rejected = 0;\n  complete = true;", "Clear keeps bin state")
     source = once(source,
         "  inline_begin_ = {};\n}",
-        "  inline_begin_ = {};\n  scan_.bin_mask = UINT64_MAX;\n  scan_.bin_select = UINT64_MAX;\n}", "state reset")
+        "  inline_begin_ = {};\n  scan_.bin_mask = 0xFFFFFFFFull;\n  scan_.bin_select = 0xFFFFFFFFull;\n}", "state reset")
     # The replay reads the same gap twice: one scan to count and validate,
     # then an ordered scan to emit the commands. Restore the BIN state at
     # gap entrance so the second pass does not predicate from future state.
