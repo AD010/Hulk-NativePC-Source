@@ -28,6 +28,9 @@ def fixture():
           }
         }
         p += 4 * count;
+              if (immediate && dwords > count - 2) dwords = count - 2;
+              if (copy_microcode) {
+                out.shader_loads.push_back(
   draws = indirect = predicated = 0;
   complete = true;
   inline_begin_ = {};
@@ -78,6 +81,14 @@ class TestHulkPfpPatch(unittest.TestCase):
         self.assertIn("scan_.bin_select = hulk_bin_select_at_gap;", s)
         self.assertIn("[HULK/PFP-BIN] predicated PM4 packets skipped", s)
         self.assertIn("if (!scan_.complete)", s)
+
+    def test_immediate_shader_bounds_fail_closed(self):
+        cpp = self.patched["src/state.cpp"]
+        self.assertIn("HULK/PM4-SHADER-BOUNDS", cpp)
+        self.assertIn("(start_size >> 16) != 0", cpp)
+        self.assertIn("dwords > count - 2", cpp)
+        self.assertIn("if (copy_microcode || immediate)", cpp)
+        self.assertNotIn("if (immediate && dwords > count - 2) dwords = count - 2;", cpp)
 
     def test_clear_does_not_erase_bin_flags(self):
         s = self.patched["src/state.cpp"]
