@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Recover a Hulk 640x360/4x GPU attachment from a real 1280x720/1x XDK view.
+"""Recover verified Hulk 4x GPU attachments from real 1x XDK views.
 
 Observed in incredible_hulk_167.log: RB_SURFACE_INFO=0x0A020280, bound
 XDK RB_SURFACE_INFO=0x14000500, and RB_COLOR_INFO=0x400 on both.
-This is a constrained reconstruction of the GPU's real view of an existing
-surface, not creation of a new guest object or speculative RT substitution.
+The actual #48 log 171 also proved GPU depth pitch 520/4x matches a genuine
+XDK 1024x1024 shadow-size depth target at pitch 1040/1x. This patch
+reconstructs only verified 2x/4x representations of genuine bound objects.
 """
 from pathlib import Path
 import os
@@ -16,22 +17,24 @@ OLD = """    const HulkSurfaceIdentity gpu_key = HulkSurfaceKey(gpu_surface, gpu
     const GuestSurface bound = ReadBoundSurface(base, device, slot);"""
 NEW = """    const HulkSurfaceIdentity gpu_key = HulkSurfaceKey(gpu_surface, gpu_info);
     const GuestSurface bound = ReadBoundSurface(base, device, slot);
-    // HULK/PM4-SAMPLE-VIEW: Hulk's 4x scene is addressed as 640x360 in
-    // GPU packets while an earlier real XDK object may still expose the
-    // physically equivalent 1280x720/1x output view. Never use this
-    // bridge for different EDRAM bases, formats, sample counts or pitches.
+    // HULK/PM4-SAMPLE-VIEW: GPU 4x samples occupy the same storage
+    // as an XDK 1x object with twice the pitch and twice the dimensions.
+    // Applies to the 640/1280 color *and* 520/1040 depth shadow views.
+    // Never bridge different EDRAM bases, storage formats or object kinds.
     if (bound && (slot == 0 || slot == 4) &&
         g_profile->output_width == 1280 && g_profile->output_height == 720 &&
-        bound.width == 1280 && bound.height == 720 &&
-        bound.pitch() == 1280 && bound.msaa() == 0 &&
-        (gpu_surface & 0x3FFFu) == 640u &&
+        bound.depth == (slot == 4) && bound.width >= 2 && bound.height >= 2 &&
+        !(bound.width & 1u) && !(bound.height & 1u) &&
+        bound.width / 2 <= (gpu_surface & 0x3FFFu) &&
+        bound.pitch() == 2u * (gpu_surface & 0x3FFFu) && bound.msaa() == 0 &&
+        (gpu_surface & 0x3FFFu) != 0 &&
         ((gpu_surface >> 16) & 3u) == 2u &&
         (gpu_info & 0x000F0FFFu) == (bound.info & 0x000F0FFFu)) {
       GuestSurface packet_view = bound;
       packet_view.surface_info = gpu_surface;
       packet_view.info = gpu_info;
-      packet_view.width = 640;
-      packet_view.height = 360;
+      packet_view.width = bound.width / 2;
+      packet_view.height = bound.height / 2;
       out[slot] = packet_view;
       HulkRememberSurface(packet_view, slot);
       has_target = true;
@@ -39,38 +42,46 @@ NEW = """    const HulkSurfaceIdentity gpu_key = HulkSurfaceKey(gpu_surface, gpu
       const uint64_t n = ++hulk_sample_views;
       if (n <= 12 || n % 10000 == 0)
         REXLOG_INFO("[HULK/PM4-SAMPLE-VIEW] #{} slot={} real XDK object={:#x} "
-                    "matches GPU 640x360/4x EDRAM base={} format={}",
-                    n, slot, bound.object, gpu_info & 0xFFFu, (gpu_info >> 16) & 0xFu);
+                    "matches GPU {}/{} 4x EDRAM base={} format={}",
+                    n, slot, bound.object, packet_view.width, packet_view.height,
+                    gpu_info & 0xFFFu, (gpu_info >> 16) & 0xFu);
       continue;
     }
-    // HULK/PM4-HISTORY-ALIAS: a real XDK surface may have been unbound
-    // before the GPU's 640x360 4x packet. Recover ONLY the known 1280x720
-    // 1x view at the identical EDRAM base, storage format and attachment
-    // type; do not use a late XDK target and never invent an object.
+    // HULK/PM4-HISTORY-ALIAS: when temporarily unbound, find the
+    // genuine historical XDK surface by the exact paired 1x pitch,
+    // EDRAM base, format and depth/color kind. Recheck its live XDK header
+    // to avoid mistaking a reused object address for an old target.
     if ((slot == 0 || slot == 4) &&
         g_profile->output_width == 1280 && g_profile->output_height == 720 &&
-        (gpu_surface & 0x3FFFu) == 640u &&
+        (gpu_surface & 0x3FFFu) != 0 &&
+        2u * (gpu_surface & 0x3FFFu) <= 0x3FFFu &&
         ((gpu_surface >> 16) & 3u) == 2u) {
       GuestSurface verified{};
       {
         std::lock_guard<std::mutex> guard(g_hulk_surface_history_mutex);
-        const HulkSurfaceIdentity xdk_key{1280u, gpu_info & 0x000F0FFFu};
+        const HulkSurfaceIdentity xdk_key{2u * (gpu_surface & 0x3FFFu), gpu_info & 0x000F0FFFu};
         const auto it = g_hulk_surface_history[slot].find(xdk_key);
         if (it != g_hulk_surface_history[slot].end()) {
           const GuestSurface& known = it->second;
-          if (known && known.depth == (slot == 4) &&
-              known.pitch() == 1280 && known.msaa() == 0 &&
-              known.width == 1280 && known.height == 720 &&
-              (known.info & 0x000F0FFFu) == (gpu_info & 0x000F0FFFu))
-            verified = known;
+          const GuestSurface live = known ? ReadSurface(base, known.object, known.depth,
+                                                       g_profile->objects) : GuestSurface{};
+          if (live && live.depth == (slot == 4) &&
+              live.surface_info == known.surface_info && live.info == known.info &&
+              live.width == known.width && live.height == known.height &&
+              live.width >= 2 && live.height >= 2 &&
+              !(live.width & 1u) && !(live.height & 1u) &&
+              live.width / 2 <= (gpu_surface & 0x3FFFu) &&
+              live.pitch() == 2u * (gpu_surface & 0x3FFFu) && live.msaa() == 0 &&
+              (live.info & 0x000F0FFFu) == (gpu_info & 0x000F0FFFu))
+            verified = live;
         }
       }
       if (verified) {
         GuestSurface packet_view = verified;
         packet_view.surface_info = gpu_surface;
         packet_view.info = gpu_info;
-        packet_view.width = 640;
-        packet_view.height = 360;
+        packet_view.width = verified.width / 2;
+        packet_view.height = verified.height / 2;
         out[slot] = packet_view;
         HulkRememberSurface(packet_view, slot);
         has_target = true;
