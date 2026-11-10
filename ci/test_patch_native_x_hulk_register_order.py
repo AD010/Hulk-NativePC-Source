@@ -87,6 +87,22 @@ class RegisterOrderTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,"anchors drift"):
             transform(src)
 
+    def test_fetch_probe_names_real_source_set_or_load(self):
+        original = input_fixture()
+        opening = "  for (const auto& [reg, value] : scan_.writes) {\\n"
+        probe = (
+            opening +
+            '    REXLOG_WARN("[HULK/FETCH-WRITER] #{} call={} draw={} slot={} '
+            'dword={} value={:#x} indirect={}",\\n'
+            '                    n, uint32_t(call), draw, (reg - kFetchConstants) / 6,\\n'
+            '                    (reg - kFetchConstants) % 6, value, scan_.indirect);\\n'
+        )
+        self.assertIn(opening, original["src/state.cpp"])
+        original["src/state.cpp"] = original["src/state.cpp"].replace(opening, probe, 1)
+        converted = transform(original)["src/state.cpp"]
+        self.assertIn("indirect={} source={}", converted)
+        self.assertIn('loaded ? "LOAD_ALU" : "SET"', converted)
+
     def test_dirty_fetch_correctly_uses_latest_load(self):
         screen_width_float = 0x44A00000  # 1280.0 stored as raw bits
         valid_texture_fetch = 0x00010A2F
