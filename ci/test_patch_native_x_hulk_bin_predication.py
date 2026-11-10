@@ -76,6 +76,8 @@ class TestHulkPfpPatch(unittest.TestCase):
         self.assertIn("const uint64_t hulk_bin_mask_at_gap = scan_.bin_mask", s)
         self.assertIn("scan_.bin_mask = hulk_bin_mask_at_gap;", s)
         self.assertIn("scan_.bin_select = hulk_bin_select_at_gap;", s)
+        self.assertIn("[HULK/PFP-BIN] predicated PM4 packets skipped", s)
+        self.assertIn("if (!scan_.complete)", s)
 
     def test_clear_does_not_erase_bin_flags(self):
         s = self.patched["src/state.cpp"]
