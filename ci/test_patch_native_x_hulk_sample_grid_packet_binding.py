@@ -108,6 +108,47 @@ class HulkPacketSampleViewTests(unittest.TestCase):
             bad[i] = invalid
             self.assertFalse(accepts(*bad), msg=f"Guard missed changed field {i}")
 
+    def test_log175_unbound_depth_rebase_live_xdk_only(self):
+        # A real 1x depth XDK surface has previously been observed in the
+        # 4x history. Do not fabricate a surface or misbind a color target.
+        self.assertIn("HULK/PM4-DEPTH-REBASE-4X", NEW)
+        self.assertIn("slot == 4 && !bound && gpu_surface == 0x0A020280u", NEW)
+        self.assertIn("gpu_info == 0x400u", NEW)
+        self.assertIn("HulkSurfaceKey(gpu_surface, 0u)", NEW)
+        self.assertIn("ReadSurface(base, known.object, true, g_profile->objects)", NEW)
+        self.assertIn("known.width == 640 && known.height == 360", NEW)
+        self.assertIn("live.width == 1280 && live.height == 720", NEW)
+        self.assertIn("known.msaa() == 2", NEW)
+        self.assertIn("live.pitch() == 1280 && live.msaa() == 0", NEW)
+        self.assertIn("packet_view.info = gpu_info", NEW)
+        self.assertIn("HulkRememberSurface(packet_view, slot);", NEW)
+        def supported(slot, bound, gpu_surface, gpu_info, known_surface, known_info,
+                      known_width, known_height, known_pitch, known_msaa,
+                      known_depth, live_surface, live_info, live_width,
+                      live_height, live_pitch, live_msaa, live_depth):
+            return (slot == 4 and not bound and gpu_surface == 0x0A020280 and
+                    gpu_info == 0x400 and known_surface == gpu_surface and
+                    known_info == 0 and known_width == 640 and
+                    known_height == 360 and known_pitch == 640 and
+                    known_msaa == 2 and known_depth and
+                    (live_surface & 0x3FFF) == 1280 and live_info == 0 and
+                    live_width == 1280 and live_height == 720 and
+                    live_pitch == 1280 and live_msaa == 0 and live_depth)
+        valid = [4, False, 0x0A020280, 0x400, 0x0A020280, 0,
+                 640, 360, 640, 2, True, 0x14000500, 0, 1280,
+                 720, 1280, 0, True]
+        self.assertTrue(supported(*valid))
+        wrong_values = {0: 0, 1: True, 2: 0x14000500, 3: 0,
+                        4: 0x14000500, 5: 0x400, 6: 1280, 7: 720,
+                        8: 1280, 9: 0, 10: False, 11: 0x14000410,
+                        12: 0x400, 13: 640, 14: 360, 15: 640,
+                        16: 2, 17: False}
+        for index, bad in wrong_values.items():
+            changed = valid.copy()
+            changed[index] = bad
+            self.assertFalse(supported(*changed),
+                             msg=f"Unsafe depth descriptor change {index}")
+
     def test_logged_surface_identity(self):
         gpu_surface = 0x0A020280
         bound_surface = 0x14000500

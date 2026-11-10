@@ -103,6 +103,51 @@ NEW = """    const HulkSurfaceIdentity gpu_key = HulkSurfaceKey(gpu_surface, gpu
                     packet_view.width, packet_view.height);
       continue;
     }
+    // HULK/PM4-DEPTH-REBASE-4X: log 175 has unbound GPU depth at
+    // 640x360/4x and EDRAM base 1024. Earlier in the same session, an
+    // authentic XDK depth object yielded the same 640x360/4x view at
+    // EDRAM base 0. Recheck the original, still-live 1280x720/1x
+    // XDK object before reusing its dimensions and depth format.
+    // Keep the PM4 packet's actual EDRAM base; never invent an object.
+    if (slot == 4 && !bound && gpu_surface == 0x0A020280u &&
+        gpu_info == 0x400u &&
+        g_profile->output_width == 1280 && g_profile->output_height == 720) {
+      GuestSurface verified_depth{};
+      {
+        std::lock_guard<std::mutex> guard(g_hulk_surface_history_mutex);
+        const auto it = g_hulk_surface_history[4].find(
+            HulkSurfaceKey(gpu_surface, 0u));
+        if (it != g_hulk_surface_history[4].end()) {
+          const GuestSurface& known = it->second;
+          const GuestSurface live = known && known.object
+              ? ReadSurface(base, known.object, true, g_profile->objects)
+              : GuestSurface{};
+          if (known && known.depth &&
+              known.surface_info == gpu_surface && known.info == 0u &&
+              known.width == 640 && known.height == 360 &&
+              known.pitch() == 640 && known.msaa() == 2 &&
+              live && live.depth && live.info == 0u &&
+              live.width == 1280 && live.height == 720 &&
+              live.pitch() == 1280 && live.msaa() == 0 &&
+              (live.surface_info & 0x3FFFu) == 1280u)
+            verified_depth = known;
+        }
+      }
+      if (verified_depth) {
+        GuestSurface packet_view = verified_depth;
+        packet_view.info = gpu_info;
+        out[slot] = packet_view;
+        HulkRememberSurface(packet_view, slot);
+        has_target = true;
+        static std::atomic<uint64_t> hulk_depth_rebased{0};
+        const uint64_t n = ++hulk_depth_rebased;
+        if (n <= 12 || n % 10000 == 0)
+          REXLOG_INFO("[HULK/PM4-DEPTH-REBASE-4X] #{} XDK object={:#x} "
+                      "guest={}x{} base={}", n, verified_depth.object,
+                      packet_view.width, packet_view.height, packet_view.edram_base());
+        continue;
+      }
+    }
     // HULK/PM4-HISTORY-ALIAS: when temporarily unbound, find the
     // genuine historical XDK surface by the exact paired 1x pitch,
     // EDRAM base, format and depth/color kind. Recheck its live XDK header
