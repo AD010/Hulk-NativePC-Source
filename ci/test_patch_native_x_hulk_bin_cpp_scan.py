@@ -41,7 +41,11 @@ uint32_t Load32(const uint8_t* b,uint32_t addr){
 }
 uint32_t PhysicalToVirtual(uint32_t p){return p;}
 const uint8_t* GuestPointer(const uint8_t* b,uint32_t p){return b+p;}
-uint32_t ConstantBase(uint32_t){return 800;}
+uint32_t ConstantBase(uint32_t t){
+  switch(t){case 0:return 0x4000;case 1:return 0x4800;
+  case 2:return 0x4900;case 3:return 0x4908;
+  case 4:return 0x2000;default:return 0;}
+}
 bool SkippedConstants(bool,uint32_t,uint32_t){return false;}
 void ScanDraw(const uint8_t*,uint32_t,uint32_t,uint32_t,PacketScan& out){++out.draws;}
 """
@@ -117,6 +121,20 @@ int main(){
   PacketScan bad_alu;
   ScanPackets(reinterpret_cast<uint8_t*>(m.data()),alu_begin*4,off*4,bad_alu,0,false,false);
   assert(!bad_alu.complete);
+  // Invalid SET_CONSTANT class must NOT write to register zero.
+  const int set_class_begin=off;
+  emit(off,0x2D,{0x00070000u,0xDEADBEEFu});
+  PacketScan invalid_set;
+  ScanPackets(reinterpret_cast<uint8_t*>(m.data()),set_class_begin*4,off*4,
+              invalid_set,0,false,false);
+  assert(invalid_set.complete && invalid_set.writes.empty());
+  // Fetch slot 31 starts at 0x4fff; a second dword would exceed the GPU file.
+  const int set_range_begin=off;
+  emit(off,0x2D,{0x000107FFu,0x11111111u,0x22222222u});
+  PacketScan invalid_set_range;
+  ScanPackets(reinterpret_cast<uint8_t*>(m.data()),set_range_begin*4,off*4,
+              invalid_set_range,0,false,false);
+  assert(!invalid_set_range.complete && invalid_set_range.writes.empty());
   // A syntactically valid LOAD with an invalid register class or range
   // must not read guest memory or append spurious fetch descriptors.
   const int bad_class_begin=off;
