@@ -28,6 +28,9 @@ def fixture():
           }
         }
         p += 4 * count;
+              uint32_t size = Load32(base, p + 8) & 0xFFF;
+              uint32_t reg = ConstantBase((ot >> 16) & 0xFF) + (ot & 0x7FF);
+              for (uint32_t i = 0; i < size; ++i) out.loads.emplace_back(reg + i, Load32(base, address + 4 * i));
               if (immediate && dwords > count - 2) dwords = count - 2;
               if (copy_microcode) {
                 out.shader_loads.push_back(
@@ -94,6 +97,14 @@ class TestHulkPfpPatch(unittest.TestCase):
         self.assertIn("dwords > count - 2", cpp)
         self.assertIn("if (copy_microcode || immediate)", cpp)
         self.assertNotIn("if (immediate && dwords > count - 2) dwords = count - 2;", cpp)
+
+    def test_load_range_checked_before_guest_read(self):
+        cpp = self.patched["src/state.cpp"]
+        self.assertIn("HULK/PM4-LOAD-RANGE", cpp)
+        self.assertIn("constant_type > 4", cpp)
+        self.assertIn("size > rex::graphics::RegisterFile::kRegisterCount - reg", cpp)
+        self.assertLess(cpp.index("HULK/PM4-LOAD-RANGE"), cpp.index(
+            "for (uint32_t i = 0; i < size; ++i) out.loads.emplace_back"))
 
     def test_clear_does_not_erase_bin_flags(self):
         s = self.patched["src/state.cpp"]
