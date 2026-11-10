@@ -151,6 +151,28 @@ def patch_state(source: str) -> str:
         "              }\n"
         "              for (uint32_t i = 0; i < size; ++i) out.loads.emplace_back(reg + i, Load32(base, address + 4 * i));",
         "guard GPU memory LOAD register class and range")
+    # Xenia discards unknown SET_CONSTANT classes. The original NativeX
+    # ConstantBase returned 0, silently writing unrelated GPU registers
+    # (possibly primitive or shader state) when the class was invalid.
+    source = once(source,
+        "              uint32_t ot = Load32(base, p);\\n"
+        "              uint32_t reg = ConstantBase((ot >> 16) & 0xFF) + (ot & 0x7FF);\\n"
+        "              if (SkippedConstants(skip_constants, reg, count - 1)) break;\\n"
+        "              for (uint32_t i = 1; i < count; ++i) out.writes.emplace_back(reg + i - 1, Load32(base, p + 4 * i));",
+        "              uint32_t ot = Load32(base, p);\\n"
+        "              const uint32_t constant_type = (ot >> 16) & 0xFFu;\\n"
+        "              // HULK/PM4-SET-RANGE: invalid GPU register classes must\\n"
+        "              // NEVER alias register zero; match Xenia's skip behavior.\\n"
+        "              if (constant_type > 4) break;\\n"
+        "              uint32_t reg = ConstantBase(constant_type) + (ot & 0x7FFu);\\n"
+        "              if (reg >= rex::graphics::RegisterFile::kRegisterCount ||\\n"
+        "                  count - 1 > rex::graphics::RegisterFile::kRegisterCount - reg) {\\n"
+        "                out.complete = false;\\n"
+        "                return;\\n"
+        "              }\\n"
+        "              if (SkippedConstants(skip_constants, reg, count - 1)) break;\\n"
+        "              for (uint32_t i = 1; i < count; ++i) out.writes.emplace_back(reg + i - 1, Load32(base, p + 4 * i));",
+        "guard SET_CONSTANT register class and range")
     # Hulk IM_LOAD_IMMEDIATE shaders can be emitted in a recycled guest
     # ring segment. Copy bytes at scan time even if this is a normal
     # DrawIndexedVertices Leave scan (copy_microcode=false). The render
@@ -240,7 +262,7 @@ def transform(files: dict[str,str]) -> dict[str,str]:
             "hulk_bin_mask_at_gap", "HULK/PM4-PACKET-BOUNDS",
             "if (copy_microcode || immediate)", "HULK/PM4-SHADER-BOUNDS",
             "HULK/PFP-RESET", "HULK/PFP-BIN", "bin_rejected_draws", "bin_rejected_state",
-            "HULK/PM4-LOAD-RANGE", "HULK/PM4-NESTED-IB",
+            "HULK/PM4-LOAD-RANGE", "HULK/PM4-SET-RANGE", "HULK/PM4-NESTED-IB",
         )
         if any(mark not in cpp for mark in required):
             raise ValueError("Partially applied bin predicate patch")
