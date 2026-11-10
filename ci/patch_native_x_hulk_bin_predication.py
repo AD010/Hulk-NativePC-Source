@@ -36,6 +36,17 @@ BIN_SWITCH = '''            // HULK/PFP-BIN: Xenos Type3 bin mask and selection,
               break;
             }
 '''
+PAYLOAD_GUARD = '''        // HULK/PM4-PACKET-BOUNDS: shader/ALU and indirect loads must have
+        // enough data for all fixed header fields. In the unpatched scanner
+        // a one-dword IM_LOAD_IMMEDIATE reads p+4 outside its payload and
+        // count-2 underflows; this can submit invalid shader microcode.
+        if ((opcode == 0x2F && count < 3) ||
+            ((opcode == 0x27 || opcode == 0x2B || opcode == 0x3F) && count < 2)) {
+          out.complete = false;
+          return;
+        }
+'''
+
 BIN_GUARD = '''        // HULK/PFP-PREDICATE: the PFP executes Type3 packets with predicate
         // bit set only when at least one selected bin is enabled. XDK uses
         // predicated packets for tiled draws AND register/shader loads.
@@ -79,7 +90,7 @@ def patch_state(source: str) -> str:
     b = source.find(end, a)
     if b < 0 or b - a > 2300:
         raise ValueError("Hulk BIN predicate switch not found near preamble")
-    source = source[:a] + BIN_GUARD + source[b:]
+    source = source[:a] + BIN_GUARD + PAYLOAD_GUARD + source[b:]
     source = once(source, "          switch (opcode) {\n            case 0x2D:",
                   "          switch (opcode) {\n" + BIN_SWITCH + "            case 0x2D:", "bin opcode switch")
     source = once(source,
@@ -133,7 +144,9 @@ def transform(files: dict[str,str]) -> dict[str,str]:
     if set(files) != {"src/state.cpp", "src/state.h"}:
         raise ValueError("Expected StateTracker source and header")
     if "HULK/PFP-PREDICATE" in files["src/state.cpp"]:
-        if "hulk_bin_mask_at_gap" not in files["src/state.cpp"] or "bin_rejected = 0;" not in files["src/state.cpp"]:
+        if ("hulk_bin_mask_at_gap" not in files["src/state.cpp"] or
+            "HULK/PM4-PACKET-BOUNDS" not in files["src/state.cpp"] or
+            "bin_rejected = 0;" not in files["src/state.cpp"]):
             raise ValueError("Partially applied bin predicate patch")
         return files
     h = patch_header(files["src/state.h"])
