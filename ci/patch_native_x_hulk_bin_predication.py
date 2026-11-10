@@ -98,6 +98,41 @@ def patch_state(source: str) -> str:
     source = once(source,
         "            default:\n              break;\n          }\n        }\n        p += 4 * count;",
         "            default:\n              break;\n          }\n        p += 4 * count;", "remove old unpredicated switch wrapper")
+    # The PFP supports both ordinary IB (0x3F) and prefetch-pipelined
+    # IB_PFD (0x37), and indirect buffers may nest. The previous Hulk scanner
+    # ignored 0x37 and stopped at depth 1, silently losing real GPU state and
+    # draw calls from nested streams. Restrict nesting and physical address
+    # ranges; never recursively follow a malformed guest pointer.
+    source = once(source,
+        "            case 0x3F: {  // INDIRECT_BUFFER: the library's prebuilt buffers\n"
+        "              uint32_t target = PhysicalToVirtual(Load32(base, p));\n"
+        "              uint32_t length = Load32(base, p + 4) & 0xFFFFF;\n"
+        "              ++out.indirect;\n"
+        "              if (depth == 0) {\n"
+        "                ScanPackets(base, target, target + 4 * length, out, depth + 1,\n"
+        "                          skip_constants, copy_microcode, on_packet_draw);\n"
+        "              }\n"
+        "              break;\n"
+        "            }",
+        "            // HULK/PM4-NESTED-IB: PFP supports both IB and IB_PFD.\n"
+        "            case 0x37:  // INDIRECT_BUFFER_PFD (pipelined prefetch)\n"
+        "            case 0x3F: {  // INDIRECT_BUFFER\n"
+        "              uint32_t target = PhysicalToVirtual(Load32(base, p));\n"
+        "              uint32_t length = Load32(base, p + 4) & 0xFFFFFu;\n"
+        "              ++out.indirect;\n"
+        "              if (!length) break;\n"
+        "              constexpr int kMaxIndirectDepth = 8;\n"
+        "              if (depth >= kMaxIndirectDepth ||\n"
+        "                  uint64_t(target) + 4ull * length > 0xC0000000ull) {\n"
+        "                out.complete = false;\n"
+        "                return;\n"
+        "              }\n"
+        "              ScanPackets(base, target, target + 4u * length, out, depth + 1,\n"
+        "                          skip_constants, copy_microcode, on_packet_draw);\n"
+        "              if (!out.complete) return;\n"
+        "              break;\n"
+        "            }",
+        "restore nested native PFP IB/IB_PFD recursion")
     source = once(source,
         "              uint32_t size = Load32(base, p + 8) & 0xFFF;\n"
         "              uint32_t reg = ConstantBase((ot >> 16) & 0xFF) + (ot & 0x7FF);\n"
@@ -205,7 +240,7 @@ def transform(files: dict[str,str]) -> dict[str,str]:
             "hulk_bin_mask_at_gap", "HULK/PM4-PACKET-BOUNDS",
             "if (copy_microcode || immediate)", "HULK/PM4-SHADER-BOUNDS",
             "HULK/PFP-RESET", "HULK/PFP-BIN", "bin_rejected_draws", "bin_rejected_state",
-            "HULK/PM4-LOAD-RANGE",
+            "HULK/PM4-LOAD-RANGE", "HULK/PM4-NESTED-IB",
         )
         if any(mark not in cpp for mark in required):
             raise ValueError("Partially applied bin predicate patch")
