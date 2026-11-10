@@ -135,6 +135,23 @@ PATCHES["src/draw.cpp"].append((
     "  // Primitives and indices (this may upload the index range)."
 ))
 
+PATCHES["src/state.cpp"] = [(
+    "  for (const auto& [reg, value] : scan_.writes) {",
+    "  for (const auto& [reg, value] : scan_.writes) {\n"
+    "    // HULK/FETCH-WRITER: identify the actual PM4 write that put screen\n"
+    "    // dimension floats in a texture fetch register, before any shader\n"
+    "    // or texture binding interprets those bits as a descriptor.\n"
+    "    if (reg >= kFetchConstants && reg < kFetchConstants + kFetchDwords &&\n"
+    "        (value == 0x44A00000u || value == 0x44340000u)) {\n"
+    "      static std::atomic<uint32_t> hulk_fetch_writes{0};\n"
+    "      const uint32_t n = hulk_fetch_writes.fetch_add(1, std::memory_order_relaxed) + 1;\n"
+    "      if (n <= 24 || n % 10000 == 0)\n"
+    "        REXLOG_WARN(\"[HULK/FETCH-WRITER] #{} call={} draw={} slot={} dword={} value={:#x} indirect={}\",\n"
+    "                    n, uint32_t(call), draw, (reg - kFetchConstants) / 6,\n"
+    "                    (reg - kFetchConstants) % 6, value, scan_.indirect);\n"
+    "    }"
+)]
+
 
 def transform(source, rules):
     done = [new in source for old, new in rules]
