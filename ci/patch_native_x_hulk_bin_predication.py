@@ -96,10 +96,10 @@ def patch_state(source: str) -> str:
     source = once(source,
         "            default:\n              break;\n          }\n        }\n        p += 4 * count;",
         "            default:\n              break;\n          }\n        p += 4 * count;", "remove old unpredicated switch wrapper")
-    // Hulk IM_LOAD_IMMEDIATE shaders can be emitted in a recycled guest
-    // ring segment. Copy bytes at scan time even if this is a normal
-    // DrawIndexedVertices Leave scan (copy_microcode=false). The render
-    // thread must never dereference a later-reused guest command buffer.
+    # Hulk IM_LOAD_IMMEDIATE shaders can be emitted in a recycled guest
+    # ring segment. Copy bytes at scan time even if this is a normal
+    # DrawIndexedVertices Leave scan (copy_microcode=false). The render
+    # thread must never dereference a later-reused guest command buffer.
     # Xenia's IM_LOAD_IMMEDIATE requires start==0 and requested shader words
     # within the actual Type3 payload. Clamping a larger size and then
     # interpreting trailing PM4 as a shader silently corrupts programs.
@@ -122,8 +122,11 @@ def patch_state(source: str) -> str:
         "  draws = indirect = predicated = 0;\n  complete = true;",
         "  draws = indirect = predicated = 0;\n  bin_rejected = 0;\n  complete = true;", "Clear keeps bin state")
     source = once(source,
-        "  inline_begin_ = {};\n}",
-        "  inline_begin_ = {};\n  scan_.bin_mask = 0xFFFFFFFFull;\n  scan_.bin_select = 0xFFFFFFFFull;\n}", "state reset")
+        "void StateTracker::Reset() {\n",
+        "void StateTracker::Reset() {\n"
+        "  // HULK/PFP-RESET: only full GPU reset restarts the BIN selection.\n"
+        "  scan_.bin_mask = 0xFFFFFFFFull;\n"
+        "  scan_.bin_select = 0xFFFFFFFFull;\n", "state reset")
     # The replay reads the same gap twice: one scan to count and validate,
     # then an ordered scan to emit the commands. Restore the BIN state at
     # gap entrance so the second pass does not predicate from future state.
