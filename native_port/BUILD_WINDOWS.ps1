@@ -34,6 +34,10 @@ try {
   Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_hulk_win32_cursor_compile.py')) $Source
   Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_audit_hulk_world_visuals.py')) $Source
   Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_map_hulk_world_stream_trace.py')) $Source
+  # Independent, synthetic-only PM4 provenance and visual-regression triage.
+  # They never read copyrighted game bytes and cannot modify GPU state.
+  Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_hulk_pm4_register_oracle.py')) $Source
+  Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_hulk_render_log_audit.py')) $Source
   Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_audit_hulk_tu1_resource_index.py')) $Source
   if (-not $GameRoot) {
     $known = 'E:\Games\IncredibleHulk\games\incredible_hulk\game'
