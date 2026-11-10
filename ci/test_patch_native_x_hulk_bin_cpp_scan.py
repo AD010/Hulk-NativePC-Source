@@ -47,7 +47,7 @@ void ScanDraw(const uint8_t*,uint32_t,uint32_t,uint32_t,PacketScan& out){++out.d
 """
 MAIN = r"""
 int main(){
-  std::vector<uint32_t> m(256,0);
+  std::vector<uint32_t> m(512,0);
   auto emit=[&](int& off,uint32_t op,std::initializer_list<uint32_t> payload,bool pred=false){
     m[off++]=0xC0000000u | ((uint32_t(payload.size())-1)<<16) | (op<<8) | uint32_t(pred);
     for(auto x:payload)m[off++]=x;
@@ -76,6 +76,27 @@ int main(){
   assert(s.writes[0].second==456 && s.writes[1].second==789);
   assert(s.bin_mask==0x10 && s.bin_select==0x10);
   assert(s.indirect==1);
+  // IB_PFD can contain a nested IB, both sharing the same BIN state.
+  const int nested_begin=off;
+  emit(off,0x37,{300,3});
+  m[300/4] = 0xC0013700u;  // nested 0x37, 2 dwords
+  m[300/4+1] = 0x380;
+  m[300/4+2] = 2;
+  m[0x380/4] = 0xC0003601u;  // selected predicated draw
+  m[0x380/4+1] = 0x1082;
+  PacketScan nested;
+  nested.bin_mask=0x10; nested.bin_select=0x10;
+  uint32_t nested_callbacks=0;
+  ScanPackets(reinterpret_cast<uint8_t*>(m.data()),nested_begin*4,off*4,
+              nested,0,false,false,[&]{++nested_callbacks;});
+  assert(nested.complete && nested.indirect==2);
+  assert(nested.draws==1 && nested_callbacks==1);
+  const int invalid_ib_begin=off;
+  emit(off,0x37,{0x300});
+  PacketScan bad_ib;
+  ScanPackets(reinterpret_cast<uint8_t*>(m.data()),invalid_ib_begin*4,off*4,
+              bad_ib,0,false,false);
+  assert(!bad_ib.complete && bad_ib.draws==0);
   // A truncated immediate shader load must be rejected before dereferencing
   // the absent second header dword or interpreting memory as microcode.
   const int bad_begin=off;
