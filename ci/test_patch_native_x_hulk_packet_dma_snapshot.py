@@ -17,8 +17,8 @@ class DmaSnapshotTests(unittest.TestCase):
     def test_no_fabricated_index_data(self):
         for token in (
             "tracker.LastWrite(rg::XE_GPU_REG_VGT_DRAW_INITIATOR",
-            "tracker.LastWrite(rg::XE_GPU_REG_VGT_DMA_BASE",
-            "tracker.LastWrite(rg::XE_GPU_REG_VGT_DMA_SIZE",
+            "tracker.HulkRegisterAtDraw(rg::XE_GPU_REG_VGT_DMA_BASE",
+            "tracker.HulkRegisterAtDraw(rg::XE_GPU_REG_VGT_DMA_SIZE",
             "if (!requested_indices || requested_indices > available_indices)",
             "return reject(\"DMA index count missing/short\")",
             "return reject(\"DMA address/length invalid\")",
@@ -36,5 +36,35 @@ class DmaSnapshotTests(unittest.TestCase):
         self.assertIn("return true;  // Auto-indexed packet", ADDITION)
         self.assertNotIn("std::min(requested_indices, available_indices)", ADDITION)
         self.assertNotIn("memset",ADDITION)
+
+
+    def test_persistent_dma_register_values(self):
+        # Packet-local LastWrite cannot observe the last valid DMA BASE/SIZE
+        # before a preceding synthetic draw's scan_.Clear(). The effective GPU
+        # register image must supply these persisted values, while the actual
+        # draw initiator is still required to belong to the current packet.
+        self.assertIn("HULK/PM4-PERSISTENT-DMA", ADDITION)
+        self.assertIn("tracker.LastWrite(rg::XE_GPU_REG_VGT_DRAW_INITIATOR", ADDITION)
+        self.assertIn("dma_base = tracker.HulkRegisterAtDraw(", ADDITION)
+        self.assertIn("dma_size = tracker.HulkRegisterAtDraw(", ADDITION)
+        self.assertNotIn("tracker.LastWrite(rg::XE_GPU_REG_VGT_DMA_BASE", ADDITION)
+        self.assertNotIn("tracker.LastWrite(rg::XE_GPU_REG_VGT_DMA_SIZE", ADDITION)
+        # Legal inherited binding: earlier packet wrote base/size, current
+        # packet updates only initiator; request must stay within limits.
+        def accepted(initiator, effective_base, effective_size):
+            source = (initiator >> 6) & 3
+            if source: return True
+            requested = initiator >> 16
+            available = effective_size & 0xFFFFFF
+            stride = 4 if (initiator >> 11) & 1 else 2
+            physical = effective_base & 0x1FFFFFFF
+            return (bool(requested) and requested <= available and
+                    requested * stride <= (1 << 20) and
+                    physical + requested * stride <= 0x20000000)
+        self.assertTrue(accepted((24 << 16) | 4, 0x1721D700, 24))
+        self.assertFalse(accepted((25 << 16) | 4, 0x1721D700, 24))
+        self.assertFalse(accepted((24 << 16) | 4, 0x1721D700, 0))
+        self.assertFalse(accepted((0 << 16) | 4, 0x1721D700, 24))
+        self.assertFalse(accepted((24 << 16) | 4, 0x1FFFFFF0, 24))
 
 if __name__=="__main__":unittest.main()

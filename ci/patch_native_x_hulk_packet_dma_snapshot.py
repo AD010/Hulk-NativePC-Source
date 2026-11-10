@@ -36,9 +36,12 @@ bool CapturePacketDmaIndices(const StateTracker& tracker, const uint8_t* base, C
     return reject("no draw initiator");
   if (((initiator >> 6) & 3u) != 0)
     return true;  // Auto-indexed packet; there is no DMA index buffer.
-  if (!tracker.LastWrite(rg::XE_GPU_REG_VGT_DMA_BASE, dma_base) ||
-      !tracker.LastWrite(rg::XE_GPU_REG_VGT_DMA_SIZE, dma_size))
-    return reject("missing DMA BASE/SIZE");
+  // HULK/PM4-PERSISTENT-DMA: Xenos DMA BASE/SIZE registers persist between
+  // draw packets. Gather() has already applied this packet's ordered updates
+  // to the GPU register image; LastWrite() only sees this packet span, and
+  // would reject a draw that legally reuses an earlier DMA binding.
+  dma_base = tracker.HulkRegisterAtDraw(rg::XE_GPU_REG_VGT_DMA_BASE);
+  dma_size = tracker.HulkRegisterAtDraw(rg::XE_GPU_REG_VGT_DMA_SIZE);
   const uint32_t requested_indices = initiator >> 16;
   const uint32_t available_indices = dma_size & 0x00FFFFFFu;
   // Never silently truncate requested indices: DrawInternal would still
