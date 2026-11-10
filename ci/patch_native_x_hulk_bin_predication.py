@@ -168,12 +168,19 @@ def patch_state(source: str) -> str:
 def transform(files: dict[str,str]) -> dict[str,str]:
     if set(files) != {"src/state.cpp", "src/state.h"}:
         raise ValueError("Expected StateTracker source and header")
-    if "HULK/PFP-PREDICATE" in files["src/state.cpp"]:
-        if ("hulk_bin_mask_at_gap" not in files["src/state.cpp"] or
-            "HULK/PM4-PACKET-BOUNDS" not in files["src/state.cpp"] or
-            "if (copy_microcode || immediate)" not in files["src/state.cpp"] or
-            "HULK/PM4-SHADER-BOUNDS" not in files["src/state.cpp"] or
-            "bin_rejected = 0;" not in files["src/state.cpp"]):
+    cpp = files["src/state.cpp"]
+    hdr = files["src/state.h"]
+    cpp_patched = "HULK/PFP-PREDICATE" in cpp
+    hdr_patched = "uint64_t bin_mask = 0xFFFFFFFFull, bin_select = 0xFFFFFFFFull;" in hdr
+    if cpp_patched != hdr_patched:
+        raise ValueError("Partially applied BIN predicate patch: header/source mismatch")
+    if cpp_patched:
+        required = (
+            "hulk_bin_mask_at_gap", "HULK/PM4-PACKET-BOUNDS",
+            "if (copy_microcode || immediate)", "HULK/PM4-SHADER-BOUNDS",
+            "HULK/PFP-RESET", "HULK/PFP-BIN", "bin_rejected = 0;",
+        )
+        if any(mark not in cpp for mark in required):
             raise ValueError("Partially applied bin predicate patch")
         return files
     h = patch_header(files["src/state.h"])
