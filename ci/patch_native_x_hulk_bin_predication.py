@@ -104,6 +104,24 @@ def patch_state(source: str) -> str:
                      "                scan_, 0, false, true);")
     source = once(source, gap_prescan, gap_with_snap, "gap prescan PFP checkpoint")
     source = once(source,
+        "    ScanPackets(base, last_hulk_segment_end_, p.begin,\n"
+        "                scan_, 0, false, true);\n",
+        "    ScanPackets(base, last_hulk_segment_end_, p.begin,\n"
+        "                scan_, 0, false, true);\n"
+        "    // HULK/PFP-AUDIT: count skipped packets only in the first scan,\n"
+        "    // not in the replay (which processes this gap again).\n"
+        "    if (scan_.complete && scan_.bin_rejected) {\n"
+        "      static std::atomic<uint64_t> total_bin_rejected{0};\n"
+        "      const uint64_t total = total_bin_rejected.fetch_add(scan_.bin_rejected) + scan_.bin_rejected;\n"
+        "      if (total < 24 || total % 10000 < scan_.bin_rejected)\n"
+        "        REXLOG_INFO(\"[HULK/PFP-BIN] predicated PM4 packets skipped: {} ({} in this gap)\",\n"
+        "                    total, scan_.bin_rejected);\n"
+        "    }\n"
+        "    if (!scan_.complete) {\n"
+        "      scan_.bin_mask = hulk_bin_mask_at_gap;\n"
+        "      scan_.bin_select = hulk_bin_select_at_gap;\n"
+        "    }\n", "first scan rollback + nonduplicated predicate audit")
+    source = once(source,
         "          scan_.Clear();\n          uint32_t emitted = 0;",
         "          scan_.Clear();\n"
         "          scan_.bin_mask = hulk_bin_mask_at_gap;\n"
