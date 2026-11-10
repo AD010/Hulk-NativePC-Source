@@ -18,6 +18,7 @@ from patch_native_x_hulk_pm4_gap import patch_header, patch_cpp
 from patch_native_x_hulk_gap_draw import PATCHES as DRAW_PATCHES, transform as draw_transform
 from patch_native_x_hulk_gap_stream import PATCHES as STREAM_PATCHES, transform as stream_transform
 from patch_native_x_hulk_pm4_draw_payload import patch_text as payload_transform
+from patch_native_x_hulk_frame_path_probe import PATCHES as PROBE_PATCHES, transform as probe_transform
 from patch_native_x_hulk_bin_predication import transform as pfp_transform
 from patch_native_x_hulk_register_order import transform as register_order_transform
 
@@ -42,6 +43,13 @@ def apply_state_chain(files: dict[str, str]) -> dict[str, str]:
     result["src/state.cpp"], did_change = payload_transform(result["src/state.cpp"])
     if not did_change:
         raise ValueError("PM4 payload guard unexpectedly already installed")
+    # The real Windows build installs the fetch provenance probe BEFORE PFP.
+    # The subsequent chronological register patch MUST preserve the probe
+    # and distinguish SET from LOAD_ALU at the real Gather dispatch.
+    result["src/state.cpp"], probed = probe_transform(
+        result["src/state.cpp"], PROBE_PATCHES["src/state.cpp"])
+    if not probed:
+        raise ValueError("Hulk fetch writer probe unexpectedly already installed")
     result = pfp_transform(result)
 
     required_cpp = (
@@ -72,6 +80,7 @@ def verify_existing_build_order() -> None:
         "patch_native_x_hulk_gap_draw.py",
         "patch_native_x_hulk_gap_stream.py",
         "patch_native_x_hulk_pm4_draw_payload.py",
+        "patch_native_x_hulk_frame_path_probe.py",
     )
     order = [manifest.find(name) for name in names]
     if any(i < 0 for i in order) or order != sorted(order):
@@ -104,6 +113,9 @@ def main() -> None:
         raise ValueError("Chronological PM4 register header missing")
     if register_order_transform(ordered) != ordered:
         raise ValueError("PM4 register patch not idempotent")
+    if '[HULK/FETCH-WRITER]' not in ordered["src/state.cpp"] or (
+        'loaded ? "LOAD_ALU" : "SET"' not in ordered["src/state.cpp"]):
+        raise ValueError("Ordered PM4 replay lost the real XDK fetch provenance probe")
     with tempfile.TemporaryDirectory(prefix="hulk_pm4_ordered_") as tmp:
         output = Path(tmp)
         (output / "src").mkdir()
