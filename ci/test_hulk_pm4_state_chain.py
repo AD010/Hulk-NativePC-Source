@@ -108,7 +108,7 @@ def main() -> None:
         output = Path(tmp)
         (output / "src").mkdir()
         for name, content in ordered.items():
-            (output / name).write_text(content, encoding="utf-8", newline="\\n")
+            (output / name).write_text(content, encoding="utf-8", newline="\n")
         scanner_test = Path(__file__).with_name("test_patch_native_x_hulk_register_order_cpp_scan.py")
         subprocess.run([sys.executable, str(scanner_test), str(output)], check=True)
     subprocess.run([sys.executable, str(Path(__file__).with_name(
