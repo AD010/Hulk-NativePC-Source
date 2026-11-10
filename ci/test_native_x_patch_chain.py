@@ -22,6 +22,10 @@ EXPERIMENTS=[
  "ci/patch_native_x_hulk_packet_first.py",
  "ci/test_patch_native_x_hulk_draw_write_ownership.py",
  "ci/patch_native_x_hulk_draw_write_ownership.py",
+ "ci/test_patch_native_x_hulk_pm4_draw_payload.py",
+ "ci/patch_native_x_hulk_pm4_draw_payload.py",
+ "ci/test_patch_native_x_hulk_packet_dma_snapshot.py",
+ "ci/patch_native_x_hulk_packet_dma_snapshot.py",
 ]
 
 def commands():
@@ -43,6 +47,10 @@ def commands():
             raise RuntimeError(f"NativeX patch missing from real Windows build: {name}")
     for first, second in (
         ("ci/patch_native_x_hulk_pm4_gap.py", "ci/patch_native_x_hulk_gap_draw.py"),
+        ("ci/patch_native_x_hulk_gap_stream.py", "ci/patch_native_x_hulk_pm4_draw_payload.py"),
+        ("ci/patch_native_x_hulk_pm4_draw_payload.py", "ci/patch_native_x_hulk_frame_path_probe.py"),
+        ("ci/patch_native_x_hulk_packet_surfaces.py", "ci/patch_native_x_hulk_packet_dma_snapshot.py"),
+        ("ci/patch_native_x_hulk_packet_dma_snapshot.py", "ci/patch_native_x_hulk_surface_miss_trace.py"),
         ("ci/patch_native_x_hulk_packet_surfaces.py", "ci/patch_native_x_hulk_surface_fallback.py"),
         ("ci/patch_native_x_hulk_surface_fallback.py", "ci/patch_native_x_hulk_packet_first.py"),
         ("ci/patch_native_x_hulk_packet_first.py", "ci/patch_native_x_hulk_draw_write_ownership.py"),
@@ -89,6 +97,15 @@ def run(sha=SHA):
                 "HULK/PM4-SURFACE","HULK/MSAA-GRID","HULK/RESOLVE-SCALE","HULK/REVERSE-ALIAS","HULK/UNBOUND-MRT"]
         missing=[mark for mark in needed if mark not in renderer]
         if "bool DrawPath::Draw(" not in draw:missing.append("bool DrawPath::Draw(")
+        state=(source/"src/state.cpp").read_text(encoding="utf-8")
+        for name, body in (
+            ("HULK/PM4-PAYLOAD",state),
+            ("HULK/FETCH-WRITER",state),
+            ("HULK/PM4-DMA-SNAPSHOT",renderer),
+            ("HULK/FETCH-ORIGIN",draw),
+            ("HULK/DMA-ORIGIN",draw),
+        ):
+            if name not in body:missing.append(name)
         if sha == CANDIDATE_SHA:
             targets=(source/"src/targets.cpp").read_text(encoding="utf-8")
             if "native ? kNativeScale : scale_" not in targets or "&& !native &&" not in targets:
