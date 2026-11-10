@@ -55,6 +55,8 @@ BIN_GUARD = '''        // HULK/PFP-PREDICATE: the PFP executes Type3 packets wit
           ++out.predicated;
           if ((out.bin_mask & out.bin_select) == 0) {
             ++out.bin_rejected;
+            if (opcode == 0x22 || opcode == 0x36) ++out.bin_rejected_draws;
+            else ++out.bin_rejected_state;
             p += 4 * count;
             break;
           }
@@ -72,7 +74,7 @@ def patch_header(source: str) -> str:
         "  // Persistent PFP bin state: Xenia defaults to the low 32 bins selected. Do\n"
         "  // not reset these in Clear(), which is called after each replayed Draw.\n"
         "  uint64_t bin_mask = 0xFFFFFFFFull, bin_select = 0xFFFFFFFFull;\n"
-        "  uint32_t bin_rejected = 0;\n"
+        "  uint32_t bin_rejected = 0, bin_rejected_draws = 0, bin_rejected_state = 0;\n"
         "  uint32_t draws = 0, indirect = 0, predicated = 0;\n  bool complete = true;", "header fields")
     source = once(source,
         "  // (register, value), in order: type-0/1 writes and SET_CONSTANT*, from the ring and from the indirect\n"
@@ -120,7 +122,9 @@ def patch_state(source: str) -> str:
         "capture IM_LOAD_IMMEDIATE code before ring reuse")
     source = once(source,
         "  draws = indirect = predicated = 0;\n  complete = true;",
-        "  draws = indirect = predicated = 0;\n  bin_rejected = 0;\n  complete = true;", "Clear keeps bin state")
+        "  draws = indirect = predicated = 0;\n"
+        "  bin_rejected = bin_rejected_draws = bin_rejected_state = 0;\n"
+        "  complete = true;", "Clear keeps bin state")
     source = once(source,
         "void StateTracker::Reset() {\n",
         "void StateTracker::Reset() {\n"
@@ -149,9 +153,13 @@ def patch_state(source: str) -> str:
         "    if (scan_.complete && scan_.bin_rejected) {\n"
         "      static std::atomic<uint64_t> total_bin_rejected{0};\n"
         "      const uint64_t total = total_bin_rejected.fetch_add(scan_.bin_rejected) + scan_.bin_rejected;\n"
+        "      static std::atomic<uint64_t> total_filtered_draws{0};\n"
+        "      static std::atomic<uint64_t> total_filtered_state{0};\n"
+        "      const uint64_t draws = total_filtered_draws.fetch_add(scan_.bin_rejected_draws) + scan_.bin_rejected_draws;\n"
+        "      const uint64_t state = total_filtered_state.fetch_add(scan_.bin_rejected_state) + scan_.bin_rejected_state;\n"
         "      if (total < 24 || total % 10000 < scan_.bin_rejected)\n"
-        "        REXLOG_INFO(\"[HULK/PFP-BIN] predicated PM4 packets skipped: {} ({} in this gap)\",\n"
-        "                    total, scan_.bin_rejected);\n"
+        "        REXLOG_INFO(\"[HULK/PFP-BIN] skipped={} draw={} state={} (gap draw={} state={})\",\n"
+        "                    total, draws, state, scan_.bin_rejected_draws, scan_.bin_rejected_state);\n"
         "    }\n"
         "    if (!scan_.complete) {\n"
         "      scan_.bin_mask = hulk_bin_mask_at_gap;\n"
@@ -178,7 +186,7 @@ def transform(files: dict[str,str]) -> dict[str,str]:
         required = (
             "hulk_bin_mask_at_gap", "HULK/PM4-PACKET-BOUNDS",
             "if (copy_microcode || immediate)", "HULK/PM4-SHADER-BOUNDS",
-            "HULK/PFP-RESET", "HULK/PFP-BIN", "bin_rejected = 0;",
+            "HULK/PFP-RESET", "HULK/PFP-BIN", "bin_rejected_draws", "bin_rejected_state",
         )
         if any(mark not in cpp for mark in required):
             raise ValueError("Partially applied bin predicate patch")
