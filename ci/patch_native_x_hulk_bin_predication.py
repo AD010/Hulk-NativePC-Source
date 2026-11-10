@@ -105,12 +105,12 @@ def patch_state(source: str) -> str:
     # interpreting trailing PM4 as a shader silently corrupts programs.
     source = once(source,
         "              if (immediate && dwords > count - 2) dwords = count - 2;",
-        "              // HULK/PM4-SHADER-BOUNDS: never truncate shader microcode.\\n"
-        "              // A partial load may decode the next PM4 packet as Xenos instructions.\\n"
-        "              if (immediate && (dwords == 0 || dwords > count - 2 ||\\n"
-        "                  (start_size >> 16) != 0 || (type & 3u) >= 2)) {\\n"
-        "                out.complete = false;\\n"
-        "                return;\\n"
+        "              // HULK/PM4-SHADER-BOUNDS: never truncate shader microcode.\n"
+        "              // A partial load may decode the next PM4 packet as Xenos instructions.\n"
+        "              if (immediate && (dwords == 0 || dwords > count - 2 ||\n"
+        "                  (start_size >> 16) != 0 || (type & 3u) >= 2)) {\n"
+        "                out.complete = false;\n"
+        "                return;\n"
         "              }", "reject malformed immediate shader program")
     source = once(source,
         "              if (copy_microcode) {\n"
