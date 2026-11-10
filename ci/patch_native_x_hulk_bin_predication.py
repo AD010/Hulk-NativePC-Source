@@ -100,6 +100,18 @@ def patch_state(source: str) -> str:
     // ring segment. Copy bytes at scan time even if this is a normal
     // DrawIndexedVertices Leave scan (copy_microcode=false). The render
     // thread must never dereference a later-reused guest command buffer.
+    # Xenia's IM_LOAD_IMMEDIATE requires start==0 and requested shader words
+    # within the actual Type3 payload. Clamping a larger size and then
+    # interpreting trailing PM4 as a shader silently corrupts programs.
+    source = once(source,
+        "              if (immediate && dwords > count - 2) dwords = count - 2;",
+        "              // HULK/PM4-SHADER-BOUNDS: never truncate shader microcode.\\n"
+        "              // A partial load may decode the next PM4 packet as Xenos instructions.\\n"
+        "              if (immediate && (dwords == 0 || dwords > count - 2 ||\\n"
+        "                  (start_size >> 16) != 0 || (type & 3u) >= 2)) {\\n"
+        "                out.complete = false;\\n"
+        "                return;\\n"
+        "              }", "reject malformed immediate shader program")
     source = once(source,
         "              if (copy_microcode) {\n"
         "                out.shader_loads.push_back(",
@@ -157,6 +169,7 @@ def transform(files: dict[str,str]) -> dict[str,str]:
         if ("hulk_bin_mask_at_gap" not in files["src/state.cpp"] or
             "HULK/PM4-PACKET-BOUNDS" not in files["src/state.cpp"] or
             "if (copy_microcode || immediate)" not in files["src/state.cpp"] or
+            "HULK/PM4-SHADER-BOUNDS" not in files["src/state.cpp"] or
             "bin_rejected = 0;" not in files["src/state.cpp"]):
             raise ValueError("Partially applied bin predicate patch")
         return files
