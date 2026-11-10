@@ -155,22 +155,22 @@ def patch_state(source: str) -> str:
     # ConstantBase returned 0, silently writing unrelated GPU registers
     # (possibly primitive or shader state) when the class was invalid.
     source = once(source,
-        "              uint32_t ot = Load32(base, p);\\n"
-        "              uint32_t reg = ConstantBase((ot >> 16) & 0xFF) + (ot & 0x7FF);\\n"
-        "              if (SkippedConstants(skip_constants, reg, count - 1)) break;\\n"
+        "              uint32_t ot = Load32(base, p);\n"
+        "              uint32_t reg = ConstantBase((ot >> 16) & 0xFF) + (ot & 0x7FF);\n"
+        "              if (SkippedConstants(skip_constants, reg, count - 1)) break;\n"
         "              for (uint32_t i = 1; i < count; ++i) out.writes.emplace_back(reg + i - 1, Load32(base, p + 4 * i));",
-        "              uint32_t ot = Load32(base, p);\\n"
-        "              const uint32_t constant_type = (ot >> 16) & 0xFFu;\\n"
-        "              // HULK/PM4-SET-RANGE: invalid GPU register classes must\\n"
-        "              // NEVER alias register zero; match Xenia's skip behavior.\\n"
-        "              if (constant_type > 4) break;\\n"
-        "              uint32_t reg = ConstantBase(constant_type) + (ot & 0x7FFu);\\n"
-        "              if (reg >= rex::graphics::RegisterFile::kRegisterCount ||\\n"
-        "                  count - 1 > rex::graphics::RegisterFile::kRegisterCount - reg) {\\n"
-        "                out.complete = false;\\n"
-        "                return;\\n"
-        "              }\\n"
-        "              if (SkippedConstants(skip_constants, reg, count - 1)) break;\\n"
+        "              uint32_t ot = Load32(base, p);\n"
+        "              const uint32_t constant_type = (ot >> 16) & 0xFFu;\n"
+        "              // HULK/PM4-SET-RANGE: invalid GPU register classes must\n"
+        "              // NEVER alias register zero; match Xenia's skip behavior.\n"
+        "              if (constant_type > 4) break;\n"
+        "              uint32_t reg = ConstantBase(constant_type) + (ot & 0x7FFu);\n"
+        "              if (reg >= rex::graphics::RegisterFile::kRegisterCount ||\n"
+        "                  count - 1 > rex::graphics::RegisterFile::kRegisterCount - reg) {\n"
+        "                out.complete = false;\n"
+        "                return;\n"
+        "              }\n"
+        "              if (SkippedConstants(skip_constants, reg, count - 1)) break;\n"
         "              for (uint32_t i = 1; i < count; ++i) out.writes.emplace_back(reg + i - 1, Load32(base, p + 4 * i));",
         "guard SET_CONSTANT register class and range")
     # Hulk IM_LOAD_IMMEDIATE shaders can be emitted in a recycled guest
