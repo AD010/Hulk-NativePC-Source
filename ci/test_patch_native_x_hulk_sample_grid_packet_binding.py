@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Source-only regression tests for the exact Hulk XDK/PM4 sample-grid pair."""
 import unittest
-from patch_native_x_hulk_sample_grid_packet_binding import OLD, NEW, patch_text
+from patch_native_x_hulk_sample_grid_packet_binding import OLD, NEW, HISTORY_OLD, HISTORY_NEW, patch_text
 
 class HulkPacketSampleViewTests(unittest.TestCase):
     def test_exact_source_and_idempotency(self):
-        source = "bool HulkPacketSurfaces(\n" + OLD
+        source = "bool HulkPacketSurfaces(\n" + OLD + "\n" + HISTORY_OLD
         out, changed = patch_text(source)
         self.assertTrue(changed)
         self.assertEqual(patch_text(out), (out, False))
@@ -148,6 +148,53 @@ class HulkPacketSampleViewTests(unittest.TestCase):
             changed[index] = bad
             self.assertFalse(supported(*changed),
                              msg=f"Unsafe depth descriptor change {index}")
+
+    def test_history_requires_current_live_xdk_object(self):
+        self.assertIn("[HULK/PM4-HISTORY-LIVE]", HISTORY_NEW)
+        self.assertIn("ReadSurface(base, known.object, known.depth, g_profile->objects)", HISTORY_NEW)
+        self.assertIn("live.depth == known.depth", HISTORY_NEW)
+        self.assertIn("(live.info & 0xFFFFF000u) == (known.info & 0xFFFFF000u)", HISTORY_NEW)
+        self.assertIn("live.width == known.width && live.height == known.height", HISTORY_NEW)
+        self.assertIn("known.msaa() == 2u && live.msaa() == 0u", HISTORY_NEW)
+        self.assertIn("history.erase(it);", HISTORY_NEW)
+        self.assertNotIn("out[slot] = it->second;", HISTORY_NEW)
+
+        def valid(known, live):
+            # Tuple: object present, depth, info, width, height, pitch,
+            # MSAA, surface_info. This models the exact live guards.
+            if not known[0] or not live[0] or known[1] != live[1]:
+                return False
+            if (known[2] & 0xFFFFF000) != (live[2] & 0xFFFFF000):
+                return False
+            same = (known[3:7] == live[3:7] and
+                    (known[7] & 0x3FFFF) == (live[7] & 0x3FFFF))
+            pair = (known[6] == 2 and live[6] == 0 and
+                    known[3] * 2 == live[3] and
+                    known[4] * 2 == live[4] and
+                    known[5] * 2 == live[5])
+            return same or pair
+
+        # Real Hulk RT0 1x base-rebase, and 640x360 4x from 1280x720 1x.
+        r1 = (True, False, 0, 1280, 720, 1280, 0, 0x14000500)
+        live1 = (True, False, 0x400, 1280, 720, 1280, 0, 0x14000500)
+        self.assertTrue(valid(r1, live1))
+        r4 = (True, True, 0x400, 640, 360, 640, 2, 0x0A020280)
+        live4 = (True, True, 0, 1280, 720, 1280, 0, 0x14000500)
+        self.assertTrue(valid(r4, live4))
+        self.assertFalse(valid(r4, (False,) + live4[1:]))
+        self.assertFalse(valid(r4, (True, False) + live4[2:]))
+        self.assertFalse(valid(r4, live4[:2] + (0x10000,) + live4[3:]))
+        self.assertFalse(valid(r4, live4[:4] + (718,) + live4[5:]))
+        self.assertFalse(valid(r4, live4[:5] + (1024,) + live4[6:]))
+        self.assertFalse(valid(r4, live4[:6] + (2,) + live4[7:]))
+        self.assertFalse(valid(r4, live4[:4] + (360,) + live4[5:]))
+        self.assertFalse(valid((False,) + r4[1:], live4))
+
+    def test_partial_history_install_rejected(self):
+        with self.assertRaises(ValueError):
+            patch_text("bool HulkPacketSurfaces(\n" + NEW + "\n" + HISTORY_OLD)
+        with self.assertRaises(ValueError):
+            patch_text("bool HulkPacketSurfaces(\n" + OLD + "\n" + HISTORY_NEW)
 
     def test_logged_surface_identity(self):
         gpu_surface = 0x0A020280

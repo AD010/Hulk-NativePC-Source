@@ -196,12 +196,18 @@ NEW = """    const HulkSurfaceIdentity gpu_key = HulkSurfaceKey(gpu_surface, gpu
       }
     }"""
 
+HISTORY_OLD = "    {\n      std::lock_guard<std::mutex> guard(g_hulk_surface_history_mutex);\n      const auto it = g_hulk_surface_history[slot].find(gpu_key);\n      if (it != g_hulk_surface_history[slot].end()) {\n        out[slot] = it->second;\n        has_target = true;\n        continue;\n      }\n    }"
+HISTORY_NEW = "    {\n      // HULK/PM4-HISTORY-LIVE: cached GuestSurface entries refer to an XDK\n      // guest object, which may be freed/reused as the game streams zones.\n      // Never attach an object from the old scene without validating its\n      // CURRENT header. Preserve only real same-grid or verified 1x->4x\n      // representations (EDRAM base may differ, format must not).\n      std::lock_guard<std::mutex> guard(g_hulk_surface_history_mutex);\n      auto& history = g_hulk_surface_history[slot];\n      const auto it = history.find(gpu_key);\n      if (it != history.end()) {\n        const GuestSurface& known = it->second;\n        const GuestSurface live = known && known.object\n            ? ReadSurface(base, known.object, known.depth, g_profile->objects)\n            : GuestSurface{};\n        const bool same_kind_format = live && live.depth == known.depth &&\n            (live.info & 0xFFFFF000u) == (known.info & 0xFFFFF000u);\n        const bool same_grid = same_kind_format &&\n            live.width == known.width && live.height == known.height &&\n            live.pitch() == known.pitch() && live.msaa() == known.msaa() &&\n            (live.surface_info & 0x0003FFFFu) ==\n                (known.surface_info & 0x0003FFFFu);\n        const bool paired_4x = same_kind_format &&\n            known.msaa() == 2u && live.msaa() == 0u &&\n            uint64_t(live.width) == 2ull * known.width &&\n            uint64_t(live.height) == 2ull * known.height &&\n            uint64_t(live.pitch()) == 2ull * known.pitch();\n        if (same_grid || paired_4x) {\n          out[slot] = known;\n          has_target = true;\n          continue;\n        }\n        // Retire a stale object instead of repeatedly binding its old RT\n        // descriptor, which caused frame-dependent color/depth aliasing.\n        history.erase(it);\n        static std::atomic<uint64_t> stale{0};\n        const uint64_t n = ++stale;\n        if (n <= 8 || n % 10000 == 0)\n          REXLOG_WARN(\"[HULK/PM4-HISTORY-LIVE] rejected stale slot={} object; total={}\",\n                      slot, n);\n      }\n    }"
+
 def patch_text(source: str):
-    if NEW in source:
+    if NEW in source and HISTORY_NEW in source:
         return source, False
-    if source.count(OLD) != 1 or source.count("bool HulkPacketSurfaces(") != 1:
-        raise ValueError("Hulk per-packet XDK surface matcher anchor mismatch")
-    return source.replace(OLD, NEW, 1), True
+    if NEW in source or HISTORY_NEW in source:
+        raise ValueError("Partial Hulk packet surface/history patch")
+    if (source.count(OLD) != 1 or source.count(HISTORY_OLD) != 1 or
+            source.count("bool HulkPacketSurfaces(") != 1):
+        raise ValueError("Hulk per-packet XDK surface/history anchors drift")
+    return source.replace(OLD, NEW, 1).replace(HISTORY_OLD, HISTORY_NEW, 1), True
 
 def main():
     if len(sys.argv) != 2:
