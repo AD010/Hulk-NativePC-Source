@@ -13,11 +13,29 @@ PIN = os.environ.get("HULK_NATIVEX_SOURCE_SHA", "bf965e952c98e050753e91d08f32685
 OLD = "    unresolved = true;\n  }\n  if (!has_target || unresolved) {"
 NEW = "    // Hulk 160: group genuine surface-key misses by attachment, without\n    // inventing or substituting any RT/depth object. Flicker / missing geometry\n    // can then be correlated with exact packet-time GPU identities.\n    static std::array<std::atomic<uint64_t>, 5> hulk_slot_misses{};\n    const uint64_t misses = ++hulk_slot_misses[slot];\n    if (misses <= 8 || misses % 20000 == 0)\n      REXLOG_WARN(\"[HULK/PM4-MISS] slot={} gpu_surface={:#x} gpu_info={:#x} \"\n                  \"bound={} bound_surface={:#x} bound_info={:#x} total={}\",\n                  slot, gpu_surface, gpu_info, bool(bound),\n                  bound ? bound.surface_info : 0u, bound ? bound.info : 0u, misses);\n    unresolved = true;\n  }\n  if (!has_target || unresolved) {"
 
+# HULK/PM4-ACCEPT: without an accepted-draw counter, the previous million-
+# scale rejection count was impossible to compare against successfully mapped
+# packet draws. These are PM4 surface mapping counts, not rasterized objects.
+ACCEPT_OLD = "  return true;\n}\n\nvoid CaptureDraw("
+ACCEPT_NEW = (
+    "  static std::atomic<uint64_t> hulk_packet_draws_mapped{0};\n"
+    "  const uint64_t mapped = ++hulk_packet_draws_mapped;\n"
+    "  if (mapped <= 12 || mapped % 50000 == 0)\n"
+    "    REXLOG_INFO(\"[HULK/PM4-ACCEPT] #{} surface={:#x} color_mask={:#x} depth_control={:#x}\",\n"
+    "                mapped, gpu_surface, gpu_color_mask, gpu_depth_control);\n"
+    "  return true;\n}\n\nvoid CaptureDraw("
+)
+
 def patch_text(source):
-    if NEW in source: return source, False
-    if source.count(OLD) != 1 or source.count("bool HulkPacketSurfaces(") != 1:
-        raise ValueError("Unexpected native Vulkan per-slot surface matcher")
-    return source.replace(OLD, NEW, 1), True
+    done = (NEW in source, ACCEPT_NEW in source)
+    if all(done):
+        return source, False
+    if any(done):
+        raise ValueError("Partial Hulk PM4 surface diagnostics patch")
+    if (source.count(OLD) != 1 or source.count(ACCEPT_OLD) != 1 or
+            source.count("bool HulkPacketSurfaces(") != 1):
+        raise ValueError("Unexpected NativeX packet RT/depth mapping anchor")
+    return source.replace(OLD, NEW, 1).replace(ACCEPT_OLD, ACCEPT_NEW, 1), True
 
 def main():
     if len(sys.argv) != 2: raise SystemExit("usage: patch_native_x_hulk_surface_miss_trace.py <NativeX>")
