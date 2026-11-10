@@ -14,7 +14,8 @@ permissions:
   contents: write
 concurrency:
   group: hulk-native-public-windows
-  cancel-in-progress: false
+  # Only the latest source revision should consume the Windows runner.
+  cancel-in-progress: true
 jobs:
   build:
     if: github.repository == 'AD010/Hulk-NativePC-Source' && github.ref == 'refs/heads/main'
