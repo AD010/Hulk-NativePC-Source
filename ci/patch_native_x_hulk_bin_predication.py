@@ -173,6 +173,23 @@ def patch_state(source: str) -> str:
         "              if (SkippedConstants(skip_constants, reg, count - 1)) break;\n"
         "              for (uint32_t i = 1; i < count; ++i) out.writes.emplace_back(reg + i - 1, Load32(base, p + 4 * i));",
         "guard SET_CONSTANT register class and range")
+    # SET_CONSTANT2 and SET_SHADER_CONSTANTS use a direct GPU register index
+    # (not a class-relative one). Never let packet overflow wrap into other
+    # stages' shader state or produce a synthetic GPU register.
+    source = once(source,
+        "              uint32_t reg = Load32(base, p) & 0xFFFF;\n"
+        "              if (SkippedConstants(skip_constants, reg, count - 1)) break;\n"
+        "              for (uint32_t i = 1; i < count; ++i) out.writes.emplace_back(reg + i - 1, Load32(base, p + 4 * i));",
+        "              uint32_t reg = Load32(base, p) & 0xFFFF;\n"
+        "              // HULK/PM4-DIRECT-SET-RANGE: reject invalid GPU register targets.\n"
+        "              if (reg >= rex::graphics::RegisterFile::kRegisterCount ||\n"
+        "                  count - 1 > rex::graphics::RegisterFile::kRegisterCount - reg) {\n"
+        "                out.complete = false;\n"
+        "                return;\n"
+        "              }\n"
+        "              if (SkippedConstants(skip_constants, reg, count - 1)) break;\n"
+        "              for (uint32_t i = 1; i < count; ++i) out.writes.emplace_back(reg + i - 1, Load32(base, p + 4 * i));",
+        "guard SET_CONSTANT2/SET_SHADER_CONSTANTS direct register range")
     # Hulk IM_LOAD_IMMEDIATE shaders can be emitted in a recycled guest
     # ring segment. Copy bytes at scan time even if this is a normal
     # DrawIndexedVertices Leave scan (copy_microcode=false). The render
@@ -262,7 +279,7 @@ def transform(files: dict[str,str]) -> dict[str,str]:
             "hulk_bin_mask_at_gap", "HULK/PM4-PACKET-BOUNDS",
             "if (copy_microcode || immediate)", "HULK/PM4-SHADER-BOUNDS",
             "HULK/PFP-RESET", "HULK/PFP-BIN", "bin_rejected_draws", "bin_rejected_state",
-            "HULK/PM4-LOAD-RANGE", "HULK/PM4-SET-RANGE", "HULK/PM4-NESTED-IB",
+            "HULK/PM4-LOAD-RANGE", "HULK/PM4-SET-RANGE", "HULK/PM4-DIRECT-SET-RANGE", "HULK/PM4-NESTED-IB",
         )
         if any(mark not in cpp for mark in required):
             raise ValueError("Partially applied bin predicate patch")
