@@ -20,9 +20,13 @@ def fixture():
           }
         } else {
           switch (opcode) {
-            case 0x2D:
-              out.writes.emplace_back(0, 0);
+            case 0x2D: {  // SET_CONSTANT
+              uint32_t ot = Load32(base, p);
+              uint32_t reg = ConstantBase((ot >> 16) & 0xFF) + (ot & 0x7FF);
+              if (SkippedConstants(skip_constants, reg, count - 1)) break;
+              for (uint32_t i = 1; i < count; ++i) out.writes.emplace_back(reg + i - 1, Load32(base, p + 4 * i));
               break;
+            }
             case 0x3F: {  // INDIRECT_BUFFER: the library's prebuilt buffers
               uint32_t target = PhysicalToVirtual(Load32(base, p));
               uint32_t length = Load32(base, p + 4) & 0xFFFFF;
@@ -107,6 +111,14 @@ class TestHulkPfpPatch(unittest.TestCase):
         self.assertIn("dwords > count - 2", cpp)
         self.assertIn("if (copy_microcode || immediate)", cpp)
         self.assertNotIn("if (immediate && dwords > count - 2) dwords = count - 2;", cpp)
+
+    def test_set_class_never_aliases_gpu_register_zero(self):
+        cpp = self.patched["src/state.cpp"]
+        self.assertIn("HULK/PM4-SET-RANGE", cpp)
+        self.assertIn("if (constant_type > 4) break;", cpp)
+        self.assertIn("count - 1 > rex::graphics::RegisterFile::kRegisterCount - reg", cpp)
+        self.assertLess(cpp.index("HULK/PM4-SET-RANGE"),
+                        cpp.index("for (uint32_t i = 1; i < count; ++i) out.writes.emplace_back"))
 
     def test_load_range_checked_before_guest_read(self):
         cpp = self.patched["src/state.cpp"]
