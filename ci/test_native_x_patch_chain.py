@@ -98,8 +98,10 @@ def run(sha=SHA):
         missing=[mark for mark in needed if mark not in renderer]
         if "bool DrawPath::Draw(" not in draw:missing.append("bool DrawPath::Draw(")
         if ("known.depth == (slot == 4)" not in renderer or
-            "const HulkSurfaceIdentity xdk_key{1280u, gpu_info & 0x000F0FFFu};" not in renderer):
-            missing.append("HULK history alias requires genuine same-kind/same-EDRAM object")
+            "const HulkSurfaceIdentity xdk_key{2u * (gpu_surface & 0x3FFFu), gpu_info & 0x000F0FFFu};" not in renderer or
+            "live.width == known.width && live.height == known.height" not in renderer or
+            "bound.pitch() == 2u * (gpu_surface & 0x3FFFu)" not in renderer):
+            missing.append("HULK 520/1040 depth+color MSAA alias requires matching live XDK object")
         if "hulk_packet_draws_mapped" not in renderer:
             missing.append("HULK accepted surface binding counter")
         state=(source/"src/state.cpp").read_text(encoding="utf-8")
