@@ -270,7 +270,16 @@ try {
     if (-not $HulkNativeRendererSource.Contains('[HULK/PM4-RT0-REBASE]')) {
       throw 'Hulk log173 PM4 RT0 EDRAM rebase missing from compiled renderer.'
     }
+    if (-not $HulkNativeRendererSource.Contains('[HULK/PM4-DMA-REJECT]') -or
+        -not $HulkNativeRendererSource.Contains('if (packet_surfaces && !CapturePacketDmaIndices')) {
+      throw 'Hulk log173 incomplete DMA capture rejection absent from compiled renderer.'
+    }
+    $HulkNativeDrawSource = Get-Content -LiteralPath (Join-Path $NxrFull 'src/draw.cpp') -Raw
+    if (-not $HulkNativeDrawSource.Contains('[HULK/EMPTY-DMA-INDEX]')) {
+      throw 'Hulk log173 empty DMA DrawInternal guard missing from compiled renderer.'
+    }
     Remove-Variable HulkNativeRendererSource
+    Remove-Variable HulkNativeDrawSource
     # Snapshot the actual missing per-draw RT/depth identities from Hulk 160.
     # Diagnostic-only: no invented surfaces or forced drawing.
     Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_surface_miss_trace.py')) $Source
