@@ -125,6 +125,8 @@ def run(sha=SHA):
         # depth traces. A compile alone cannot prove the GPU frame is correct.
         for marker, contents in (
             ("HULK/PM4-DMA-CANCEL", renderer),
+            ("HULK/DIRECT-DMA-SNAPSHOT", renderer),
+            ("HULK/DMA-RESTORE-AFTER-AHEAD", draw),
             ("HULK/PM4-PRIMITIVE-SOURCE", renderer),
             ("HULK/PM4-DMA-ADDRESS-PARITY", renderer),
             ("HULK/PM4-PERSISTENT-DMA", renderer),
@@ -139,7 +141,7 @@ def run(sha=SHA):
         # Rejected DMA Draws must NOT be queued as Command::Type::kDraw:
         # NativeX Capture::~Capture() publishes even after an early return.
         rejected = renderer.find(
-            "if (packet_surfaces && !CapturePacketDmaIndices(tracker, base, c))")
+            "!CapturePacketDmaIndices(tracker, base, c))")
         if rejected < 0:
             missing.append("DMA snapshot capture call missing")
         else:

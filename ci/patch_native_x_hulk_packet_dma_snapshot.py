@@ -96,7 +96,10 @@ bool CapturePacketDmaIndices(const StateTracker& tracker, const uint8_t* base, C
 CALL_ANCHOR="""  c.programs[1] = tracker.pixel_program_ptr();
   if ((Info(tracked.call).flags & kInlineEnd) || tracked.call == Call::kDrawVerticesUP) {"""
 CALL_NEW="""  c.programs[1] = tracker.pixel_program_ptr();
-  if (packet_surfaces && !CapturePacketDmaIndices(tracker, base, c)) {
+  // HULK/DIRECT-DMA-SNAPSHOT: ordinary XDK indexed draws are queued too.
+  // Their indices need the same owned lifetime as packet-replayed draws.
+  if ((packet_surfaces || tracked.call == Call::kDrawIndexedVertices) &&
+      !CapturePacketDmaIndices(tracker, base, c)) {
     // HULK/PM4-DMA-CANCEL: Capture::~Capture() unconditionally Publish()es
     // the command, EVEN on early return. Returning without changing its
     // kDraw type still runs that rejected draw on the Vulkan thread.
@@ -118,6 +121,30 @@ def patch_text(source):
     source=source.replace(CALL_ANCHOR,CALL_NEW,1)
     return source,True
 
+RESTORE = """  // An inline draw's data, if the game reused its memory since the draw was captured (D71).
+  for (const Copy& copy : copies) {
+    if (memory_->WriteIfChanged(context, copy.address, copy.data, copy.size)) ++stats_.inline_restored;
+  }
+"""
+AHEAD = "  if (upload_ahead_ && memory_->copies() != copies_at_start) upload_ahead_();\n"
+RESTORE_AFTER = """  // HULK/DMA-RESTORE-AFTER-AHEAD: restoring a captured range invalidates
+  // its guest mirror pages. UploadAhead may request the same pages for a
+  // later draw and replace this draw's saved bytes with newer guest data.
+  // Finish speculative uploads before restoring the current command.
+  for (const Copy& copy : copies) {
+    if (memory_->WriteIfChanged(context, copy.address, copy.data, copy.size)) ++stats_.inline_restored;
+  }
+"""
+
+def patch_draw(source):
+    if RESTORE_AFTER in source:
+        if RESTORE in source or source.count(RESTORE_AFTER) != 1:
+            raise ValueError("Partial DMA restore ordering patch")
+        return source, False
+    if source.count(RESTORE) != 1 or source.count(AHEAD) != 1:
+        raise ValueError("NativeX DMA restore/upload-ahead anchor drift")
+    return source.replace(RESTORE, "", 1).replace(AHEAD, AHEAD + RESTORE_AFTER, 1), True
+
 def main():
     if len(sys.argv)!=2:
         raise SystemExit("Usage: patch_native_x_hulk_packet_dma_snapshot.py <NativeX checkout>")
@@ -125,8 +152,13 @@ def main():
     actual=subprocess.check_output(["git","-C",str(root),"rev-parse","HEAD"],text=True).strip()
     if actual!=PIN:
         raise ValueError("Unexpected NativeX checkout SHA: "+actual)
-    path=root/"src/renderer.cpp"
-    result,changed=patch_text(path.read_text(encoding="utf-8"))
-    if changed:path.write_text(result,encoding="utf-8",newline="\n")
+    edits=[]
+    for name, action in (("src/renderer.cpp", patch_text), ("src/draw.cpp", patch_draw)):
+        path=root/name
+        result,changed=action(path.read_text(encoding="utf-8"))
+        edits.append((path,result,changed))
+    for path,result,changed in edits:
+        if changed:path.write_text(result,encoding="utf-8",newline="\n")
+    changed=any(edit[2] for edit in edits)
     print("Hulk PM4 per-packet bounded index snapshot:", "patched" if changed else "already installed")
 if __name__=="__main__":main()

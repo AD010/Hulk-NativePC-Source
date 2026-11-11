@@ -1,11 +1,105 @@
 #!/usr/bin/env python3
 """Regression tests: snapshot only packet-time DMA indices for Hulk NativeX."""
 import unittest
+import subprocess
+import shutil
+import tempfile
+from pathlib import Path
 from patch_native_x_hulk_packet_dma_snapshot import (
-    ANCHOR, ADDITION, CALL_ANCHOR, CALL_NEW, patch_text
+    ANCHOR, ADDITION, CALL_ANCHOR, CALL_NEW, patch_text,
+    RESTORE, AHEAD, RESTORE_AFTER, patch_draw
 )
 
 class DmaSnapshotTests(unittest.TestCase):
+    def test_actual_cpp_snapshot_and_upload_order(self):
+        # Compile the production helper. Only map guest physical memory to a
+        # small host array instead of reserving the 4 GiB guest address arena.
+        helper = ADDITION.replace('base + (0xA0000000u | physical)', 'base + physical')
+        before = RESTORE + '  if (primitives_->UploadConverted()) ++stats_.copies;\n' + AHEAD
+        after, changed = patch_draw(before)
+        self.assertTrue(changed)
+        self.assertEqual(patch_draw(after), (after, False))
+        with self.assertRaises(ValueError):
+            patch_draw('unknown layout')
+        prelude = r'''
+#include <array>
+#include <atomic>
+#include <cstdint>
+#include <cstring>
+#include <vector>
+#include <cassert>
+#include <functional>
+#define REXLOG_WARN(...) ((void)0)
+#define REXLOG_INFO(...) ((void)0)
+namespace rex::graphics {
+enum { XE_GPU_REG_VGT_DRAW_INITIATOR, XE_GPU_REG_VGT_DMA_BASE, XE_GPU_REG_VGT_DMA_SIZE };
+}
+struct StateTracker {
+  std::array<uint32_t,3> regs{};
+  bool LastWrite(uint32_t r,uint32_t& v) const { v=regs[r];return true; }
+  uint32_t HulkRegisterAtDraw(uint32_t r) const { return regs[r]; }
+};
+struct Command {
+  struct Copy {uint32_t address,offset,size;};
+  std::array<Copy,2> copies{};
+  uint32_t copy_count=0;
+  std::vector<uint8_t> data;
+};
+struct Memory {
+  uint8_t mirror=0, live=9;
+  bool invalid=false;
+  uint64_t copies() const {return 1;}
+  bool WriteIfChanged(int,uint32_t,const uint8_t* p,uint32_t) {
+    if (*p==live) return false;
+    mirror=*p;invalid=true;return true;
+  }
+  void Ahead() {if(invalid) {mirror=live;invalid=false;}}
+};
+struct Primitive {bool UploadConverted(){return false;}};
+struct Copy {uint32_t address;const uint8_t* data;uint32_t size;};
+struct Stats {uint32_t copies=0,inline_restored=0;};
+'''
+        def render_function(name, body):
+            return ('uint8_t '+name+'() {\n'
+                    'Memory memory; auto* memory_=&memory; Primitive primitive; auto* primitives_=&primitive;\n'
+                    'Stats stats_; int context=0; uint64_t copies_at_start=0; uint8_t saved=3;\n'
+                    'std::array<Copy,1> copies{{{0,&saved,1}}};\n'
+                    'std::function<void()> upload_ahead_=[&]{memory.Ahead();};\n'
+                    +body+'return memory.mirror;\n}\n')
+        main = r'''
+int main() {
+  std::array<uint8_t,128> guest{};
+  guest[32]=3;guest[33]=4;guest[34]=5;guest[35]=6;
+  StateTracker tracker{{(2u<<16)|4u,33u,2u}};
+  Command a;
+  assert(CapturePacketDmaIndices(tracker,guest.data(),a));
+  assert(a.copy_count==1 && a.copies[0].address==32 && a.data.size()==4);
+  guest[32]=9;guest[33]=8;
+  assert(a.data[0]==3 && a.data[1]==4);
+  Command b;
+  assert(CapturePacketDmaIndices(tracker,guest.data(),b));
+  assert(b.data[0]==9 && b.data[1]==8 && a.data[0]==3);
+  tracker.regs[2]=1;
+  Command short_dma;
+  assert(!CapturePacketDmaIndices(tracker,guest.data(),short_dma));
+  assert(short_dma.copy_count==0 && short_dma.data.empty());
+  tracker.regs[2]=2;tracker.regs[1]=0x1ffffffe;
+  Command outside;
+  assert(!CapturePacketDmaIndices(tracker,guest.data(),outside));
+  assert(outside.data.empty());
+  assert(old_order()==9);  // reproduces overwritten snapshot
+  assert(new_order()==3);  // current draw retains its captured bytes
+}
+'''
+        with tempfile.TemporaryDirectory(prefix='hulk_dma_cpp_') as tmp:
+            cpp=Path(tmp)/'dma.cpp'; exe=Path(tmp)/'dma.exe'
+            cpp.write_text(prelude+helper+render_function('old_order',before)+
+                           render_function('new_order',after)+main,encoding='utf-8')
+            compiler = shutil.which('clang++') or shutil.which('g++')
+            if not compiler: self.fail('C++ compiler required for DMA lifetime regression')
+            subprocess.run([compiler,'-std=c++20','-O0',str(cpp),'-o',str(exe)],check=True)
+            subprocess.run([str(exe)],check=True)
+
     def test_atomic_idempotent(self):
         original = ANCHOR + "\n" + CALL_ANCHOR
         updated,changed=patch_text(original)
@@ -32,7 +126,8 @@ class DmaSnapshotTests(unittest.TestCase):
             "[HULK/PM4-DMA-SNAPSHOT]"
         ):
             self.assertIn(token, ADDITION)
-        self.assertIn("if (packet_surfaces && !CapturePacketDmaIndices(tracker, base, c)) {", CALL_NEW)
+        self.assertIn("tracked.call == Call::kDrawIndexedVertices", CALL_NEW)
+        self.assertIn("!CapturePacketDmaIndices(tracker, base, c)", CALL_NEW)
         self.assertIn("c.type = Command::Type::kNone;", CALL_NEW)
         self.assertNotIn("base, c)) return;", CALL_NEW)
         self.assertIn("bool CapturePacketDmaIndices(", ADDITION)
