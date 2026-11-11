@@ -10,8 +10,10 @@ import sys
 
 import os
 PIN = os.environ.get("HULK_NATIVEX_SOURCE_SHA", "bf965e952c98e050753e91d08f32685a9f754b12")
+NO_WRITE_OLD = "  bool has_target = false, unresolved = false;\n  for (uint32_t slot = 0; slot < 5; ++slot) {"
+NO_WRITE_NEW = "  // HULK/PM4-NO-WRITE-EARLY: zero color/depth write masks mean this\n  // draw cannot change the rendered scene. Preserve its PM4 register\n  // state but do not run five redundant XDK surface-history lookups,\n  // and never count it as a lost color/depth attachment.\n  if ((gpu_color_mask & 0xFFFFu) == 0u &&\n      (gpu_depth_control & 0x3u) == 0u) {\n    static std::atomic<uint64_t> hulk_no_pixel_write{0};\n    const uint64_t n = ++hulk_no_pixel_write;\n    if (n <= 12 || n % 50000u == 0u)\n      REXLOG_INFO(\"[HULK/PM4-NO-WRITABLE-RT] #{} surface={:#x} \"\n                  \"color_mask={:#x} depth_control={:#x} (no render writes)\",\n                  n, gpu_surface, gpu_color_mask, gpu_depth_control);\n    return false;\n  }\n  bool has_target = false, unresolved = false;\n  for (uint32_t slot = 0; slot < 5; ++slot) {"
 OLD = "    unresolved = true;\n  }\n  if (!has_target || unresolved) {"
-NEW = "    // Hulk 160: group genuine surface-key misses by attachment, without\n    // inventing or substituting any RT/depth object. Flicker / missing geometry\n    // can then be correlated with exact packet-time GPU identities.\n    static std::array<std::atomic<uint64_t>, 5> hulk_slot_misses{};\n    const uint64_t misses = ++hulk_slot_misses[slot];\n    if (misses <= 8 || misses % 20000 == 0)\n      REXLOG_WARN(\"[HULK/PM4-MISS] slot={} kind={} reason={} gpu_surface={:#x} gpu_info={:#x} \"\n                  \"bound={} bound_surface={:#x} bound_info={:#x} total={}\",\n                  slot, slot == 4 ? \"depth\" : \"color\", bound ? \"identity_mismatch\" : \"no_bound\",\n                  gpu_surface, gpu_info, bool(bound),\n                  bound ? bound.surface_info : 0u, bound ? bound.info : 0u, misses);\n    unresolved = true;\n  }\n  // HULK/PM4-REJECTION-CLASS: preserve exact GPU/XDK matching, but do not\n  // mistake a packet with no enabled writable attachment for an alias miss.\n  if (!has_target && !unresolved) {\n    static std::atomic<uint64_t> no_writable{0};\n    const uint64_t n = ++no_writable;\n    if (n <= 12 || n % 50000 == 0)\n      REXLOG_INFO(\"[HULK/PM4-NO-WRITABLE-RT] #{} surface={:#x} \"\n                  \"color_mask={:#x} depth_control={:#x}\",\n                  n, gpu_surface, gpu_color_mask, gpu_depth_control);\n  } else if (unresolved) {\n    static std::atomic<uint64_t> actual_misses{0};\n    const uint64_t n = ++actual_misses;\n    if (n <= 12 || n % 20000 == 0)\n      REXLOG_WARN(\"[HULK/PM4-ACTUAL-MISS] #{} surface={:#x} \"\n                  \"color_mask={:#x} depth_control={:#x}\",\n                  n, gpu_surface, gpu_color_mask, gpu_depth_control);\n  }\n  if (!has_target || unresolved) {"
+NEW = "    // Hulk 160: group genuine surface-key misses by attachment, without\n    // inventing or substituting any RT/depth object. Flicker / missing geometry\n    // can then be correlated with exact packet-time GPU identities.\n    static std::array<std::atomic<uint64_t>, 5> hulk_slot_misses{};\n    const uint64_t misses = ++hulk_slot_misses[slot];\n    if (misses <= 8 || misses % 20000 == 0)\n      REXLOG_WARN(\"[HULK/PM4-MISS] slot={} kind={} reason={} gpu_surface={:#x} gpu_info={:#x} \"\n                  \"bound={} bound_surface={:#x} bound_info={:#x} total={}\",\n                  slot, slot == 4 ? \"depth\" : \"color\", bound ? \"identity_mismatch\" : \"no_bound\",\n                  gpu_surface, gpu_info, bool(bound),\n                  bound ? bound.surface_info : 0u, bound ? bound.info : 0u, misses);\n    unresolved = true;\n  }\n  // HULK/PM4-ACTUAL-MISS: only a draw with a real output mask\n  // can reach this path; no-write packets were classified up front.\n  if (unresolved) {\n    static std::atomic<uint64_t> actual_misses{0};\n    const uint64_t n = ++actual_misses;\n    if (n <= 12 || n % 20000 == 0)\n      REXLOG_WARN(\"[HULK/PM4-ACTUAL-MISS] #{} surface={:#x} \"\n                  \"color_mask={:#x} depth_control={:#x}\",\n                  n, gpu_surface, gpu_color_mask, gpu_depth_control);\n  }\n  if (!has_target || unresolved) {"
 
 ZERO_OLD = "  if (!(gpu_surface & 0x3FFFu)) return false;"
 ZERO_NEW = "  // HULK/PM4-ZERO-SURFACE: distinguish invalid pitch from RT identity\n  // failures, without drawing it or creating a synthetic guest surface.\n  if (!(gpu_surface & 0x3FFFu)) {\n    static std::atomic<uint64_t> zero_pitch{0};\n    const uint64_t n = ++zero_pitch;\n    if (n <= 8 || n % 50000 == 0)\n      REXLOG_INFO(\"[HULK/PM4-ZERO-SURFACE] #{} surface={:#x}\", n, gpu_surface);\n    return false;\n  }"
@@ -30,16 +32,17 @@ ACCEPT_NEW = (
 )
 
 def patch_text(source):
-    done = (NEW in source, ACCEPT_NEW in source, ZERO_NEW in source)
+    done = (NEW in source, ACCEPT_NEW in source, ZERO_NEW in source, NO_WRITE_NEW in source)
     if all(done):
         return source, False
     if any(done):
         raise ValueError("Partial Hulk PM4 surface diagnostics patch")
     if (source.count(OLD) != 1 or source.count(ACCEPT_OLD) != 1 or
-            source.count(ZERO_OLD) != 1 or
+            source.count(ZERO_OLD) != 1 or source.count(NO_WRITE_OLD) != 1 or
             source.count("bool HulkPacketSurfaces(") != 1):
         raise ValueError("Unexpected NativeX packet RT/depth mapping anchor")
-    return (source.replace(OLD, NEW, 1)
+    return (source.replace(NO_WRITE_OLD, NO_WRITE_NEW, 1)
+                  .replace(OLD, NEW, 1)
                   .replace(ACCEPT_OLD, ACCEPT_NEW, 1)
                   .replace(ZERO_OLD, ZERO_NEW, 1), True)
 
