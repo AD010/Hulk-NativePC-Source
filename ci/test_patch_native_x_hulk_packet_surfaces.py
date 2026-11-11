@@ -29,6 +29,10 @@ class SurfaceTests(unittest.TestCase):
   self.assertIn("return {surface_info, info};",patch)
   self.assertNotIn("surface_info & 0x0003FFFFu",patch)
   self.assertNotIn("info & 0x000F0FFFu",patch)
+  self.assertIn("HULK/PM4-SURFACE-LRU",patch)
+  self.assertIn("std::min_element(remembered.begin(), remembered.end()",patch)
+  self.assertIn("it->second.second = ++g_hulk_surface_stamp",patch)
+  self.assertNotIn("remembered.erase(remembered.begin())",patch)
   def previous_key(info, surface): return (info & 0x0003FFFF, surface & 0x000F0FFF)
   # Distinct GPU descriptors could previously produce identical keys.
   for raw1,raw2 in (((1, 1),(0x40001,1)), ((1,1),(1,0x1000001))):
