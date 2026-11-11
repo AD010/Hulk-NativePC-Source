@@ -112,6 +112,22 @@ def run(sha=SHA):
         texture=(source/"src/guest_textures.cpp").read_text(encoding="utf-8")
         if "HULK/TEXTURE-RESOURCE-GUARD" not in texture:
             missing.append("Hulk Vulkan texture descriptor guard")
+        # Native host-resolution chain: the 640x360 guest scene and its
+        # 640x360 resolved fetch may both represent 2560x1440 host pixels.
+        # Check the generated actual C++, not only the synthetic patch fixture.
+        resolved_cpp=(source/"src/targets.cpp").read_text(encoding="utf-8")
+        resolved_h=(source/"src/targets.h").read_text(encoding="utf-8")
+        for filename, content in (
+            ("src/renderer.cpp", renderer),
+            ("src/targets.cpp", resolved_cpp),
+            ("src/targets.h", resolved_h),
+        ):
+            if "HULK/TRUE-RESOLVE-SCALE" not in content:
+                missing.append("NativeX full-resolution scene Resolve: "+filename)
+        if "g_resolved.SetHulkSampleGrid(" not in renderer:
+            missing.append("resolved host texture initialization")
+        if "width == hulk_half_width_ && height == hulk_half_height_" not in resolved_cpp:
+            missing.append("per-dimension host Resolve upscaling")
         state=(source/"src/state.cpp").read_text(encoding="utf-8")
         for name, body in (
             ("HULK/PM4-PAYLOAD",state),

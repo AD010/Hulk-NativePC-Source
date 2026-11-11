@@ -218,6 +218,14 @@ try {
     # native 1280x720 output. Map its 2x2 sample grid to host pixels, no EDRAM.
     Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_msaa_grid.py')) $Source
     Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_msaa_grid.py'), $NxrFull) $Source
+    # Scene Resolve must retain the exact 2560x1440 native host image
+    # (not just the original 640x360 guest descriptor) before any C++ build.
+    foreach ($NxrFile in @('src/renderer.cpp','src/targets.cpp','src/targets.h')) {
+      $Path = Join-Path $NxrFull $NxrFile
+      if (-not (Get-Content -LiteralPath $Path -Raw).Contains('HULK/TRUE-RESOLVE-SCALE')) {
+        throw "Hulk native scene Resolve scale contract missing from $NxrFile"
+      }
+    }
     # Hulk log 124: full-output NativeX draw clipped to 640 guest columns.
     # Scissor repair affects only 1280x720 half-width fullscreen passes.
     # Audit live 640x360 4x-MSAA scene resolves, not just intro boot frames.
