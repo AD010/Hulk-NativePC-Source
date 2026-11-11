@@ -261,7 +261,7 @@ try {
     Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_unbound_mrt.py')) $Source
     Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_unbound_mrt.py'), $NxrFull) $Source
     # Before the guest command-buffer ring is reused, preserve only actual
-    # bounded DMA-index bytes for synthetic per-packet Vulkan captures.
+    # bounded DMA-index bytes for packet and ordinary XDK indexed captures.
     Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_packet_dma_snapshot.py')) $Source
     Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_packet_dma_snapshot.py'), $NxrFull) $Source
     # Hulk log 167: actual GPU 640x360/4x view can differ from real XDK
@@ -276,10 +276,14 @@ try {
       throw 'Hulk log173 PM4 RT0 EDRAM rebase missing from compiled renderer.'
     }
     if (-not $HulkNativeRendererSource.Contains('[HULK/PM4-DMA-REJECT]') -or
-        -not $HulkNativeRendererSource.Contains('if (packet_surfaces && !CapturePacketDmaIndices')) {
+        -not $HulkNativeRendererSource.Contains('HULK/DIRECT-DMA-SNAPSHOT') -or
+        -not $HulkNativeRendererSource.Contains('!CapturePacketDmaIndices(tracker, base, c)')) {
       throw 'Hulk log173 incomplete DMA capture rejection absent from compiled renderer.'
     }
     $HulkNativeDrawSource = Get-Content -LiteralPath (Join-Path $NxrFull 'src/draw.cpp') -Raw
+    if (-not $HulkNativeDrawSource.Contains('HULK/DMA-RESTORE-AFTER-AHEAD')) {
+      throw 'Hulk DMA restoration after speculative uploads absent from compiled renderer.'
+    }
     if (-not $HulkNativeDrawSource.Contains('[HULK/EMPTY-DMA-INDEX]')) {
       throw 'Hulk log173 empty DMA DrawInternal guard missing from compiled renderer.'
     }
