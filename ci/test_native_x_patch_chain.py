@@ -111,6 +111,23 @@ def run(sha=SHA):
             missing.append("HULK 520/1040 depth+color MSAA alias requires matching live XDK object")
         if "hulk_packet_draws_mapped" not in renderer:
             missing.append("HULK accepted surface binding counter")
+        # Build 58 source evidence: 150k+ PM4 packets had *both* write
+        # masks zero. The early gate is a no-op for GPU pixels and must
+        # precede the expensive 5-slot XDK history lookup. True misses
+        # remain fail-closed and counted separately.
+        hulk_packet_at = renderer.find("bool HulkPacketSurfaces(")
+        hulk_packet_end = renderer.find("void CaptureDraw(", hulk_packet_at)
+        if hulk_packet_at < 0 or hulk_packet_end <= hulk_packet_at:
+            missing.append("Hulk packet GPU surface capture function missing")
+        else:
+            surface_fn = renderer[hulk_packet_at:hulk_packet_end]
+            early = surface_fn.find("HULK/PM4-NO-WRITE-EARLY")
+            lookup = surface_fn.find("for (uint32_t slot = 0; slot < 5; ++slot)")
+            if early < 0 or lookup < 0 or early >= lookup:
+                missing.append("Hulk unwritable packet early no-op not before surface lookup")
+            if "HULK/PM4-ACTUAL-MISS" not in surface_fn or "if (unresolved)" not in surface_fn:
+                missing.append("Hulk actual color/depth attachment failures not isolated")
+
         texture=(source/"src/guest_textures.cpp").read_text(encoding="utf-8")
         if "HULK/TEXTURE-RESOURCE-GUARD" not in texture:
             missing.append("Hulk Vulkan texture descriptor guard")
