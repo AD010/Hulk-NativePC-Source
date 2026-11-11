@@ -156,6 +156,61 @@ def patch_draw(source):
         raise ValueError("NativeX DMA restore/upload-ahead anchor drift")
     return source.replace(RESTORE, "", 1).replace(AHEAD, AHEAD + RESTORE_AFTER, 1), True
 
+CPU_HELPER = """// HULK/CPU-INDEX-SNAPSHOT: assemble the same ordered copies that the GPU
+// mirror receives. Never fill holes from newer live guest memory.
+template <typename Processor, typename Result, typename Copies>
+bool HulkProcessIndexCopies(Processor& processor, Result& result,
+                            uint32_t base, uint32_t size, const Copies& copies) {
+  if (!size) return processor.Process(result);
+  if (base >= 0x20000000u || size > 0x20000000u - base || size > (1u << 20))
+    return false;
+  bool overlaps = false;
+  for (const auto& copy : copies)
+    overlaps |= uint64_t(copy.address) < uint64_t(base) + size &&
+                uint64_t(base) < uint64_t(copy.address) + copy.size;
+  if (!overlaps) return processor.Process(result);
+  std::vector<uint8_t> bytes(size), covered(size, 0);
+  for (const auto& copy : copies) {
+    const uint64_t first = std::max(uint64_t(base), uint64_t(copy.address));
+    const uint64_t last = std::min(uint64_t(base) + size, uint64_t(copy.address) + copy.size);
+    if (first >= last) continue;
+    if (!copy.data) return false;
+    std::memcpy(bytes.data() + (first - base), copy.data + (first - copy.address), last - first);
+    std::fill(covered.begin() + (first - base), covered.begin() + (last - base), 1);
+  }
+  if (std::find(covered.begin(), covered.end(), uint8_t(0)) != covered.end()) return false;
+  return processor.ProcessCapturedIndices(result, bytes.data(), base, size);
+}
+
+"""
+CPU_ANCHOR = "  if (!primitives_->Process(primitives)) {"
+CPU_CALL = """  const auto hulk_cpu_draw = regs.Get<reg::VGT_DRAW_INITIATOR>();
+  const uint32_t hulk_cpu_stride = hulk_cpu_draw.index_size == xenos::IndexFormat::kInt16 ? 2u : 4u;
+  const bool hulk_cpu_ok = hulk_cpu_draw.source_select == xenos::SourceSelect::kDMA
+      ? HulkProcessIndexCopies(*primitives_, primitives,
+          regs[rg::XE_GPU_REG_VGT_DMA_BASE] & ~(hulk_cpu_stride - 1u),
+          uint32_t(hulk_cpu_draw.num_indices) * hulk_cpu_stride, copies)
+      : primitives_->Process(primitives);
+  if (!hulk_cpu_ok) {"""
+
+def patch_cpu_draw(source):
+    if 'HULK/CPU-INDEX-SNAPSHOT' in source:
+        if CPU_HELPER not in source or CPU_CALL not in source or CPU_ANCHOR in source:
+            raise ValueError('Partial NativeX CPU snapshot patch')
+        return source, False
+    anchor = 'struct DrawContext {'
+    if source.count(anchor) != 1 or source.count(CPU_ANCHOR) != 1:
+        raise ValueError('NativeX CPU snapshot anchor drift')
+    return ('#include <vector>\n' + source.replace(anchor, CPU_HELPER + anchor, 1)
+            .replace(CPU_ANCHOR, CPU_CALL, 1)), True
+
+
+def patch_draw_all(source):
+    source, a = patch_draw(source)
+    source, b = patch_cpu_draw(source)
+    return source, a or b
+
+
 def main():
     if len(sys.argv)!=2:
         raise SystemExit("Usage: patch_native_x_hulk_packet_dma_snapshot.py <NativeX checkout>")
@@ -164,7 +219,7 @@ def main():
     if actual!=PIN:
         raise ValueError("Unexpected NativeX checkout SHA: "+actual)
     edits=[]
-    for name, action in (("src/renderer.cpp", patch_text), ("src/draw.cpp", patch_draw)):
+    for name, action in (("src/renderer.cpp", patch_text), ("src/draw.cpp", patch_draw_all)):
         path=root/name
         result,changed=action(path.read_text(encoding="utf-8"))
         edits.append((path,result,changed))

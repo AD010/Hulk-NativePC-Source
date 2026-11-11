@@ -38,9 +38,45 @@ the full cache's locking/bucket implementation or prove GPU image parity.
 The existing Windows builder invokes this check against its actual SDK
 before installing the narrow fix. The workflow remains manual-only.
 
-Still unresolved: CPU primitive conversion reads live guest indices rather
-than command-owned snapshots. Correct invalidation is necessary, but does
-not solve that separate asynchronous lifetime problem.
+## Continuation: CPU consumers of captured index versions
+
+Source audit of main `6c33bd0` found FOUR CPU reads of live physical indices:
+primitive conversion, 16-bit restart replacement, 32-bit restart replacement,
+and 32-to-24-bit normalization. The GPU mirror restore cannot affect these
+CPU reads. A correct cache-overlap predicate alone cannot fix that lifetime.
+
+The existing SDK patch now adds `ProcessCapturedIndices` while preserving
+`Process` for ordinary live-memory clients. The new entry point validates
+source, count, address, length and physical bounds, copies byte-packed command
+data into naturally aligned storage, and passes it to all four CPU reads.
+It invalidates only that physical range's conversion cache before and after
+processing (including failure exits). Cached results keyed to live memory
+cannot be consumed by an older captured draw or retained as its new version.
+No guest bytes are rolled back. Snapshot conversions are recomputed; the
+performance cost is not yet measured. Other ranges retain their caches.
+
+The existing NativeX capture patch also routes DrawInternal through this
+entry point when index bytes are present in the command. Ordered copy
+composition matches the GPU restore order, including overlapping copies.
+A partially covered index range is rejected, never completed with newer
+live bytes. Draws without index copies retain the existing Process path.
+Thus this does not claim to fix missing vertex/texture ownership or draws
+whose capture itself was incorrect.
+
+Validation: compile and execute the actual NativeX composition helper,
+checking 1,296 two-range combinations against a per-byte last-writer oracle,
+plus holes, null data, out-of-range values and absent copies. Compile and
+execute the actual SDK entry wrappers with cache/converter test doubles,
+checking natural alignment, two versions at one address, invalid arguments,
+and cleanup on both success and failure. Source transforms verify all four
+consumer anchors and idempotence on the real fetched SDK header/source.
+These are CPU regression tests; they do not compile the complete SDK,
+exercise its cache mutex/bucket implementation, or establish any pixel result.
+
+Validation completed: 3 SDK regression tests, 8 NativeX snapshot tests,
+and both complete 56-step chains (919371b5 and bf965e95) passed. Public
+source audit and git diff whitespace checks passed. No Windows build or
+game replay is claimed by this source-only change.
 
 Baseline: source main `99368e184979b1e00cb51c74af8049c991bd3653`;
 NativeX production pin `919371b5bdae0c9c4c7120ca321f5a4d72b7e78e`.
@@ -87,7 +123,7 @@ CI status and the resulting private ZIP must be checked separately.
 ## Remaining gates
 
 - No on-hardware game run or Vulkan pixel-history test was performed here.
-- The CPU primitive conversion path still requires its own ownership audit:
+- Historical audit finding (addressed by the CPU snapshot continuation above):
   restoring the GPU mirror does not prove that CPU fan/quad/loop conversion
   consumed captured indices. Vertex-buffer lifetime is also a separate gate.
 - Invalid fetch writers, shader failures, clear/depth/resolve parity and

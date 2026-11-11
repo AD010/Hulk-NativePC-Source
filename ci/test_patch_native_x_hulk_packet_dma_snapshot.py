@@ -11,6 +11,74 @@ from patch_native_x_hulk_packet_dma_snapshot import (
 )
 
 class DmaSnapshotTests(unittest.TestCase):
+    def test_cpu_snapshot_copy_order_and_holes(self):
+        from patch_native_x_hulk_packet_dma_snapshot import CPU_HELPER, CPU_ANCHOR, patch_cpu_draw
+        original = 'struct DrawContext {\n' + CPU_ANCHOR
+        patched, changed = patch_cpu_draw(original)
+        self.assertTrue(changed)
+        self.assertEqual(patch_cpu_draw(patched), (patched, False))
+        with self.assertRaises(ValueError):
+            patch_cpu_draw('struct DrawContext {')
+        code = r'''#include <algorithm>
+#include <vector>
+#include <cstring>
+#include <cstdint>
+#include <cassert>
+struct Copy { uint32_t address; const uint8_t* data; uint32_t size; };
+struct Processor {
+  unsigned live_reads=0, snapshot_reads=0;
+  std::vector<uint8_t> consumed;
+  bool Process(int&) { ++live_reads; return true; }
+  bool ProcessCapturedIndices(int&, const uint8_t* p, uint32_t, uint32_t n) {
+    ++snapshot_reads; consumed.assign(p,p+n); return true;
+  }
+};
+''' + CPU_HELPER + r'''
+int main() {
+  Processor p; int result=0;
+  uint8_t a[]={1,2,3,4,5,6,7,8}, b[]={9,10,11,12};
+  std::vector<Copy> copies{{32,a,8},{34,b,4}};
+  assert(HulkProcessIndexCopies(p,result,32,8,copies));
+  assert((p.consumed==std::vector<uint8_t>{1,2,9,10,11,12,7,8}));
+  assert(p.live_reads==0 && p.snapshot_reads==1);
+  // Mutating live/command storage after processing cannot change consumed bytes.
+  a[0]=99; assert(p.consumed[0]==1);
+  // Two partial ranges may jointly cover the indices; later writes win.
+  copies={{32,a,4},{36,b,4}};
+  assert(HulkProcessIndexCopies(p,result,32,8,copies));
+  assert((p.consumed==std::vector<uint8_t>{99,2,3,4,9,10,11,12}));
+  copies={{32,a,3},{36,b,4}};
+  assert(!HulkProcessIndexCopies(p,result,32,8,copies));
+  assert(p.live_reads==0 && p.snapshot_reads==2); // hole must not use live memory
+  copies={{32,nullptr,8}};
+  assert(!HulkProcessIndexCopies(p,result,32,8,copies));
+  copies={{16,a,8}};
+  assert(HulkProcessIndexCopies(p,result,32,8,copies) && p.live_reads==1);
+  assert(!HulkProcessIndexCopies(p,result,0x1ffffffe,4,copies));
+  assert(!HulkProcessIndexCopies(p,result,0,0xffffffff,copies));
+  // Exhaustive small-range coverage and last-writer precedence oracle.
+  for(unsigned x=0;x<8;++x) for(unsigned n=1;n<=8-x;++n)
+    for(unsigned y=0;y<8;++y) for(unsigned m=1;m<=8-y;++m) {
+      copies={{32+x,a,n},{32+y,a,m}};
+      std::vector<uint8_t> expected(8,0); std::vector<bool> seen(8,false);
+      for(unsigned i=0;i<n;++i){expected[x+i]=a[i];seen[x+i]=true;}
+      for(unsigned i=0;i<m;++i){expected[y+i]=a[i];seen[y+i]=true;}
+      const bool full=std::all_of(seen.begin(),seen.end(),[](bool v){return v;});
+      const unsigned old_live=p.live_reads;
+      assert(HulkProcessIndexCopies(p,result,32,8,copies)==full);
+      assert(p.live_reads==old_live);
+      if(full) assert(p.consumed==expected);
+    }
+}
+'''
+        compiler = shutil.which('clang++') or shutil.which('g++')
+        self.assertIsNotNone(compiler)
+        with tempfile.TemporaryDirectory() as d:
+            cpp=Path(d)/'snapshot.cpp'; exe=Path(d)/'snapshot.exe'
+            cpp.write_text(code)
+            subprocess.run([compiler,'-std=c++17','-O0',str(cpp),'-o',str(exe)],check=True)
+            subprocess.run([str(exe)],check=True)
+
     def test_actual_cpp_snapshot_and_upload_order(self):
         # Compile the production helper. Only map guest physical memory to a
         # small host array instead of reserving the 4 GiB guest address arena.

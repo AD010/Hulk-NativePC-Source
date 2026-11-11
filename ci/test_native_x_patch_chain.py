@@ -135,6 +135,8 @@ def run(sha=SHA):
             ("HULK/PM4-DMA-SNAPSHOT",renderer),
             ("HULK/FETCH-ORIGIN",draw),
             ("HULK/DMA-ORIGIN",draw),
+            ("HULK/CPU-INDEX-SNAPSHOT",draw),
+            ("processor.ProcessCapturedIndices(result, bytes.data(), base, size)",draw),
         ):
             if name not in body:missing.append(name)
         if sha == CANDIDATE_SHA:

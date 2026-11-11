@@ -221,3 +221,29 @@ USA-XEX D3D boundary/ABI map and per-draw shadow observer, starting
 with verified existing eight XDK callbacks and finding true ClearF,
 DrawUP, resource Lock/Unlock, shader and fence methods. Do not attempt
 a new renderer until H0/H1 acceptance evidence exists.
+
+## Upstream comparison checked against source documentation
+
+Re-read The Darkness `RENDERING.md` and Hells Gate
+`docs/NATIVE_RENDERER_DESIGN.md` from their current GitHub source.
+The Darkness documents native engine D3D11 draws, owned resource lifetimes,
+image comparisons, replay routes and GPU contract tests; its results are
+project-reported evidence, not tests executed on Hulk. Its resolved-target
+scaling also preserves logical guest allocation budgets rather than simply
+enlarging every guest allocation. These are useful verification techniques,
+not interchangeable shaders or ABI addresses.
+
+Hells Gate documents D3D-library replacement over DiligentCore, a
+per-draw state verifier, native targets and resolves, and separate fence,
+vblank and CPU-readback obligations. Its document explicitly marks parity
+as in progress. Copying its device offsets or treating it as a proven
+release-quality Hulk backend would be unjustified.
+
+The current Hulk index fix follows the owned-data requirement only: CPU
+conversion and GPU upload must consume the same captured version. It does
+not establish the verified D3D state map required to replace late packet
+reconstruction, nor startup/menu/world pixel parity.
+
+Sources:
+- https://github.com/portingpete/The-Darkness-Recomp/blob/main/RENDERING.md
+- https://github.com/florinp93/hells-gate-recomp/blob/main/docs/NATIVE_RENDERER_DESIGN.md

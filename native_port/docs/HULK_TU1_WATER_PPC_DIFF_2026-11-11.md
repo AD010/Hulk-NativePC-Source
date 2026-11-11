@@ -57,3 +57,20 @@ No additional GitHub Actions workflow, no new game binary and no
 automatic Windows build are introduced; the existing workflow remains
 manual-only as requested. The graphic defects in build 57/58 also
 remain open and must be tested on hardware before release.
+
+## Input recovery verified in the current workspace
+
+The owner-uploaded original `default.xex` and
+`TheIncredibleHulkEurope_TU1.zip` were materialized and the real
+`prepare_hulk_tu1_stage.py` completed successfully. The XEX SHA-256 is
+`ede8b62b5d4d0357ace2e08caf06a6bd702783d1a9b036bbf405124bd84f3351`;
+MediaID `2BA1D2F6`, region mask `00FF0000`, D3D9/XGRAPHC `2.0.6534`.
+The 31 authenticated update files are staged privately with the matching XEX.
+This resolves access to those two inputs, not application/recompilation of
+XEXP or identification of the water-jump function. No TU bytes, PPC code or
+unverified USA hook addresses were added to the public repository.
+
+Required next evidence is still a same-tool original/patched EU executable
+comparison, then semantic mapping to the USA code and runtime validation of
+water entry/exit. The separate uploaded file also called `default.xexp`
+was not substituted for the authenticated patch extracted from the TU ZIP.
