@@ -1,15 +1,9 @@
 name: Hulk NativePC - Free Public Windows Builder
 on:
+  # User-requested release gate: do not start more experimental Windows
+  # builds on source edits. Keep this single Release-only workflow available
+  # for an explicit final validation through GitHub Actions.
   workflow_dispatch:
-  # One free Windows build when the native frame-boundary fix lands on main.
-  # Keep the existing workflow; do not create a second Windows job.
-  push:
-    branches: [main]
-    paths:
-      - 'native_port/hulk_native_x_profile.ini'
-      - 'native_port/BUILD_WINDOWS.ps1'
-      - 'native_port/incredible_hulk.toml'
-      - 'ci/test_native_x_patch_chain.py'
 permissions:
   contents: write
 concurrency:
