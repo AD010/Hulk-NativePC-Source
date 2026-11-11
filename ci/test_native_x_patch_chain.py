@@ -119,6 +119,35 @@ def run(sha=SHA):
                 missing.append("D127 native-scale target preserved by Hulk MSAA grid")
             if "source->scale.x != target->scale.x" not in renderer:
                 missing.append("D127 scaled resolves preserved")
+        # Hulk #57 preflight: verify the *actual integrated C++*, not only
+        # independent source-replacement fixtures. These guards are required
+        # by build 56's malformed DMA, invalid primitive, stale RT and 4x
+        # depth traces. A compile alone cannot prove the GPU frame is correct.
+        for marker, contents in (
+            ("HULK/PM4-DMA-CANCEL", renderer),
+            ("HULK/PM4-PRIMITIVE-SOURCE", renderer),
+            ("HULK/PM4-DMA-ADDRESS-PARITY", renderer),
+            ("HULK/PM4-PERSISTENT-DMA", renderer),
+            ("HULK/PM4-HISTORY-LIVE", renderer),
+            ("HULK/PM4-RT0-1X-REBASE", renderer),
+            ("HULK/PM4-DEPTH-REBASE-4X", renderer),
+            ("HULK/PM4-REGISTER-ORDER", state),
+            ("HULK/PM4-SHADER-BOUNDS", state),
+        ):
+            if marker not in contents:
+                missing.append("missing critical integrated C++: " + marker)
+        # Rejected DMA Draws must NOT be queued as Command::Type::kDraw:
+        # NativeX Capture::~Capture() publishes even after an early return.
+        rejected = renderer.find(
+            "if (packet_surfaces && !CapturePacketDmaIndices(tracker, base, c))")
+        if rejected < 0:
+            missing.append("DMA snapshot capture call missing")
+        else:
+            cancel = renderer[rejected:rejected + 850]
+            if ("c.type = Command::Type::kNone;" not in cancel or
+                    cancel.index("c.type = Command::Type::kNone;") >
+                    cancel.rfind("return;")):
+                missing.append("DMA rejected capture still publishes a Draw")
         if missing:raise RuntimeError(f"NativeX patch chain markers absent: {missing}")
         print(f"[NativeX/preflight] All {len(scripts)} real NativeX {sha[:8]} source patches pass")
 if __name__=="__main__":
