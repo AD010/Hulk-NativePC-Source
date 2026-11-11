@@ -5,7 +5,8 @@ import tempfile
 import unittest
 from pathlib import Path
 from hulk_engine_render_callgraph import (
-    read_hooks, scan_direct_calls, analyze, verify_us_source, USA_XEX_SHA256
+    read_hooks, scan_direct_calls, analyze, verify_us_source, USA_XEX_SHA256,
+    rank_sibling_d3d_candidates
 )
 from test_audit_hulk_xex_xdk import make_xex
 
@@ -83,6 +84,55 @@ class RenderGraph(unittest.TestCase):
                 out.write('DEFINE_REX_FUNC(sub_8288DF30)\n')
             with self.assertRaisesRegex(ValueError, 'Duplicate USA XDK'):
                 scan_direct_calls(root, {0x8288DF30})
+
+    def test_nearby_unknown_callee_is_only_an_unverified_sibling(self):
+        # Synthetic USA-style call graph: a possible ClearF-like unknown
+        # callee shares one source function with Draw/RT calls. It is NOT
+        # promoted into the runtime profile or assigned a C++ ABI.
+        hooks = {0x8288DF30: "DrawVertices",
+                 0x8287F2C0: "SetRenderTarget"}
+        reverse = {
+            0x8288DF30: [(0x82300000, 0x82300020),
+                         (0x82300100, 0x82300120)],
+            0x8287F2C0: [(0x82300000, 0x82300040)],
+            0x82873400: [(0x82300000, 0x82300030),
+                         (0x82300100, 0x82300134)],
+            0x82874500: [(0x82300000, 0x82300500)],
+            0x82874600: [(0x82390000, 0x82390020)],
+        }
+        ranked = rank_sibling_d3d_candidates(reverse, hooks)
+        self.assertEqual(len(ranked), 1)
+        hit = ranked[0]
+        self.assertEqual(hit['guest_function_candidate'], '0x82873400')
+        self.assertEqual(hit['observed_near_known_hooks'],
+                         ['DrawVertices', 'SetRenderTarget'])
+        self.assertEqual(hit['independent_shared_callers'], 2)
+        self.assertEqual(hit['nearest_call_site_distance_bytes'], 0x10)
+        self.assertIsNone(hit['validated_d3d_method'])
+        self.assertFalse(hit['validated_ppc_abi'])
+        self.assertIn('co_call_only', hit['confidence'])
+        self.assertFalse(any('0x82874500' in repr(x) for x in ranked))
+
+    def test_no_fake_xdk_method_from_unrelated_or_branch_only_calls(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root/'hulk_recomp.0.cpp').write_text(
+                'DEFINE_REX_FUNC(sub_82400000)\n'
+                '  // bl 0x8288DF30\n'
+                '  // bl 0x82873400\n'
+                '  // b 0x82874500\n'
+                'DEFINE_REX_FUNC(sub_82400100)\n'
+                '  // bl 0x82874500\n', encoding='utf-8')
+            reverse, _, _, _ = scan_direct_calls(root, {0x8288DF30})
+            ranked = rank_sibling_d3d_candidates(
+                reverse, {0x8288DF30: 'DrawVertices'})
+            self.assertEqual([x['guest_function_candidate'] for x in ranked],
+                             ['0x82873400'])
+            self.assertEqual(ranked[0]['evidence'][0]['shared_caller'],
+                             '0x82400000')
+            with self.assertRaises(ValueError):
+                rank_sibling_d3d_candidates(reverse, {0x8288DF30: 'DrawVertices'},
+                                            max_distance=0)
 
     def test_missing_files_and_unverified_addresses(self):
         with tempfile.TemporaryDirectory() as tmp:

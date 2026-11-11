@@ -100,6 +100,80 @@ def scan_direct_calls(
     return reverse, len(files), functions, found_hooks
 
 
+
+def rank_sibling_d3d_candidates(
+    reverse: dict[int, list[tuple[int, int]]],
+    hooks: dict[int, str],
+    limit: int = 60,
+    max_distance: int = 0x200,
+) -> list[dict]:
+    """Co-called guest functions beside the 8 known USA XDK entrypoints.
+
+    Never infer ClearF, texture/shader/resource APIs or callable ABI from
+    proximity. This is a read-only address-only search lead, not a hook.
+    """
+    if not (1 <= limit <= 200 and 4 <= max_distance <= 0x4000):
+        raise ValueError("Invalid XDK sibling ranking limits")
+    known_by_caller: dict[int, list[tuple[int, str, int]]] = defaultdict(list)
+    for hook, name in hooks.items():
+        for caller, site in set(reverse.get(hook, ())):
+            if caller != hook:
+                known_by_caller[caller].append((hook, name, site))
+
+    # Only site pairs inside one real guest function count. A hot loop with
+    # many calls to one XDK API cannot fake independent witness functions.
+    observations: dict[int, dict[tuple[int, int], dict]] = defaultdict(dict)
+    for candidate, edges in reverse.items():
+        if candidate in hooks or not (0x82000000 <= candidate < 0x84000000):
+            continue
+        for caller, site in set(edges):
+            if caller == candidate:
+                continue
+            for hook, name, hook_site in known_by_caller.get(caller, ()):
+                distance = abs(site - hook_site)
+                if distance > max_distance:
+                    continue
+                key = (caller, hook)
+                record = {
+                    'shared_caller': f'0x{caller:08X}',
+                    'candidate_call_site': f'0x{site:08X}',
+                    'known_hook': name,
+                    'known_hook_address': f'0x{hook:08X}',
+                    'known_hook_call_site': f'0x{hook_site:08X}',
+                    'call_site_distance_bytes': distance,
+                }
+                old = observations[candidate].get(key)
+                if old is None or (distance, site, hook_site) < (
+                    old['call_site_distance_bytes'],
+                    int(old['candidate_call_site'], 16),
+                    int(old['known_hook_call_site'], 16),
+                ):
+                    observations[candidate][key] = record
+
+    ranked = []
+    for addr, grouped in observations.items():
+        items = sorted(grouped.values(), key=lambda e: (
+            e['call_site_distance_bytes'], e['shared_caller'],
+            e['known_hook'], e['candidate_call_site']))
+        names = sorted({e['known_hook'] for e in items})
+        ranked.append({
+            'guest_function_candidate': f'0x{addr:08X}',
+            'observed_near_known_hooks': names,
+            'independent_shared_callers': len({e['shared_caller'] for e in items}),
+            'nearest_call_site_distance_bytes': items[0]['call_site_distance_bytes'],
+            'evidence': items[:12],
+            'validated_d3d_method': None,
+            'validated_ppc_abi': False,
+            'confidence': 'co_call_only_not_D3D_API_or_ClearF_proof',
+        })
+    ranked.sort(key=lambda row: (
+        -len(row['observed_near_known_hooks']),
+        -row['independent_shared_callers'],
+        row['nearest_call_site_distance_bytes'],
+        int(row['guest_function_candidate'], 16)))
+    return ranked[:limit]
+
+
 def analyze(reverse: dict[int, list[tuple[int, int]]],
             hooks: dict[int, str], depth: int = 3,
             found_hooks: set[int] | None = None) -> dict:
@@ -161,6 +235,7 @@ def analyze(reverse: dict[int, list[tuple[int, int]]],
             [f'0x{address:08X}' for address in sorted(set(hooks) - found_hooks)]
             if found_hooks is not None else []),
         'total_candidates': len(ranked),
+        'unverified_d3d_cocalled_siblings': rank_sibling_d3d_candidates(reverse, hooks),
         'candidate_ancestors': [
             {'guest_function': f'0x{f:08X}', 'hook_groups': groups, 'evidence': links}
             for _, f, groups, links in ranked[:100]
@@ -170,6 +245,9 @@ def analyze(reverse: dict[int, list[tuple[int, int]]],
             'Indirect bctrl, virtual dispatch and inlined calls are not resolved',
             'Function address presence does not validate the XDK ABI or layout',
             'Candidates need live tracing against the SHA-pinned USA XEX',
+            'Near-call sibling candidates are shared callers, not ClearF/API identification',
+            'Static source callsite distances may cross control-flow blocks',
+            'Unverified sibling targets must not be installed as hooks without ABI proof',
             'This audit emits no executable hooks or renderer changes',
         ],
     }
