@@ -55,6 +55,7 @@ def commands():
         ("ci/patch_native_x_hulk_pm4_draw_payload.py", "ci/patch_native_x_hulk_frame_path_probe.py"),
         ("ci/patch_native_x_hulk_packet_surfaces.py", "ci/patch_native_x_hulk_packet_dma_snapshot.py"),
         ("ci/patch_native_x_hulk_packet_dma_snapshot.py", "ci/patch_native_x_hulk_surface_miss_trace.py"),
+        ("ci/patch_native_x_hulk_texture_resource_guard.py", "ci/patch_native_x_hulk_spirv_compiler_guard.py"),
         ("ci/patch_native_x_hulk_packet_surfaces.py", "ci/patch_native_x_hulk_surface_fallback.py"),
         ("ci/patch_native_x_hulk_surface_fallback.py", "ci/patch_native_x_hulk_packet_first.py"),
         ("ci/patch_native_x_hulk_packet_first.py", "ci/patch_native_x_hulk_draw_write_ownership.py"),
