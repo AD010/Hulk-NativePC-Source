@@ -166,9 +166,17 @@ class HulkPacketSampleViewTests(unittest.TestCase):
                 return False
             if (known[2] & 0xFFFFF000) != (live[2] & 0xFFFFF000):
                 return False
-            same = (known[3:7] == live[3:7] and
+            kb, lb = known[2] & 0xFFF, live[2] & 0xFFF
+            same_base = kb == lb
+            rt0_rebase = (not known[1] and known[7] == 0x14000500 and
+                          known[3:7] == (1280, 720, 1280, 0) and
+                          kb == 0 and lb == 0x400)
+            paired_base = (kb, lb) in ((0, 0x400), (0x400, 0))
+            same = ((same_base or rt0_rebase) and
+                    known[3:7] == live[3:7] and
                     (known[7] & 0x3FFFF) == (live[7] & 0x3FFFF))
-            pair = (known[6] == 2 and live[6] == 0 and
+            pair = ((same_base or paired_base) and
+                    known[6] == 2 and live[6] == 0 and
                     known[3] * 2 == live[3] and
                     known[4] * 2 == live[4] and
                     known[5] * 2 == live[5])
@@ -178,9 +186,18 @@ class HulkPacketSampleViewTests(unittest.TestCase):
         r1 = (True, False, 0, 1280, 720, 1280, 0, 0x14000500)
         live1 = (True, False, 0x400, 1280, 720, 1280, 0, 0x14000500)
         self.assertTrue(valid(r1, live1))
+        # Never treat arbitrary EDRAM 0x401 or 0x800 as the proven 0/0x400
+        # base rebind, even if format, pitch, dimensions and MSAA match.
+        self.assertFalse(valid(r1, (True, False, 0x401, 1280, 720, 1280, 0, 0x14000500)))
+        self.assertFalse(valid(r1, (True, False, 0x800, 1280, 720, 1280, 0, 0x14000500)))
+        self.assertIn("HULK/PM4-HISTORY-BASE-GUARD", HISTORY_NEW)
+        self.assertIn("(same_edram_base || authenticated_rt0_rebase)", HISTORY_NEW)
+        self.assertIn("(same_edram_base || paired_known_base)", HISTORY_NEW)
         r4 = (True, True, 0x400, 640, 360, 640, 2, 0x0A020280)
         live4 = (True, True, 0, 1280, 720, 1280, 0, 0x14000500)
         self.assertTrue(valid(r4, live4))
+        self.assertFalse(valid(r4, (True, True, 0x401) + live4[3:]))
+        self.assertFalse(valid(r4, (True, True, 0x800) + live4[3:]))
         self.assertFalse(valid(r4, (False,) + live4[1:]))
         self.assertFalse(valid(r4, (True, False) + live4[2:]))
         self.assertFalse(valid(r4, live4[:2] + (0x10000,) + live4[3:]))
