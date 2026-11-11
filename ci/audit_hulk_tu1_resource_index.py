@@ -126,9 +126,11 @@ def decode_tu1_resource(blob: bytes, max_output: int = MAX_TU_RESOURCE_BYTES) ->
                 not (0 < uncompressed_len <= block_capacity) or
                 uncompressed_len > expected - total):
             raise ValueError("Malformed TU1 raw-DEFLATE local ZIP header")
+        # Avoid flush() after a max-length decompression: when a malicious
+        # stream expands beyond the declared 64 KiB, flush may otherwise
+        # inflate the entire remaining zip bomb before we reject it.
         stream = zlib.decompressobj(-15)
         piece = stream.decompress(block[start:], uncompressed_len + 1)
-        piece += stream.flush()
         if (not stream.eof or stream.unused_data or stream.unconsumed_tail or
                 len(piece) != uncompressed_len):
             raise ValueError("Invalid or oversized TU1 ZIP block contents")
