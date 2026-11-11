@@ -49,7 +49,10 @@ PATCHES = {
       "  g_targets.Initialize(device->device(), g_scale);\n"
       "  g_targets.SetHulkSampleGrid(REXCVAR_GET(native_x_renderer_hulk_expand_msaa_sample_grid),\n"
       "                              profile.output_width, profile.output_height);\n"
-      "  g_resolved.Initialize(device->device(), g_scale);"
+      "  g_resolved.Initialize(device->device(), g_scale);\n"
+      "  // HULK/TRUE-RESOLVE-SCALE: preserve native scene pixels after 4x-MSAA.\n"
+      "  g_resolved.SetHulkSampleGrid(REXCVAR_GET(native_x_renderer_hulk_expand_msaa_sample_grid),\n"
+      "                               profile.output_width, profile.output_height);"
     ),
     (
       "  to.width = from.width;\n"
@@ -145,6 +148,61 @@ if PIN == LEGACY_PIN:
 elif PIN != CANDIDATE_PIN:
     raise ValueError("Unsupported NativeX revision for Hulk sample grid: " + PIN)
 
+
+# HULK/TRUE-RESOLVE-SCALE: the 640x360 guest scene rendered at 4x host
+# width/height must not immediately lose half the pixels in the resolved
+# 640x360 guest texture. Keep the guest memory layout untouched; only the
+# independent host resolved image receives the same pixel density.
+PATCHES["src/targets.h"].extend([
+    (
+        "  // The scale of the textures resolved from shadow maps (D92).",
+        """  // HULK/TRUE-RESOLVE-SCALE: preserve post-MSAA host resolution.
+  void SetHulkSampleGrid(bool enabled, uint32_t output_w, uint32_t output_h) {
+    hulk_resolve_grid_ = enabled && output_w >= 2 && output_h >= 2;
+    hulk_half_width_ = output_w / 2;
+    hulk_half_height_ = output_h / 2;
+  }
+  // The scale of the textures resolved from shadow maps (D92).""",
+    ),
+    (
+        "  RenderScale scale_, shadow_scale_;\n  std::map<Key, ResolvedTexture> textures_;",
+        """  RenderScale scale_, shadow_scale_;
+  bool hulk_resolve_grid_ = false;
+  uint32_t hulk_half_width_ = 0, hulk_half_height_ = 0;
+  std::map<Key, ResolvedTexture> textures_;""",
+    ),
+])
+if PIN == LEGACY_PIN:
+    old_scale = """  const RenderScale& scale = shadow ? shadow_scale_ : scale_;
+  desc.Name = name.c_str();"""
+    new_scale = """  RenderScale scale = shadow ? shadow_scale_ : scale_;
+  // HULK/TRUE-RESOLVE-SCALE: host-only expansion. The original
+  // address, guest dimensions, fetch constants and image format persist.
+  const bool hulk_full_scene_resolve = hulk_resolve_grid_ && !shadow && !cube &&
+      width == hulk_half_width_ && height == hulk_half_height_;
+  if (hulk_full_scene_resolve) {
+    scale.x *= 2.0f;
+    scale.y *= 2.0f;
+    REXLOG_INFO("[HULK/TRUE-RESOLVE-SCALE] guest {}x{} -> host {}x{}",
+                width, height, scale.HostWidth(width), scale.HostHeight(height));
+  }
+  desc.Name = name.c_str();"""
+else:
+    old_scale = """  const RenderScale& scale = shadow ? shadow_scale_ : native ? kNativeScale : scale_;
+  desc.Name = name.c_str();"""
+    new_scale = """  RenderScale scale = shadow ? shadow_scale_ : native ? kNativeScale : scale_;
+  // HULK/TRUE-RESOLVE-SCALE: native and shadow passes retain their own
+  // scale; only the main 640x360 guest Resolve gets full host pixels.
+  const bool hulk_full_scene_resolve = hulk_resolve_grid_ && !shadow && !native && !cube &&
+      width == hulk_half_width_ && height == hulk_half_height_;
+  if (hulk_full_scene_resolve) {
+    scale.x *= 2.0f;
+    scale.y *= 2.0f;
+    REXLOG_INFO("[HULK/TRUE-RESOLVE-SCALE] guest {}x{} -> host {}x{}",
+                width, height, scale.HostWidth(width), scale.HostHeight(height));
+  }
+  desc.Name = name.c_str();"""
+PATCHES["src/targets.cpp"].append((old_scale, new_scale))
 
 def transform(source, rules):
     finished = [new in source for old, new in rules]
