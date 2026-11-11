@@ -38,7 +38,14 @@ class ResolvedImageGuardTests(unittest.TestCase):
         self.assertFalse(host(32769, 2048, False))
         self.assertIn("desc.Width != desc.Height", HOST_NEW)
         self.assertNotIn("CreateTexture(", GUEST_NEW)
-        self.assertNotIn("CreateTexture(", HOST_NEW)
+        # A valid host texture MUST still be allocated after the guard.
+        # The previous test mistakenly banned CreateTexture everywhere,
+        # making a correct Vulkan code path fail the source preflight.
+        self.assertIn("device_->CreateTexture(", HOST_NEW)
+        self.assertLess(HOST_NEW.index("if (hulk_invalid_host)"),
+                        HOST_NEW.index("device_->CreateTexture("))
+        self.assertLess(HOST_NEW.index("return nullptr;"),
+                        HOST_NEW.index("device_->CreateTexture("))
 
 if __name__ == "__main__":
     unittest.main()
