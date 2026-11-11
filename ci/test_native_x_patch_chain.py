@@ -178,6 +178,12 @@ def run(sha=SHA):
         if "HULK/SCENE-PIPELINE-WAIT" not in renderer or \
                 "steady && !hulk_wait_scene" not in renderer:
             missing.append("Hulk bounded main-scene pipeline/shader wait")
+        header_draw=(source/"src/draw.h").read_text(encoding="utf-8")
+        if ("HULK/SCENE-WAIT-BUDGET" not in draw or
+            "hulk_scene_wait_start_ + std::chrono::milliseconds(80)" not in draw or
+            "hulk_scene_wait_frame_" not in header_draw or
+            "steady && !hulk_wait_scene, hulk_wait_scene);" not in renderer):
+            missing.append("Hulk scene shader/pipeline waits are not frame-budgeted")
         # Hulk #57 preflight: verify the *actual integrated C++*, not only
         # independent source-replacement fixtures. These guards are required
         # by build 56's malformed DMA, invalid primitive, stale RT and 4x
