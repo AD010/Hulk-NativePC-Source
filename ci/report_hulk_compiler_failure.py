@@ -16,7 +16,7 @@ ERROR = re.compile(
     r"(?i)\b(?:fatal error|error C\d{4}|error LNK\d{4}|"
     r"error MSB\d{4}|error:|CMake Error|ValueError:|"
     r"AssertionError:|ModuleNotFoundError:|"
-    r"ninja: error|undefined reference)\b"
+    r"ninja: error|undefined reference)"
 )
 MSVC = re.compile(r"(?i)\b(?:fatal )?error (C\d{4}|LNK\d{4}|MSB\d{4})\b")
 STAGE = re.compile(r"(?i)(?:^|\s)RUN:\s*(.*)")
@@ -25,7 +25,7 @@ SOURCE = re.compile(
 )
 EXTRA = re.compile(
     r"(?i)\b(?:ValueError|AssertionError|ModuleNotFoundError|"
-    r"CMake Error|ninja: error|undefined reference|fatal error|error:)\b"
+    r"CMake Error|ninja: error|undefined reference|fatal error|error:)"
 )
 # A function named sub_XXXXXXXX or a generated guest-source filename must not
 # accidentally be published in CI. The standard errors keep only the class,
