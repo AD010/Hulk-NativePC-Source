@@ -83,6 +83,15 @@ def run(sha=SHA):
     os.environ["HULK_NATIVEX_SOURCE_SHA"] = sha
     print(f"[NativeX/preflight] source SHA={sha}; mode={'candidate-only' if sha != SHA else 'production'}", flush=True)
     scripts=commands()
+    # The Windows release builder has its OWN late post-patch source checks.
+    # Keep their exact source-call ABI synchronized with the real NativeX
+    # patch, or CI wastes ~15 minutes compiling SDK before always failing.
+    dma_call = "!CapturePacketDmaIndices(tracker, base, c, packet_surfaces != nullptr))"
+    if dma_call not in BUILDER.read_text(encoding="utf-8"):
+        raise RuntimeError("Windows builder has stale NativeX DMA capture ABI gate")
+    from patch_native_x_hulk_packet_dma_snapshot import CALL_NEW
+    if dma_call not in CALL_NEW:
+        raise RuntimeError("NativeX DMA patch no longer emits builder-required signature")
     # Fail quickly on syntax errors before a checkout or any private compilation.
     for name in scripts:
         py_compile.compile(str(ROOT/name), doraise=True)

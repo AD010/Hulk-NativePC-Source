@@ -297,7 +297,7 @@ try {
     }
     if (-not $HulkNativeRendererSource.Contains('[HULK/PM4-DMA-REJECT]') -or
         -not $HulkNativeRendererSource.Contains('HULK/DIRECT-DMA-SNAPSHOT') -or
-        -not $HulkNativeRendererSource.Contains('!CapturePacketDmaIndices(tracker, base, c)')) {
+        -not $HulkNativeRendererSource.Contains('!CapturePacketDmaIndices(tracker, base, c, packet_surfaces != nullptr))')) {
       throw 'Hulk log173 incomplete DMA capture rejection absent from compiled renderer.'
     }
     $HulkNativeDrawSource = Get-Content -LiteralPath (Join-Path $NxrFull 'src/draw.cpp') -Raw
