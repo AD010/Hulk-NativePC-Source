@@ -36,7 +36,11 @@ enum { XE_GPU_REG_VGT_DRAW_INITIATOR, XE_GPU_REG_VGT_DMA_BASE, XE_GPU_REG_VGT_DM
 }
 struct StateTracker {
   std::array<uint32_t,3> regs{};
-  bool LastWrite(uint32_t r,uint32_t& v) const { v=regs[r];return true; }
+  bool current_write=true;
+  bool LastWrite(uint32_t r,uint32_t& v) const {
+    if(!current_write) return false;
+    v=regs[r];return true;
+  }
   uint32_t HulkRegisterAtDraw(uint32_t r) const { return regs[r]; }
 };
 struct Command {
@@ -72,21 +76,31 @@ int main() {
   guest[32]=3;guest[33]=4;guest[34]=5;guest[35]=6;
   StateTracker tracker{{(2u<<16)|4u,33u,2u}};
   Command a;
-  assert(CapturePacketDmaIndices(tracker,guest.data(),a));
+  assert(CapturePacketDmaIndices(tracker,guest.data(),a,false));
   assert(a.copy_count==1 && a.copies[0].address==32 && a.data.size()==4);
   guest[32]=9;guest[33]=8;
   assert(a.data[0]==3 && a.data[1]==4);
   Command b;
-  assert(CapturePacketDmaIndices(tracker,guest.data(),b));
+  assert(CapturePacketDmaIndices(tracker,guest.data(),b,false));
   assert(b.data[0]==9 && b.data[1]==8 && a.data[0]==3);
   tracker.regs[2]=1;
   Command short_dma;
-  assert(!CapturePacketDmaIndices(tracker,guest.data(),short_dma));
+  assert(!CapturePacketDmaIndices(tracker,guest.data(),short_dma,false));
   assert(short_dma.copy_count==0 && short_dma.data.empty());
   tracker.regs[2]=2;tracker.regs[1]=0x1ffffffe;
   Command outside;
-  assert(!CapturePacketDmaIndices(tracker,guest.data(),outside));
+  assert(!CapturePacketDmaIndices(tracker,guest.data(),outside,false));
   assert(outside.data.empty());
+  // Build 177: the authentic XDK draw may inherit its initiator from
+  // the prior PM4 state without writing a new one in this call.
+  tracker.regs[1]=33;
+  tracker.current_write=false;
+  Command genuine;
+  assert(CapturePacketDmaIndices(tracker,guest.data(),genuine,false));
+  assert(genuine.copy_count==1 && genuine.data.size()==4);
+  Command synthetic;
+  assert(!CapturePacketDmaIndices(tracker,guest.data(),synthetic,true));
+  assert(synthetic.copy_count==0 && synthetic.data.empty());
   assert(old_order()==9);  // reproduces overwritten snapshot
   assert(new_order()==3);  // current draw retains its captured bytes
 }
@@ -111,6 +125,8 @@ int main() {
     def test_no_fabricated_index_data(self):
         for token in (
             "tracker.LastWrite(rg::XE_GPU_REG_VGT_DRAW_INITIATOR",
+            "HULK/XDK-PERSISTENT-INITIATOR",
+            "initiator = tracker.HulkRegisterAtDraw(rg::XE_GPU_REG_VGT_DRAW_INITIATOR)",
             "tracker.HulkRegisterAtDraw(rg::XE_GPU_REG_VGT_DMA_BASE",
             "tracker.HulkRegisterAtDraw(rg::XE_GPU_REG_VGT_DMA_SIZE",
             "if (!requested_indices || requested_indices > available_indices)",
@@ -127,11 +143,12 @@ int main() {
         ):
             self.assertIn(token, ADDITION)
         self.assertIn("tracked.call == Call::kDrawIndexedVertices", CALL_NEW)
-        self.assertIn("!CapturePacketDmaIndices(tracker, base, c)", CALL_NEW)
+        self.assertIn("!CapturePacketDmaIndices(tracker, base, c, packet_surfaces != nullptr)", CALL_NEW)
         self.assertIn("c.type = Command::Type::kNone;", CALL_NEW)
         self.assertNotIn("base, c)) return;", CALL_NEW)
         self.assertIn("bool CapturePacketDmaIndices(", ADDITION)
         self.assertIn("const uint32_t indices = requested_indices;", ADDITION)
+        self.assertIn("bool packet_draw)", ADDITION)
         self.assertIn("[HULK/PM4-DMA-REJECT]", ADDITION)
         self.assertIn("return true;  // Xenos kAutoIndex", ADDITION)
         self.assertIn("HULK/PM4-PRIMITIVE-SOURCE", ADDITION)
@@ -218,12 +235,14 @@ int main() {
         self.assertIsNone(snapshot_span(0x1721D700, 524289, 2))
 
     def test_persistent_dma_register_values(self):
-        # Packet-local LastWrite cannot observe the last valid DMA BASE/SIZE
-        # before a preceding synthetic draw's scan_.Clear(). The effective GPU
-        # register image must supply these persisted values, while the actual
-        # draw initiator is still required to belong to the current packet.
+        # Packet-local LastWrite cannot observe the last valid DMA BASE/SIZE.
+        # Synthetic draws must carry their own initiator. Genuine XDK
+        # DrawIndexedVertices may inherit an effective GPU initiator.
         self.assertIn("HULK/PM4-PERSISTENT-DMA", ADDITION)
         self.assertIn("tracker.LastWrite(rg::XE_GPU_REG_VGT_DRAW_INITIATOR", ADDITION)
+        self.assertIn("if (packet_draw)", ADDITION)
+        self.assertIn('return reject("synthetic packet lacks draw initiator")', ADDITION)
+        self.assertIn("initiator = tracker.HulkRegisterAtDraw(", ADDITION)
         self.assertIn("dma_base = tracker.HulkRegisterAtDraw(", ADDITION)
         self.assertIn("dma_size = tracker.HulkRegisterAtDraw(", ADDITION)
         self.assertNotIn("tracker.LastWrite(rg::XE_GPU_REG_VGT_DMA_BASE", ADDITION)

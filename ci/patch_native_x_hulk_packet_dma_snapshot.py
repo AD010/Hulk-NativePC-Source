@@ -18,7 +18,8 @@ ANCHOR="void CaptureDraw(const TrackedCall& tracked, StateTracker& tracker, cons
 ADDITION="""// HULK/PM4-DMA-SNAPSHOT: the graphics thread runs after this guest
 // ring-buffer segment may have been reused by the game. Snapshot only
 // the DMA indices named by THIS draw's PM4 initiator and DMA registers.
-bool CapturePacketDmaIndices(const StateTracker& tracker, const uint8_t* base, Command& c) {
+bool CapturePacketDmaIndices(const StateTracker& tracker, const uint8_t* base, Command& c,
+                             bool packet_draw) {
   namespace rg = rex::graphics;
   uint32_t initiator = 0, dma_base = 0, dma_size = 0;
   // A synthetic packet must not rasterize with a missing/stale DMA index
@@ -32,8 +33,18 @@ bool CapturePacketDmaIndices(const StateTracker& tracker, const uint8_t* base, C
                   n, why, initiator, dma_base, dma_size);
     return false;
   };
-  if (!tracker.LastWrite(rg::XE_GPU_REG_VGT_DRAW_INITIATOR, initiator))
-    return reject("no draw initiator");
+  // HULK/XDK-PERSISTENT-INITIATOR: ordinary DrawIndexedVertices may reuse a
+  // legal initiator set by a prior PM4 packet; LastWrite() only searches the
+  // current scan and previously dropped legitimate hooked XDK geometry
+  // (log 177 "no draw initiator"). Still require a packet-local initiator
+  // for synthetic packet-replayed draws: no guessed PM4 commands.
+  if (!tracker.LastWrite(rg::XE_GPU_REG_VGT_DRAW_INITIATOR, initiator)) {
+    if (packet_draw)
+      return reject("synthetic packet lacks draw initiator");
+    initiator = tracker.HulkRegisterAtDraw(rg::XE_GPU_REG_VGT_DRAW_INITIATOR);
+    if (!initiator)
+      return reject("no effective XDK draw initiator");
+  }
   // HULK/PM4-PRIMITIVE-SOURCE: Xenos VGT_DRAW_INITIATOR[5:0]
   // names only primitive types 1..8, 12..22 (Xenia xenos::PrimitiveType).
   // Build 56 repeatedly submitted type 49, which is not any Xenos
@@ -99,7 +110,7 @@ CALL_NEW="""  c.programs[1] = tracker.pixel_program_ptr();
   // HULK/DIRECT-DMA-SNAPSHOT: ordinary XDK indexed draws are queued too.
   // Their indices need the same owned lifetime as packet-replayed draws.
   if ((packet_surfaces || tracked.call == Call::kDrawIndexedVertices) &&
-      !CapturePacketDmaIndices(tracker, base, c)) {
+      !CapturePacketDmaIndices(tracker, base, c, packet_surfaces != nullptr)) {
     // HULK/PM4-DMA-CANCEL: Capture::~Capture() unconditionally Publish()es
     // the command, EVEN on early return. Returning without changing its
     // kDraw type still runs that rejected draw on the Vulkan thread.
