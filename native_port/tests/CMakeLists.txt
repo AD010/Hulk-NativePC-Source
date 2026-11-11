@@ -14,3 +14,12 @@ add_test(NAME native_profile COMMAND hulk_native_profile_test)
 add_executable(hulk_direct_camera_test direct_camera_test.cpp ../src/launcher/native_camera_direct.cpp)
 target_compile_features(hulk_direct_camera_test PRIVATE cxx_std_23)
 add_test(NAME direct_camera COMMAND hulk_direct_camera_test)
+
+# Native PC save-path policy only; actual Xbox->PC serializer is a separate gate.
+add_executable(hulk_native_save_path_test
+    native_save_path_test.cpp ../src/native_pc_save_path.cpp)
+target_compile_features(hulk_native_save_path_test PRIVATE cxx_std_23)
+if(WIN32)
+    target_link_libraries(hulk_native_save_path_test PRIVATE shell32 ole32)
+endif()
+add_test(NAME native_save_folder_policy COMMAND hulk_native_save_path_test)

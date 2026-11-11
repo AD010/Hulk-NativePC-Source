@@ -21,6 +21,7 @@ set(INCREDIBLEHULK_SOURCES
     src/main.cpp
     src/crash_report.cpp
     src/assets_locator.cpp
+    src/native_pc_save_path.cpp
     src/pc_menu.cpp
     # Existing game-side input/window hooks; no separate launcher is built.
     src/launcher/input_hook.cpp
@@ -35,7 +36,7 @@ if(WIN32)
     # File details, and a manifest that makes the ANSI code page UTF-8 so accented paths work (playbook chapter 2).
     list(APPEND INCREDIBLEHULK_SOURCES src/incredible_hulk.rc src/incredible_hulk.manifest)
     add_executable(incredible_hulk WIN32 ${INCREDIBLEHULK_SOURCES})
-    target_link_libraries(incredible_hulk PRIVATE comdlg32 bcrypt)
+    target_link_libraries(incredible_hulk PRIVATE comdlg32 bcrypt shell32 ole32)
 else()
     add_executable(incredible_hulk ${INCREDIBLEHULK_SOURCES})
 endif()
