@@ -9,7 +9,7 @@ instructions or binary bytes, only hashes, counts and function addresses.
 from __future__ import annotations
 
 import argparse
-from collections import Counter
+from collections import Counter, defaultdict
 import hashlib
 import json
 from pathlib import Path
@@ -166,12 +166,71 @@ def compare(base: dict[int, dict], patched: dict[int, dict]) -> dict:
     }
 
 
+
+def normalized_base_signature(function: dict) -> str:
+    """Region-independent *exact* signature for a PPC function.
+
+    Only eight-digit branch targets are masked. Other immediates, register
+    operands and instruction order remain intact: a fuzzy match here would
+    risk treating unrelated EU/USA functions as equivalent.
+    """
+    def canonical(inst: str) -> str:
+        op, _, rest = inst.partition(" ")
+        if op.lower().startswith("b"):
+            rest = re.sub(r"(?<![\\w])(?:0x)?[0-9a-fA-F]{8}(?![\\w])",
+                          "<TARGET>", rest)
+        return op + (" " + rest if rest else "")
+    return hashlib.sha256(
+        "\n".join(canonical(inst) for inst in function["instructions"])
+        .encode("utf-8")
+    ).hexdigest()
+
+
+def match_usa_functions(eu_base: dict, usa: dict, changed: list,
+                        min_instructions: int = 24) -> list[dict]:
+    """Find unique candidate USA functions from *unpatched* EU PPC.
+
+    This is a conservative address-correlation report, NOT a TU1 behavior
+    port or a reason to install a hook. Short or duplicate functions fail
+    closed. EU TU1 itself is never compared directly to an unpatched USA
+    binary, since that would hide an update-specific behavior change.
+    """
+    lookup: dict[str, list[int]] = defaultdict(list)
+    for addr, function in usa.items():
+        if function["count"] >= min_instructions:
+            lookup[normalized_base_signature(function)].append(addr)
+
+    result = []
+    for changed_fn in changed:
+        eu_address = int(changed_fn["guest_function"], 16)
+        baseline = eu_base[eu_address]
+        status = ("too_short" if baseline["count"] < min_instructions
+                  else "no_unique_exact_match")
+        address = None
+        if baseline["count"] >= min_instructions:
+            matches = lookup.get(normalized_base_signature(baseline), ())
+            if len(matches) == 1:
+                status = "unique_normalized_ppc_match"
+                address = f"0x{matches[0]:08X}"
+            elif len(matches) > 1:
+                status = "ambiguous_identical_functions"
+        result.append({
+            "eu_guest_function": changed_fn["guest_function"],
+            "usa_candidate": address,
+            "status": status,
+            "note": "Address correlation only; TU1 behavior and water role NOT verified",
+        })
+    return result
+
+
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--eu-xex", type=Path, required=True)
     p.add_argument("--xexp", type=Path, required=True)
     p.add_argument("--eu-base-generated", type=Path, required=True)
     p.add_argument("--eu-tu1-generated", type=Path, required=True)
+    p.add_argument("--us-generated", type=Path,
+                   help="Optional SHA-pinned USA codegen output from the same ReXGlue revision")
     p.add_argument("--output", type=Path, required=True)
     args = p.parse_args()
     provenance = check_exact_eu_patch(args.eu_xex.read_bytes(), args.xexp.read_bytes())
@@ -201,6 +260,15 @@ def main() -> int:
             "No game bytecode, assembly listing or assets are emitted by this tool",
         ],
     }
+    if args.us_generated is not None:
+        us_functions, us_files = read_recompiled_functions(args.us_generated)
+        report["usa_generated_files"] = us_files
+        report["usa_function_count"] = len(us_functions)
+        report["usa_candidates"] = match_usa_functions(
+            old, us_functions, analysis["changed_guest_functions"])
+        report["usa_mapping_limitation"] = (
+            "Even unique exact PPC sequence correlation is only a candidate: "
+            "verify graph, data references and game events before porting logic")
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     print("[HULK/TU1/PPC] authenticated EU baseline and EU update compared: "

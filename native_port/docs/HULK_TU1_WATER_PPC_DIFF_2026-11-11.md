@@ -74,3 +74,34 @@ Required next evidence is still a same-tool original/patched EU executable
 comparison, then semantic mapping to the USA code and runtime validation of
 water entry/exit. The separate uploaded file also called `default.xexp`
 was not substituted for the authenticated patch extracted from the TU ZIP.
+
+
+## Conservative USA function correlation (source-only)
+
+The comparator now accepts an optional `--us-generated` directory produced
+by **the same** ReXGlue revision from the SHA-pinned USA base XEX. For each
+changed EU function it compares the **unpatched** EU PPC instruction sequence
+to USA functions. It normalizes only relocation-sized branch destinations
+and requires an unambiguous exact match of at least 24 instructions. Short,
+ambiguous, or changed functions remain *unmapped*, never assigned a guessed
+hook address.
+
+This produces `usa_candidates` with a status for every changed EU function.
+It is **not** proof that the candidate is the water handler or that an
+EU patch can be copied over. Before a USA game change, verify direct
+callers, data accesses, state transitions, and water-entry/exit behavior;
+a matching instruction signature by itself is insufficient. No proprietary
+generated C++ or binaries belong in the public repository.
+
+Example (private codegen outputs only):
+
+```bash
+python ci/diff_hulk_tu1_guest_ppc.py \
+  --eu-xex /private/original-EU/default.xex \
+  --xexp /private/staged-EU-TU1/default.xexp \
+  --eu-base-generated /private/eu-original-generated \
+  --eu-tu1-generated /private/eu-tu1-generated \
+  --us-generated /private/us-base-generated \
+  --output /private/tu1-function-candidates.json
+```
+

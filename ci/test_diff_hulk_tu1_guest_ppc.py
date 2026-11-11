@@ -7,6 +7,7 @@ import unittest
 
 from diff_hulk_tu1_guest_ppc import (
     check_exact_eu_patch, read_recompiled_functions, compare,
+    normalized_base_signature, match_usa_functions,
 )
 
 class Tu1WaterEvidenceTests(unittest.TestCase):
@@ -15,6 +16,42 @@ class Tu1WaterEvidenceTests(unittest.TestCase):
         root.mkdir()
         (root/"hulk_recomp.0.cpp").write_text(data, encoding="utf-8")
         return root
+
+
+    def test_optional_usa_correlation_is_unique_or_fail_closed(self):
+        # EU original and US may have relocated PPC branch target addresses.
+        # Only branch destinations may differ, never ordinary gameplay constants.
+        eu = {"count": 26, "instructions":
+              ("addi r3,r3,1",) * 25 + ("bl 82004000",)}
+        us = {"count": 26, "instructions":
+              ("addi r3,r3,1",) * 25 + ("bl 82304000",)}
+        different = {"count": 26, "instructions":
+                     ("addi r3,r3,2",) * 25 + ("bl 82304000",)}
+        changed = [{"guest_function": "0x82001000"}]
+        self.assertEqual(normalized_base_signature(eu),
+                         normalized_base_signature(us))
+        self.assertNotEqual(normalized_base_signature(eu),
+                            normalized_base_signature(different))
+        report = match_usa_functions(
+            {0x82001000: eu}, {0x82301000: us, 0x82305000: different}, changed)
+        self.assertEqual(report[0]["usa_candidate"], "0x82301000")
+        self.assertEqual(report[0]["status"], "unique_normalized_ppc_match")
+        self.assertNotIn("addi r3,r3,1", str(report))
+
+        duplicate = match_usa_functions(
+            {0x82001000: eu}, {0x82301000: us, 0x82306000: us}, changed)
+        self.assertEqual(duplicate[0]["status"], "ambiguous_identical_functions")
+        self.assertIsNone(duplicate[0]["usa_candidate"])
+
+        no_match = match_usa_functions(
+            {0x82001000: eu}, {0x82305000: different}, changed)
+        self.assertEqual(no_match[0]["status"], "no_unique_exact_match")
+        self.assertIsNone(no_match[0]["usa_candidate"])
+
+        short = {"count": 1, "instructions": ("blr",)}
+        too_short = match_usa_functions(
+            {0x82001000: short}, {0x82301000: short}, changed)
+        self.assertEqual(too_short[0]["status"], "too_short")
 
     def test_real_guest_address_chronology_and_diff(self):
         before = (
