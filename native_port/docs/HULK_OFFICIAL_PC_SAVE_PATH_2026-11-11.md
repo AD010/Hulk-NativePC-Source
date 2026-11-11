@@ -129,3 +129,34 @@ implementation. Existing XUID layout is still in use; the Windows Documents
 resolver remains unconnected. No save bytes are migrated or rewritten.
 Filesystem links, transaction durability, PC-format compatibility and real
 save/load continuity still need separate implementation/validation.
+
+## Transactional metadata replacement
+
+The real SDK `WriteContentHeaderFile` previously truncated the live header,
+ignored both `fwrite` results and `fclose`, then returned success. The existing
+save-name patch now installs the project-owned `native_save_commit.h` and
+routes that writer through it. Guest metadata layout and optional license
+bytes remain unchanged.
+
+The helper writes into an exclusively created sibling transaction directory,
+checks byte count, flush and close, preserves the previous complete header
+as `previous`, then replaces the live name. Windows uses Unicode paths,
+`_commit` and `MoveFileExW(REPLACE_EXISTING | WRITE_THROUGH)`; POSIX uses fsync
+and same-filesystem rename. It never overwrites or prunes older backups.
+A failed pre-replacement write leaves the live file unchanged. A failure
+after replacement may mean the new file is visible but durability is unknown;
+returning an error must not be interpreted as a guaranteed rollback.
+
+Real host filesystem tests passed for first creation, replacement with exact
+embedded-NUL bytes, previous-version retention, Unicode parent directory,
+invalid targets and symlink rejection. A POSIX child with RLIMIT_FSIZE forces
+an actual short-write/flush failure: the call fails and the original complete
+header stays byte-identical. All three save regression tests passed against
+the real SDK before and after patching. Windows calls still need Windows
+execution validation; no game/Actions build was performed.
+
+Scope: metadata only, not the guest's in-place payload writes. One writer
+process is required (threads within that process are serialized). No claim
+of power-loss safety across every disk/cloud provider, native Documents
+routing, retail-PC save compatibility or campaign save/load parity is made.
+Those remain blockers to calling the save system release-ready.

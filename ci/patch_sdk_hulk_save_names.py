@@ -77,9 +77,48 @@ def patch(header, source):
     return header, source, True
 
 
+COMMIT_OLD = """  rex::filesystem::CreateEmptyFile(header_path);
+
+  auto file = rex::filesystem::OpenFile(header_path, "wb");
+  if (!file) {
+    return X_ERROR_FILE_NOT_FOUND;
+  }
+  fwrite(&data, 1, sizeof(XCONTENT_AGGREGATE_DATA), file);
+  if (license_mask != 0) {
+    fwrite(&license_mask, 1, sizeof(license_mask), file);
+  }
+  fclose(file);
+  return X_ERROR_SUCCESS;"""
+COMMIT_NEW = """  // HULK/SAVE-COMMIT: preserve the prior complete metadata on write failure.
+  std::array<uint8_t, sizeof(XCONTENT_AGGREGATE_DATA) + sizeof(license_mask)> bytes{};
+  std::memcpy(bytes.data(), &data, sizeof(data));
+  size_t size = sizeof(data);
+  if (license_mask != 0) {
+    std::memcpy(bytes.data() + size, &license_mask, sizeof(license_mask));
+    size += sizeof(license_mask);
+  }
+  return hulk::save::CommitMetadata(header_path, bytes.data(), size)
+      ? X_ERROR_SUCCESS : X_ERROR_ACCESS_DENIED;"""
+COMMIT_INCLUDE = '#include <rex/system/xam/hulk_save_commit.h>\n'
+
+def patch_commit(source):
+    if COMMIT_NEW in source and COMMIT_INCLUDE in source:
+        return source, False
+    if 'HULK/SAVE-COMMIT' in source or COMMIT_INCLUDE in source:
+        raise ValueError('Partial atomic save metadata patch')
+    if source.count(COMMIT_OLD) != 1:
+        raise ValueError('Content header writer anchor drift')
+    return COMMIT_INCLUDE + source.replace(COMMIT_OLD, COMMIT_NEW, 1), True
+
+
 def main():
     root=Path(sys.argv[1]); hp=root/HEADER; sp=root/SOURCE
     h,s,changed=patch(hp.read_text(),sp.read_text())
+    s,commit_changed=patch_commit(s)
+    helper=Path(__file__).resolve().parents[1]/'native_port/src/native_save_commit.h'
+    destination=root/'include/rex/system/xam/hulk_save_commit.h'
+    destination.write_text(helper.read_text(),encoding='utf-8',newline='\n')
+    changed = changed or commit_changed
     if changed:
         hp.write_text(h,encoding='utf-8',newline='\n')
         sp.write_text(s,encoding='utf-8',newline='\n')

@@ -19,6 +19,21 @@ class SaveNames(unittest.TestCase):
         with self.assertRaises(ValueError): patch(OLD_NAME, 'drift')
         with self.assertRaises(ValueError): patch(NEW_NAME, 'drift')
         self.assertNotIn('strlen(file_name_raw)',h)
+    def test_atomic_metadata_transaction(self):
+        from patch_sdk_hulk_save_names import COMMIT_OLD, COMMIT_NEW, patch_commit
+        old=(SDK/SOURCE).read_text() if SDK else COMMIT_OLD
+        fixed, _=patch_commit(old)
+        self.assertEqual(patch_commit(fixed),(fixed,False))
+        with self.assertRaises(ValueError): patch_commit('drift')
+        self.assertNotIn('CreateEmptyFile(header_path)',fixed)
+        compiler=shutil.which('clang++') or shutil.which('g++')
+        self.assertIsNotNone(compiler)
+        source=Path(__file__).resolve().parents[1]/'native_port/tests/native_save_commit_test.cpp'
+        with tempfile.TemporaryDirectory() as d:
+            exe=Path(d)/'commit.exe'
+            subprocess.run([compiler,'-std=c++17',str(source),'-o',str(exe)],check=True)
+            subprocess.run([str(exe),d],check=True)
+
     def test_actual_cpp(self):
         cpp=r'''#include <algorithm>
 #include <string>
