@@ -42,6 +42,9 @@ jobs:
             Expand-Archive -LiteralPath (Join-Path $dir 'Hulk-PrivateRunner-Diagnostics.zip') -DestinationPath (Join-Path $dir 'read') -Force -ErrorAction Stop
             $file = Get-ChildItem (Join-Path $dir 'read') -Recurse -File | Where-Object { $_.Name -eq 'hulk-compiler-private.log' } | Select-Object -First 1
             if (-not $file) { Write-Host '[HULK/LAST-FAIL] No compiler file'; exit 0 }
+            # Print only compiler error categories/codes and public source basenames.
+            # Never expose private PPC generated code or raw compiler messages.
+            python ci/report_hulk_compiler_failure.py $file.FullName
             $lines = @(Get-Content -LiteralPath $file.FullName -Tail 550 -ErrorAction Stop)
             $class = 'other'; $script = 'unknown'
             foreach ($line in $lines) {
