@@ -49,6 +49,10 @@ hulk_gpu_hook_probe = false
 hulk_frame_probe = false
 native_x_renderer_pipeline_storage = false
 native_x_renderer_hulk_surface_fallback = false
+# The original renderer silently skipped 1297 shader and 1098 pipeline
+# draws by frame 1200 of build 67. Bounded D101 waits preserve scene draws.
+# New shaders may briefly stall rather than leaving missing world pixels.
+native_x_renderer_hulk_wait_scene_pipelines = true
 native_x_renderer_wait_offscreen_pipelines = true
 # Diagnostic only: true waits for EVERY shader/pipeline draw; can stall the GPU.
 # Compare identical scenes to test if skipped compiling pipelines cause flicker.

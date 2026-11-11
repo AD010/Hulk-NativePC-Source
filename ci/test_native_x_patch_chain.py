@@ -175,6 +175,9 @@ def run(sha=SHA):
                 missing.append("D127 native-scale target preserved by Hulk MSAA grid")
             if "source->scale.x != target->scale.x" not in renderer:
                 missing.append("D127 scaled resolves preserved")
+        if "HULK/SCENE-PIPELINE-WAIT" not in renderer or \
+                "steady && !hulk_wait_scene" not in renderer:
+            missing.append("Hulk bounded main-scene pipeline/shader wait")
         # Hulk #57 preflight: verify the *actual integrated C++*, not only
         # independent source-replacement fixtures. These guards are required
         # by build 56's malformed DMA, invalid primitive, stale RT and 4x

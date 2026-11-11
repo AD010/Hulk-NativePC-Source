@@ -346,6 +346,10 @@ try {
     if (-not (Get-Content -LiteralPath (Join-Path $NxrFull 'src/shaders.cpp') -Raw).Contains('HULK/NVIDIA-COMPILE-BOUNDARY')) {
       throw 'Hulk shader creation boundary and SPIR-V validator not in compiled NativeX.'
     }
+    # Build 67 evidence: scene shaders/pipelines were skipped 1297/1098 times
+    # by frame 1200. Reuse D101's bounded wait for the real world pass too.
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_scene_pipeline_wait.py')) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_scene_pipeline_wait.py'), $NxrFull) $Source
     # Preserve known-buildable NativeX pipeline scheduling. The optional
     # wait-all experiment stays source-only until independently proven
     # against this pinned Diligent/Vulkan build and a real Hulk frame.
