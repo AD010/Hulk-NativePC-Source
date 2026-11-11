@@ -21,6 +21,20 @@ class SurfaceTests(unittest.TestCase):
   txt="\n".join(e["new"] for e in EDITS)
   self.assertIn("packet_surfaces ? (*packet_surfaces)[i] : ReadBoundSurface",txt)
   self.assertIn("if (!packet_surfaces) HulkRememberSurface",txt)
+ def test_surface_history_key_does_not_alias_distinct_registers(self):
+  # Real log176: hundreds of thousands of ambiguous bindings. Never allow
+  # another surface to reuse a saved GPU target solely because upper register
+  # bits were truncated when constructing the per-slot surface identity.
+  patch = "\\n".join(e["new"] for e in EDITS)
+  self.assertIn("return {surface_info, info};",patch)
+  self.assertNotIn("surface_info & 0x0003FFFFu",patch)
+  self.assertNotIn("info & 0x000F0FFFu",patch)
+  def previous_key(info, surface): return (info & 0x0003FFFF, surface & 0x000F0FFF)
+  # Distinct GPU descriptors could previously produce identical keys.
+  for raw1,raw2 in (((1, 1),(0x40001,1)), ((1,1),(1,0x1000001))):
+   self.assertEqual(previous_key(*raw1), previous_key(*raw2))
+   self.assertNotEqual(raw1,raw2)
+
 # Xenos RB_DEPTHCONTROL: bit0=stencil_enable, bit1=z_enable,
 # bit2=z_write_enable. A z-only draw MUST keep its depth attachment.
 class XenosDepthLayoutTests(unittest.TestCase):
