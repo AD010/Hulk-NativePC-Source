@@ -148,8 +148,14 @@ def run(sha=SHA):
                 missing.append("missing critical integrated C++: " + marker)
         # Rejected DMA Draws must NOT be queued as Command::Type::kDraw:
         # NativeX Capture::~Capture() publishes even after an early return.
+        # Real XDK DrawIndexedVertices can inherit a valid initiator,
+        # while synthetic PM4 draws must have their own packet-local one.
+        # The previous hard-coded three-argument anchor incorrectly rejected
+        # the source fix from #517cc5a before any C++ compilation.
         rejected = renderer.find(
-            "!CapturePacketDmaIndices(tracker, base, c))")
+            "!CapturePacketDmaIndices(tracker, base, c, packet_surfaces != nullptr))")
+        if "HULK/XDK-PERSISTENT-INITIATOR" not in renderer:
+            missing.append("real XDK persistent draw initiator protection missing")
         if rejected < 0:
             missing.append("DMA snapshot capture call missing")
         else:
