@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """Regression: PM4 miss diagnostics neither accept nor synthesize an attachment."""
 import unittest
+import shutil
+import subprocess
+import tempfile
+from pathlib import Path
 from patch_native_x_hulk_surface_miss_trace import (
     OLD, NEW, ZERO_OLD, ZERO_NEW, ACCEPT_OLD, ACCEPT_NEW,
     NO_WRITE_OLD, NO_WRITE_NEW, patch_text
@@ -42,6 +46,45 @@ class TestMissTrace(unittest.TestCase):
             ((True, False, 640), "accepted"),
         ):
             self.assertEqual(classify(*args), expected)
+
+    @unittest.skipUnless(shutil.which("clang++") or shutil.which("g++"),
+                         "A C++ compiler is required to test the real early gate")
+    def test_compiled_no_write_gate_matches_enabled_rt_and_depth(self):
+        # Execute the actual C++ gate copied from the source patch; this
+        # does NOT fake any Hulk frame or GPU target. Missing attachments
+        # still fail closed elsewhere in HulkPacketSurfaces.
+        prefix = NO_WRITE_NEW.split("  bool has_target = false", 1)[0]
+        code = """#include <atomic>
+#include <cassert>
+#include <cstdint>
+#define REXLOG_INFO(...) ((void)0)
+bool enabled(uint32_t gpu_color_mask, uint32_t gpu_depth_control,
+             uint32_t gpu_surface) {
+  (void)gpu_surface;
+""" + prefix + """  return true;
+}
+int main() {
+  assert(!enabled(0, 0, 640));
+  assert(!enabled(0, 0, 1280));
+  assert(!enabled(0xFFFF0000u, 0, 640));
+  assert(enabled(0x1u, 0, 640));
+  assert(enabled(0xF000u, 0, 640));
+  assert(enabled(0, 0x1u, 640));
+  assert(enabled(0, 0x2u, 640));
+  assert(enabled(0xFFFFu, 0x8777u, 640));
+}
+"""
+        compiler = shutil.which("clang++") or shutil.which("g++")
+        with tempfile.TemporaryDirectory(prefix="hulk_pm4_nowrite_") as tmp:
+            path = Path(tmp)
+            src = path / "gate.cpp"
+            exe = path / "gate"
+            src.write_text(code, encoding="utf-8")
+            subprocess.run(
+                [compiler, "-std=c++20", "-O0", "-Wall", "-Wextra",
+                 "-Werror", str(src), "-o", str(exe)],
+                check=True, capture_output=True, text=True)
+            subprocess.run([str(exe)], check=True, capture_output=True)
 
     def test_partial_install_rejected(self):
         original = ("bool HulkPacketSurfaces(\n" + ZERO_OLD +
