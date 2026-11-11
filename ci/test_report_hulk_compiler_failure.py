@@ -27,10 +27,10 @@ class RedactionTests(unittest.TestCase):
 
     def test_stage_and_error_hints_only_whitelisted(self):
         raw = (
-            'RUN: python D:\\\\code\\\\ci\\\\patch_sdk_hulk_index_cache.py D:\\\\secrets\\\\default.xex\\n'
-            'RUN: cmake --build out/build/win-amd64 --config Release --parallel\\n'
-            'RUN: rexglue.exe codegen D:\\\\private\\\\game\\\\default.xex\\n'
-            'error: unrecognized arguments: --secret=PASSWORD\\n'
+            'RUN: python D:\\\\code\\\\ci\\\\patch_sdk_hulk_index_cache.py D:\\\\secrets\\\\default.xex\n'
+            'RUN: cmake --build out/build/win-amd64 --config Release --parallel\n'
+            'RUN: rexglue.exe codegen D:\\\\private\\\\game\\\\default.xex\n'
+            'error: unrecognized arguments: --secret=PASSWORD\n'
         )
         stages = ' '.join(stage_report(raw))
         hints = ' '.join(hint_report(raw))
