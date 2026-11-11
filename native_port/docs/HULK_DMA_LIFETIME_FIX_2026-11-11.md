@@ -134,3 +134,27 @@ CI status and the resulting private ZIP must be checked separately.
 - Documents/SEGA/The Incredible Hulk is currently a path resolver/policy;
   active save serialization and safe migration are not implemented. Existing
   saves are untouched by this change.
+
+## Latest gameplay evidence: incredible_hulk_178.log
+
+Read all 3,172 lines, 21:13:59–21:15:02 on 11 November as recorded.
+The log ends with window closing, Execution complete and Title terminated;
+it does not establish an unhandled crash. In the post-initialization portion
+(lines 101–3172), there are 181 error lines including 87 oversized 1D fetches
+and 87 tiled 1D fetches. Fetch-writer records still place screen-size float
+bits `44A00000`/`44340000` in slots 1/2 consumed by `DBEE5B430D8DB5F7`.
+These are observations, not permission to replace those registers with
+invented texture descriptors or to suppress the postprocess.
+
+Verifier samples report 11/11, 1164/1271 and 1341/1345 matched draw states;
+the latter two still have 43 unmatched GPU packets. The 91.6% sample includes
+pixel-program mismatches; the 99.7% sample includes SQ_PROGRAM_CNTL and
+SQ_INTERPOLATOR_CNTL mismatches. Neither sample is pixel parity. At frame
+600 the renderer reports 577 draws skipped for shader translation and 823
+for pipeline compilation since startup; current main subsequently added
+bounded scene waits. That source change is not validated by this older log,
+and a bounded wait can still expire without drawing. No claim of corrected
+startup screens, menu, city, water, 16:10 scene projection or 60+ FPS is made.
+
+Per the latest owner instruction, no Actions dispatch, game build or new
+release is authorized without another command. Only source/test work here.

@@ -106,3 +106,26 @@ includes this nonnegotiable save acceptance goal.
 
 Never distribute copyrighted user save data or raw XEX bytes in the
 public source repository.
+
+## Save-name safety audit, source main c5576b8
+
+Audited actual SDK recomp revision
+`9982a899cad666104c6ec38bd4b2dfacda28e8e4`.
+`XCONTENT_DATA::file_name()` called `strlen` on a fixed 42-byte field before
+applying `min`. A nonterminated field therefore read beyond its bounds.
+The new existing-builder patch uses a bounded search and protects ten content
+entry points before open/create/header/thumbnail/delete operations. Names
+must be a single Windows component: separators, traversal, alternate data
+streams, device aliases and trailing dot/space are rejected, not sanitized.
+This prevents distinct names being rewritten to the same target by the patch.
+
+The actual C++ validator and bounded accessor run against full-length fields,
+all terminator positions, valid slot names and invalid Windows components.
+The transform is tested against the real SDK before and after patching;
+unknown/partial layouts are refused. No game build is started.
+
+This is a concrete save-protection change, NOT a native save-backend
+implementation. Existing XUID layout is still in use; the Windows Documents
+resolver remains unconnected. No save bytes are migrated or rewritten.
+Filesystem links, transaction durability, PC-format compatibility and real
+save/load continuity still need separate implementation/validation.
