@@ -22,8 +22,15 @@ EU_TU1_XEXP_SHA256 = "f0a34fdf59112ef144782da60c64cc56fa7ee4799e95d91992f4d0da29
 EU_TU1_SOURCE_RSA_SHA1 = "8ea1670d19d66c322f50a4d1a6409466a86abada"
 FUNC = re.compile(r"^DEFINE_REX_FUNC\(sub_([0-9A-Fa-f]{8})\)")
 LABEL = re.compile(r"^\s*loc_([0-9A-Fa-f]{8}):")
+# ReXGlue emits a "// Block: 0xXXXXXXXX" annotation at *every* basic
+# block, including fallthrough blocks without a loc_ label. The previous
+# comparator incorrectly treated "Block:" as a PPC instruction and invented
+# subsequent addresses, making most TU1 deltas untrustworthy.
+BLOCK = re.compile(r"^\s*// Block: 0x([0-9A-Fa-f]{8})\s*$")
 ASSEMBLY = re.compile(r"^\s*// (.+?)\s*$")
-PPC_OP = re.compile(r"^[A-Za-z][A-Za-z0-9_.+-]*(?:\s|$)")
+# Generated PPC disassembly mnemonics are lowercase; "Block:", "TODO:"
+# and other codegen documentation comments are not PPC instructions.
+PPC_OP = re.compile(r"^[a-z][a-z0-9_.+-]*(?:\s|$)")
 
 
 def check_exact_eu_patch(base_xex: bytes, xexp: bytes) -> dict:
@@ -54,6 +61,7 @@ def read_recompiled_functions(root: Path) -> tuple[dict[int, dict], int]:
     start = None
     instructions = []
     instruction_addresses = []
+    addresses_seen: set[int] = set()
     files_with_functions = 0
 
     def finish() -> None:
@@ -86,6 +94,7 @@ def read_recompiled_functions(root: Path) -> tuple[dict[int, dict], int]:
                     start = current
                     instructions = []
                     instruction_addresses = []
+                    addresses_seen = set()
                     had_functions = True
                     continue
                 if current is None:
@@ -94,12 +103,19 @@ def read_recompiled_functions(root: Path) -> tuple[dict[int, dict], int]:
                 if label:
                     start = int(label.group(1), 16)
                     continue
+                block = BLOCK.match(line)
+                if block:
+                    start = int(block.group(1), 16)
+                    continue
                 assembly = ASSEMBLY.match(line)
                 if not assembly:
                     continue
                 mnemonic = assembly.group(1).strip()
                 if not PPC_OP.match(mnemonic):
                     continue
+                if start in addresses_seen:
+                    raise ValueError(f"Duplicate guest PPC instruction address {start:08X} in {current:08X}")
+                addresses_seen.add(start)
                 instruction_addresses.append(start)
                 instructions.append(mnemonic)
                 start += 4
