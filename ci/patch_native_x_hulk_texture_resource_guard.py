@@ -39,6 +39,12 @@ DESCRIPTOR_NEW = """  desc.Width = key.GetWidth();
   for (uint32_t v = hulk_extent; v; v >>= 1) ++hulk_max_mips;
   const bool hulk_invalid_desc =
       !desc.Width || !desc.Height || !depth_or_array_size ||
+      // HULK/FETCH-EXTENT-LIMIT: Xenos 1D register corruption has produced
+      // widths 4,186,624 and 5,891,328 in the owner's actual logs. Without
+      // explicit bounds these can pass the mip-chain check and reach Vulkan.
+      // Reject, never silently clamp original texture addresses or sizes.
+      desc.Width > 32768u || desc.Height > 32768u ||
+      depth_or_array_size > 2048u ||
       (key.dimension == xenos::DataDimension::kCube && desc.Width != desc.Height) ||
       !desc.MipLevels || desc.MipLevels > hulk_max_mips;
   if (hulk_invalid_desc) {

@@ -8,7 +8,8 @@ from patch_native_x_hulk_texture_resource_guard import (
 def valid(width, height, depth, mips, cube=False, is_3d=False):
     extent = max(width, height, depth if is_3d else 1)
     max_mips = extent.bit_length()
-    return (width > 0 and height > 0 and depth > 0 and
+    return (0 < width <= 32768 and 0 < height <= 32768 and
+            0 < depth <= 2048 and
             not(cube and width != height) and
             0 < mips <= max_mips)
 
@@ -39,6 +40,12 @@ class ResourceGuardTests(unittest.TestCase):
         self.assertFalse(valid(64, 64, 1, 9))
         self.assertTrue(valid(64, 64, 1, 7))
         self.assertFalse(valid(0, 720, 1, 4))
+        # Real malformed Xenos texture fetch constants from logs 176/177:
+        self.assertFalse(valid(5891328, 1, 1, 1))
+        self.assertFalse(valid(4186624, 1, 1, 1))
+        self.assertFalse(valid(1, 1, 2049, 1))
+        self.assertTrue(valid(32768, 512, 1, 1))
+        self.assertIn("HULK/FETCH-EXTENT-LIMIT", DESCRIPTOR_NEW)
         self.assertFalse(valid(1, 1, 0, 1))
         self.assertFalse(valid(512, 512, 0, 4, is_3d=True))
         self.assertTrue(valid(64, 32, 16, 7, is_3d=True))
