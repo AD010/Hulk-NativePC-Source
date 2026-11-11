@@ -86,6 +86,10 @@ try {
   Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_sdk_hulk_spirv_fetch.py')) $Source
   $FetchPatch = Join-Path (Split-Path $Source -Parent) 'ci/patch_sdk_hulk_spirv_fetch.py'
   Invoke-Checked 'python' @($FetchPatch, $Sdk) $Source
+  # Preserve pixel shader getCompTexLOD via native OpImageQueryLod instead
+  # of returning a fabricated zero for contradictory optional LOD flags.
+  Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_sdk_hulk_computed_lod.py')) $Source
+  Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_sdk_hulk_computed_lod.py'), $Sdk) $Source
   # Instrument real guest VdSwap frequency to locate the source of 30 FPS.
   $FpsPatch = Join-Path (Split-Path $Source -Parent) 'ci/patch_sdk_hulk_fps_probe.py'
   Invoke-Checked 'python' @($FpsPatch, $Sdk) $Source
