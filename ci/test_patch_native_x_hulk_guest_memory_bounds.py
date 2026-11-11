@@ -1,0 +1,37 @@
+#!/usr/bin/env python3
+"""Private-XEX-free regression for native PM4 memory read bounds."""
+import unittest
+from patch_native_x_hulk_guest_memory_bounds import (
+    patch, LOAD_OLD, LOAD_NEW, SHADER_OLD, SHADER_NEW
+)
+
+def safe(address, dwords):
+    return 0xA0000000 <= address < 0xC0000000 and (
+        address + dwords * 4 <= 0xC0000000) and dwords > 0
+
+class SourceMemoryBoundsTests(unittest.TestCase):
+    def test_atomic_patch_idempotency_and_rejection(self):
+        source = "// HULK/PFP-PREDICATE HULK/PM4-SHADER-BOUNDS\n" + LOAD_OLD + "\n" + SHADER_OLD
+        installed, changed = patch(source)
+        self.assertTrue(changed)
+        self.assertEqual(patch(installed), (installed, False))
+        self.assertIn("uint64_t(address) + uint64_t(size) * 4ull", installed)
+        self.assertIn("uint64_t(address) + uint64_t(dwords) * 4ull", installed)
+        self.assertLess(SHADER_NEW.index("out.complete = false"),
+                        SHADER_NEW.index("GuestPointer(base, address)"))
+        self.assertLess(LOAD_NEW.index("out.complete = false"),
+                        LOAD_NEW.index("out.loads.emplace_back("))
+        with self.assertRaises(ValueError):
+            patch("broken")
+        with self.assertRaises(ValueError):
+            patch(LOAD_NEW + "\n" + SHADER_OLD)
+    def test_guest_memory_edges(self):
+        for address,words in ((0xA0000000,1),(0xBFFFFFFC,1),(0xBFFFFF94,27)):
+            self.assertTrue(safe(address, words))
+        for address,words in ((0x9FFFFFFC,1),(0xBFFFFFFC,2),
+                              (0xC0000000,1),(0xA0000000,0),
+                              (0xBFFF0000,65535)):
+            self.assertFalse(safe(address, words))
+
+if __name__ == "__main__":
+    unittest.main()

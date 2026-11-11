@@ -159,6 +159,10 @@ def run(sha=SHA):
         if "HULK/RESOLVE-RESOURCE-GUARD" not in resolved_cpp:
             missing.append("Hulk resolved Vulkan texture descriptor guard")
         state=(source/"src/state.cpp").read_text(encoding="utf-8")
+        if ("HULK/PM4-GUEST-MEMORY-BOUNDS" not in state or
+            "HULK/PM4-SHADER-SOURCE-BOUNDS" not in state or
+            "uint64_t(address) + uint64_t(dwords) * 4ull" not in state):
+            missing.append("NativeX physical guest shader/ALU source bounds")
         for name, body in (
             ("HULK/PM4-PAYLOAD",state),
             ("HULK/FETCH-WRITER",state),

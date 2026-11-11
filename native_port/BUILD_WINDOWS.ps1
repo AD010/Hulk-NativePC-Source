@@ -323,6 +323,8 @@ try {
     # microcode, nested indirect draws and GPU register write boundaries.
     # These are retail renderer corrections, not tests shipped with the game.
     Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_bin_predication.py'), $NxrFull) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_guest_memory_bounds.py')) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_guest_memory_bounds.py'), $NxrFull) $Source
     # Xenos SET_CONSTANT and LOAD_ALU_CONSTANT execute in PM4 packet order:
     # do not overwrite later fetch descriptors with earlier shadow values.
     Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_register_order.py'), $NxrFull) $Source
