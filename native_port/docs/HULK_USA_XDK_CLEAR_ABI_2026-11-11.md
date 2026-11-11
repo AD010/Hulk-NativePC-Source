@@ -26,3 +26,14 @@ Build #67 counted `g_stats.clears=0` on menu and gameplay despite visible frame 
 
 ## Safety and regression gates
 `ci/hulk_engine_render_callgraph.py` now requires ten unique methods and the exact, paired USA Clear/ClearF entries; missing/swapped/duplicate entries fail closed. The graph groups them as `clear` instead of misc tiling. Existing `native_port/src/native_x_hulk_profile.cpp` already parses `Clear`/`ClearF` from upstream `calls.inc`, so no second hook registry or new workflow was needed.
+
+## Reproducible offline byte- and call-graph check
+
+`ci/audit_hulk_usa_clear_aot.py` checks the saved AOT SHA, full guest/native function mapping, rel32 call destinations and the exact assembly patterns proving packed color, rectangle and depth ABI. It fails closed for a different binary or mismatched mapping. Run with the owner-provided extracted AOT and Stage1 mapping:
+
+```powershell
+python ci/audit_hulk_usa_clear_aot.py incredible_hulk.exe guest_host_mapping.csv --output clear_abi_report.json
+python ci/test_audit_hulk_usa_clear_aot.py
+```
+
+On the audited pinned AOT this yields 99,269 function mappings and exact caller counts 2 (Clear→ClearF), 1 (ClearF→inner), 1 (BeginTiling→ClearF), and all four ABI assertions true. The three source-only scanner tests pass. This does **not** execute the game or confirm that the menu/sky is visually correct.
