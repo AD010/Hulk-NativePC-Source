@@ -66,6 +66,25 @@ class HulkLogAuditTests(unittest.TestCase):
         self.assertNotIn("interval_ms", r["last_renderer_frame"])
         self.assertEqual(analyze("")["last_renderer_frame"], {})
 
+    def test_native_scene_resolve_reports_real_intermediate_pixel_loss(self):
+        log = "\n".join([
+            "[HULK/SCENE-RESOLVE] #1 src guest=640x360 4xMSAA src host=2560x1440 "
+            "dst guest=640x360 dst host=1280x720 flags=0x0",
+            "[HULK/SCENE-RESOLVE] #2 src guest=640x360 4xMSAA src host=2560x1440 "
+            "dst guest=640x360 dst host=1280x720 flags=0x0",
+            "[HULK/SCENE-RESOLVE] #3 src guest=640x360 4xMSAA src host=2560x1440 "
+            "dst guest=640x360 dst host=2560x1440 flags=0x0",
+        ])
+        r = analyze(log)["scene_resolve_host_resolution"]
+        self.assertEqual(len(r), 2)
+        smaller = next(x for x in r if x["intermediate_resolution_loss"])
+        self.assertEqual(smaller["logged_samples"], 2)
+        self.assertEqual(smaller["source_to_destination_area_ratio"], 4.0)
+        self.assertEqual(smaller["dst_host"], [1280, 720])
+        self.assertFalse(next(x for x in r if not x["intermediate_resolution_loss"])["intermediate_resolution_loss"])
+        self.assertEqual(analyze("")["scene_resolve_host_resolution"], [])
+        self.assertIn("final image", " ".join(analyze(log)["limitations"]))
+
     def test_candidate_comparison_does_not_claim_quality(self):
         b = analyze("[error] 1D texture is too wide (5891328)\n")
         c = analyze("")

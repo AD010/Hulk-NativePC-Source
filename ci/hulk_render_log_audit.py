@@ -42,6 +42,13 @@ FRAME_STATS = re.compile(r"\[native_x_renderer\] renderer: frame (\d+):\s*(.*)")
 DRAWS = re.compile(r"(\d+) draw calls, (\d+) drawn, (\d+) without targets, (\d+) failed")
 FPS = re.compile(r"frame interval\s+([\d.]+) ms average,\s+([\d.]+) ms max")
 PIPELINES = re.compile(r"draws skipped: (\d+) while a shader was translated, (\d+) while their pipeline compiled")
+# A scene that is natively rasterized at 2560x1440 can be immediately
+# resolved into 1280x720. Report this separately from the output swapchain.
+# It may be intentional post-processing; not proof of final-frame blur.
+SCENE_RESOLVE = re.compile(
+    r"\[HULK/SCENE-RESOLVE\] #\d+ src guest=(\d+)x(\d+) (\d+)xMSAA "
+    r"src host=(\d+)x(\d+) dst guest=(\d+)x(\d+) dst host=(\d+)x(\d+)"
+)
 
 
 def analyze(text: str) -> dict:
@@ -51,7 +58,11 @@ def analyze(text: str) -> dict:
     cumulative: dict[str, int] = {name: 0 for name in CUMULATIVE}
     latest_frame: dict[str, object] = {}
     frames_seen: set[int] = set()
+    scene_resolves: Counter[tuple[int, ...]] = Counter()
     for line in text.splitlines():
+        scene = SCENE_RESOLVE.search(line)
+        if scene:
+            scene_resolves[tuple(int(scene[k]) for k in range(1, 10))] += 1
         for name, pattern in ISSUES.items():
             if pattern.search(line):
                 counts[name] += 1
@@ -94,7 +105,22 @@ def analyze(text: str) -> dict:
         "cumulative_reported_totals": cumulative,
         "last_renderer_frame": latest_frame,
         "renderer_stat_frames_observed": sorted(frames_seen),
+        "scene_resolve_host_resolution": [
+            {
+                "src_guest": [g_w, g_h], "msaa_samples": samples,
+                "src_host": [src_w, src_h],
+                "dst_guest": [d_w, d_h], "dst_host": [dst_w, dst_h],
+                "logged_samples": n,
+                "source_to_destination_area_ratio": round(
+                    src_w * src_h / (dst_w * dst_h), 4) if dst_w and dst_h else None,
+                "intermediate_resolution_loss": src_w > dst_w or src_h > dst_h,
+                "note": "Observed intermediate Resolve dimensions; final-frame quality not established",
+            }
+            for (g_w, g_h, samples, src_w, src_h, d_w, d_h, dst_w, dst_h), n
+            in sorted(scene_resolves.items())
+        ],
         "limitations": [
+            "A smaller intermediate Resolve may be intentional: confirm subsequent shader sampling and final image before claiming pixelation fixed.",
             "Some warnings are throttled; counts are logged samples, not total GPU errors.",
             "PM4-SURFACE total is a cumulative replay counter, not a count of distinct discarded draw objects.",
             "New PM4 classifications are last observed throttled #N counters, not complete counts if samples are missing.",

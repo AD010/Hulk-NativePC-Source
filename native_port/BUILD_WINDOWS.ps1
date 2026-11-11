@@ -39,6 +39,9 @@ try {
   Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_hulk_pm4_register_oracle.py')) $Source
   Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_hulk_render_log_audit.py')) $Source
   Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_audit_hulk_tu1_resource_index.py')) $Source
+  # EU TU1 water fix: source-only XEX signature and changed-PPC comparator
+  # tests; no proprietary TU data is bundled or applied to USA codegen.
+  Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_diff_hulk_tu1_guest_ppc.py')) $Source
   if (-not $GameRoot) {
     $known = 'E:\Games\IncredibleHulk\games\incredible_hulk\game'
     if (Test-Path (Join-Path $known 'default.xex')) { $GameRoot = $known }
