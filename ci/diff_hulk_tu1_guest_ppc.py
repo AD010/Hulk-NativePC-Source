@@ -19,6 +19,7 @@ from audit_hulk_tu1 import xex_rsa_digest, xexp_source, digest
 
 EU_XEX_SHA256 = "ede8b62b5d4d0357ace2e08caf06a6bd702783d1a9b036bbf405124bd84f3351"
 EU_TU1_XEXP_SHA256 = "f0a34fdf59112ef144782da60c64cc56fa7ee4799e95d91992f4d0da298e5aae"
+USA_XEX_SHA256 = "346a73690303f6633bfdaf9850e78793fe07cdbfb8f849b89fbee320630b11f0"
 EU_TU1_SOURCE_RSA_SHA1 = "8ea1670d19d66c322f50a4d1a6409466a86abada"
 FUNC = re.compile(r"^DEFINE_REX_FUNC\(sub_([0-9A-Fa-f]{8})\)")
 LABEL = re.compile(r"^\s*loc_([0-9A-Fa-f]{8}):")
@@ -49,6 +50,14 @@ def check_exact_eu_patch(base_xex: bytes, xexp: bytes) -> dict:
     return {"eu_xex_sha256": eu_sha, "tu1_xexp_sha256": delta_sha,
             "source_rsa_sha1": source.hex(), "source_version": source_version,
             "target_version": target_version, "source_verified": True}
+
+
+def check_usa_executable(source: bytes) -> str:
+    """Pin the region identity of optional USA codegen input."""
+    actual = hashlib.sha256(source).hexdigest()
+    if actual != USA_XEX_SHA256:
+        raise ValueError("Not the SHA-pinned USA Hulk XEX; do not correlate regions")
+    return actual
 
 
 def read_recompiled_functions(root: Path) -> tuple[dict[int, dict], int]:
@@ -230,9 +239,13 @@ def main() -> int:
     p.add_argument("--eu-base-generated", type=Path, required=True)
     p.add_argument("--eu-tu1-generated", type=Path, required=True)
     p.add_argument("--us-generated", type=Path,
-                   help="Optional SHA-pinned USA codegen output from the same ReXGlue revision")
+                   help="Optional USA codegen output from the same ReXGlue revision")
+    p.add_argument("--us-xex", type=Path,
+                   help="Mandatory original SHA-pinned USA XEX when --us-generated is supplied")
     p.add_argument("--output", type=Path, required=True)
     args = p.parse_args()
+    if (args.us_generated is None) != (args.us_xex is None):
+        p.error("--us-generated and --us-xex must be supplied together")
     provenance = check_exact_eu_patch(args.eu_xex.read_bytes(), args.xexp.read_bytes())
     old, old_files = read_recompiled_functions(args.eu_base_generated)
     new, new_files = read_recompiled_functions(args.eu_tu1_generated)
@@ -261,6 +274,7 @@ def main() -> int:
         ],
     }
     if args.us_generated is not None:
+        report["usa_xex_sha256"] = check_usa_executable(args.us_xex.read_bytes())
         us_functions, us_files = read_recompiled_functions(args.us_generated)
         report["usa_generated_files"] = us_files
         report["usa_function_count"] = len(us_functions)

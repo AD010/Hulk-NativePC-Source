@@ -7,7 +7,7 @@ import unittest
 
 from diff_hulk_tu1_guest_ppc import (
     check_exact_eu_patch, read_recompiled_functions, compare,
-    normalized_base_signature, match_usa_functions,
+    normalized_base_signature, match_usa_functions, check_usa_executable,
 )
 
 class Tu1WaterEvidenceTests(unittest.TestCase):
@@ -17,6 +17,10 @@ class Tu1WaterEvidenceTests(unittest.TestCase):
         (root/"hulk_recomp.0.cpp").write_text(data, encoding="utf-8")
         return root
 
+
+    def test_usa_source_pin_is_mandatory(self):
+        with self.assertRaisesRegex(ValueError, "SHA-pinned USA"):
+            check_usa_executable(b"XEX2 wrong region or wrong revision")
 
     def test_optional_usa_correlation_is_unique_or_fail_closed(self):
         # EU original and US may have relocated PPC branch target addresses.

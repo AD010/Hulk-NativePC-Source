@@ -102,6 +102,7 @@ python ci/diff_hulk_tu1_guest_ppc.py \
   --eu-base-generated /private/eu-original-generated \
   --eu-tu1-generated /private/eu-tu1-generated \
   --us-generated /private/us-base-generated \
+  --us-xex /private/verified-USA/default.xex \
   --output /private/tu1-function-candidates.json
 ```
 
