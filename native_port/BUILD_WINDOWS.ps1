@@ -208,10 +208,10 @@ try {
     Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_front_fallback.py')) $Source
     Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_front_fallback.py'), $NxrFull) $Source
     # Log099 GPU observer: 1035/1397 pixel shader and packet-state mismatches.
-    # Scan authentic PM4/IM_LOAD between the known eight XDK hooks.
+    # Scan authentic PM4/IM_LOAD between the ten identified USA XDK hooks (Clear/ClearF included).
     Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_pm4_gap.py')) $Source
     Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_pm4_gap.py'), $NxrFull) $Source
-    # Hulk log101: the GPU executes direct draw packets outside the eight XDK hooks.
+    # Hulk log101: direct PM4 draws can still happen outside the ten XDK hooks.
     # Capture complete single unhooked draws through NativeX's Vulkan command queue.
     Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_gap_draw.py')) $Source
     Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_gap_draw.py'), $NxrFull) $Source

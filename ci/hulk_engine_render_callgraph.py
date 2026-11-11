@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read-only PowerPC call graph around Hulk's eight verified XDK hooks.
+"""Read-only PowerPC call graph around Hulk's ten identified XDK hooks.
 
 Input: generated ReXGlue C++ from the user's SHA-pinned USA default.xex.
 Output: address-only candidates for direct engine scene/graphics extraction.
@@ -49,8 +49,15 @@ def read_hooks(ini: Path) -> dict[int, str]:
         if addr in hooks or not (0x82000000 <= addr < 0x84000000):
             raise ValueError('Duplicate or out-of-image hook address')
         hooks[addr] = label
-    if len(hooks) != 8:
-        raise ValueError('Pinned Hulk 6534 profile must provide eight hooks')
+    # USA XDK 6534: Clear 82888D68 converts packed color to float4 and
+    # calls ClearF 82888C40, whose inner clear helper is 828885B0.
+    # Do not permit a partial pair: otherwise menu and depth clears disappear.
+    if len(hooks) != 10:
+        raise ValueError('Pinned Hulk 6534 profile must provide ten hooks')
+    if hooks.get(0x82888D68) != 'Clear' or hooks.get(0x82888C40) != 'ClearF':
+        raise ValueError('Pinned USA Clear/ClearF ABI addresses do not match')
+    if len(set(hooks.values())) != 10:
+        raise ValueError('Duplicate XDK method mappings in Hulk profile')
     return hooks
 
 
@@ -219,6 +226,8 @@ def analyze(reverse: dict[int, list[tuple[int, int]]],
             return 'present'
         if name in ('SetRenderTarget', 'SetDepthStencilSurface'):
             return 'rt_bind'
+        if name in ('Clear', 'ClearF'):
+            return 'clear'
         return 'tiling'
 
     ranked = []

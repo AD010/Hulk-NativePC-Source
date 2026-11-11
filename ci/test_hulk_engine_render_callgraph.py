@@ -18,6 +18,8 @@ HOOKS = """[hooks]
 0x8287F628=SetDepthStencilSurface
 0x8288A900=BeginTiling
 0x8288AD98=EndTiling
+0x82888D68=Clear
+0x82888C40=ClearF
 0x82880778=Present
 """
 
@@ -52,6 +54,36 @@ class RenderGraph(unittest.TestCase):
             self.assertEqual(set(top['hook_groups']), {'draw', 'resolve', 'present'})
             self.assertEqual(top['evidence']['DrawVertices']['distance'], 2)
             self.assertEqual(top['evidence']['Present']['distance'], 2)
+
+    def test_confirmed_usa_clear_hooks_are_atomic_and_add_clear_group(self):
+        # The AOT PPC mapping proves these functions are in the real 6534
+        # library; they are not guesses based on neighbouring PM4 literals.
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = Path(tmp) / 'profile.ini'
+            cfg.write_text(HOOKS, encoding='utf-8')
+            hooks = read_hooks(cfg)
+            self.assertEqual(len(hooks), 10)
+            self.assertEqual(hooks[0x82888D68], 'Clear')
+            self.assertEqual(hooks[0x82888C40], 'ClearF')
+            reverse = {
+                0x82888C40: [(0x82888D68, 0x82888E80),
+                             (0x8288A900, 0x8288B000)],
+                0x828885B0: [(0x82888C40, 0x82889000)],
+                0x82888D68: [(0x8263B688, 0x8263B800)],
+            }
+            result = analyze(reverse, hooks, depth=1)
+            ancestor = next(x for x in result['candidate_ancestors']
+                            if x['guest_function'] == '0x82888D68')
+            self.assertIn('clear', ancestor['hook_groups'])
+            for missing in ('0x82888D68=Clear', '0x82888C40=ClearF'):
+                cfg.write_text(HOOKS.replace(missing, ''), encoding='utf-8')
+                with self.assertRaises(ValueError):
+                    read_hooks(cfg)
+            # Neither an address swap nor method reuse can be accepted.
+            cfg.write_text(HOOKS.replace('0x82888D68=Clear',
+                                         '0x82888D68=ClearF'), encoding='utf-8')
+            with self.assertRaisesRegex(ValueError, 'ABI addresses'):
+                read_hooks(cfg)
 
     def test_source_usa_sha_and_xdk_provenance(self):
         with tempfile.TemporaryDirectory() as tmp:
