@@ -28,6 +28,8 @@ EXPERIMENTS=[
  "ci/patch_native_x_hulk_packet_dma_snapshot.py",
  "ci/test_patch_native_x_hulk_texture_resource_guard.py",
  "ci/patch_native_x_hulk_texture_resource_guard.py",
+ "ci/test_patch_native_x_hulk_spirv_compiler_guard.py",
+ "ci/patch_native_x_hulk_spirv_compiler_guard.py",
 ]
 
 def commands():

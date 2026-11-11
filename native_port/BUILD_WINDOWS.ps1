@@ -313,6 +313,13 @@ try {
     if (-not (Get-Content -LiteralPath (Join-Path $NxrFull 'src/guest_textures.cpp') -Raw).Contains('HULK/TEXTURE-RESOURCE-GUARD')) {
       throw 'Hulk Vulkan invalid resource descriptor guard missing.'
     }
+    # Crash #57: validate generated shader bytecode shape before the NVIDIA
+    # Vulkan driver and correlate shader/pipeline creation boundaries by hash.
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_spirv_compiler_guard.py')) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_spirv_compiler_guard.py'), $NxrFull) $Source
+    if (-not (Get-Content -LiteralPath (Join-Path $NxrFull 'src/shaders.cpp') -Raw).Contains('HULK/NVIDIA-COMPILE-BOUNDARY')) {
+      throw 'Hulk shader creation boundary and SPIR-V validator not in compiled NativeX.'
+    }
     # Preserve known-buildable NativeX pipeline scheduling. The optional
     # wait-all experiment stays source-only until independently proven
     # against this pinned Diligent/Vulkan build and a real Hulk frame.
