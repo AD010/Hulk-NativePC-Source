@@ -328,6 +328,12 @@ try {
     if (-not (Get-Content -LiteralPath (Join-Path $NxrFull 'src/guest_textures.cpp') -Raw).Contains('HULK/TEXTURE-RESOURCE-GUARD')) {
       throw 'Hulk Vulkan invalid resource descriptor guard missing.'
     }
+    # Validate resolved Vulkan textures as well as the distinct guest-texture path.
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_resolved_resource_guard.py')) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_resolved_resource_guard.py'), $NxrFull) $Source
+    if (-not (Get-Content -LiteralPath (Join-Path $NxrFull 'src/targets.cpp') -Raw).Contains('HULK/RESOLVE-RESOURCE-GUARD')) {
+      throw 'Hulk resolved Vulkan descriptor guard missing.'
+    }
     # Crash #57: validate generated shader bytecode shape before the NVIDIA
     # Vulkan driver and correlate shader/pipeline creation boundaries by hash.
     Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_spirv_compiler_guard.py')) $Source

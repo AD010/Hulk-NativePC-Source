@@ -28,6 +28,8 @@ EXPERIMENTS=[
  "ci/patch_native_x_hulk_packet_dma_snapshot.py",
  "ci/test_patch_native_x_hulk_texture_resource_guard.py",
  "ci/patch_native_x_hulk_texture_resource_guard.py",
+ "ci/test_patch_native_x_hulk_resolved_resource_guard.py",
+ "ci/patch_native_x_hulk_resolved_resource_guard.py",
  "ci/test_patch_native_x_hulk_spirv_compiler_guard.py",
  "ci/patch_native_x_hulk_spirv_compiler_guard.py",
 ]
@@ -128,6 +130,8 @@ def run(sha=SHA):
             missing.append("resolved host texture initialization")
         if "width == hulk_half_width_ && height == hulk_half_height_" not in resolved_cpp:
             missing.append("per-dimension host Resolve upscaling")
+        if "HULK/RESOLVE-RESOURCE-GUARD" not in resolved_cpp:
+            missing.append("Hulk resolved Vulkan texture descriptor guard")
         state=(source/"src/state.cpp").read_text(encoding="utf-8")
         for name, body in (
             ("HULK/PM4-PAYLOAD",state),
