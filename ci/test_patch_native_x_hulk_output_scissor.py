@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """Smoke tests for bounded Hulk output-scissor and live MSAA resolve audit."""
 import unittest
+import shutil
+import subprocess
+import tempfile
+from pathlib import Path
 from patch_native_x_hulk_output_scissor import PATCHES, transform
 
 class HulkOutputScissorTests(unittest.TestCase):
@@ -29,6 +33,57 @@ class HulkOutputScissorTests(unittest.TestCase):
         self.assertIn("scissor_rect.right = int32_t(sized->width)", patch)
         self.assertIn("[HULK/SCISSOR-FIX]", patch)
         self.assertNotIn("viewport.Width =", patch)
+
+    def test_scissor_clips_to_real_framebuffer_without_touching_viewport(self):
+        cpp = "\n".join(new for old, new in PATCHES["src/draw.cpp"])
+        for required in (
+            "HULK/SCISSOR-FRAMEBUFFER-CLIP",
+            "scissor_rect.left = std::clamp(",
+            "scissor_rect.top = std::clamp(",
+            "scissor_rect.right = std::clamp(",
+            "scissor_rect.bottom = std::clamp(",
+            "int32_t(sized->width)", "int32_t(sized->height)"
+        ):
+            self.assertIn(required, cpp)
+        self.assertNotIn("viewport.Width =", cpp)
+        self.assertNotIn("viewport.Height =", cpp)
+
+    @unittest.skipUnless(shutil.which("clang++") or shutil.which("g++"),
+                         "C++ compiler unavailable")
+    def test_native_scissor_intersection_cpp(self):
+        # Compile the SAME four bound assignments embedded in the patch.
+        output = "\n".join(new for old, new in PATCHES["src/draw.cpp"])
+        first = output.index("  scissor_rect.left = std::clamp(")
+        last = output.index("  if (scissor_rect != hulk_unclipped_scissor)", first)
+        body = output[first:last]
+        code = (
+            "#include <algorithm>\n#include <cstdint>\n#include <cassert>\n"
+            "struct Rect { int32_t left, top, right, bottom; };\n"
+            "Rect clip(Rect scissor_rect, int32_t width, int32_t height) {\n"
+            " const int32_t hulk_framebuffer_w = width;\n"
+            " const int32_t hulk_framebuffer_h = height;\n"
+            + body + " return scissor_rect;\n}\n"
+            "int main() {\n"
+            " auto a=clip({0,0,2560,32768},2560,1440);\n"
+            " assert(a.left==0&&a.top==0&&a.right==2560&&a.bottom==1440);\n"
+            " auto b=clip({200,300,800,600},2560,1440);\n"
+            " assert(b.left==200&&b.top==300&&b.right==800&&b.bottom==600);\n"
+            " auto c=clip({-100,-200,400,200},2560,1440);\n"
+            " assert(c.left==0&&c.top==0&&c.right==400&&c.bottom==200);\n"
+            " auto d=clip({5000,2000,32768,32768},2560,1440);\n"
+            " assert(d.left==2560&&d.top==1440&&d.right==2560&&d.bottom==1440);\n"
+            "}\n"
+        )
+        compiler = shutil.which("clang++") or shutil.which("g++")
+        with tempfile.TemporaryDirectory(prefix="hulk_scissor_") as tmp:
+            path = Path(tmp)
+            source = path / "scissor.cpp"
+            exe = path / "scissor"
+            source.write_text(code, encoding="utf-8")
+            subprocess.run([compiler, "-std=c++20", "-Wall", "-Wextra",
+                            "-Werror", str(source), "-o", str(exe)],
+                           check=True, capture_output=True, text=True)
+            subprocess.run([str(exe)], check=True, capture_output=True)
 
     def test_full_msaa_scene_resolve_audit(self):
         patch = "\n".join(new for old, new in PATCHES["src/renderer.cpp"])
