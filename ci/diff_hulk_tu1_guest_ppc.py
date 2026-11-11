@@ -177,7 +177,7 @@ def normalized_base_signature(function: dict) -> str:
     def canonical(inst: str) -> str:
         op, _, rest = inst.partition(" ")
         if op.lower().startswith("b"):
-            rest = re.sub(r"(?<![\\w])(?:0x)?[0-9a-fA-F]{8}(?![\\w])",
+            rest = re.sub(r"(?<![\w])(?:0x)?[0-9a-fA-F]{8}(?![\w])",
                           "<TARGET>", rest)
         return op + (" " + rest if rest else "")
     return hashlib.sha256(
