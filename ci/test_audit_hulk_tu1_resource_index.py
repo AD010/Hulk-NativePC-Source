@@ -79,6 +79,23 @@ class TestHulkTu1RealDeltaDecoder(unittest.TestCase):
         with self.assertRaises(ValueError):
             decode_tu1_resource(valid, max_output=50)
 
+    def test_raw_dataset_delta_is_not_a_zip(self):
+        # Official TU1 Datasets entries are plain serialized records,
+        # whereas Objects, QuickDatas and Models use raw DEFLATE blocks.
+        key = 0x42A12001
+        original = b"\0\0\0\0" + b"Original dataset object metadata"
+        patched = b"\0\0\0\0" + b"Updated dataset object metadata"
+        base = sample_index(b"Datasets\0", 1, key, offset=4,
+                            size=len(original))
+        update = sample_index(b"Datasets\0", 1, key, offset=4,
+                              size=len(patched))
+        out = compare_tu1_resource_payloads(
+            base, update,
+            {"Datasets": b"\0" * 4 + original},
+            {"Datasets": b"\0" * 4 + patched})
+        self.assertEqual(out["groups"]["Datasets"]["decoded_different_from_usa"], 1)
+        self.assertEqual(out["groups"]["Datasets"]["tu1_records"], 1)
+
     def test_correct_lod_change_and_existing_same_resource(self):
         name = b"QuickDatas\0"
         key = 0x14CD4AAC
