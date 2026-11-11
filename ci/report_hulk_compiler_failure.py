@@ -34,6 +34,72 @@ PRIVATE = re.compile(r"(?i)(?:sub_[0-9a-f]{8}|[\w]+_recomp\.\d+\.cpp)")
 SECRET = re.compile(r"(?i)(?:GH_TOKEN|GITHUB_TOKEN|password|secret|xex|xexp)")
 
 
+
+# Only well-known compiler command names and PUBLIC script basenames.
+# Never copy a command's arbitrary arguments (they can contain guest paths).
+KNOWN_TOOLS = ("python", "cmake", "ninja", "clang++", "clang-cl",
+               "git", "rexglue.exe", "powershell.exe", "ctest")
+ALLOWED_FAILURE_HINTS = {
+    "unrecognized arguments": "invalid-cli-arguments",
+    "invalid choice": "invalid-cli-choice",
+    "no such file or directory": "missing-file-or-directory",
+    "not found": "file-or-tool-not-found",
+    "not recognized": "command-not-recognized",
+    "unable to": "tool-unable-to",
+    "failed to": "tool-reported-failure",
+    "access is denied": "filesystem-access-denied",
+    "permission denied": "filesystem-permission-denied",
+    "unknown argument": "unknown-cli-argument",
+    "unknown option": "unknown-cli-option",
+    "out of memory": "out-of-memory",
+    "no space left on device": "disk-full",
+    "invalid syntax": "python-syntax",
+    "syntaxerror": "python-syntax",
+    "could not resolve": "unresolved-dependency",
+}
+
+
+def stage_report(log: str, cap: int = 8) -> list[str]:
+    stages = []
+    for line in log.splitlines():
+        match = STAGE.search(line)
+        if not match:
+            continue
+        command = match.group(1).strip()
+        if not command:
+            continue
+        tool = next((name for name in KNOWN_TOOLS
+                     if re.search(r"(?i)(?:^|[\\/\s])" + re.escape(name) +
+                                  r"(?:\s|$)", command)), None)
+        if not tool:
+            continue
+        files = SOURCE.findall(command)
+        # Source only: reveal ci/python script filename when it is part of the
+        # repository's own CI directory. No paths/command args are printed.
+        script = next((name for name in files
+                       if name.startswith(("test_", "patch_", "audit_", "repair_",
+                                           "check_", "seed_", "run_", "hulk_"))
+                       and name.endswith(".py") and not SECRET.search(name)), "")
+        stages.append(tool + (" script=" + script if script else ""))
+    if not stages:
+        return ["last_commands=unavailable"]
+    return ["last_commands=" + " -> ".join(stages[-cap:])]
+
+
+def hint_report(log: str, cap: int = 12) -> list[str]:
+    hints = []
+    for line in log.splitlines():
+        if not ERROR.search(line):
+            continue
+        lower = line.lower()
+        hints.extend(name for needle, name in ALLOWED_FAILURE_HINTS.items()
+                     if needle in lower)
+    counts = Counter(hints)
+    return ["error_hints=" + ", ".join(
+        f"{name}:{count}" for name, count in counts.most_common(cap)
+    )] if counts else ["error_hints=unclassified"]
+
+
 def summarize(text: str, cap: int = 16) -> list[str]:
     lines = text.splitlines()
     matches = []
@@ -66,7 +132,7 @@ def main() -> int:
     args = parser.parse_args()
     # Large build logs are fine; output is capped. Not a log redistributor.
     log = args.log.read_text(encoding="utf-8-sig", errors="replace")
-    for item in summarize(log):
+    for item in summarize(log) + stage_report(log) + hint_report(log):
         print("[HULK/PRIVATE-COMPILER/REDACTED]", item)
     return 0
 

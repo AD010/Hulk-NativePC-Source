@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """No Hulk game data needed for diagnostic redaction regression tests."""
 import unittest
-from report_hulk_compiler_failure import summarize
+from report_hulk_compiler_failure import summarize, stage_report, hint_report
 
 class RedactionTests(unittest.TestCase):
     def test_compiler_codes_without_private_source(self):
@@ -24,6 +24,22 @@ class RedactionTests(unittest.TestCase):
         self.assertNotIn('secret_thing', out)
         self.assertIn('modulenotfounderror', out.lower())
         self.assertIn('No classified', '\n'.join(summarize('Build complete')))
+
+    def test_stage_and_error_hints_only_whitelisted(self):
+        raw = (
+            'RUN: python D:\\\\code\\\\ci\\\\patch_sdk_hulk_index_cache.py D:\\\\secrets\\\\default.xex\\n'
+            'RUN: cmake --build out/build/win-amd64 --config Release --parallel\\n'
+            'RUN: rexglue.exe codegen D:\\\\private\\\\game\\\\default.xex\\n'
+            'error: unrecognized arguments: --secret=PASSWORD\\n'
+        )
+        stages = ' '.join(stage_report(raw))
+        hints = ' '.join(hint_report(raw))
+        self.assertIn('python script=patch_sdk_hulk_index_cache.py', stages)
+        self.assertIn('cmake', stages)
+        self.assertIn('rexglue.exe', stages)
+        self.assertNotIn('default.xex', stages)
+        self.assertNotIn('PASSWORD', stages + hints)
+        self.assertIn('invalid-cli-arguments', hints)
 
     def test_error_group_count_limit(self):
         raw = '\n'.join(f'file{i}.cpp: error C{i+1000}: private token' for i in range(50))
