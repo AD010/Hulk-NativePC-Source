@@ -22,6 +22,35 @@ class Tu1WaterEvidenceTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "SHA-pinned USA"):
             check_usa_executable(b"XEX2 wrong region or wrong revision")
 
+    def test_internal_branch_topology_not_normalized_away(self):
+        # Same instructions with different internal branches are *not*
+        # safe equivalent functions, even though target addresses relocate.
+        def function(base, target):
+            return {
+                "count": 26,
+                "addresses": tuple(base + i * 4 for i in range(26)),
+                "instructions": ("addi r3,r3,1",) * 25
+                                + (f"b {base + 4 * target:08X}",),
+            }
+        eu = function(0x82001000, 0)
+        relocated_same = function(0x82301000, 0)
+        changed_control_flow = function(0x82301000, 6)
+        self.assertEqual(normalized_base_signature(eu),
+                         normalized_base_signature(relocated_same))
+        self.assertNotEqual(normalized_base_signature(eu),
+                            normalized_base_signature(changed_control_flow))
+        changed = [{"guest_function": "0x82001000"}]
+        candidates = match_usa_functions(
+            {0x82001000: eu}, {0x82301000: changed_control_flow}, changed)
+        self.assertEqual(candidates[0]["status"], "no_unique_exact_match")
+        self.assertIsNone(candidates[0]["usa_candidate"])
+
+        with self.assertRaisesRegex(ValueError, "Invalid PPC instruction"):
+            normalized_base_signature({
+                "count": 2, "addresses": (0x82001000, 0x82001000),
+                "instructions": ("blr", "blr"),
+            })
+
     def test_optional_usa_correlation_is_unique_or_fail_closed(self):
         # EU original and US may have relocated PPC branch target addresses.
         # Only branch destinations may differ, never ordinary gameplay constants.
@@ -32,6 +61,9 @@ class Tu1WaterEvidenceTests(unittest.TestCase):
         different = {"count": 26, "instructions":
                      ("addi r3,r3,2",) * 25 + ("bl 82304000",)}
         changed = [{"guest_function": "0x82001000"}]
+        eu["addresses"] = tuple(0x82001000 + i * 4 for i in range(26))
+        us["addresses"] = tuple(0x82301000 + i * 4 for i in range(26))
+        different["addresses"] = us["addresses"]
         self.assertEqual(normalized_base_signature(eu),
                          normalized_base_signature(us))
         self.assertNotEqual(normalized_base_signature(eu),

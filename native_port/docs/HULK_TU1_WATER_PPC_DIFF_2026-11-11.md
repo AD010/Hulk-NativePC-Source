@@ -106,3 +106,14 @@ python ci/diff_hulk_tu1_guest_ppc.py \
   --output /private/tu1-function-candidates.json
 ```
 
+
+### 11 November: safe branch-topology correlation
+
+Region mapping now keeps the **internal PPC branch destination structure**,
+indexed by local instruction position. Only external call targets are normalized
+as relocations. Previously two functions with the same mnemonics but different
+internal loop/branch destinations could have received the same signature.
+This is not acceptable for water-state-machine fixes. An invalid/duplicate
+instruction address also fails closed. Local synthetic regression: six tests
+passed (relocation, topology, external call, changed constant, duplicate and
+missing address). No game input changed, no Windows build or water claim.

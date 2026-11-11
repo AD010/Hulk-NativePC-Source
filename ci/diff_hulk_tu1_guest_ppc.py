@@ -176,22 +176,39 @@ def compare(base: dict[int, dict], patched: dict[int, dict]) -> dict:
 
 
 
-def normalized_base_signature(function: dict) -> str:
-    """Region-independent *exact* signature for a PPC function.
+BRANCH_TARGET = re.compile(r"(?<![\w])(?:0x)?[0-9a-fA-F]{8}(?![\w])")
 
-    Only eight-digit branch targets are masked. Other immediates, register
-    operands and instruction order remain intact: a fuzzy match here would
-    risk treating unrelated EU/USA functions as equivalent.
+
+def normalized_base_signature(function: dict) -> str:
+    """Relocation-independent PPC signature, retaining internal branch topology.
+
+    Replacing *all* branch targets with wildcards would silently treat
+    different loops, state machines and water-entry transitions as identical.
+    Map targets within the function to instruction positions, not absolute
+    addresses. Only external calls remain relocation-neutral.
     """
+    instructions = function["instructions"]
+    addresses = function["addresses"]
+    if (len(instructions) != function["count"] or
+        len(addresses) != function["count"] or
+        len(set(addresses)) != len(addresses) or
+        any(not isinstance(at, int) or at < 0 or at > 0xFFFFFFFF or at % 4
+            for at in addresses)):
+        raise ValueError("Invalid PPC instruction addresses for normalized signature")
+    positions = {addr: i for i, addr in enumerate(addresses)}
+
     def canonical(inst: str) -> str:
         op, _, rest = inst.partition(" ")
         if op.lower().startswith("b"):
-            rest = re.sub(r"(?<![\w])(?:0x)?[0-9a-fA-F]{8}(?![\w])",
-                          "<TARGET>", rest)
+            def relocation(match: re.Match[str]) -> str:
+                target = int(match.group(0), 16)
+                return (f"<LOCAL:{positions[target]}>" if target in positions
+                        else "<EXTERNAL>")
+            rest = BRANCH_TARGET.sub(relocation, rest)
         return op + (" " + rest if rest else "")
+
     return hashlib.sha256(
-        "\n".join(canonical(inst) for inst in function["instructions"])
-        .encode("utf-8")
+        "\n".join(canonical(inst) for inst in instructions).encode("utf-8")
     ).hexdigest()
 
 
