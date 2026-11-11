@@ -89,7 +89,9 @@ def audit(base_raw: bytes, delta_raw: bytes, files: dict[str, bytes]) -> dict:
 
 
 
-# TU1 ARC entries are not directly interchangeable with the base ARC bytes.
+# TU1 Objects/QuickDatas/Models ARC entries are not directly interchangeable
+# with the base ARC bytes. Datasets delta entries are *uncompressed* records,
+# and must NOT be fed into this ZIP decoder.
 # Format: u32be(total_decompressed), u32be(0x10000), repeated blocks of
 # u32be(local_zip_length) + ZIP LOCAL header (no central directory) +
 # raw DEFLATE bytes. Blocks can span 64 KiB uncompressed. The first
@@ -153,7 +155,7 @@ def compare_tu1_resource_payloads(
     original = parse_index(base_index)
     update = parse_index(tu1_index)
     report = {
-        "format": "Hulk TU1 local ZIP raw-DEFLATE / independent 64KiB blocks",
+        "format": "Objects/QuickDatas/Models: local ZIP raw DEFLATE blocks; Datasets: direct uncompressed records",
         "groups": {}, "total_equal": 0, "total_different": 0,
         "total_tu1_only": 0, "unexamined_groups": [],
         "usa_runtime_overlay_enabled": False,
@@ -170,7 +172,8 @@ def compare_tu1_resource_payloads(
             off, size = item["offset"], item["size"]
             if not size or off < 4 or off + size > len(patched):
                 raise ValueError(f"TU1 {name}/{key}: archive range invalid")
-            payload = decode_tu1_resource(patched[off:off + size])
+            payload = (patched[off:off + size] if name == "Datasets"
+                       else decode_tu1_resource(patched[off:off + size]))
             text_name = payload.split(b"\0", 1)[0][:120].decode(
                 "ascii", errors="ignore")
             if name == "QuickDatas" and text_name.startswith("city_zone_") and text_name.endswith("__lod"):
