@@ -144,6 +144,9 @@ def run(sha=SHA):
         # 640x360 resolved fetch may both represent 2560x1440 host pixels.
         # Check the generated actual C++, not only the synthetic patch fixture.
         resolved_cpp=(source/"src/targets.cpp").read_text(encoding="utf-8")
+        if ("HULK/SHARED-RESOLVE-WRITE" not in resolved_cpp or
+            "HulkSharedLatestWrite(target)" not in resolved_cpp):
+            missing.append("Physical image shared write epoch missing on Resolve")
         resolved_h=(source/"src/targets.h").read_text(encoding="utf-8")
         for filename, content in (
             ("src/renderer.cpp", renderer),
