@@ -305,6 +305,14 @@ try {
     Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_register_order.py'), $NxrFull) $Source
     # Do not Present pending Vulkan frames while the window has no client area.
     Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_minimized_pending_swap.py'), $NxrFull) $Source
+    # Reject impossible Vulkan images before allocating GPU memory:
+    # log176's 1280x720 cube texture cannot be created by Vulkan.
+    # Keep the game data and NativeX missing-texture fallback unchanged.
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_texture_resource_guard.py')) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_texture_resource_guard.py'), $NxrFull) $Source
+    if (-not (Get-Content -LiteralPath (Join-Path $NxrFull 'src/guest_textures.cpp') -Raw).Contains('HULK/TEXTURE-RESOURCE-GUARD')) {
+      throw 'Hulk Vulkan invalid resource descriptor guard missing.'
+    }
     # Preserve known-buildable NativeX pipeline scheduling. The optional
     # wait-all experiment stays source-only until independently proven
     # against this pinned Diligent/Vulkan build and a real Hulk frame.

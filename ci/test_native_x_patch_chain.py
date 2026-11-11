@@ -26,6 +26,8 @@ EXPERIMENTS=[
  "ci/patch_native_x_hulk_pm4_draw_payload.py",
  "ci/test_patch_native_x_hulk_packet_dma_snapshot.py",
  "ci/patch_native_x_hulk_packet_dma_snapshot.py",
+ "ci/test_patch_native_x_hulk_texture_resource_guard.py",
+ "ci/patch_native_x_hulk_texture_resource_guard.py",
 ]
 
 def commands():
@@ -104,6 +106,9 @@ def run(sha=SHA):
             missing.append("HULK 520/1040 depth+color MSAA alias requires matching live XDK object")
         if "hulk_packet_draws_mapped" not in renderer:
             missing.append("HULK accepted surface binding counter")
+        texture=(source/"src/guest_textures.cpp").read_text(encoding="utf-8")
+        if "HULK/TEXTURE-RESOURCE-GUARD" not in texture:
+            missing.append("Hulk Vulkan texture descriptor guard")
         state=(source/"src/state.cpp").read_text(encoding="utf-8")
         for name, body in (
             ("HULK/PM4-PAYLOAD",state),
