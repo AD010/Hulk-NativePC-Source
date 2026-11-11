@@ -1,5 +1,47 @@
 # NativeX index ownership and upload ordering — 2026-11-11
 
+## Continuation: index conversion cache invalidation
+
+Audited current main `fda4e4623bd96a71ee92c312ead456008ab8438f` after
+the owner's manual-only release gate. No new Windows run is started here.
+Build 59 was cancelled by a subsequent run. Build 62 completed successfully
+at `e06ec7ce8a52df0a7d52fddc2de55b381e4df4c3`; its private ZIP is
+`Hulk-NativePC-Vulkan-PresentFix-e06ec7ce8a52.zip` (55,150,016 bytes).
+It does NOT include later main changes or the cache fix described below.
+
+Latest inspected gameplay evidence is now `incredible_hulk_176.log`:
+4,815 lines, 561 errors, 244 oversized 1D texture errors, 248 tiled 1D
+texture errors, and 63 unsupported primitive errors. No shader-analysis
+failure line appears in this log. This does not establish shader correctness
+or the cause of the reported crash. The log still presents a 2560x1440 host
+image into a 2560x1600 swapchain. Neither build 62 nor current main was
+validated by this older gameplay log.
+
+The ReXGlue `recomp` branch's `src/graphics/primitive_processor.cpp`, blob
+`d49e9c35a799a283df496d21de6fdca72a5e60ea`, tests cache overlap using
+`entry.base < write.end && entry.end > write.end`. This misses exact range
+rewrites, writes containing the entire entry, and some right-edge overlaps.
+The corrected second comparison is `entry.end > write.start`, preserving
+the existing bucket traversal, locking and eviction implementation.
+
+Example: cached indices [100,120), write [100,120). The old predicate keeps
+the stale converted indices; the corrected predicate invalidates them.
+Adjacent, non-overlapping writes still retain the cache. No blanket cache
+disable or guest memory modification is used.
+
+Validation compiles the actual source's overlap predicates and checks them
+against an independent byte-enumeration oracle for all 18,496 pairs of
+nonempty intervals in a 16-byte domain, plus physical-buffer boundary cases.
+Tests reproduce the old false-negative and pass after patching. They also
+check idempotence and refuse unknown/partial SDK layouts. They do not execute
+the full cache's locking/bucket implementation or prove GPU image parity.
+The existing Windows builder invokes this check against its actual SDK
+before installing the narrow fix. The workflow remains manual-only.
+
+Still unresolved: CPU primitive conversion reads live guest indices rather
+than command-owned snapshots. Correct invalidation is necessary, but does
+not solve that separate asynchronous lifetime problem.
+
 Baseline: source main `99368e184979b1e00cb51c74af8049c991bd3653`;
 NativeX production pin `919371b5bdae0c9c4c7120ca321f5a4d72b7e78e`.
 Latest available owner gameplay log inspected: `incredible_hulk_175.log`

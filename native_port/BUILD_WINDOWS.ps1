@@ -70,6 +70,10 @@ try {
   # HULK USA DIAGNOSTIC: guard an observed potential MnK shutdown race.
   $InputPatch = Join-Path (Split-Path $Source -Parent) 'ci/patch_sdk_input_lifetime.py'
   Invoke-Checked 'python' @($InputPatch, $Sdk) $Source
+  # Reused index ranges must invalidate CPU primitive conversions, including
+  # exact rewrites and writes covering the entire cached range.
+  Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_sdk_hulk_index_cache.py'), $Sdk) $Source
+  Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_sdk_hulk_index_cache.py'), $Sdk) $Source
   # Hulk original city: locate real low/high LOD archive ranges, no rendering changes.
   Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_sdk_hulk_world_stream_trace.py')) $Source
   Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_sdk_hulk_world_stream_trace.py'), $Sdk) $Source
