@@ -16,7 +16,8 @@ with tempfile.TemporaryDirectory() as d:
     cpp = generated.read_text()
     assert "HULK_NATIVE_X_HOOK(8289D730,0)" in cpp
     assert "HULK_NATIVE_X_HOOK(8289D888,1)" in cpp
-    assert "gpu_probe::Hit(index, 0x##addr" in cpp
+    assert "gpu_probe::Hit(index, 0x##addr, ctx)" in cpp
+    assert "ctx.r3.u32, ctx.r4.u32, ctx.r5.u32" not in cpp
     assert "__imp__sub_##addr(ctx,base)" in cpp
     addresses.write_text("8289D730\n8289D730\n")
     p = subprocess.run([sys.executable,str(s),str(addresses),str(mapping),str(generated)],
