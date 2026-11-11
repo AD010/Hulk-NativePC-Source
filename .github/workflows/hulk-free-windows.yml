@@ -1,9 +1,8 @@
 name: Hulk NativePC - Free Public Windows Builder
 on:
-  # One-shot source verification requested by the owner. Revert to manual-only
-  # immediately after a single run has started, without adding a new workflow.
-  push:
-    branches: [main]
+  # User-requested release gate: do not start more experimental Windows
+  # builds on source edits. Keep this single Release-only workflow available
+  # for an explicit final validation through GitHub Actions.
   workflow_dispatch:
 permissions:
   contents: write
