@@ -105,8 +105,8 @@ def patch_shaders(src: str) -> tuple[str,bool]:
         src.count(SHADER_CREATE_NEW)==2 and
         TRANSLATE_NAME_NEW in src and MOTION_NAME_NEW in src):
         return src,False
-    if "HULK/NVIDIA-COMPILE-BOUNDARY" in src or
-        "HulkSpirvStructurallyValid" in src:
+    if ("HULK/NVIDIA-COMPILE-BOUNDARY" in src or
+            "HulkSpirvStructurallyValid" in src):
         raise ValueError("Partially installed Hulk NVIDIA shader boundary patch")
     for old, expected in ((HEADER_OLD,1),(TRANSLATE_BINARY_OLD,1),
                           (TRANSLATE_NAME_OLD,1),(MOTION_BINARY_OLD,1),
