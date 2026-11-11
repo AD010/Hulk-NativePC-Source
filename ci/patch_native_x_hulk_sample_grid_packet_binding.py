@@ -118,7 +118,7 @@ NEW = """    const HulkSurfaceIdentity gpu_key = HulkSurfaceKey(gpu_surface, gpu
         const auto it = g_hulk_surface_history[4].find(
             HulkSurfaceKey(gpu_surface, 0u));
         if (it != g_hulk_surface_history[4].end()) {
-          const GuestSurface& known = it->second;
+          const GuestSurface& known = it->second.first;
           const GuestSurface live = known && known.object
               ? ReadSurface(base, known.object, true, g_profile->objects)
               : GuestSurface{};
@@ -131,6 +131,7 @@ NEW = """    const HulkSurfaceIdentity gpu_key = HulkSurfaceKey(gpu_surface, gpu
               live.pitch() == 1280 && live.msaa() == 0 &&
               (live.surface_info & 0x3FFFu) == 1280u)
             verified_depth = known;
+          if (verified_depth) it->second.second = ++g_hulk_surface_stamp;
         }
       }
       if (verified_depth) {
@@ -161,9 +162,20 @@ NEW = """    const HulkSurfaceIdentity gpu_key = HulkSurfaceKey(gpu_surface, gpu
       {
         std::lock_guard<std::mutex> guard(g_hulk_surface_history_mutex);
         const HulkSurfaceIdentity xdk_key{2u * (gpu_surface & 0x3FFFu), gpu_info & 0x000F0FFFu};
-        const auto it = g_hulk_surface_history[slot].find(xdk_key);
-        if (it != g_hulk_surface_history[slot].end()) {
-          const GuestSurface& known = it->second;
+        auto& xdk_history = g_hulk_surface_history[slot];
+        // The base cache now uses FULL GPU register keys. The old masked
+        // xdk_key alone cannot find a real 1x XDK view (0x14000500 vs 0x500).
+        // Search the bounded 256-entry history, then validate the live XDK
+        // object and exact 1x/4x dimensions below before accepting it.
+        const auto it = std::find_if(xdk_history.begin(), xdk_history.end(),
+            [&](const auto& entry) {
+              const GuestSurface& known = entry.second.first;
+              return known && known.depth == (slot == 4) &&
+                     known.pitch() == xdk_key.first &&
+                     (entry.first.second & 0x000F0FFFu) == xdk_key.second;
+            });
+        if (it != xdk_history.end()) {
+          const GuestSurface& known = it->second.first;
           const GuestSurface live = known ? ReadSurface(base, known.object, known.depth,
                                                        g_profile->objects) : GuestSurface{};
           if (live && live.depth == (slot == 4) &&
@@ -175,6 +187,7 @@ NEW = """    const HulkSurfaceIdentity gpu_key = HulkSurfaceKey(gpu_surface, gpu
               live.pitch() == 2u * (gpu_surface & 0x3FFFu) && live.msaa() == 0 &&
               (live.info & 0x000F0FFFu) == (gpu_info & 0x000F0FFFu))
             verified = live;
+          if (verified) it->second.second = ++g_hulk_surface_stamp;
         }
       }
       if (verified) {
@@ -196,8 +209,8 @@ NEW = """    const HulkSurfaceIdentity gpu_key = HulkSurfaceKey(gpu_surface, gpu
       }
     }"""
 
-HISTORY_OLD = "    {\n      std::lock_guard<std::mutex> guard(g_hulk_surface_history_mutex);\n      const auto it = g_hulk_surface_history[slot].find(gpu_key);\n      if (it != g_hulk_surface_history[slot].end()) {\n        out[slot] = it->second;\n        has_target = true;\n        continue;\n      }\n    }"
-HISTORY_NEW = "    {\n      // HULK/PM4-HISTORY-LIVE: cached GuestSurface entries refer to an XDK\n      // guest object, which may be freed/reused as the game streams zones.\n      // Never attach an object from the old scene without validating its\n      // CURRENT header. Preserve only real same-grid or verified 1x->4x\n      // representations (EDRAM base may differ, format must not).\n      std::lock_guard<std::mutex> guard(g_hulk_surface_history_mutex);\n      auto& history = g_hulk_surface_history[slot];\n      const auto it = history.find(gpu_key);\n      if (it != history.end()) {\n        const GuestSurface& known = it->second;\n        const GuestSurface live = known && known.object\n            ? ReadSurface(base, known.object, known.depth, g_profile->objects)\n            : GuestSurface{};\n        const bool same_kind_format = live && live.depth == known.depth &&\n            (live.info & 0xFFFFF000u) == (known.info & 0xFFFFF000u);\n        // HULK/PM4-HISTORY-BASE-GUARD: low 12 bits are the EDRAM base.\n        // The older history check deliberately ignored them to allow the\n        // proven Hulk 0/0x400 RT view pair, but also admitted arbitrary\n        // other EDRAM bases after an XDK object was recycled. That silently\n        // bound stale render targets from a different scene.\n        const uint32_t known_edram_base = known.info & 0xFFFu;\n        const uint32_t live_edram_base = live.info & 0xFFFu;\n        const bool same_edram_base = known_edram_base == live_edram_base;\n        const bool authenticated_rt0_rebase =\n            slot == 0 && !known.depth &&\n            known.surface_info == 0x14000500u &&\n            known.width == 1280 && known.height == 720 &&\n            known.pitch() == 1280 && known.msaa() == 0u &&\n            known_edram_base == 0u && live_edram_base == 0x400u;\n        const bool paired_known_base =\n            (known_edram_base == 0u && live_edram_base == 0x400u) ||\n            (known_edram_base == 0x400u && live_edram_base == 0u);\n        const bool same_grid = same_kind_format &&\n            (same_edram_base || authenticated_rt0_rebase) &&\n            live.width == known.width && live.height == known.height &&\n            live.pitch() == known.pitch() && live.msaa() == known.msaa() &&\n            (live.surface_info & 0x0003FFFFu) ==\n                (known.surface_info & 0x0003FFFFu);\n        const bool paired_4x = same_kind_format &&\n            (same_edram_base || paired_known_base) &&\n            known.msaa() == 2u && live.msaa() == 0u &&\n            uint64_t(live.width) == 2ull * known.width &&\n            uint64_t(live.height) == 2ull * known.height &&\n            uint64_t(live.pitch()) == 2ull * known.pitch();\n        if (same_grid || paired_4x) {\n          out[slot] = known;\n          has_target = true;\n          continue;\n        }\n        // Retire a stale object instead of repeatedly binding its old RT\n        // descriptor, which caused frame-dependent color/depth aliasing.\n        history.erase(it);\n        static std::atomic<uint64_t> stale{0};\n        const uint64_t n = ++stale;\n        if (n <= 8 || n % 10000 == 0)\n          REXLOG_WARN(\"[HULK/PM4-HISTORY-LIVE] rejected stale slot={} object; total={}\",\n                      slot, n);\n      }\n    }"
+HISTORY_OLD = "    {\n      std::lock_guard<std::mutex> guard(g_hulk_surface_history_mutex);\n      const auto it = g_hulk_surface_history[slot].find(gpu_key);\n      if (it != g_hulk_surface_history[slot].end()) {\n        out[slot] = it->second.first;\n        it->second.second = ++g_hulk_surface_stamp;\n        has_target = true;\n        continue;\n      }\n    }"
+HISTORY_NEW = "    {\n      // HULK/PM4-HISTORY-LIVE: cached GuestSurface entries refer to an XDK\n      // guest object, which may be freed/reused as the game streams zones.\n      // Never attach an object from the old scene without validating its\n      // CURRENT header. Preserve only real same-grid or verified 1x->4x\n      // representations (EDRAM base may differ, format must not).\n      std::lock_guard<std::mutex> guard(g_hulk_surface_history_mutex);\n      auto& history = g_hulk_surface_history[slot];\n      const auto it = history.find(gpu_key);\n      if (it != history.end()) {\n        const GuestSurface& known = it->second.first;\n        const GuestSurface live = known && known.object\n            ? ReadSurface(base, known.object, known.depth, g_profile->objects)\n            : GuestSurface{};\n        const bool same_kind_format = live && live.depth == known.depth &&\n            (live.info & 0xFFFFF000u) == (known.info & 0xFFFFF000u);\n        // HULK/PM4-HISTORY-BASE-GUARD: low 12 bits are the EDRAM base.\n        // The older history check deliberately ignored them to allow the\n        // proven Hulk 0/0x400 RT view pair, but also admitted arbitrary\n        // other EDRAM bases after an XDK object was recycled. That silently\n        // bound stale render targets from a different scene.\n        const uint32_t known_edram_base = known.info & 0xFFFu;\n        const uint32_t live_edram_base = live.info & 0xFFFu;\n        const bool same_edram_base = known_edram_base == live_edram_base;\n        const bool authenticated_rt0_rebase =\n            slot == 0 && !known.depth &&\n            known.surface_info == 0x14000500u &&\n            known.width == 1280 && known.height == 720 &&\n            known.pitch() == 1280 && known.msaa() == 0u &&\n            known_edram_base == 0u && live_edram_base == 0x400u;\n        const bool paired_known_base =\n            (known_edram_base == 0u && live_edram_base == 0x400u) ||\n            (known_edram_base == 0x400u && live_edram_base == 0u);\n        const bool same_grid = same_kind_format &&\n            (same_edram_base || authenticated_rt0_rebase) &&\n            live.width == known.width && live.height == known.height &&\n            live.pitch() == known.pitch() && live.msaa() == known.msaa() &&\n            (live.surface_info & 0x0003FFFFu) ==\n                (known.surface_info & 0x0003FFFFu);\n        const bool paired_4x = same_kind_format &&\n            (same_edram_base || paired_known_base) &&\n            known.msaa() == 2u && live.msaa() == 0u &&\n            uint64_t(live.width) == 2ull * known.width &&\n            uint64_t(live.height) == 2ull * known.height &&\n            uint64_t(live.pitch()) == 2ull * known.pitch();\n        if (same_grid || paired_4x) {\n          out[slot] = known;\n          it->second.second = ++g_hulk_surface_stamp;\n          has_target = true;\n          continue;\n        }\n        // Retire a stale object instead of repeatedly binding its old RT\n        // descriptor, which caused frame-dependent color/depth aliasing.\n        history.erase(it);\n        static std::atomic<uint64_t> stale{0};\n        const uint64_t n = ++stale;\n        if (n <= 8 || n % 10000 == 0)\n          REXLOG_WARN(\"[HULK/PM4-HISTORY-LIVE] rejected stale slot={} object; total={}\",\n                      slot, n);\n      }\n    }"
 
 def patch_text(source: str):
     if NEW in source and HISTORY_NEW in source:

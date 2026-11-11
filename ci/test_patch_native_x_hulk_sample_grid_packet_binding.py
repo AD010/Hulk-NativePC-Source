@@ -157,6 +157,12 @@ class HulkPacketSampleViewTests(unittest.TestCase):
         self.assertIn("live.width == known.width && live.height == known.height", HISTORY_NEW)
         self.assertIn("known.msaa() == 2u && live.msaa() == 0u", HISTORY_NEW)
         self.assertIn("history.erase(it);", HISTORY_NEW)
+        self.assertIn("it->second.second = ++g_hulk_surface_stamp;", HISTORY_NEW)
+        self.assertIn("const GuestSurface& known = it->second.first;", HISTORY_NEW)
+        self.assertIn("out[slot] = it->second.first;", HISTORY_OLD)
+        self.assertIn("std::find_if(xdk_history.begin(), xdk_history.end()", NEW)
+        self.assertIn("const GuestSurface& known = entry.second.first;", NEW)
+        self.assertNotIn("g_hulk_surface_history[slot].find(xdk_key)", NEW)
         self.assertNotIn("out[slot] = it->second;", HISTORY_NEW)
 
         def valid(known, live):
