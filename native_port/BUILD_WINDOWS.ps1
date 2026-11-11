@@ -328,6 +328,8 @@ try {
     # Xenos SET_CONSTANT and LOAD_ALU_CONSTANT execute in PM4 packet order:
     # do not overwrite later fetch descriptors with earlier shadow values.
     Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_register_order.py'), $NxrFull) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_gap_shader_snapshot.py')) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_gap_shader_snapshot.py'), $NxrFull) $Source
     # Do not Present pending Vulkan frames while the window has no client area.
     Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_minimized_pending_swap.py'), $NxrFull) $Source
     # Reject impossible Vulkan images before allocating GPU memory:

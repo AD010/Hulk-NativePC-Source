@@ -159,6 +159,10 @@ def run(sha=SHA):
         if "HULK/RESOLVE-RESOURCE-GUARD" not in resolved_cpp:
             missing.append("Hulk resolved Vulkan texture descriptor guard")
         state=(source/"src/state.cpp").read_text(encoding="utf-8")
+        if ("HULK/PM4-PRESCAN-SHADER-SNAPSHOT" not in state or
+            "hulk_prescan_words.data() + original.ucode_offset" not in state or
+            "hulk_shader_replay_ok" not in state):
+            missing.append("PM4 shader snapshot must survive validated gap replay")
         if ("HULK/PM4-GUEST-MEMORY-BOUNDS" not in state or
             "HULK/PM4-SHADER-SOURCE-BOUNDS" not in state or
             "uint64_t(address) + uint64_t(dwords) * 4ull" not in state):
