@@ -26,6 +26,7 @@ class RecentPixelLoadTests(unittest.TestCase):
         renderer = patched["src/renderer.cpp"]
         self.assertIn("if (load.type == 1)", state)
         self.assertIn("++hulk_ps_recent_serial_", state)
+        self.assertIn("HULK/PS-RECENT-LOAD", state)
         self.assertIn("hulk_ps_recent_packet_ = 0;", state)
         self.assertIn("hulk_ps_recent_call() const", header)
         self.assertIn("last_load_serial={}", renderer)

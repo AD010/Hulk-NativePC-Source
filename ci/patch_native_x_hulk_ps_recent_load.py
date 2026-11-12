@@ -33,6 +33,7 @@ LOAD_OLD = """  for (const auto& load : scan_.shader_loads) {
     if (load.type >= 2) continue;"""
 LOAD_NEW = """  for (const auto& load : scan_.shader_loads) {
     if (load.type >= 2) continue;
+    // HULK/PS-RECENT-LOAD: execute before the shader cache's fast path.
     // This must run BEFORE the recent_programs_ fast-path continue and
     // cached-program lookup: both reuse Program's first-origin metadata.
     if (load.type == 1) {
