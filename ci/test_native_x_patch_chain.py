@@ -34,6 +34,8 @@ EXPERIMENTS=[
  "ci/patch_native_x_hulk_spirv_compiler_guard.py",
  "ci/test_patch_native_x_hulk_driver_compile_serial.py",
  "ci/patch_native_x_hulk_driver_compile_serial.py",
+ "ci/test_patch_native_x_hulk_incomplete_xdk_draw.py",
+ "ci/patch_native_x_hulk_incomplete_xdk_draw.py",
 ]
 
 def commands():
