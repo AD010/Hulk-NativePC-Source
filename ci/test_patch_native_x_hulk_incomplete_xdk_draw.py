@@ -10,6 +10,7 @@ class IncompleteXdkTests(unittest.TestCase):
         self.assertTrue(changed)
         self.assertEqual(patch(out), (out, False))
         self.assertIn("if (!scan_.complete)", out)
+        self.assertIn("last_hulk_segment_valid_ = false;", out)
         self.assertIn("scan_.Clear();\n    return nullptr;", out)
         self.assertLess(out.index("if (!scan_.complete)"), out.index(ANCHOR))
         self.assertIn("HULK/INCOMPLETE-XDK-DRAW-GUARD", out)
