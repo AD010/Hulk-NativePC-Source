@@ -190,3 +190,27 @@ prematurely would make the old Xbox-path save invisible to the game. The
 native root still stores Xbox-format *opaque data*, not the proprietary 2008
 Windows serializer. Runtime save/reload, Xbox→PC format conversion and
 atomic content payload commits remain separately unverified.
+
+## Exact observed integrity envelope, 12 November
+
+The two owner-provided save payloads were extracted offline from separate RAR5
+archives (they are never committed). A byte-level experiment establishes that
+**the first 32-bit word in BOTH payloads is CRC32 of all bytes starting at
+offset 12**. Xbox stores that checksum in big-endian order; the original
+Windows edition stores it in little-endian order. Both actual samples PASS.
+
+The next 32-bit word is different for each sample and is **not yet proven**
+to equal the complete file length; don't rewrite it as an assumed length.
+The 8-byte hashed-parameter tables start at Xbox byte offset 20 vs Windows
+offset 16. The first 242 **field IDs** match in sequence after endian
+conversion, while only 52 of the corresponding **field values** match.
+The divergence includes object references/pointer-like serialized data.
+Thus a cross-platform converter must interpret records, version changes,
+object/graph references and unknown checksum/length fields; re-endianing
+the entire file or replacing only CRC32 would be unsafe.
+
+Use `python ci/audit_hulk_save_pair.py xbox_HULK.SAV windows_HULK.sav
+--output save_pair_audit.json` for a read-only repeatable comparison.
+`python ci/test_audit_hulk_save_pair.py` runs four synthetic regressions
+without any private game save bytes. The result reports `conversion_ready:
+false` until an independently verified serializer and load test exist.
