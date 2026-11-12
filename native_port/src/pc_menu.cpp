@@ -14,6 +14,9 @@
 #include <utility>
 
 namespace hulk {
+// Window focus/capture is owned by game_window.cpp; do not invent a second
+// mouse-capture state in this diagnostic overlay.
+void GameWindowMenuClosed();
 namespace {
 std::atomic<bool> visible{false};
 rex::ui::Window* game_window = nullptr; // accessed only on host UI thread
@@ -109,6 +112,7 @@ bool PcMenuIsOpen() {
 void PcMenuSetOpen(bool open) {
   const bool old = visible.exchange(open, std::memory_order_acq_rel);
   if (old != open) REXLOG_INFO("[HULK/PCMENU] visible={}", open);
+  if (old && !open) GameWindowMenuClosed();
   if (game_window) game_window->RequestPaint();
 }
 void PcMenuToggle() { PcMenuSetOpen(!PcMenuIsOpen()); }

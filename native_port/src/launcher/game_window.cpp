@@ -83,12 +83,9 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     REXLOG_INFO("[HULK/PCMENU] F10 message={} open={}",
                 msg == WM_SYSKEYDOWN ? "WM_SYSKEYDOWN" : "WM_KEYDOWN",
                 PcMenuIsOpen());
-    if (PcMenuIsOpen()) {
-      NativeInputReleaseCapture();
-    } else if (g_restore_after_menu.exchange(false, std::memory_order_acq_rel) &&
-               GetForegroundWindow() == hwnd) {
-      NativeInputSetCapture(true);
-    }
+    if (PcMenuIsOpen()) NativeInputReleaseCapture();
+    // Closing (by F10, the Resume button, or the title-bar X) uses the same
+    // GameWindowMenuClosed path; it recaptures only when previously captured.
     g_hidden = false;
     SetCursor(LoadCursorA(nullptr, IDC_ARROW));
     PostMessageW(hwnd, WM_SETCURSOR, reinterpret_cast<WPARAM>(hwnd),
@@ -204,6 +201,15 @@ void Attach() {
 
 }  // namespace
 
+void GameWindowMenuClosed() {
+  // HULK/MENU-FOCUS-RECAPTURE: restore the previous capture regardless of
+  // whether the menu was closed by F10, the Resume button, or the X.
+  const bool restore = g_restore_after_menu.exchange(false, std::memory_order_acq_rel);
+  const HWND hwnd = g_window.load(std::memory_order_acquire);
+  if (restore && hwnd && IsWindow(hwnd) && GetForegroundWindow() == hwnd)
+    NativeInputSetCapture(true);
+}
+
 // `pad_used`: a connected controller's buttons or sticks changed since the last poll.
 void GameWindowTick(bool pad_used) {
   static uint32_t polls = 0;
@@ -223,6 +229,7 @@ void GameWindowTick(bool pad_used) {
 }
 #else
 void GameWindowTick(bool) {}
+void GameWindowMenuClosed() {}
 #endif
 
 // What the input hook passes: the state it saw last for slot `user`, and whether it changed.
