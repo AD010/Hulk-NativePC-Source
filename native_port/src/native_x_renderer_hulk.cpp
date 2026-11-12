@@ -130,8 +130,15 @@ bool NativeXInitialize(
     return false;
   }
 
-  if (!ValidateProfile(*candidate))
+  if (!ValidateProfile(*candidate)) {
+    // HULK/NATIVEX-FALLBACK-EXPLICIT: the config may request NativeX while
+    // the executable lacks one of the actual PPC wrappers (build #68 Clear).
+    // Do not let GPU-MODE NativeX=true be mistaken for active native drawing.
+    REXLOG_ERROR(
+        "[HULK/GPU-MODE] NativeX NOT ACTIVE: compiled XDK hook validation "
+        "failed; Xenos Vulkan fallback is presenting the game");
     return false;
+  }
 
   std::error_code error;
   std::filesystem::create_directories(cache, error);
