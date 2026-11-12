@@ -238,7 +238,7 @@ int main() {
             "std::swap(c.data[offset + i], c.data[offset + i + 2])",
             "HULK/PM4-DMA-ADDRESS-PARITY",
             "const uint32_t physical = dma_base & ~(stride - 1u)",
-            "c.copies[c.copy_count++] = {physical",
+            "c.copies[c.copy_count++] = {capture_base, offset, uint32_t(capture_bytes)}",
             "[HULK/PM4-DMA-SNAPSHOT]"
         ):
             self.assertIn(token, ADDITION)
