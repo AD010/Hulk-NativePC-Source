@@ -53,5 +53,16 @@ class SceneBudgetTests(unittest.TestCase):
         self.assertEqual(deadline(100, 400, False), 3400)
         self.assertIn("device_->frames_presented()", DRAW_NEW)
 
+    def test_production_preflight_uses_source_patch_as_single_authority(self):
+        # Prevent repeating build #80/#81: if wait budget changes, the
+        # integrated source gate must not keep a stale hardcoded duration.
+        from pathlib import Path
+        gate = (Path(__file__).resolve().parent /
+                "test_native_x_patch_chain.py").read_text(encoding="utf-8")
+        self.assertIn("HULK_SCENE_WAIT_CPP not in draw", gate)
+        self.assertIn("from patch_native_x_hulk_scene_wait_budget import DRAW_NEW", gate)
+        self.assertNotIn('"hulk_scene_wait_start_ + std::chrono::milliseconds(', gate)
+
+
 if __name__ == "__main__":
     unittest.main()

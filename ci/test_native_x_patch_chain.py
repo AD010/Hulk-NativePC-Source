@@ -13,6 +13,10 @@ import subprocess
 import sys
 import tempfile
 
+# Single authoritative C++ wait snippet: don't copy the 80/200ms value here.
+# It previously drifted in #80/#81 and failed complete CI preflight.
+from patch_native_x_hulk_scene_wait_budget import DRAW_NEW as HULK_SCENE_WAIT_CPP
+
 ROOT=Path(__file__).resolve().parents[1]
 BUILDER=ROOT/"native_port"/"BUILD_WINDOWS.ps1"
 SHA="bf965e952c98e050753e91d08f32685a9f754b12"
@@ -198,8 +202,7 @@ def run(sha=SHA):
                 "steady && !hulk_wait_scene" not in renderer:
             missing.append("Hulk bounded main-scene pipeline/shader wait")
         header_draw=(source/"src/draw.h").read_text(encoding="utf-8")
-        if ("HULK/SCENE-WAIT-BUDGET" not in draw or
-            "hulk_scene_wait_start_ + std::chrono::milliseconds(200)" not in draw or
+        if (HULK_SCENE_WAIT_CPP not in draw or
             "hulk_scene_wait_frame_" not in header_draw or
             "steady && !hulk_wait_scene, hulk_wait_scene);" not in renderer):
             missing.append("Hulk scene shader/pipeline waits are not frame-budgeted")
