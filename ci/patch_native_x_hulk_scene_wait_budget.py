@@ -4,7 +4,7 @@
 Build #67 missed world draws while async host translations/pipelines compiled.
 The previous Hulk scene-wait option reused upstream D101's 3000 ms limit
 PER DRAW. This could freeze the game repeatedly. Cap the Hulk-only extension
-at 80 ms for ALL draws in one presented frame, and preserve unchanged D101
+at 200 ms for ALL draws in one presented frame, and preserve unchanged D101
 semantics when the Hulk option is disabled. No game/PPC bytes.
 """
 from pathlib import Path
@@ -41,7 +41,7 @@ DRAW_OLD = """  const auto wait_start = std::chrono::steady_clock::now();
   bool waited = false;"""
 DRAW_NEW = """  const auto wait_start = std::chrono::steady_clock::now();
   // HULK/SCENE-WAIT-BUDGET: never wait up to three seconds PER WORLD DRAW.
-  // All scene draws in the current presentation frame share 80 ms total.
+  // All scene draws in the current presentation frame share 200 ms total.
   // Preserve upstream's full D101 wait for non-Hulk/offscreen callers.
   if (hulk_scene_wait_ && hulk_scene_wait_frame_ != device_->frames_presented()) {
     hulk_scene_wait_frame_ = device_->frames_presented();
@@ -49,7 +49,7 @@ DRAW_NEW = """  const auto wait_start = std::chrono::steady_clock::now();
   }
   const auto hulk_wait_deadline = hulk_scene_wait_
       ? std::min(wait_start + kPipelineWaitLimit,
-                 hulk_scene_wait_start_ + std::chrono::milliseconds(80))
+                 hulk_scene_wait_start_ + std::chrono::milliseconds(200))
       : wait_start + kPipelineWaitLimit;
   bool waited = false;"""
 LOOP_OLD = "std::chrono::steady_clock::now() - wait_start < kPipelineWaitLimit"

@@ -22,7 +22,7 @@ class SceneBudgetTests(unittest.TestCase):
         self.assertIn(RENDER_NEW, patched["src/renderer.cpp"])
         self.assertIn(HEADER_NEW, patched["src/draw.h"])
         self.assertIn(FIELDS_NEW, patched["src/draw.h"])
-        self.assertIn("hulk_scene_wait_start_ + std::chrono::milliseconds(80)",
+        self.assertIn("hulk_scene_wait_start_ + std::chrono::milliseconds(200)",
                       patched["src/draw.cpp"])
         self.assertEqual(patched["src/draw.cpp"].count(LOOP_NEW), 2)
         self.assertNotIn(LOOP_OLD, patched["src/draw.cpp"])
@@ -45,11 +45,11 @@ class SceneBudgetTests(unittest.TestCase):
         # This model verifies a deadline shared by the whole presentation
         # frame. The real C++ uses steady_clock and frames_presented().
         def deadline(frame_start_ms, draw_start_ms, enabled):
-            return min(draw_start_ms + 3000, frame_start_ms + 80) if enabled \
+            return min(draw_start_ms + 3000, frame_start_ms + 200) if enabled \
                 else draw_start_ms + 3000
-        self.assertEqual(deadline(100, 100, True), 180)
-        self.assertEqual(deadline(100, 160, True), 180)
-        self.assertEqual(deadline(100, 400, True), 180)
+        self.assertEqual(deadline(100, 100, True), 300)
+        self.assertEqual(deadline(100, 160, True), 300)
+        self.assertEqual(deadline(100, 400, True), 300)
         self.assertEqual(deadline(100, 400, False), 3400)
         self.assertIn("device_->frames_presented()", DRAW_NEW)
 
