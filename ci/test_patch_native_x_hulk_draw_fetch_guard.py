@@ -43,6 +43,7 @@ class HulkDrawFetchGuardTests(unittest.TestCase):
         self.assertFalse(valid(3, 0x07FFFFFF, 2))
         self.assertIn("uint64_t(fetch.address) * 4ull", VERTEX_NEW)
         self.assertIn("vertex_bytes > 0x20000000ull - vertex_start", VERTEX_NEW)
+        self.assertIn("uint32_t(fetch.address), uint32_t(fetch.size)", VERTEX_NEW)
         self.assertNotIn("memory_->RequestRange(fetch.address << 2", VERTEX_NEW)
 
 if __name__ == "__main__":
