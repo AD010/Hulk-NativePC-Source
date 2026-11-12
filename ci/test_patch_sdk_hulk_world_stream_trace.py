@@ -11,7 +11,12 @@ class TestHulkWorldStreamTrace(unittest.TestCase):
         self.assertIn("file_handle_->Read(byte_offset, buffer.data(), buffer.size(), out_bytes_read)", result)
         self.assertIn("return ok ? X_STATUS_SUCCESS : X_STATUS_END_OF_FILE;", result)
         self.assertIn("[HULK/STREAM]", result)
-        self.assertIn("2000", result)
+        self.assertIn("HULK/STREAM-LIFETIME", result)
+        self.assertIn("t_ms={}", result)
+        self.assertIn("read_us={}", result)
+        self.assertIn("window_state.compare_exchange_weak(", result)
+        self.assertIn("(ordinal - 256) % 64 == 0", result)
+        self.assertIn("const bool ok = file_handle_->Read(", result)
         self.assertEqual(apply_patch(result), (result, False))
     def test_mismatched_upstream_refused(self):
         with self.assertRaises(ValueError):
