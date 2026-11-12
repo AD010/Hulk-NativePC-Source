@@ -84,7 +84,7 @@ int main() {
     def test_actual_cpp_snapshot_and_upload_order(self):
         # Compile the production helper. Only map guest physical memory to a
         # small host array instead of reserving the 4 GiB guest address arena.
-        helper = ADDITION.replace('base + (0xA0000000u | physical)', 'base + physical')
+        helper = ADDITION.replace('base + (0xA0000000u | capture_base)', 'base + capture_base')
         before = RESTORE + '  if (primitives_->UploadConverted()) ++stats_.copies;\n' + AHEAD
         after, changed = patch_draw(before)
         self.assertTrue(changed)
