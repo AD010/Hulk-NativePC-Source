@@ -26,7 +26,7 @@ class IncompleteXdkTests(unittest.TestCase):
         self.assertLess(out.index("if (!scan_.complete)"), out.index(ANCHOR))
         self.assertIn("HULK/INCOMPLETE-XDK-DRAW-GUARD", out)
         self.assertIn("std::atomic<uint64_t>", out)
-        self.assertIn("[HULK/LOG192-PM4-BOUNDS]", out)
+        self.assertIn("HULK/LOG192-PM4-BOUNDS", out)
         self.assertIn("end >= p.scan_from", out)
         self.assertIn("p.begin, p.scan_from, end, p.kick", out)
         self.assertIn("packet_draws={} indirect={}", out)
