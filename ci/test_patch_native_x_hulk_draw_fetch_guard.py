@@ -6,7 +6,7 @@ from patch_native_x_hulk_draw_fetch_guard import (
 
 class HulkDrawFetchGuardTests(unittest.TestCase):
     def test_atomic_and_idempotent(self):
-        original = TEXTURE_OLD + "\n" + VERTEX_OLD
+        original = "#include <bit>\n" + TEXTURE_OLD + "\n" + VERTEX_OLD
         patched, changed = patch(original)
         self.assertTrue(changed)
         self.assertEqual(patch(patched), (patched, False))

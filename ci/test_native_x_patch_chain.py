@@ -209,6 +209,8 @@ def run(sha=SHA):
             ("HULK/PM4-PRIMITIVE-SOURCE", renderer),
             ("HULK/PM4-DMA-ADDRESS-PARITY", renderer),
             ("HULK/PM4-DMA-INDEX-ENDIAN", renderer),
+            ("HULK/NATIVEX-DRAW-FETCH-GUARD", draw),
+            ("HULK/NATIVEX-VERTEX-FETCH-GUARD", draw),
             ("HULK/PM4-DMA-NO-LIVE-FALLBACK", draw),
             ("HULK/PM4-PERSISTENT-DMA", renderer),
             ("HULK/PM4-HISTORY-LIVE", renderer),

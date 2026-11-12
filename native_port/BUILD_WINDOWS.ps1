@@ -365,6 +365,9 @@ try {
     Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_scene_pipeline_wait.py'), $NxrFull) $Source
     Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_scene_wait_budget.py')) $Source
     Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_scene_wait_budget.py'), $NxrFull) $Source
+    # Log 185: no draw with invalid shader-used Xenos texture/vertex fetch.
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_draw_fetch_guard.py')) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_draw_fetch_guard.py'), $NxrFull) $Source
     # Preserve known-buildable NativeX pipeline scheduling. The optional
     # wait-all experiment stays source-only until independently proven
     # against this pinned Diligent/Vulkan build and a real Hulk frame.
