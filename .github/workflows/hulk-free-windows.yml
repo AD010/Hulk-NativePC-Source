@@ -3,6 +3,9 @@ on:
   # User-requested release gate: do not start more experimental Windows
   # builds on source edits. Keep this single Release-only workflow available
   # for an explicit final validation through GitHub Actions.
+  # One-shot user-authorized NativePC graphics/input regression Release; restore manual-only.
+  push:
+    branches: [main]
   workflow_dispatch:
 permissions:
   contents: write
