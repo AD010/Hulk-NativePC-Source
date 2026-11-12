@@ -36,6 +36,12 @@ PATCH = """  // HULK/INCOMPLETE-XDK-DRAW-GUARD: a truncated or malformed PM4 cal
     // Invalidate the unhooked-gap cursor too: never replay this damaged
     // segment on the next D3D call after rejecting its tail.
     last_hulk_segment_valid_ = false;
+    // HULK/INCOMPLETE-INLINE-DRAW: a held BeginVertices may have armed
+    // TakeCommittedInlineDraw(). If we discard its PM4 state but leave
+    // inline_begin_.pending/end set, the next call can publish the previous
+    // TrackedCall with stale shaders and index data. Cancel that deferred draw.
+    inline_begin_.pending = false;
+    inline_begin_.end = 0;
     scan_.Clear();
     return nullptr;
   }
