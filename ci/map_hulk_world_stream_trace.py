@@ -53,7 +53,8 @@ def summarize(index_data: dict, log: str) -> dict:
                 continue
             bucket=5000*(t_ms//5000)
             row=timeline.setdefault(bucket, {"start_ms":bucket,"reads":0,
-                   "bytes":0,"failed":0,"read_us":[]})
+                   "bytes":0,"failed":0,"read_us":[],
+                   "resource_hits":Counter()})
             row["reads"]+=1
             row["bytes"]+=max(0,size)
             row["failed"]+=1 if not ok else 0
@@ -68,11 +69,15 @@ def summarize(index_data: dict, log: str) -> dict:
         matched=False
         if i>=0 and ranges[i][1]>offset:
             hit[(group,ranges[i][2])]+=1
+            if timed and ok:
+                row["resource_hits"][(group,ranges[i][2])]+=1
             matched=True
         i+=1
         while i < len(ranges) and ranges[i][0] < offset+size:
             if ranges[i][1]>offset:
                 hit[(group,ranges[i][2])]+=1
+                if timed and ok:
+                    row["resource_hits"][(group,ranges[i][2])]+=1
                 matched=True
             i+=1
         if not matched: missing[group]+=1
@@ -83,7 +88,12 @@ def summarize(index_data: dict, log: str) -> dict:
         windows.append({"start_ms":bucket,"reads":row["reads"],
                         "bytes":row["bytes"],"failed":row["failed"],
                         "p95_read_us":latencies[(95*n+99)//100-1],
-                        "slowest_read_us":latencies[-1]})
+                        "slowest_read_us":latencies[-1],
+                        "distinct_indexed_resources":len(row["resource_hits"]),
+                        "top_resource_hashes":[
+                            {"category":g,"hash":h,"reads":count}
+                            for (g,h),count in row["resource_hits"].most_common(12)
+                        ]})
     return {
         "reads_by_archive":dict(reads),
         "unmatched_reads":dict(missing),

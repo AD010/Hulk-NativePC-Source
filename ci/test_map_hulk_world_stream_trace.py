@@ -31,6 +31,24 @@ class TestHulkWorldMap(unittest.TestCase):
         self.assertEqual(report["slow_reads"][0]["read_us"],80000)
         self.assertEqual(report["reads_by_archive"]["Models"],2)
 
+    def test_which_resources_arrive_late_after_rooftop_transition(self):
+        # This tests real temporal grouping of index hashes, not a claimed
+        # connection between file reads and in-game visual LOD selection.
+        idx={"Models":{"entries":{
+            "NEAR":{"offset":1000,"size":500},
+            "DISTANT":{"offset":3000,"size":500}
+        }}}
+        log=("[HULK/STREAM] file=MODELS.ARC offset=1100 requested=50 read=50 seq=1 t_ms=1200 read_us=300 ok=1\n"
+             "[HULK/STREAM] file=MODELS.ARC offset=3100 requested=50 read=50 seq=2 t_ms=12100 read_us=62000 ok=1\n"
+             "[HULK/STREAM] file=MODELS.ARC offset=1100 requested=50 read=0 seq=3 t_ms=12300 read_us=500 ok=0\n")
+        result=summarize(idx,log)
+        self.assertEqual([x["start_ms"] for x in result["timeline_5s"]],[0,10000])
+        self.assertEqual(result["timeline_5s"][0]["top_resource_hashes"][0]["hash"],"NEAR")
+        self.assertEqual(result["timeline_5s"][1]["top_resource_hashes"][0]["hash"],"DISTANT")
+        self.assertEqual(result["timeline_5s"][1]["distinct_indexed_resources"],1)
+        self.assertEqual(result["timeline_5s"][1]["failed"],1)
+        self.assertEqual(result["slow_reads"][0]["read_us"],62000)
+
     def test_legacy_stream_lines_without_timing_remain_supported(self):
         report=summarize({"Models":{"entries":{}}},
                          "[HULK/STREAM] file=MODELS.ARC offset=1 requested=1 read=1 seq=3")
