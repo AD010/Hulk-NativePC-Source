@@ -53,9 +53,11 @@ int main() {
   copies={{32,nullptr,8}};
   assert(!HulkProcessIndexCopies(p,result,32,8,copies));
   copies={{16,a,8}};
-  assert(HulkProcessIndexCopies(p,result,32,8,copies) && p.live_reads==1);
+  // No DMA capture -> fail closed, never read possibly reused guest bytes.
+  assert(!HulkProcessIndexCopies(p,result,32,8,copies) && p.live_reads==0);
   assert(!HulkProcessIndexCopies(p,result,0x1ffffffe,4,copies));
   assert(!HulkProcessIndexCopies(p,result,0,0xffffffff,copies));
+  assert(!HulkProcessIndexCopies(p,result,0,0,copies));
   // Exhaustive small-range coverage and last-writer precedence oracle.
   for(unsigned x=0;x<8;++x) for(unsigned n=1;n<=8-x;++n)
     for(unsigned y=0;y<8;++y) for(unsigned m=1;m<=8-y;++m) {
@@ -169,6 +171,33 @@ int main() {
   Command synthetic;
   assert(!CapturePacketDmaIndices(tracker,guest.data(),synthetic,true));
   assert(synthetic.copy_count==0 && synthetic.data.empty());
+  // Xenos DMA_SIZE.swap_mode bits 30-31, 16-bit index mode 3=k16in32:
+  // reverse the two 16-bit halves of EACH 32-bit physical word. This was
+  // silently disabled in ReXGlue PrimitiveProcessor, creating bad triangles.
+  tracker.current_write=true;
+  tracker.regs[1]=32;
+  tracker.regs[2]=(3u<<30)|2u;
+  guest[32]=1;guest[33]=2;guest[34]=3;guest[35]=4;
+  Command mode3;
+  assert(CapturePacketDmaIndices(tracker,guest.data(),mode3,false));
+  assert(mode3.copy_count==1 && mode3.copies[0].address==32);
+  assert((mode3.data==std::vector<uint8_t>{3,4,1,2}));
+  // Mode 2 (k8in32) also exchanges halfwords; PrimitiveProcessor then
+  // performs the separate 8-in-16 byte swap, yielding full 32-bit reversal.
+  tracker.regs[2]=(2u<<30)|2u;
+  Command mode2;
+  assert(CapturePacketDmaIndices(tracker,guest.data(),mode2,false));
+  assert((mode2.data==std::vector<uint8_t>{3,4,1,2}));
+  // Index base in the HIGH half of a word, odd count: copy the enclosing
+  // word without leaking into the neighbouring (unsnapshotted) command.
+  tracker.regs[0]=(1u<<16)|4u;
+  tracker.regs[1]=34;
+  tracker.regs[2]=(3u<<30)|1u;
+  Command high_half;
+  assert(CapturePacketDmaIndices(tracker,guest.data(),high_half,false));
+  assert(high_half.copies[0].address==32 && high_half.copies[0].size==4);
+  assert((high_half.data==std::vector<uint8_t>{3,4,1,2}));
+  tracker.regs[0]=(2u<<16)|4u; tracker.regs[2]=2u;
   assert(old_order()==9);  // reproduces overwritten snapshot
   assert(new_order()==3);  // current draw retains its captured bytes
 }
@@ -203,7 +232,10 @@ int main() {
             "bytes > kMaxSnapshotBytes",
             "uint64_t(physical) + bytes > kGuestPhysicalBytes",
             "c.copy_count >= c.copies.size()",
-            "c.data.insert(c.data.end(), source, source + bytes)",
+            "c.data.insert(c.data.end(), source, source + capture_bytes)",
+            "HULK/PM4-DMA-INDEX-ENDIAN",
+            "const bool pair_swap = stride == 2u && swap_mode >= 2u",
+            "std::swap(c.data[offset + i], c.data[offset + i + 2])",
             "HULK/PM4-DMA-ADDRESS-PARITY",
             "const uint32_t physical = dma_base & ~(stride - 1u)",
             "c.copies[c.copy_count++] = {physical",
@@ -277,9 +309,10 @@ int main() {
         # SharedMemory::kBufferSize = 1 << 29.
         self.assertIn("HULK/PM4-DMA-ADDRESS-PARITY", ADDITION)
         self.assertIn("const uint32_t physical = dma_base & ~(stride - 1u)", ADDITION)
-        self.assertIn("{physical, uint32_t(c.data.size()), uint32_t(bytes)}", ADDITION)
+        self.assertIn("{capture_base, offset, uint32_t(capture_bytes)}", ADDITION)
         self.assertNotIn("const uint32_t physical = dma_base & 0x1FFFFFFFu", ADDITION)
         self.assertNotIn("{dma_base, uint32_t(c.data.size()), uint32_t(bytes)}", ADDITION)
+        self.assertIn("const uint32_t capture_base = pair_swap ? (physical & ~3u) : physical;", ADDITION)
 
         def snapshot_span(address, requested, stride):
             physical = address & ~(stride - 1)

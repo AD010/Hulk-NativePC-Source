@@ -76,6 +76,13 @@ bool CapturePacketDmaIndices(const StateTracker& tracker, const uint8_t* base, C
   const uint32_t indices = requested_indices;
   const uint32_t stride = ((initiator >> 11) & 1u) ? 4u : 2u;
   const uint64_t bytes = uint64_t(indices) * stride;
+  // HULK/PM4-DMA-INDEX-ENDIAN: for 16-bit indices the host PrimitiveProcessor
+  // currently normalizes Xenos k8in32 (mode 2) to k8in16, and k16in32
+  // (mode 3) to kNone. Both require the two 16-bit halves of each
+  // 32-bit physical word to exchange places FIRST. Make this exchange in
+  // this draw's captured OWNED bytes, not in the game's guest memory.
+  const uint32_t swap_mode = dma_size >> 30;
+  const bool pair_swap = stride == 2u && swap_mode >= 2u;
   // HULK/PM4-DMA-ADDRESS-PARITY: ReXGlue's PrimitiveProcessor uses
   // reg(VGT_DMA_BASE) & ~(index_stride - 1) as its physical index address.
   // The previous snapshot read from (dma_base & 0x1FFFFFFF) unaligned,
@@ -84,17 +91,32 @@ bool CapturePacketDmaIndices(const StateTracker& tracker, const uint8_t* base, C
   // Do NOT silently drop high address bits: PrimitiveProcessor itself
   // rejects anything outside the physical 512 MiB buffer.
   const uint32_t physical = dma_base & ~(stride - 1u);
+  // A 16-in-32 swap accesses a WHOLE 32-bit word even when the index base
+  // starts at the high half or the index count is odd. Snapshot that exact
+  // surrounding word, so adjacent 16-bit indices are not fabricated.
+  const uint32_t capture_base = pair_swap ? (physical & ~3u) : physical;
+  const uint64_t capture_bytes = pair_swap
+      ? ((uint64_t(physical - capture_base) + bytes + 3ull) & ~3ull)
+      : bytes;
   constexpr uint64_t kGuestPhysicalBytes = 0x20000000ull;
   constexpr uint64_t kMaxSnapshotBytes = 1ull << 20;
-  if (!bytes || bytes > kMaxSnapshotBytes ||
-      uint64_t(physical) + bytes > kGuestPhysicalBytes ||
+  if (!bytes || capture_bytes > kMaxSnapshotBytes ||
+      uint64_t(capture_base) + capture_bytes > kGuestPhysicalBytes ||
       c.copy_count >= c.copies.size())
     return reject("DMA address/length invalid");
-  const uint8_t* source = base + (0xA0000000u | physical);
-  // The GPU mirror and PrimitiveProcessor must receive the SAME aligned
-  // address; physical is within 512 MiB after the bounds check above.
-  c.copies[c.copy_count++] = {physical, uint32_t(c.data.size()), uint32_t(bytes)};
-  c.data.insert(c.data.end(), source, source + bytes);
+  const uint8_t* source = base + (0xA0000000u | capture_base);
+  // The GPU mirror and CPU PrimitiveProcessor must get the same captured
+  // byte order for this draw. Preserve every original byte except for the
+  // necessary 16-bit-half exchange and restore it per draw.
+  const uint32_t offset = uint32_t(c.data.size());
+  c.copies[c.copy_count++] = {capture_base, offset, uint32_t(capture_bytes)};
+  c.data.insert(c.data.end(), source, source + capture_bytes);
+  if (pair_swap) {
+    for (uint32_t i = 0; i < capture_bytes; i += 4) {
+      std::swap(c.data[offset + i], c.data[offset + i + 2]);
+      std::swap(c.data[offset + i + 1], c.data[offset + i + 3]);
+    }
+  }
   static std::atomic<uint64_t> snapped{0};
   const uint64_t n = ++snapped;
   if (n <= 8 || n % 250000 == 0)
@@ -161,14 +183,16 @@ CPU_HELPER = """// HULK/CPU-INDEX-SNAPSHOT: assemble the same ordered copies tha
 template <typename Processor, typename Result, typename Copies>
 bool HulkProcessIndexCopies(Processor& processor, Result& result,
                             uint32_t base, uint32_t size, const Copies& copies) {
-  if (!size) return processor.Process(result);
+  if (!size) return false; // A zero-length DMA request has no safe index data.
   if (base >= 0x20000000u || size > 0x20000000u - base || size > (1u << 20))
     return false;
   bool overlaps = false;
   for (const auto& copy : copies)
     overlaps |= uint64_t(copy.address) < uint64_t(base) + size &&
                 uint64_t(base) < uint64_t(copy.address) + copy.size;
-  if (!overlaps) return processor.Process(result);
+  // HULK/PM4-DMA-NO-LIVE-FALLBACK: an unsnapshotted DMA draw must not
+  // read index bytes from the guest ring AFTER that memory was reused.
+  if (!overlaps) return false;
   std::vector<uint8_t> bytes(size), covered(size, 0);
   for (const auto& copy : copies) {
     const uint64_t first = std::max(uint64_t(base), uint64_t(copy.address));

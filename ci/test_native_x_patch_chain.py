@@ -205,6 +205,8 @@ def run(sha=SHA):
             ("HULK/DMA-RESTORE-AFTER-AHEAD", draw),
             ("HULK/PM4-PRIMITIVE-SOURCE", renderer),
             ("HULK/PM4-DMA-ADDRESS-PARITY", renderer),
+            ("HULK/PM4-DMA-INDEX-ENDIAN", renderer),
+            ("HULK/PM4-DMA-NO-LIVE-FALLBACK", draw),
             ("HULK/PM4-PERSISTENT-DMA", renderer),
             ("HULK/PM4-HISTORY-LIVE", renderer),
             ("HULK/PM4-RT0-1X-REBASE", renderer),
