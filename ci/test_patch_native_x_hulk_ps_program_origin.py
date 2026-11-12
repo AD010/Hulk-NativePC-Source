@@ -10,7 +10,7 @@ class ProgramOriginTest(unittest.TestCase):
         result, changed = patch(upstream)
         self.assertTrue(changed)
         self.assertEqual(patch(result), (result, False))
-        self.assertEqual(result.count("HULK/PS-PROGRAM-ORIGIN"), 1)
+        self.assertEqual(result.count(CXX), 1)
         self.assertIn("#include <atomic>", result)
         for needle in ("0xe42552fce84cb8acull", "0x0dad3cb9972d38fdull",
                        "hulk_ps->loaded_by", "hulk_ps->packet",
