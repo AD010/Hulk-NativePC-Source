@@ -235,6 +235,62 @@ def patch_draw_all(source):
     return source, a or b
 
 
+# The captured data is authoritative for this draw. Comparing it with LIVE
+# CPU memory says nothing about the separate GPU mirror (or earlier copies).
+MEMORY_OLD = """bool GuestMemory::WriteIfChanged(IDeviceContext* context, uint32_t address, const uint8_t* data, uint32_t size) {
+  if (!size || address >= kBufferSize || size > kBufferSize - address) return false;
+  if (!std::memcmp(memory().TranslatePhysical(address), data, size)) return false;
+  context->UpdateBuffer(buffer_, address, size, data, RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+  uploaded_bytes_ += size;
+  ++copies_;
+  ++total_copies_;
+  in_read_state_ = false;
+  // The mirror holds the old data there now: the next request copies the pages from guest memory again, hashes
+  // or not.
+  const uint32_t page_shift = page_size_log2();
+  for (uint32_t page = address >> page_shift; page <= (address + size - 1) >> page_shift; ++page) {
+    page_hashes_[page] = 0;
+    copy_valid_[page] = false;
+    checked_window_[page] = 0;
+  }
+  MemoryInvalidationCallback(address, size, true);
+  return true;
+}
+"""
+MEMORY_NEW = MEMORY_OLD.replace(
+    "  if (!std::memcmp(memory().TranslatePhysical(address), data, size)) return false;",
+    """  // HULK/CAPTURED-GPU-BYTES: CPU equality is not GPU mirror equality.
+  // Earlier overlapping captured writes and queued uploads can leave the
+  // mirror different even when live guest bytes match this command's bytes.
+  // Preserve command order: the last captured copy wins on CPU and GPU.
+  if (!data) return false;""")
+
+def patch_memory(source):
+    if MEMORY_NEW in source:
+        return source, False
+    if "HULK/CAPTURED-GPU-BYTES" in source or source.count(MEMORY_OLD) != 1:
+        raise ValueError("NativeX captured GPU memory restore anchor drift")
+    return source.replace(MEMORY_OLD, MEMORY_NEW, 1), True
+
+
+MEMORY_HEADER_OLD = """  // Writes `size` bytes at `address` into the mirror if guest memory no longer holds them: an inline draw's data
+  // that the game reused since the draw was captured (D71). The pages are then invalidated, so that the next draw
+  // reading them takes guest memory again. Returns whether it wrote.
+"""
+MEMORY_HEADER_NEW = """  // Writes captured command bytes into the GPU mirror, in command order.
+  // The historical name is retained; live CPU equality is not a valid reason
+  // to skip the GPU write. Invalidates pages for subsequent live requests.
+  // Returns whether it wrote; rejects null data and invalid/empty ranges.
+"""
+
+def patch_memory_header(source):
+    if MEMORY_HEADER_NEW in source:
+        return source, False
+    if source.count(MEMORY_HEADER_OLD) != 1:
+        raise ValueError("NativeX captured GPU memory header anchor drift")
+    return source.replace(MEMORY_HEADER_OLD, MEMORY_HEADER_NEW, 1), True
+
+
 def main():
     if len(sys.argv)!=2:
         raise SystemExit("Usage: patch_native_x_hulk_packet_dma_snapshot.py <NativeX checkout>")
@@ -243,7 +299,9 @@ def main():
     if actual!=PIN:
         raise ValueError("Unexpected NativeX checkout SHA: "+actual)
     edits=[]
-    for name, action in (("src/renderer.cpp", patch_text), ("src/draw.cpp", patch_draw_all)):
+    for name, action in (("src/renderer.cpp", patch_text), ("src/draw.cpp", patch_draw_all),
+                         ("src/guest_memory.cpp", patch_memory),
+                         ("src/guest_memory.h", patch_memory_header)):
         path=root/name
         result,changed=action(path.read_text(encoding="utf-8"))
         edits.append((path,result,changed))

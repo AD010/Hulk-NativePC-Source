@@ -11,6 +11,76 @@ from patch_native_x_hulk_packet_dma_snapshot import (
 )
 
 class DmaSnapshotTests(unittest.TestCase):
+    @unittest.skipUnless(shutil.which('clang++') or shutil.which('g++'), 'C++ compiler missing')
+    def test_gpu_restore_uses_captured_bytes_not_live_cpu_equality(self):
+        from patch_native_x_hulk_packet_dma_snapshot import MEMORY_OLD, MEMORY_NEW, patch_memory
+        self.assertEqual(patch_memory(MEMORY_OLD), (MEMORY_NEW, True))
+        self.assertEqual(patch_memory(MEMORY_NEW), (MEMORY_NEW, False))
+        with self.assertRaises(ValueError):
+            patch_memory(MEMORY_OLD.replace('std::memcmp', 'changed'))
+        harness = r'''
+#include <array>
+#include <cstdint>
+#include <cstring>
+#include <cassert>
+constexpr int RESOURCE_STATE_TRANSITION_MODE_TRANSITION=0;
+struct IDeviceContext {
+  std::array<uint8_t,64> gpu{}; unsigned updates=0;
+  void UpdateBuffer(int, uint32_t a, uint32_t n, const uint8_t* p, int) {
+    ++updates; std::memcpy(gpu.data()+a,p,n);
+  }
+};
+struct GuestMemory {
+  static constexpr uint32_t kBufferSize=64;
+  std::array<uint8_t,64> live{};
+  std::array<uint64_t,16> page_hashes_{};
+  std::array<bool,16> copy_valid_{};
+  std::array<unsigned,16> checked_window_{};
+  uint64_t uploaded_bytes_=0, copies_=0, total_copies_=0;
+  bool in_read_state_=true; int buffer_=0; unsigned invalidations=0;
+  GuestMemory& memory() { return *this; }
+  uint8_t* TranslatePhysical(uint32_t a) { return live.data()+a; }
+  unsigned page_size_log2() { return 2; }
+  void MemoryInvalidationCallback(uint32_t, uint32_t, bool) { ++invalidations; }
+  bool WriteIfChanged(IDeviceContext*, uint32_t, const uint8_t*, uint32_t);
+};
+'''
+        scenario = r'''
+int main() {
+  GuestMemory m; IDeviceContext ctx;
+  // Two overlapping copies from one command. The final copy equals LIVE
+  // memory, but the preceding copy has just changed the GPU mirror.
+  uint8_t a[]={1,2,3,4,5,6,7,8}, b[]={9,10,11,12};
+  std::memcpy(m.live.data()+18,b,4);
+  m.WriteIfChanged(&ctx,16,a,8);
+  m.WriteIfChanged(&ctx,18,b,4);
+  const uint8_t expected[]={1,2,9,10,11,12,7,8};
+  if (std::memcmp(ctx.gpu.data()+16,expected,8)) return 42;
+  // No preceding copy is needed to trigger the second failure case: CPU
+  // memory already matches capture while the independently modified GPU
+  // range still contains different bytes.
+  ctx.gpu[18]=99;
+  m.WriteIfChanged(&ctx,18,b,4);
+  assert(ctx.gpu[18]==9);
+  assert(ctx.updates==3 && m.invalidations==3);
+  assert(!m.in_read_state_ && m.uploaded_bytes_==16);
+  assert(std::memcmp(m.live.data()+18,b,4)==0); // no guest-memory mutation
+  assert(!m.WriteIfChanged(&ctx,64,b,1));
+  assert(!m.WriteIfChanged(&ctx,63,b,2));
+  assert(!m.WriteIfChanged(&ctx,18,b,0));
+  assert(!m.WriteIfChanged(&ctx,18,nullptr,4));
+  assert(ctx.updates==3);
+}
+'''
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            compiler=shutil.which('clang++') or shutil.which('g++')
+            for label, body, expected in [('before', MEMORY_OLD, 42), ('after', MEMORY_NEW, 0)]:
+                cpp=root/(label+'.cpp'); exe=root/label
+                cpp.write_text(harness+body+scenario)
+                subprocess.run([compiler,'-std=c++20','-Wall','-Wextra','-Werror',str(cpp),'-o',str(exe)],check=True)
+                self.assertEqual(subprocess.run([str(exe)]).returncode, expected)
+
     def test_cpu_snapshot_copy_order_and_holes(self):
         from patch_native_x_hulk_packet_dma_snapshot import CPU_HELPER, CPU_ANCHOR, patch_cpu_draw
         original = 'struct DrawContext {\n' + CPU_ANCHOR
