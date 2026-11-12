@@ -41,10 +41,10 @@ CXX = r"""  // HULK/PS-PROGRAM-ORIGIN: distinguish one missed PM4 IM_LOAD from
       hulk_ps_hash == 0x0dad3cb9972d38fdull;
   if ((hulk_changed && hulk_change_no <= 128) ||
       (hulk_known_mismatch && (hulk_capture_no % 2400 == 0))) {
-    REXLOG_INFO("[HULK/PS-PROGRAM-ORIGIN] frame={} draw_capture={} "
+    REXLOG_INFO("[HULK/PS-PROGRAM-ORIGIN] draw_capture={} "
                 "ps={:016x} vs={:016x} load_call={} packet={:#x} "
                 "address={:#x} words={} immediate={}",
-                g_frames_presented, hulk_capture_no, hulk_ps_hash,
+                hulk_capture_no, hulk_ps_hash,
                 c.programs[0] ? c.programs[0]->hash : 0ull,
                 hulk_ps ? uint32_t(hulk_ps->loaded_by) : 0u,
                 hulk_ps ? hulk_ps->packet : 0u,

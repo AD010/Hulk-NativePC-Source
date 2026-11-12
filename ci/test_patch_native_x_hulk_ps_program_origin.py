@@ -15,9 +15,10 @@ class ProgramOriginTest(unittest.TestCase):
         for needle in ("0xe42552fce84cb8acull", "0x0dad3cb9972d38fdull",
                        "hulk_ps->loaded_by", "hulk_ps->packet",
                        "hulk_ps->address", "hulk_ps->immediate",
-                       "g_frames_presented", "draw_capture={}"):
+                       "hulk_capture_no", "draw_capture={}"):
             self.assertIn(needle, result)
         self.assertNotIn("c.programs[1] =", CXX)
+        self.assertNotIn("g_frames_presented", CXX)  # render-thread-owned non-atomic
         self.assertNotIn("return;", CXX)
         self.assertNotIn("CreateShader", CXX)
         self.assertLess(result.index(ANCHOR), result.index("HULK/PS-PROGRAM-ORIGIN"))
