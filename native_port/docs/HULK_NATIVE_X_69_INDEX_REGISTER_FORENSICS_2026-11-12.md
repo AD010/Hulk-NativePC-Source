@@ -129,3 +129,70 @@ structure only, not full SPIRV-Tools semantic validation.
    campaign, saves, Title Update, native scene LOD and consumer UX.
 
 No workflow duplication or private payload commits are part of this audit.
+
+## Log192 / build #79: image restored, intermittent mesh dropout (12 November 2026)
+
+**Evidence:** user screenshot of active city gameplay and 6,915-line private
+`incredible_hulk_192.log` from 22:24–22:28 Kyiv. Contains no proprietary
+game/shader bytes, owner paths, screenshots, saves or raw assets. Treat
+single screenshots as static witnesses, not proof of temporal behavior.
+
+- **Black-screen regression is fixed:** `HULK/PRESENT-FRAME-RECOVERY`
+  reaches 6,600, Diligent/Vulkan reports 6,599 frames presented and 6,598
+  completed. At frame 6,600 its queue fence is 13,208 / 13,205 and all
+  600 recent frames were shown at actual guest swaps. Frame output is
+  1280×720 guest → 2560×1440 host → 2560×1600 letterbox. No
+  dynamic-heap-exhaustion in this trace. The black screen was caused by
+  #77 discarding valid `Call::kPresent` under partial PM4 scan.
+- **Major missing-geometry signal:** `HULK/INCOMPLETE-XDK-DRAW` reaches
+  40,000 rejected DrawIndexedVertices (`call=0`, `was_draw=true`) by
+  22:27:38, rather than a few exceptional calls. This aggressive fail-closed
+  policy may contribute to whole Hulk body/scene patches disappearing.
+  **Do not simply remove it**: before the guard, invalid GPU microcode and
+  giant triangles appeared. Classify whether the rejected scan failed due to
+  segment start/end mismatch, incomplete packet or guest memory before
+  permitting a specific recovery. Source commit 294f6a77 adds bounded
+  pointer/counter diagnostics WITHOUT changing the rejection policy.
+- **Pixel and vertex program identity are still wrong:** frame900 1/1349
+  matched calls differs; `SQ_INTERPOLATOR_CNTL` CPU 0x7f007f vs GPU
+  0x3f003f. Frame2147 1/1908 differs, including
+  `SQ_PROGRAM_CNTL` CPU 0x10001 vs GPU 0x1045090a and one VS program
+  mismatch. Frame2157 only 1870/1919 matched calls exactly (97.4%),
+  with **49 pixel-program mismatches**:
+  CPU XXH3 e42552fce84cb8ac vs GPU 0dad3cb9972d38fd. The verifier
+  found **no texture/vertex fetch mismatch in frame2157**, so a damaged
+  texture at another time is not evidence of its cause in this frame.
+- **GPU fetch/vertex issues:** logged invalid vertex descriptors
+  (slots 95, then 0, types 0/1/2) and two invalid texture-draw warnings;
+  `HULK/FETCH-WRITER` still records PM4 SET values 1280.0 and 720.0
+  in fetch register words. One 27-dword vertex program
+  `3A32665E608C57AA` caused an analysis access violation (caught; the
+  game continued). These are faults in program/fetch provenance and must not
+  be disguised by turning depth testing off or fabricating vertex data.
+- **Depth/Z remains a hypothesis:** GPU frame900/2147 reports a few
+  render-state mismatches; in frame2157 it reports **none**. Host exact
+  640×360/4x and 1280×720/1x sample-grid color/depth storage aliases are
+  logged for 2560×1440. They do not prove that every depth/stencil clear,
+  compare, scissor and per-draw target is correct. Disabling Z-buffer is
+  NOT an acceptable fix.
+- **First-use host pipeline stalls:** in frame4200 summary, 71 draws were
+  skipped while pipelines compiled, even though
+  `native_x_renderer_hulk_wait_scene_pipelines=true` is configured.
+  The existing *whole-frame* budget was 80 ms; after expiration later
+  draws are still skipped. Source commit f00478ae raises the bounded shared
+  budget to 200 ms for Hulk (never 3000 ms per individual draw) to reduce
+  first-use holes. This may increase a few shader-loading stalls; it does
+  not solve 49 incorrect pixel programs or 40k missing XDK calls.
+- **Stable gameplay segment:** at frame6600 NativeX recorded 992 native
+  Draw submissions, 9 clears and 28 resolves, no reported DrawInternal
+  failures. This counts only accepted draws, so **must not** be used to
+  deny the separate 40k earlier XDK rejects.
+- **Other signals:** four-minute run ended normally; a UKENGLISH
+  `INDEX.IND` path failed initially but fallback game resources loaded
+  and the game reached city; this is not the observed flicker cause.
+
+**Next gate:** after candidate source build, verify the first 16 and every
+10,000th `HULK/INCOMPLETE-XDK-DRAW` reason by PM4 begin/scan_from/end
+and nested-segment information; match *same* visible scene and shader
+hashes against Xenos CP truth. Never mark Vulkan parity reached solely
+because CI compiles or frame counters increase.
