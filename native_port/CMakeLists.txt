@@ -65,7 +65,9 @@ if(HULK_WITH_NATIVE_X)
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/gen_native_x_hooks.py"
             "${CMAKE_CURRENT_SOURCE_DIR}/native_hook_addresses.txt"
             "${CMAKE_CURRENT_SOURCE_DIR}/analysis/guest_host_mapping.csv" "${_hulk_hooks}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/hulk_native_x_profile.ini"
         DEPENDS tools/gen_native_x_hooks.py native_hook_addresses.txt analysis/guest_host_mapping.csv
+                hulk_native_x_profile.ini
         VERBATIM COMMENT "Generate guest-function NativeX hook wrappers")
     add_subdirectory("${HULK_NATIVE_X_SOURCE_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/hulk_native_x_renderer")
     target_sources(incredible_hulk PRIVATE src/native_x_renderer_hulk.cpp
