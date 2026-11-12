@@ -134,3 +134,83 @@ Example register class from NativeX itself: class=1 writes fetch constants
 beginning at GPU register 0x4800. A fetch writer recording
 `0x44A00000` / `0x44340000` equals IEEE754 1280.0/720.0, respectively,
 but the float-like bits alone do not prove the actual guest stream is wrong.
+
+## Native-in-engine PC menu audit (12 November 2026; user re:Blue reference)
+
+Rechecked **live source** of `zolaware/reblue` and
+`portingpete/The-Darkness-Recomp` rather than copying visual UI code.
+The user's desired result is a **real Hulk game menu**, not another
+ImGui/F4/F10 window or launcher.
+
+### Reference implementations and why they work
+
+- **re:Blue / Blue Dragon** (BSD-3-Clause):
+  `src/engine/menus/title_menu.cpp` hooks the original `TitleTask_Draw`,
+  `TitleTask_Update` and `TitleTask_OnChildComplete` and adds the menu
+  to the real title/task transition. `config_menu.cpp` creates a real
+  child task (`D2AnimeTask::Load`), binds its parent/child notifications
+  and owns a menu state machine. `config_layout.cpp` and
+  `config_menu_data.cpp` publish data-driven UI layout through the
+  original animation/menu asset path, while `config_menu_input.cpp`
+  handles keyboard/mouse/controller actions in the same navigation flow.
+  Settings are described once in `src/core/settings_model.h`, and
+  display/input/audio hooks apply them to host systems. The game engine
+  itself remains the menu owner. This is the pattern Hulk must reproduce
+  using **Hulk's own EoR UI system**, not Blue Dragon's `D2Anime` classes.
+- **The Darkness Recomp** (GPLv3): its `RENDERING.md` describes an
+  engine-owned `Options > Video Settings` implemented through original
+  `CubeMenu`/`CubeButton` and built-in compiled menu resources
+  (`CubeWnd.pc.xcr`, `GameContext_Create.pc.xdf`). Both menu read paths
+  are intercepted and the original save/apply path is honored. This is
+  another example of extending *original* menu data instead of drawing
+  an unrelated host overlay, but does not share Hulk's UI structures.
+
+### Hulk facts established, and the missing discovery work
+
+- The currently shipping Hulk source's `src/pc_menu.cpp` is a
+  standalone `rex::ui::ImGuiDialog` opened on F10. Its FPS buttons
+  modify `gpu_guest_fps_limit` and defer persistence to F4. It is
+  **not** integrated into original EoR menus. Do not call it final UX.
+- The **validated** USA XDK 2.0.6534 graphics hooks are listed in
+  `native_port/hulk_native_x_profile.ini` (e.g. DrawVertices
+  `0x8288DF30`, DrawIndexedVertices `0x8288E318`, Resolve
+  `0x828897F8`, SetRenderTarget `0x8287F2C0`, Present
+  `0x82880778`). These are **graphics APIs, NOT title menu entrypoints**.
+  No verified Hulk title/options/pause task entry addresses appear in this
+  profile. Borrowing re:Blue's addresses or task layouts would corrupt memory.
+- `native_port/analysis/guest_host_mapping.csv` has address-only guest/native
+  mappings (no symbol names). `native_port/analysis/pm4_candidates.csv`
+  concerns GPU packet emitters. Neither establishes the menu state machine.
+- The correct next reverse-engineering step is a **read-only EoR title and
+  pause menu callgraph** on the pinned USA XEX: find menu string/resource
+  references, constructors, button action dispatchers, state transitions,
+  update/draw callbacks and parent-child/task ownership. Verify indirect
+  calls with guest PPC flow and binary revision before adding hooks.
+
+### Acceptance contract (same native port, one workflow)
+
+1. Identify `Title → Options`, `Pause → Options` and `Back/Resume`
+   transitions at real Hulk guest addresses, with callsite evidence and
+   object ownership. No guessed offsets, no `REX_HOOK` on unverified PPC.
+2. Extend the **existing Hulk menu hierarchy/resources** with
+   Video (resolution/aspect, fullscreen/windowed, vsync, AA), Controls
+   (real mouse yaw/pitch, remapping), Audio and language plus Exit.
+   The gameplay can still show original story/mission settings; no modal
+   host ImGui overlay and no separate launcher should be needed.
+3. Separate an engine-facing settings model from host application APIs;
+   validate bounds, queue graphics-mode changes safely across the render
+   thread and implement atomic user-profile persistence. Do **not** enable
+   `hulk_native_pc_saves` until retail PC save migration is validated.
+4. Use the game's UI focus and mouse hover/hit-test semantics; keyboard
+   glyphs must follow actual bindings, not synthetic XInput state. Mouse
+   capture pauses while a menu is active and resumes on return to gameplay.
+5. Tests: menu state-machine entry/exit, save/apply/rollback, focus/loss,
+   keyboard/mouse without controller, 2560x1600 letterbox and 175% DPI;
+   manually verify title, gameplay pause, save, exit and restart. Preserve
+   the F10 diagnostic overlay only as an optional developer interface
+   until the in-game replacement passes all contracts.
+
+**Implementation status:** reference comparison and hook-discovery
+requirements are established, but **no original EoR title/pause menu hook
+has been implemented or certified** as of this audit. A successful CI
+compile is not UI or rendering parity.
