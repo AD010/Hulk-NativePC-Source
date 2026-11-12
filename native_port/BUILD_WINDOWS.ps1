@@ -375,6 +375,9 @@ try {
     # Do not apply incomplete XDK PM4 packet state to a native Draw.
     Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_incomplete_xdk_draw.py')) $Source
     Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_incomplete_xdk_draw.py'), $NxrFull) $Source
+    # Capture actual shader origins when GPU verifier reports 49 PS mismatches (log192).
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_ps_program_origin.py')) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_ps_program_origin.py'), $NxrFull) $Source
     # Preserve known-buildable NativeX pipeline scheduling. The optional
     # wait-all experiment stays source-only until independently proven
     # against this pinned Diligent/Vulkan build and a real Hulk frame.
