@@ -24,10 +24,35 @@ ANCHOR = """  Gather(p, call, draw, base);
   last_.call = call;"""
 PATCH = """  // HULK/INCOMPLETE-XDK-DRAW-GUARD: a truncated or malformed PM4 call
   // must never update shader programs or register state from a partial
-  // scan. 7 calls were incompletely read in the log185 verifier. Returning
-  // no TrackedCall skips this unreliable draw instead of leaking an invalid
-  // program to subsequent frames or the NVIDIA shader compiler.
-  if (!scan_.complete) {
+  // scan. This branch handles real draws only. Hulk log191 showed the
+  // old broad guard dropping Call::kPresent, resulting in one shown frame,
+  // 39k replayed PM4 draws and 335 dynamic-heap exhaustion failures.
+  // HULK/PRESENT-NOT-DRAW: Hulk log191 proves call=38 (Call::kPresent)
+  // has an incomplete trailing PM4 scan while the actual XDK Present is
+  // valid. Previously this guard returned nullptr for EVERY incomplete
+  // call, silently dropping Present and leaving Vulkan's dynamic heap
+  // without swap/fence reclamation. Preserve the real frame boundary
+  // without replaying a single untrusted register or shader write.
+  if (!scan_.complete && call == Call::kPresent) {
+    static std::atomic<uint64_t> hulk_present_recovered{0};
+    const uint64_t n = hulk_present_recovered.fetch_add(
+        1, std::memory_order_relaxed) + 1;
+    if (n <= 16 || n % 600 == 0)
+      REXLOG_WARN("[HULK/PRESENT-FRAME-RECOVERY] #{} incomplete PM4 tail; "
+                  "preserved original XDK Present without replaying partial writes", n);
+    last_hulk_segment_valid_ = false;
+    scan_.Clear();
+    last_.call = call;
+    last_.draw = false;
+    last_.device = p.device;
+    last_.begin = GpuAddress(p.begin);
+    last_.end = GpuAddress(end);
+    last_.scan = &scan_;
+    return &last_;
+  }
+  // Only *actual draws* may be suppressed for incomplete PM4. In
+  // particular never swallow a kFrameEnd/Present or its graphics fence.
+  if (!scan_.complete && draw) {
     static std::atomic<uint64_t> hulk_incomplete_xdk{0};
     const uint64_t count = hulk_incomplete_xdk.fetch_add(1, std::memory_order_relaxed) + 1;
     if (count <= 16 || count % 10000 == 0)
