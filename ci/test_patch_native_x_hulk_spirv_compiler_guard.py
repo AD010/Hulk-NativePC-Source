@@ -65,6 +65,8 @@ class HulkNvidiaCompilerGuardTests(unittest.TestCase):
         self.assertNotIn("allow_invalid",VALIDATOR)
         self.assertIn("instruction_words > count - i",VALIDATOR)
         self.assertIn("words[0] != 0x07230203u",VALIDATOR)
+        self.assertIn("has_memory_model && has_entrypoint", VALIDATOR)
+        self.assertIn("!inside_function", VALIDATOR)
 
     @unittest.skipUnless(shutil.which("clang++") or shutil.which("g++"),"C++ compiler missing")
     def test_compiled_validator_real_function(self):
@@ -74,18 +76,35 @@ class HulkNvidiaCompilerGuardTests(unittest.TestCase):
 #include <cassert>
 """ + "namespace {\n" + VALIDATOR + "}\n" + r"""
 int main() {
-  const uint32_t valid[]    = {0x07230203u,0x00010500u,0,16,0,0x00010000u};
-  const uint32_t bad_magic[]={0x0135u,0x00010500u,0,16,0,0x00010000u};
-  const uint32_t bad_count[]={0x07230203u,0x00010500u,0,16,0,0x00000000u};
-  const uint32_t bad_short[]={0x07230203u,0x00010500u,0,16,0,0x00020000u};
-  const uint32_t bad_bound[]={0x07230203u,0x00010500u,0,0,0,0x00010000u};
-  assert(HulkSpirvStructurallyValid(valid, 6));
-  assert(!HulkSpirvStructurallyValid(bad_magic, 6));
-  assert(!HulkSpirvStructurallyValid(bad_count, 6));
-  assert(!HulkSpirvStructurallyValid(bad_short, 6));
-  assert(!HulkSpirvStructurallyValid(bad_bound, 6));
+  // Structurally valid VS module: Capability, MemoryModel, EntryPoint,
+  // TypeVoid, TypeFunction, Function, Label, Return, FunctionEnd.
+  const uint32_t valid[] = {
+    0x07230203u, 0x00010500u, 0, 5, 0,
+    0x00020011u, 1,
+    0x0003000Eu, 0, 1,
+    0x0005000Fu, 0, 3, 0x6e69616du, 0,
+    0x00020013u, 1,
+    0x00030021u, 2, 1,
+    0x00050036u, 1, 3, 0, 2,
+    0x000200F8u, 4,
+    0x000100FDu, 0x00010038u
+  };
+  constexpr size_t n = sizeof(valid) / sizeof(valid[0]);
+  assert(HulkSpirvStructurallyValid(valid, n));
+  uint32_t broken[n];
+  auto reset = [&]() { for (size_t i=0; i<n; ++i) broken[i]=valid[i]; };
+  reset(); broken[0]=0; assert(!HulkSpirvStructurallyValid(broken,n));
+  reset(); broken[3]=0; assert(!HulkSpirvStructurallyValid(broken,n));
+  reset(); broken[5]=0; assert(!HulkSpirvStructurallyValid(broken,n));
+  reset(); broken[7]=0x0002000Eu; assert(!HulkSpirvStructurallyValid(broken,n));
+  reset(); broken[10]=0x0003000Fu; assert(!HulkSpirvStructurallyValid(broken,n));
+  reset(); broken[20]=0x00040036u; assert(!HulkSpirvStructurallyValid(broken,n));
+  reset(); broken[n-1]=0x00010000u; assert(!HulkSpirvStructurallyValid(broken,n));
+  reset(); broken[7]=0x00030000u; assert(!HulkSpirvStructurallyValid(broken,n));
+  const uint32_t old_invalid[]={0x07230203u,0x00010500u,0,16,0,0x00010000u};
+  assert(!HulkSpirvStructurallyValid(old_invalid, 6));
   assert(!HulkSpirvStructurallyValid(valid, 4));
-  assert(!HulkSpirvStructurallyValid(nullptr, 6));
+  assert(!HulkSpirvStructurallyValid(nullptr, n));
 }
 """
         with tempfile.TemporaryDirectory() as tmp:

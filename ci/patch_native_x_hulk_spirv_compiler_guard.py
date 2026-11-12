@@ -18,22 +18,54 @@ PIN=os.environ.get("HULK_NATIVEX_SOURCE_SHA","bf965e952c98e050753e91d08f32685a9f
 PINS={"bf965e952c98e050753e91d08f32685a9f754b12",
       "919371b5bdae0c9c4c7120ca321f5a4d72b7e78e"}
 
-VALIDATOR="""// HULK/SPIRV-PREFLIGHT: a minimum, memory-safe SPIR-V instruction
-// word-stream check before passing code to the vendor driver. This is
-// deliberately NOT a substitute for SPIRV-Tools semantic validation.
+VALIDATOR="""// HULK/SPIRV-PREFLIGHT: reject damaged modules BEFORE Vulkan shader creation.
+ // This validates SPIR-V section structure and function boundaries only.
+ // It is NOT a substitute for the SPIRV-Tools semantic validator.
 bool HulkSpirvStructurallyValid(const uint32_t* words, size_t count) {
   if (!words || count < 5 || count > (1u << 20) ||
       words[0] != 0x07230203u || words[4] != 0u ||
       ((words[1] >> 16) & 0xFFu) != 1u || words[3] == 0u)
     return false;
+  bool has_capability = false, has_memory_model = false;
+  bool has_entrypoint = false, has_function = false, inside_function = false;
   for (size_t i = 5; i < count;) {
     const size_t instruction_words = size_t(words[i] >> 16);
     if (!instruction_words || instruction_words > count - i) return false;
+    const uint32_t opcode = words[i] & 0xFFFFu;
+    switch (opcode) {
+      case 17u: // OpCapability
+        if (instruction_words != 2 || inside_function) return false;
+        has_capability = true;
+        break;
+      case 14u: // OpMemoryModel must occur once before functions.
+        if (instruction_words != 3 || has_memory_model ||
+            inside_function || has_function) return false;
+        has_memory_model = true;
+        break;
+      case 15u: // OpEntryPoint: execution model, function ID, NUL-terminated name.
+        if (instruction_words < 4 || inside_function || has_function) return false;
+        has_entrypoint = true;
+        break;
+      case 54u: // OpFunction: result type, result ID, control, function type.
+        if (instruction_words != 5 || inside_function ||
+            !has_memory_model || !has_entrypoint) return false;
+        inside_function = true;
+        has_function = true;
+        break;
+      case 56u: // OpFunctionEnd must close a started function.
+        if (instruction_words != 1 || !inside_function) return false;
+        inside_function = false;
+        break;
+      default:
+        break;
+    }
     i += instruction_words;
   }
-  return true;
+  // Previously any header followed by OpNop was accepted; Diligent could
+  // submit that byte stream to the NVIDIA compiler as a bogus shader.
+  return has_capability && has_memory_model && has_entrypoint &&
+         has_function && !inside_function;
 }
-
 """
 HEADER_OLD="namespace {\n\n// The SDK's analysis throws"
 HEADER_NEW="namespace {\n\n"+VALIDATOR+"// The SDK's analysis throws"
