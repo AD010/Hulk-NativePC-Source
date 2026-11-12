@@ -214,3 +214,30 @@ Use `python ci/audit_hulk_save_pair.py xbox_HULK.SAV windows_HULK.sav
 `python ci/test_audit_hulk_save_pair.py` runs four synthetic regressions
 without any private game save bytes. The result reports `conversion_ready:
 false` until an independently verified serializer and load test exist.
+
+## One-time lossless import, source-only and explicitly authorized
+
+`ci/import_hulk_legacy_save.py` finds a single existing original recomp
+Xbox-format XContent package under the known 16-hex-XUID directory and
+`534507F1/00000001/HULK.SAV` path. It requires the matching 328-byte
+header and the observed Xbox big-endian CRC32; does not invent a PC save.
+It dry-runs by default. `--apply` writes a new, private staging directory
+containing package and header, fsyncs files, then publishes the package tree
+inside `Documents/SEGA/The Incredible Hulk/NativePC/SavedGames` only when
+that complete target path does not exist. Existing targets are refused.
+The legacy source and the original retail `HULK.sav` are never changed.
+
+```powershell
+python ci/import_hulk_legacy_save.py "PATH_TO_LEGACY_incredible_hulk" "PATH_TO_Documents"
+# Only after checking the proposal and taking your own backup:
+python ci/import_hulk_legacy_save.py "PATH_TO_LEGACY_incredible_hulk" "PATH_TO_Documents" --apply
+```
+
+**Verified offline on the owner's actual save archive in a sandbox test
+destination:** 24,544-byte payload and 328-byte metadata copied exactly;
+both original and destination SHA-256 digests match. Duplicate import and
+corrupted-CRC test cases correctly rejected. This is *not* yet proof of
+successful in-game reopen or recovery from interrupted writes on Windows.
+The `hulk_native_pc_saves` runtime switch remains false until in-game
+load/save tests confirm continuity. User is not required to run this manually
+until there is a validated opt-in migration path in the future launcher.
