@@ -24,8 +24,8 @@ ANCHOR = """  Gather(p, call, draw, base);
   last_.call = call;"""
 PATCH = """  // HULK/INCOMPLETE-XDK-DRAW-GUARD: a truncated or malformed PM4 call
   // must never update shader programs or register state from a partial
-  // scan. This branch handles real draws only. Hulk log191 showed the
-  // old broad guard dropping Call::kPresent, resulting in one shown frame,
+  // scan. Hulk log191 showed the old broad guard dropping
+  // Call::kPresent, resulting in one shown frame,
   // 39k replayed PM4 draws and 335 dynamic-heap exhaustion failures.
   // HULK/PRESENT-NOT-DRAW: Hulk log191 proves call=38 (Call::kPresent)
   // has an incomplete trailing PM4 scan while the actual XDK Present is
