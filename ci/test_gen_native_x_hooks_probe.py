@@ -51,4 +51,18 @@ assert not (missing := (set(required) - compiled)), (
     ", ".join("0x"+key+"="+required[key] for key in sorted(missing)))
 assert required.get("82888D68") == "Clear"
 assert required.get("82888C40") == "ClearF"
+# A checked-in address alone is not enough: the translator's guest->host
+# map must contain the exact AOT entry the compiled XEX will call.
+import csv
+with (project / "analysis/guest_host_mapping.csv").open(encoding="utf-8-sig",
+                                                       newline="") as stream:
+    rows = list(csv.DictReader(stream))
+registered = {r["guest_address"].removeprefix("0x").upper(): int(
+                  r["native_entry"], 16) for r in rows}
+assert not (absent := (set(required)-set(registered))), (
+    "Profile guest functions missing from PPC host map: " +
+    ", ".join(sorted(absent)))
+assert registered["82888D68"] == 0x1410ECD70, "USA Clear PPC/AOT mapping drift"
+assert registered["82888C40"] == 0x141FEC5A0, "USA ClearF PPC/AOT mapping drift"
+
 print("GPU strong-hook generator synthetic and full Hulk profile tests: OK")
