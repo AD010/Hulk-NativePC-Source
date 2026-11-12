@@ -62,8 +62,14 @@ int main() {
             p=pathlib.Path(temp)
             source=p/"main.cpp";source.write_text(code,encoding="utf-8")
             out=p/"native_save_path_test"
-            subprocess.run([compiler,"-std=c++17","-I",str(header.parent),
-                            str(source),"-o",str(out)],check=True)
+            command=[compiler,"-std=c++17","-I",str(header.parent),
+                     str(source),"-o",str(out)]
+            # Windows SDK known-folder APIs have three separate import libs.
+            # The standalone link must not accidentally succeed because of
+            # another application's transitive linker dependencies.
+            if sys.platform == "win32":
+                command += ["-lshell32", "-lole32", "-luuid"]
+            subprocess.run(command,check=True)
             subprocess.run([str(out)],check=True)
 
 if __name__=="__main__":

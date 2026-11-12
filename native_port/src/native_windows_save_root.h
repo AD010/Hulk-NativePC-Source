@@ -12,7 +12,11 @@
 #include <shlobj.h>
 #include <objbase.h>
 #ifdef _MSC_VER
+// SHGetKnownFolderPath -> Shell32, CoTaskMemFree -> Ole32,
+// FOLDERID_Documents is an external GUID provided by Uuid.
 #pragma comment(lib, "Shell32.lib")
+#pragma comment(lib, "Ole32.lib")
+#pragma comment(lib, "Uuid.lib")
 #endif
 #endif
 
