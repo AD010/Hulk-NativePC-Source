@@ -14,11 +14,13 @@ struct Layout {
   bool invert_y=false;
 };
 struct Angles {float yaw=0,pitch=0;};
-Angles ApplyDelta(Angles angles,int dx,int dy,const Layout& cfg);
+// A validated camera profile uses the same user sensitivity as RawInput;
+// scale 1.0 corresponds to the original default sensitivity value 4.0.
+Angles ApplyDelta(Angles angles,int dx,int dy,const Layout& cfg,float sensitivity_scale=1.0f);
 // Pure bounds-checked guest-address model, used by tests and actual camera bind.
 // The span begins at emulated guest address zero; no endianness assumptions.
-bool ApplyToGuestSpan(uint8_t* memory,size_t size,const Layout& cfg,int dx,int dy);
+bool ApplyToGuestSpan(uint8_t* memory,size_t size,const Layout& cfg,int dx,int dy,float sensitivity_scale=1.0f);
 // One-time optional sidecar config; fails closed if the required fields are missing.
 // A false result means RawInput still follows existing XInput path.
-bool ApplyToGameMemory(uint8_t* base,int dx,int dy);
+bool ApplyToGameMemory(uint8_t* base,int dx,int dy,float sensitivity_scale=1.0f);
 } // namespace hulk::camera

@@ -310,7 +310,7 @@ bool NativeInputApply(uint32_t user, bool real_pad_connected, uint8_t* state, ui
   // camera state; zero the Xbox right stick so it cannot double-rotate.
   // No profile => keep the old input path unchanged for playability.
   const bool direct_camera = camera::ApplyToGameMemory(
-      guest_base, f.mouse_dx, f.mouse_dy);
+      guest_base, f.mouse_dx, f.mouse_dy, f.sensitivity / 4.0f);
 #if defined(_WIN32)
   // A game can poll XInput many times between rendered frames. Preserve small
   // mouse movements briefly *only for stick emulation*, not direct camera:

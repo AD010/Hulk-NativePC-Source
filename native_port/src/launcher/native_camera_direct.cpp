@@ -253,19 +253,23 @@ uint8_t* GuestAddress(
 
 Angles ApplyDelta(
     Angles angles, int dx, int dy,
-    const Layout& c) {
+    const Layout& c, float sensitivity_scale) {
 
   if (!std::isfinite(angles.yaw) ||
       !std::isfinite(angles.pitch))
     return angles;
 
+  // HULK/DIRECT-CAMERA-SENSITIVITY: user settings apply to direct yaw/pitch
+  // without manufacturing an Xbox right-stick deflection or rescaling time.
+  const float scale = std::isfinite(sensitivity_scale)
+      ? std::clamp(sensitivity_scale, 0.025f, 5.0f) : 1.0f;
   const float x =
       float(std::clamp(dx, -12000, 12000)) *
-      c.radians_per_count;
+      c.radians_per_count * scale;
 
   const float y =
       float(std::clamp(dy, -12000, 12000)) *
-      c.radians_per_count *
+      c.radians_per_count * scale *
       (c.invert_y ? -1.0f : 1.0f);
 
   angles.yaw =
@@ -280,7 +284,7 @@ Angles ApplyDelta(
 
 bool ApplyToGuestSpan(
     uint8_t* memory, size_t size,
-    const Layout& c, int dx, int dy) {
+    const Layout& c, int dx, int dy, float sensitivity_scale) {
 
   if (!memory || (!dx && !dy) ||
       !InBounds(size, c.pointer_slot, 4))
@@ -313,14 +317,14 @@ bool ApplyToGuestSpan(
       previous.pitch > 4.0f)
     return false;
 
-  const Angles next = ApplyDelta(previous, dx, dy, c);
+  const Angles next = ApplyDelta(previous, dx, dy, c, sensitivity_scale);
   WriteBEFloat(yaw, next.yaw);
   WriteBEFloat(pitch, next.pitch);
   return true;
 }
 
 bool ApplyToGameMemory(
-    uint8_t* base, int dx, int dy) {
+    uint8_t* base, int dx, int dy, float sensitivity_scale) {
 
   static const Settings settings = LoadSettings();
 
@@ -369,11 +373,12 @@ bool ApplyToGameMemory(
       previous.pitch > 4.0f)
     return false;
 
-  const Angles next = ApplyDelta(previous, dx, dy, c);
+  const Angles next = ApplyDelta(previous, dx, dy, c, sensitivity_scale);
   WriteBEFloat(yaw, next.yaw);
   WriteBEFloat(pitch, next.pitch);
   return true;
 #else
+  (void)sensitivity_scale;
   return false;
 #endif
 }
