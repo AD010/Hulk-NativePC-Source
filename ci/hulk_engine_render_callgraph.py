@@ -8,6 +8,7 @@ Never treats an ancestor as ABI proof. No guest binaries or PPC bytes in output.
 from __future__ import annotations
 import argparse
 from audit_hulk_xex_xdk import inspect as inspect_xex, verify_xdk_6534
+from hulk_engine_input_callgraph import analyze_input_context, INPUT_POLL_ANCHOR
 from collections import defaultdict
 from configparser import ConfigParser
 import json
@@ -273,8 +274,10 @@ def main():
     provenance = verify_us_source(args.source_xex)
     hooks = read_hooks(args.profile)
     reverse, file_count, function_count, found = scan_direct_calls(
-        args.generated, set(hooks))
+        args.generated, set(hooks) | {INPUT_POLL_ANCHOR})
     report = analyze(reverse, hooks, depth=args.depth, found_hooks=found)
+    report["eor_input_context"] = analyze_input_context(reverse, report)
+    report["eor_input_context"]["input_wrapper_present_in_aot"] = (INPUT_POLL_ANCHOR in found)
     report.update(provenance)
     report['source_files'] = file_count
     report['guest_functions'] = function_count

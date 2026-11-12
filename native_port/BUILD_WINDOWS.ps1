@@ -166,6 +166,7 @@ try {
   # Source-only reverse PowerPC call graph: identify genuine Edge of Reality
   # scene dispatchers ABOVE Draw/Resolve/Present for the future D3D11 backend.
   # Report contains addresses only; no game bytes leave the private runner.
+  Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_hulk_engine_input_callgraph.py')) $Source
   Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_hulk_engine_render_callgraph.py')) $Source
   Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/hulk_engine_render_callgraph.py'),
     '--generated', (Join-Path $Source 'generated/default'),
