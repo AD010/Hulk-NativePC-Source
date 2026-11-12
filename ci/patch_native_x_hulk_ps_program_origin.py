@@ -62,9 +62,13 @@ def patch(source: str) -> tuple[str, bool]:
     if source.count(ANCHOR) != 1:
         raise ValueError("NativeX CaptureDraw shader assignment drift")
     if HEADER not in source:
-        if source.count("#include <algorithm>") != 1:
-            raise ValueError("NativeX renderer include anchor drift")
-        source = source.replace("#include <algorithm>", HEADER + "\n#include <algorithm>", 1)
+        # All previous Hulk patches are applied in preflight before this
+        # one; some modify the standard include block. The NativeX renderer
+        # always uses its local state tracker, so anchor after state.h.
+        anchor = '#include "state.h"'
+        if source.count(anchor) != 1:
+            raise ValueError("NativeX StateTracker include anchor drift")
+        source = source.replace(anchor, anchor + "\n" + HEADER, 1)
     return source.replace(ANCHOR, ANCHOR + "\n" + CXX, 1), True
 
 def main() -> None:

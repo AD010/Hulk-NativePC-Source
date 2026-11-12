@@ -6,12 +6,15 @@ from patch_native_x_hulk_ps_program_origin import patch, ANCHOR, CXX
 
 class ProgramOriginTest(unittest.TestCase):
     def test_atomic_idempotent_no_shader_substitution(self):
-        upstream = "#include <algorithm>\n" + ANCHOR + "\n"
+        upstream = '#include "state.h"\n' + ANCHOR + "\n"
         result, changed = patch(upstream)
         self.assertTrue(changed)
         self.assertEqual(patch(result), (result, False))
         self.assertEqual(result.count(CXX), 1)
         self.assertIn("#include <atomic>", result)
+        self.assertIn('#include "state.h"\\n#include <atomic>', result)
+        self.assertEqual(result.count('#include <atomic>'), 1)
+
         for needle in ("0xe42552fce84cb8acull", "0x0dad3cb9972d38fdull",
                        "hulk_ps->loaded_by", "hulk_ps->packet",
                        "hulk_ps->address", "hulk_ps->immediate",
