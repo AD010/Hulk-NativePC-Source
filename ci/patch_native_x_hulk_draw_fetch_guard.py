@@ -64,7 +64,7 @@ VERTEX_NEW = """      xenos::xe_gpu_vertex_fetch_t fetch = regs.GetVertexFetch(i
         if (n <= 20 || (n % 10000) == 0) {
           REXLOG_WARN("[HULK/INVALID-VERTEX-DRAW] #{} slot={} type={} base={:#x} words={}",
                       n, i * 32 + bit, uint32_t(fetch.type),
-                      fetch.address, fetch.size);
+                      uint32_t(fetch.address), uint32_t(fetch.size));
         }
         ++stats_.failed;
         return false;
