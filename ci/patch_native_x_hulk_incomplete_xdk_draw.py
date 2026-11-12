@@ -17,6 +17,9 @@ PIN = os.environ.get("HULK_NATIVEX_SOURCE_SHA",
 PINS = {"bf965e952c98e050753e91d08f32685a9f754b12",
         "919371b5bdae0c9c4c7120ca321f5a4d72b7e78e"}
 ANCHOR = """  Gather(p, call, draw, base);
+  last_hulk_segment_end_ = end;
+  last_hulk_segment_device_ = p.device;
+  last_hulk_segment_valid_ = true;
 
   last_.call = call;"""
 PATCH = """  // HULK/INCOMPLETE-XDK-DRAW-GUARD: a truncated or malformed PM4 call
@@ -30,6 +33,9 @@ PATCH = """  // HULK/INCOMPLETE-XDK-DRAW-GUARD: a truncated or malformed PM4 cal
     if (count <= 16 || count % 10000 == 0)
       REXLOG_WARN("[HULK/INCOMPLETE-XDK-DRAW] #{} call={} was_draw={} - discarded partial PM4 state",
                   count, uint32_t(call), draw);
+    // Invalidate the unhooked-gap cursor too: never replay this damaged
+    // segment on the next D3D call after rejecting its tail.
+    last_hulk_segment_valid_ = false;
     scan_.Clear();
     return nullptr;
   }
