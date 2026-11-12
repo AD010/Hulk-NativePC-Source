@@ -8,7 +8,7 @@ import unittest
 from patch_native_x_hulk_spirv_compiler_guard import (
     HEADER_OLD, SHADER_CREATE_OLD, TRANSLATE_BINARY_OLD, TRANSLATE_NAME_OLD,
     MOTION_BINARY_OLD, MOTION_NAME_OLD, PIPELINE_OLD, PIPELINE_NEW,
-    VALIDATOR, patch_shaders, patch_pipelines,
+    VALIDATOR, patch_shaders, patch_pipelines, DRIVER_OLD, DRIVER_NEW, driver_patch_text,
 )
 
 class HulkNvidiaCompilerGuardTests(unittest.TestCase):
@@ -34,6 +34,30 @@ class HulkNvidiaCompilerGuardTests(unittest.TestCase):
         self.assertIn("pixel_shader ? pixel_shader->ucode_data_hash() : 0",fixed)
         self.assertIn("CreateGraphicsPipelineState(create_info",fixed)
         with self.assertRaises(ValueError): patch_pipelines("unknown layout")
+
+    def test_real_driver_patch_applies_and_preserves_call(self):
+        # Exercise git's actual patch parser, not just a string presence check.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = root / "Graphics/GraphicsEngineVulkan/src/VulkanUtilities/LogicalDevice.cpp"
+            path.parent.mkdir(parents=True)
+            path.write_text("// preceding unrelated code\n" + DRIVER_OLD + "// following code\n")
+            patch = root / "driver.patch"
+            patch.write_text(driver_patch_text())
+            subprocess.run(["git", "apply", str(patch)], cwd=root, check=True)
+            fixed = path.read_text()
+            self.assertEqual(fixed.count("vkCreateGraphicsPipelines("), 1)
+            self.assertLess(fixed.index("BEGIN name="), fixed.index("VkResult err ="))
+            self.assertLess(fixed.index("VkResult err ="), fixed.index("END name="))
+            self.assertLess(fixed.index("END name="), fixed.index("CHECK_VK_ERROR_AND_THROW"))
+            self.assertNotIn("catch", fixed)
+            self.assertNotIn("PSO_CREATE_FLAG", fixed)
+            subprocess.run(["git", "apply", "--reverse", "--check", str(patch)],
+                           cwd=root, check=True)
+
+    def test_async_return_is_not_reported_as_compile_success(self):
+        self.assertIn("RETURN pipeline={} object_created={}", PIPELINE_NEW)
+        self.assertNotIn("END pipeline={} ok={}", PIPELINE_NEW)
 
     def test_does_not_fake_shaders(self):
         self.assertNotIn("memset",VALIDATOR)

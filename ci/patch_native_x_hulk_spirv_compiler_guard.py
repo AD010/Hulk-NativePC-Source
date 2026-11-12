@@ -9,6 +9,7 @@ audited NativeXRenderer pins after the existing Hulk graphics patch chain.
 from __future__ import annotations
 
 import os
+import difflib
 from pathlib import Path
 import subprocess
 import sys
@@ -84,15 +85,39 @@ PIPELINE_OLD="""  auto pipeline = std::make_unique<Pipeline>();
   if (!pipeline->pso) {"""
 PIPELINE_NEW="""  auto pipeline = std::make_unique<Pipeline>();
   // HULK/NVIDIA-COMPILE-BOUNDARY: identify the exact VS, PS and pipeline
-  // involved when the driver reports a fault on its background compiler
-  // thread. Unmatched BEGIN is suggestive, not proof of the root cause.
+  // requested at the API boundary. RETURN means an object was allocated,
+  // NOT that asynchronous driver compilation completed successfully.
   REXLOG_INFO("[HULK/NVIDIA-COMPILE-BOUNDARY] BEGIN pipeline={} VS={:016X} PS={:016X}",
               name, vertex_shader.ucode_data_hash(),
               pixel_shader ? pixel_shader->ucode_data_hash() : 0);
   device_->CreateGraphicsPipelineState(create_info, &pipeline->pso);
-  REXLOG_INFO("[HULK/NVIDIA-COMPILE-BOUNDARY] END pipeline={} ok={}",
+  REXLOG_INFO("[HULK/NVIDIA-COMPILE-BOUNDARY] RETURN pipeline={} object_created={}",
               name, pipeline->pso != nullptr);
   if (!pipeline->pso) {"""
+
+DRIVER_PATH = "Graphics/GraphicsEngineVulkan/src/VulkanUtilities/LogicalDevice.cpp"
+DRIVER_PATCH_NAME = "0012-hulk-driver-compilation-boundary.patch"
+DRIVER_OLD = 'PipelineWrapper LogicalDevice::CreateGraphicsPipeline(const VkGraphicsPipelineCreateInfo& PipelineCI,\n                                                      VkPipelineCache                     cache,\n                                                      const char*                         DebugName) const\n{\n    VERIFY_EXPR(PipelineCI.sType == VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO);\n\n    if (DebugName == nullptr)\n        DebugName = "";\n\n    VkPipeline vkPipeline = VK_NULL_HANDLE;\n\n    VkResult err = vkCreateGraphicsPipelines(m_VkDevice, cache, 1, &PipelineCI, m_VkAllocator, &vkPipeline);\n    CHECK_VK_ERROR_AND_THROW(err, "Failed to create graphics pipeline \'", DebugName, \'\\\'\');\n\n    if (*DebugName != 0)\n        SetPipelineName(m_VkDevice, vkPipeline, DebugName);\n\n    return PipelineWrapper{GetSharedPtr(), std::move(vkPipeline)};\n}\n'
+DRIVER_NEW = """    // HULK/VK-DRIVER-COMPILE: runs on the actual compiler worker, including
+    // library parts, linking and the later whole-pipeline optimization task.
+    // NativeX CreateGraphicsPipelineState returns before those tasks finish.
+    LOG_INFO_MESSAGE("[HULK/VK-DRIVER-COMPILE] BEGIN name=", DebugName,
+                     " flags=", PipelineCI.flags, " stages=", PipelineCI.stageCount);
+    VkResult err = vkCreateGraphicsPipelines(m_VkDevice, cache, 1, &PipelineCI, m_VkAllocator, &vkPipeline);
+    LOG_INFO_MESSAGE("[HULK/VK-DRIVER-COMPILE] END name=", DebugName,
+                     " flags=", PipelineCI.flags, " stages=", PipelineCI.stageCount,
+                     " result=", static_cast<int>(err));
+"""
+
+def driver_patch_text() -> str:
+    # The existing NativeX CMake patch-series loader applies this to the pinned
+    # Diligent submodule, after its upstream patches; no second configuration.
+    return "".join(difflib.unified_diff(
+        DRIVER_OLD.splitlines(keepends=True), DRIVER_OLD.replace(
+            "    VkResult err = vkCreateGraphicsPipelines(m_VkDevice, cache, 1, &PipelineCI, m_VkAllocator, &vkPipeline);\n",
+            DRIVER_NEW).splitlines(keepends=True),
+        fromfile="a/" + DRIVER_PATH, tofile="b/" + DRIVER_PATH))
+
 
 def replace_one(src: str, old: str, new: str, where: str) -> str:
     n=src.count(old)
@@ -144,6 +169,11 @@ def main() -> None:
         edits.append((path,changed,c))
     if len({c for _,_,c in edits})!=1:
         raise ValueError("Partial Hulk shader/pipeline guard installation")
+    driver_patch = root / "diligent_patches" / DRIVER_PATCH_NAME
+    expected = driver_patch_text()
+    if driver_patch.exists() and driver_patch.read_text(encoding="utf-8") != expected:
+        raise ValueError("Conflicting Hulk driver boundary patch")
+    driver_patch.write_text(expected, encoding="utf-8", newline="\n")
     for path,content,changed in edits:
         if changed: path.write_text(content,encoding="utf-8",newline="\n")
     print("Hulk SPIR-V source validation and NVIDIA shader/pipeline boundaries:",
