@@ -50,9 +50,10 @@ PATCH = """  // HULK/INCOMPLETE-XDK-DRAW-GUARD: a truncated or malformed PM4 cal
     last_.scan = &scan_;
     return &last_;
   }
-  // Only *actual draws* may be suppressed for incomplete PM4. In
-  // particular never swallow a kFrameEnd/Present or its graphics fence.
-  if (!scan_.complete && draw) {
+  // Other incomplete XDK calls are still rejected, preserving the old
+  // safety behavior; only Present's frame boundary is mandatory even
+  // when the PM4 tail could not be decoded.
+  if (!scan_.complete) {
     static std::atomic<uint64_t> hulk_incomplete_xdk{0};
     const uint64_t count = hulk_incomplete_xdk.fetch_add(1, std::memory_order_relaxed) + 1;
     if (count <= 16 || count % 10000 == 0)
