@@ -12,7 +12,7 @@ class ProgramOriginTest(unittest.TestCase):
         self.assertEqual(patch(result), (result, False))
         self.assertEqual(result.count(CXX), 1)
         self.assertIn("#include <atomic>", result)
-        self.assertIn('#include "state.h"\\n#include <atomic>', result)
+        self.assertIn('#include "state.h"\n#include <atomic>', result)
         self.assertEqual(result.count('#include <atomic>'), 1)
 
         for needle in ("0xe42552fce84cb8acull", "0x0dad3cb9972d38fdull",
