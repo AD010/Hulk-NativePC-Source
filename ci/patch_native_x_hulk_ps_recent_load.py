@@ -48,10 +48,10 @@ RESET_NEW = """  programs_ = {};
   hulk_ps_recent_serial_ = 0;
   record_.Clear();"""
 LOG_OLD = """                "ps={:016x} vs={:016x} load_call={} packet={:#x} "
-                "address={:#x} words={} immediate={}", """
+                "address={:#x} words={} immediate={}","""
 LOG_NEW = """                "ps={:016x} vs={:016x} cache_first_call={} cache_first_packet={:#x} "
                 "address={:#x} words={} immediate={} "
-                "last_load_call={} last_load_packet={:#x} last_load_serial={}", """
+                "last_load_call={} last_load_packet={:#x} last_load_serial={}","""
 ARGS_OLD = """                hulk_ps ? hulk_ps->ucode.size() : size_t(0),
                 hulk_ps && hulk_ps->immediate);"""
 ARGS_NEW = """                hulk_ps ? hulk_ps->ucode.size() : size_t(0),
