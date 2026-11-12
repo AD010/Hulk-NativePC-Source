@@ -162,6 +162,9 @@ def run(sha=SHA):
         if "HULK/RESOLVE-RESOURCE-GUARD" not in resolved_cpp:
             missing.append("Hulk resolved Vulkan texture descriptor guard")
         state=(source/"src/state.cpp").read_text(encoding="utf-8")
+        if ("HULK/PM4-REGISTER-SNAPSHOT" not in state or
+            "hulk_restore_registers()" not in state):
+            missing.append("PM4 registers must be frozen from the validated first scan")
         if ("HULK/PM4-PRESCAN-SHADER-SNAPSHOT" not in state or
             "hulk_prescan_words.data() + original.ucode_offset" not in state or
             "hulk_shader_replay_ok" not in state):
