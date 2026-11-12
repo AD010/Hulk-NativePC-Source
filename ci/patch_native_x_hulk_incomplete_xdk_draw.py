@@ -56,9 +56,23 @@ PATCH = """  // HULK/INCOMPLETE-XDK-DRAW-GUARD: a truncated or malformed PM4 cal
   if (!scan_.complete) {
     static std::atomic<uint64_t> hulk_incomplete_xdk{0};
     const uint64_t count = hulk_incomplete_xdk.fetch_add(1, std::memory_order_relaxed) + 1;
-    if (count <= 16 || count % 10000 == 0)
-      REXLOG_WARN("[HULK/INCOMPLETE-XDK-DRAW] #{} call={} was_draw={} - discarded partial PM4 state",
-                  count, uint32_t(call), draw);
+    if (count <= 16 || count % 10000 == 0) {
+      // HULK/LOG192-PM4-BOUNDS: 40,000 XDK DrawIndexedVertices calls
+      // rejected in four minutes. Attribute each rejection to a changed
+      // segment pointer vs a well-bounded but malformed packet stream.
+      // No game bytes or source-memory contents are logged.
+      const bool scan_range_valid =
+          end >= p.scan_from && end - p.scan_from < 0x400000u;
+      REXLOG_WARN("[HULK/INCOMPLETE-XDK-DRAW] #{} call={} was_draw={} "
+                  "begin={:#x} scan_from={:#x} end={:#x} segment_kick={} "
+                  "range_ok={} bytes={} packet_draws={} indirect={} "
+                  "writes={} loads={} shader_loads={} - discarded",
+                  count, uint32_t(call), draw,
+                  p.begin, p.scan_from, end, p.kick, scan_range_valid,
+                  scan_range_valid ? end - p.scan_from : 0u,
+                  scan_.draws, scan_.indirect, scan_.writes.size(),
+                  scan_.loads.size(), scan_.shader_loads.size());
+    }
     // Invalidate the unhooked-gap cursor too: never replay this damaged
     // segment on the next D3D call after rejecting its tail.
     last_hulk_segment_valid_ = false;
