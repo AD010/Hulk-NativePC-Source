@@ -74,6 +74,8 @@ try {
   # Protect save package names before any host filesystem operation.
   Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_sdk_hulk_save_names.py'), $Sdk) $Source
   Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_sdk_hulk_save_names.py'), $Sdk) $Source
+   Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_sdk_hulk_native_save_root.py'), $Sdk) $Source
+   Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_sdk_hulk_native_save_root.py'), $Sdk) $Source
   # Reused index ranges must invalidate CPU primitive conversions, including
   # exact rewrites and writes covering the entire cached range.
   Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_sdk_hulk_index_cache.py'), $Sdk) $Source

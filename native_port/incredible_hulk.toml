@@ -59,3 +59,7 @@ native_x_renderer_wait_offscreen_pipelines = true
 native_x_renderer_skip_steady_passes = false
 native_x_renderer_dynamic_rendering = true
 native_x_renderer_pipeline_library = "auto"
+
+# Windows-native saved-game package root, separated from original retail PC HULK.sav.
+# OFF until migration from the previous Xbox XUID layout is verified.
+hulk_native_pc_saves = false

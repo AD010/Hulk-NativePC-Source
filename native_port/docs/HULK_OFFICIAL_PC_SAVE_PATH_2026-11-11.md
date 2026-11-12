@@ -160,3 +160,33 @@ process is required (threads within that process are serialized). No claim
 of power-loss safety across every disk/cloud provider, native Documents
 routing, retail-PC save compatibility or campaign save/load parity is made.
 Those remain blockers to calling the save system release-ready.
+
+## 12 November 2026 — comparative save samples and opt-in Windows package path
+
+The user provided two private RAR5 archives: original recomp XContent saved-game
+package (`HULK.SAV` payload 24,544 bytes; header 328 bytes), and official
+Windows PC 2008 `HULK.sav` (10,176 bytes). Both share the first 242 hashed
+field identifiers after adjusting for BE Xbox and LE Windows record order,
+but only 52 of those first 242 record VALUES agree; record layouts diverge
+after the initial table. No PC-format conversion or compatible checksum
+regeneration has been demonstrated. **Never rename or directly overwrite
+retail `HULK.sav` with the XContent payload.**
+
+New `ci/patch_sdk_hulk_native_save_root.py` injects a title-specific,
+Windows-only `ContentManager` save directory provider and tests it
+against the real SDK source. When opted in via `hulk_native_pc_saves=true`:
+`FOLDERID_Documents/SEGA/The Incredible Hulk/NativePC/SavedGames/HULK.SAV/HULK.SAV`
+and its XContent metadata under `NativePC/SavedGames/Headers/HULK.SAV.header`.
+For Hulk USA title 0x534507F1, saved games type 1 only, paths contain NO XUID
+or title ID hierarchy. Other titles, marketplace TU1/DLC, achievements,
+caches and game assets keep their existing paths. No file or directory is
+created by calculating the root; only actual existing save operations create
+files.
+
+**Safety:** This option defaults to **false** to keep existing recomp save
+progress visible until a non-destructive import/copy-back procedure is
+implemented and verified on both user-provided packages. Enabling this
+prematurely would make the old Xbox-path save invisible to the game. The
+native root still stores Xbox-format *opaque data*, not the proprietary 2008
+Windows serializer. Runtime save/reload, Xbox→PC format conversion and
+atomic content payload commits remain separately unverified.
