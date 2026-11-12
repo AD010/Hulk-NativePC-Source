@@ -36,17 +36,23 @@ SHADER_CALL = "  device_->CreateShader(create_info, &job.host->shader);"
 PIPELINE_CALL = "  device_->CreateGraphicsPipelineState(create_info, &pipeline->pso);"
 SHADER_LOCK = """  // HULK/DRIVER-CREATE-GATE: serialize only host driver object creation,
   // never shader translation or GPU execution. Optional for A/B diagnosis.
-  std::unique_lock<std::mutex> hulk_driver_gate(HulkDriverCompileMutex(),
-                                                std::defer_lock);
-  if (REXCVAR_GET(native_x_renderer_hulk_serial_driver_creation))
-    hulk_driver_gate.lock();
-""" + SHADER_CALL
+  {
+    std::unique_lock<std::mutex> hulk_driver_gate(HulkDriverCompileMutex(),
+                                                  std::defer_lock);
+    if (REXCVAR_GET(native_x_renderer_hulk_serial_driver_creation))
+      hulk_driver_gate.lock();
+    device_->CreateShader(create_info, &job.host->shader);
+  }
+"""
 PIPELINE_LOCK = """  // HULK/DRIVER-CREATE-GATE: same mutex as ShaderCache worker threads.
-  std::unique_lock<std::mutex> hulk_driver_gate(HulkDriverCompileMutex(),
-                                                std::defer_lock);
-  if (REXCVAR_GET(native_x_renderer_hulk_serial_driver_creation))
-    hulk_driver_gate.lock();
-""" + PIPELINE_CALL
+  {
+    std::unique_lock<std::mutex> hulk_driver_gate(HulkDriverCompileMutex(),
+                                                  std::defer_lock);
+    if (REXCVAR_GET(native_x_renderer_hulk_serial_driver_creation))
+      hulk_driver_gate.lock();
+    device_->CreateGraphicsPipelineState(create_info, &pipeline->pso);
+  }
+"""
 
 def patch(shaders: str, pipelines: str) -> tuple[str, str, bool]:
     is_sh = shaders.count("HULK/DRIVER-CREATE-GATE") == 2
