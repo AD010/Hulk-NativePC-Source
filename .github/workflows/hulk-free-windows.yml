@@ -3,9 +3,6 @@ on:
   # User-requested release gate: do not start more experimental Windows
   # builds on source edits. Keep this single Release-only workflow available
   # for an explicit final validation through GitHub Actions.
-  # One-shot log192 GPU draw diagnostics after preflight 200ms budget sync.
-  push:
-    branches: [main]
   workflow_dispatch:
 permissions:
   contents: write
