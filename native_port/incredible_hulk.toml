@@ -48,6 +48,9 @@ hulk_world_stream_trace = false
 hulk_gpu_hook_probe = false
 hulk_frame_probe = false
 native_x_renderer_pipeline_storage = false
+# Serialize NVIDIA Vulkan shader/PSO creation to reduce simultaneous driver compiler work.
+# Experimental crash containment; does not fix invalid Xenos PM4 state.
+native_x_renderer_hulk_serial_driver_creation = true
 native_x_renderer_hulk_surface_fallback = false
 # The original renderer silently skipped 1297 shader and 1098 pipeline
 # draws by frame 1200 of build 67. Bounded D101 waits preserve scene draws.

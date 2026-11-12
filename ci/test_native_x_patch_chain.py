@@ -32,6 +32,8 @@ EXPERIMENTS=[
  "ci/patch_native_x_hulk_resolved_resource_guard.py",
  "ci/test_patch_native_x_hulk_spirv_compiler_guard.py",
  "ci/patch_native_x_hulk_spirv_compiler_guard.py",
+ "ci/test_patch_native_x_hulk_driver_compile_serial.py",
+ "ci/patch_native_x_hulk_driver_compile_serial.py",
 ]
 
 def commands():
@@ -58,6 +60,7 @@ def commands():
         ("ci/patch_native_x_hulk_packet_surfaces.py", "ci/patch_native_x_hulk_packet_dma_snapshot.py"),
         ("ci/patch_native_x_hulk_packet_dma_snapshot.py", "ci/patch_native_x_hulk_surface_miss_trace.py"),
         ("ci/patch_native_x_hulk_texture_resource_guard.py", "ci/patch_native_x_hulk_spirv_compiler_guard.py"),
+        ("ci/patch_native_x_hulk_spirv_compiler_guard.py", "ci/patch_native_x_hulk_driver_compile_serial.py"),
         ("ci/patch_native_x_hulk_packet_surfaces.py", "ci/patch_native_x_hulk_surface_fallback.py"),
         ("ci/patch_native_x_hulk_surface_fallback.py", "ci/patch_native_x_hulk_packet_first.py"),
         ("ci/patch_native_x_hulk_packet_first.py", "ci/patch_native_x_hulk_draw_write_ownership.py"),
