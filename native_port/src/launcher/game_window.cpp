@@ -33,6 +33,7 @@ REXCVAR_DECLARE(bool, hulk_from_launcher);  // return_to_launcher.cpp
 namespace hulk {
 void NativeInputAttachWindow(void* window);
 void NativeInputToggleCapture();
+void NativeInputSetCapture(bool enabled);
 void NativeInputReleaseCapture();
 bool NativeInputEnabled();
 bool NativeInputCapturing();
@@ -44,20 +45,50 @@ namespace {
 std::atomic<HWND> g_window{nullptr};
 std::atomic<WNDPROC> g_old_proc{nullptr};
 std::atomic<bool> g_hidden{false};
+// Restore mouse capture only if it was active before Alt+Tab or PC menu.
+std::atomic<bool> g_restore_after_focus{false};
+std::atomic<bool> g_restore_after_menu{false};
 
 POINT g_last_mouse{-100000, -100000};
 
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+  // HULK/WINDOW-FOCUS-RECAPTURE: never accumulate RawInput while Windows
+  // owns focus (Alt+Tab, Print Screen tools, minimize). Restore the exact
+  // prior capture state, not a forced mouse lock on every return.
+  if (msg == WM_ACTIVATEAPP) {
+    if (!wp) {
+      g_restore_after_focus.store(NativeInputCapturing(), std::memory_order_release);
+      NativeInputReleaseCapture();
+      g_hidden = false;
+      g_last_mouse = POINT{-100000, -100000};
+    } else if (g_restore_after_focus.exchange(false, std::memory_order_acq_rel) &&
+               !PcMenuIsOpen()) {
+      NativeInputSetCapture(true);
+    }
+  }
+  if (msg == WM_DESTROY) {
+    NativeInputReleaseCapture();
+    g_restore_after_focus = false;
+    g_restore_after_menu = false;
+  }
   // F10 host PC menu is not an Xbox guest controller command.
   // It releases RawInput capture so UI mouse clicks work.
   // F10 is a Windows system key, so it may arrive as WM_SYSKEYDOWN.
   if ((msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN) && wp == VK_F10 &&
       !(lp & (1L << 30))) {
+    const bool opening = !PcMenuIsOpen();
+    if (opening)
+      g_restore_after_menu.store(NativeInputCapturing(), std::memory_order_release);
     PcMenuToggle();
     REXLOG_INFO("[HULK/PCMENU] F10 message={} open={}",
                 msg == WM_SYSKEYDOWN ? "WM_SYSKEYDOWN" : "WM_KEYDOWN",
                 PcMenuIsOpen());
-    NativeInputReleaseCapture();
+    if (PcMenuIsOpen()) {
+      NativeInputReleaseCapture();
+    } else if (g_restore_after_menu.exchange(false, std::memory_order_acq_rel) &&
+               GetForegroundWindow() == hwnd) {
+      NativeInputSetCapture(true);
+    }
     g_hidden = false;
     SetCursor(LoadCursorA(nullptr, IDC_ARROW));
     PostMessageW(hwnd, WM_SETCURSOR, reinterpret_cast<WPARAM>(hwnd),
@@ -74,7 +105,8 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 rex::cvar::Query<bool>("native_x_renderer"),
                 rex::cvar::Query<bool>("hulk_native_x_verify_only"));
   }
-  if (msg == WM_INPUT && NativeInputCapturing()) {
+  if (msg == WM_INPUT && NativeInputCapturing() &&
+      GetForegroundWindow() == hwnd) {
     // A mouse RAWINPUT packet has a fixed C ABI size; avoid a heap allocation
     // and a separate size-query syscall for every motion message on SDL's UI
     // thread. Oversize HID packets are not mouse packets and are ignored.
@@ -82,7 +114,9 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     UINT size = sizeof(raw);
     const UINT received = GetRawInputData(
         reinterpret_cast<HRAWINPUT>(lp), RID_INPUT, &raw, &size, sizeof(RAWINPUTHEADER));
-    if (received != UINT(-1) && received >= sizeof(RAWINPUTHEADER) &&
+    // Do not read mouse fields from a short or truncated input message.
+    if (received != UINT(-1) &&
+        received >= sizeof(RAWINPUTHEADER) + sizeof(RAWMOUSE) &&
         raw.header.dwType == RIM_TYPEMOUSE &&
         !(raw.data.mouse.usFlags & MOUSE_MOVE_ABSOLUTE)) {
       NativeInputRawMouse(raw.data.mouse.lLastX, raw.data.mouse.lLastY);
