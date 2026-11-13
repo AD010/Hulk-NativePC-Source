@@ -79,6 +79,33 @@ class PcMenu final : public rex::ui::ImGuiDialog {
       if (ImGui::Button("60 FPS (experimental)")) {
         (void)rex::cvar::SetFlagByName("gpu_guest_fps_limit", "60");
       }
+      // HULK/FPS-CHOICES: the guest frame limiter is separate from Vulkan
+      // presentation. Do NOT alter guest clock / physics timestep here:
+      // the game's PPC simulation still needs a verified 30Hz decoupling fix.
+      ImGui::TextUnformatted("Higher frame rates (experimental physics)");
+      if (ImGui::Button("90 FPS")) {
+        (void)rex::cvar::SetFlagByName("gpu_guest_fps_limit", "90");
+      }
+      ImGui::SameLine();
+      if (ImGui::Button("120 FPS")) {
+        (void)rex::cvar::SetFlagByName("gpu_guest_fps_limit", "120");
+      }
+      ImGui::SameLine();
+      if (ImGui::Button("144 FPS")) {
+        (void)rex::cvar::SetFlagByName("gpu_guest_fps_limit", "144");
+      }
+      ImGui::SameLine();
+      if (ImGui::Button("Unlimited FPS")) {
+        (void)rex::cvar::SetFlagByName("gpu_guest_fps_limit", "0");
+      }
+      bool vsync = rex::cvar::Query<bool>("vsync");
+      if (ImGui::Checkbox("Vertical synchronization", &vsync)) {
+        (void)rex::cvar::SetFlagByName("vsync", vsync ? "true" : "false");
+      }
+      ImGui::TextWrapped(
+          "30 FPS matches the console update cadence. At 60+ FPS some "
+          "animations and rigid-body interactions can still run incorrectly. "
+          "Selecting a higher FPS does not change the physics timestep.");
       ImGui::TextUnformatted("Use F4 Settings > Save to persist changed FPS.");
       // HULK/PC-GRAPHICS: these NativeX settings are read at startup.
       // Expose only renderer-supported paths; do not claim DLSS works
