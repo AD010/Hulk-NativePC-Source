@@ -125,6 +125,19 @@ def replay(words: list[int], watch=WATCH, max_draws=MAX_DRAWS) -> dict:
                 warnings.append(f'truncated DRAW_INDX {op:02x} header')
                 continue
             initiator = payload[at]
+            dma = ((initiator >> 6) & 3) == 0
+            if dma and n < at + 3:
+                # HULK/PM4-DMA-PAYLOAD-PARITY: NativeX rejects a draw
+                # whose DMA source lacks VGT_DMA_BASE or VGT_DMA_SIZE.
+                # Never count stale index-buffer registers as a real draw.
+                warnings.append(f'truncated DMA DRAW_INDX {op:02x}')
+                continue
+            # Xenos packet-side VGT writes are authoritative for this draw,
+            # in the same sequence as the production NativeX scanner.
+            write(0x21fc, initiator)
+            if dma:
+                write(0x21fa, payload[at + 1])
+                write(0x21fb, payload[at + 2])
             if len(captures) < max_draws:
                 captures.append({
                     'packet_end_word': p,
