@@ -54,13 +54,13 @@ INCOMPLETE_FAIL = re.compile(
 # values (for example 0x44800000 = IEEE754 1024.0), so the old scanner
 # silently consumed data as two GPU register writes. Do not treat a
 # successfully advanced pointer as proof of a real PM4 packet.
-LAST_GOOD_HEADER = re.compile(r"\\blast_good_header=(0x[0-9a-fA-F]+)")
-VERIFY_FRAME = re.compile(r"verify: frames (\\d+)\\.\\.(\\d+): CPU draw calls (\\d+)")
+LAST_GOOD_HEADER = re.compile(r"\blast_good_header=(0x[0-9a-fA-F]+)")
+VERIFY_FRAME = re.compile(r"verify: frames (\d+)\.\.(\d+): CPU draw calls (\d+)")
 VERIFY_MATCH = re.compile(
-    r"(\\d+) of (\\d+) draw calls have no mismatches in compared state"
+    r"(\d+) of (\d+) draw calls have no mismatches in compared state"
 )
 VERIFY_PS = re.compile(
-    r"verify: pixel program mismatches .*?: (\\d+) draws"
+    r"verify: pixel program mismatches .*?: (\d+) draws"
 )
 
 
