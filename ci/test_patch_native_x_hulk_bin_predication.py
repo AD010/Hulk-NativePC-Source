@@ -10,7 +10,11 @@ from pathlib import Path
 from patch_native_x_hulk_bin_predication import transform, BIN_SWITCH
 
 def fixture():
-    cpp = '''        if ((header & 1) && (opcode == 0x22 || opcode == 0x36)) {
+    cpp = '''      case 1:
+        if (p + 8 > end) return void(out.complete = false);
+      case 2:
+        break;
+        if ((header & 1) && (opcode == 0x22 || opcode == 0x36)) {
           ++out.predicated;
           ScanDraw(base, opcode, p, count, out);
         } else if (header & 1) {
