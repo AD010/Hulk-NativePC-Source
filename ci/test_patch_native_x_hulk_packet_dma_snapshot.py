@@ -348,9 +348,9 @@ int main() {
   Command high_alias;
   assert(!CaptureInlineData(tracker,guest.data(),high_alias));
   assert(high_alias.copy_count==0 && high_alias.data.empty());
-  // A valid base whose range crosses 512 MiB must be rejected without
+  // A physical base that crosses 512 MiB must be rejected without
   // touching a single byte of mapped guest memory.
-  tracker.reg[v0]=0x1FFFFFF3u;
+  tracker.reg[v0]=0x1FFFFFF7u;
   Command overflow;
   assert(!CaptureInlineData(tracker,guest.data(),overflow));
   assert(overflow.copy_count==0);
