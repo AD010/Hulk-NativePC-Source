@@ -21,6 +21,14 @@ class TestHulkUsGpuDefaults(unittest.TestCase):
         self.assertTrue(config["native_x_renderer"])
         self.assertTrue(config["native_x_renderer_present_with_swaps"])
         self.assertTrue(config["native_x_renderer_thread"])
+        import configparser
+        scene_profile = configparser.ConfigParser(interpolation=None)
+        scene_profile.read(ROOT / "native_port/hulk_native_x_profile.ini")
+        self.assertEqual(int(scene_profile["profile"]["scene_resolve_caller"], 0),
+                         0x8263BF50)
+        source = (ROOT / "native_port/src/native_x_hulk_profile.cpp").read_text()
+        self.assertIn("HULK/SCENE-RESOLVE-CALLER-6534", source)
+        self.assertIn("v!=0x8263BF50u", source)
         self.assertFalse(config["hulk_world_stream_trace"])
         self.assertFalse(config["hulk_native_x_verify_only"])
         self.assertTrue(config["native_x_renderer_verify"])

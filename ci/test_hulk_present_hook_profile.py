@@ -22,6 +22,11 @@ class TestHulkPresentABI(unittest.TestCase):
         with PROFILE.open(encoding="utf-8") as stream:
             config.read_file(stream)
         hooks = dict(config.items("hooks"))
+        # Runtime log195: scene4x caller observed 16 times, no output LR match.
+        self.assertEqual(int(config.get("profile", "scene_resolve_caller"), 0),
+                         0x8263BF50)
+        self.assertNotEqual(0x8263BF50, 0x8263B344)
+        self.assertNotEqual(0x8263BF50, 0x8263BC84)
         self.assertEqual(hooks.get("0x82880778"), "Present")
         self.assertNotIn("0x82880D10", hooks)
         self.assertEqual(sum(role == "Present" for role in hooks.values()), 1)

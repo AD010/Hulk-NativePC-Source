@@ -74,6 +74,13 @@ bool LoadGameProfileStream(std::istream& f, const std::string& origin, GameProfi
       else if(key=="output_width"||key=="output_height") {
         uint32_t v;if(!Number(str,v)||v<1||v>16384)return fail("invalid output dimensions");
         if(key=="output_width")out.profile.output_width=v;else out.profile.output_height=v;
+      } else if(key=="scene_resolve_caller") {
+        // HULK/SCENE-RESOLVE-CALLER-6534: 16 independent samples in log195.
+        // Fail closed on unknown callers; those may resolve the HUD or bloom.
+        uint32_t v;
+        if(!Number(str,v)||v!=0x8263BF50u)
+          return fail("unverified Hulk USA scene Resolve caller");
+        out.profile.scene_resolve_caller=v;
       } else return fail("unknown profile field "+key);
       continue;
     }

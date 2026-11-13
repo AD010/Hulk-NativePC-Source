@@ -31,6 +31,8 @@ class HulkNativeAAAndGeometryGuard(unittest.TestCase):
         # 2560x1440. Previous outer gate demanded 1280x720 and never ran.
         cpp = AA["src/renderer.cpp"][2][1]
         self.assertIn("HULK/SCENE-AA-HALF-RESOLVE", cpp)
+        self.assertIn("HULK/SCENE-RESOLVE-CALLER-6534", cpp)
+        self.assertIn("c.scene_caller && surface", cpp)
         self.assertIn("target->guest_width * 2 == g_profile->output_width", cpp)
         self.assertIn("source->width == target->width", cpp)
         self.assertIn("target->width == g_scale.HostWidth(g_profile->output_width)", cpp)
