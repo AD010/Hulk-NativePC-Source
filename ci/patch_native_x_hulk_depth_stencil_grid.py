@@ -32,9 +32,17 @@ NEW = """  // HULK/DEPTH-STENCIL-GRID-PARITY: "scaled" can be true solely
       surface && surface.depth && surface.msaa() == 2 &&
       source && source->depth && source->samples == 1 &&
       !source->reduced && !aliased &&
+      // Equal rectangles alone do not prove equal host image extents.
+      source->width == target->width &&
+      source->height == target->height &&
+      from.x >= 0 && from.y >= 0 && to.x >= 0 && to.y >= 0 &&
       from.width > 0 && from.height > 0 &&
       from.x == to.x && from.y == to.y &&
-      from.width == to.width && from.height == to.height;
+      from.width == to.width && from.height == to.height &&
+      uint64_t(from.x) + from.width <= source->width &&
+      uint64_t(from.y) + from.height <= source->height &&
+      uint64_t(to.x) + to.width <= target->width &&
+      uint64_t(to.y) + to.height <= target->height;
   if (source->depth && target->read_packed &&
       (!scaled || hulk_depth_stencil_exact_pixels) &&
       !cube && source->stencil_srv) {"""
