@@ -56,9 +56,9 @@ class HulkLogAuditTests(unittest.TestCase):
         self.assertIn("throttled", " ".join(audit["limitations"]))
 
     def test_log194_incomplete_draw_count_and_first_failure_samples(self):
-        # 130,000 rejected calls are represented by TWO throttled lines here,
+        # 130,000 rejected calls are represented by THREE throttled lines here,
         # not 130,000 detailed samples. Never sum the warning IDs.
-        log = "\\n".join([
+        log = "\n".join([
             "[HULK/INCOMPLETE-XDK-DRAW] #1 call=0 was_draw=true "
             "begin=0xa2728794 scan_from=0xa2728794 end=0xa2728d04 "
             "segment_kick=false range_ok=true bytes=1392 packet_draws=0 "
