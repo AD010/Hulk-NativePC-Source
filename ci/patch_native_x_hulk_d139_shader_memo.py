@@ -85,7 +85,7 @@ def patch(files: dict[str, str]) -> tuple[dict[str, str], bool]:
     upstream_markers = (
         "struct LoadedAt {" in header,
         "std::array<LoadedAt, 256> loaded_at_{};" in header,
-        "loaded_at_ = {};" in cpp,
+        "\n  loaded_at_ = {};" in cpp,
         "!std::memcmp(at->program->ucode.data(), ucode," in cpp,
         "if (at) *at = {load.address, load.dwords, recent};" in cpp,
     )
