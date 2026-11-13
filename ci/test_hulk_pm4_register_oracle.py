@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Synthetic-only PM4 tests; no game packets or assets in repo."""
+import hashlib
 import struct
 import tempfile
 from pathlib import Path
@@ -38,6 +39,37 @@ class PM4OracleTests(unittest.TestCase):
         r = replay(state + t3(0x36, [0], pred=True))
         self.assertEqual(r['draw_snapshots'][0]['known_watched_registers'], {})
         self.assertTrue(r['draw_snapshots'][0]['predicate_state_unknown'])
+        self.assertFalse(r['complete'])
+
+    def test_immediate_shader_identity_then_external_unknown(self):
+        ps = t3(0x2b, [1, 2, 0x12345678, 0xabcdef00])
+        vs = t3(0x2b, [0, 1, 0x10203040])
+        draw = t3(0x36, [0])
+        external = t3(0x27, [0x1001, 2])
+        r = replay(ps + vs + draw + external + draw)
+        self.assertEqual(r['shader_loads_by_stage'], {'vs': 1, 'ps': 2})
+        first, second = r['draw_snapshots']
+        expected = hashlib.sha256(struct.pack('>II', 0x12345678,
+                                              0xabcdef00)).hexdigest()
+        self.assertEqual(first['shader_programs']['ps']['sha256'], expected)
+        self.assertEqual(first['shader_programs']['vs']['source'], 'immediate')
+        self.assertIsNone(second['shader_programs']['ps']['sha256'])
+        self.assertEqual(second['shader_programs']['ps']['source'],
+                         'external_unresolved')
+        self.assertEqual(second['shader_programs']['ps']['external_guest_address'],
+                         '0xa0001000')
+        self.assertEqual(first['shader_programs']['ps']['sha256'], expected)
+        self.assertFalse(r['complete'])
+
+    def test_bad_immediate_does_not_clobber_previous_program(self):
+        ps = t3(0x2b, [1, 1, 0x11223344])
+        invalid = t3(0x2b, [1, 6, 0x12345678])
+        r = replay(ps + invalid + t3(0x36, [0]))
+        stage = r['draw_snapshots'][0]['shader_programs']['ps']
+        self.assertEqual(stage['sha256'],
+                         hashlib.sha256(struct.pack('>I', 0x11223344)).hexdigest())
+        self.assertEqual(r['shader_loads_by_stage']['ps'], 1)
+        self.assertIn('truncated immediate shader microcode', r['warnings'])
         self.assertFalse(r['complete'])
 
     def test_bad_packet_and_binary_data(self):
