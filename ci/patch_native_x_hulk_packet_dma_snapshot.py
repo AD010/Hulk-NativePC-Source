@@ -169,6 +169,36 @@ RESTORE_AFTER = """  // HULK/DMA-RESTORE-AFTER-AHEAD: restoring a captured range
   }
 """
 
+# HULK/INLINE-SNAPSHOT-BOUNDS: the old inline copy silently truncated
+# invalid vertex/index ranges or aliased high GPU addresses to unrelated
+# guest pages, then still published the draw (destructor always publishes).
+# Retain the exact original fetch and DMA packet logic for valid ranges.
+INLINE_OLD = "void CaptureInlineData(const StateTracker& tracker, const uint8_t* base, Command& c) {\n  namespace rg = rex::graphics;\n  auto copy = [&](uint32_t address, uint32_t size) {\n    constexpr uint32_t kMaxSize = 1u << 20;\n    if (!size || size > kMaxSize || c.copy_count >= c.copies.size()) return;\n    const uint8_t* source = base + (0xA0000000u | (address & 0x1FFFFFFFu));\n    c.copies[c.copy_count++] = {address, uint32_t(c.data.size()), size};\n    c.data.insert(c.data.end(), source, source + size);\n  };\n  uint32_t fetch0, fetch1;\n  if (tracker.LastWrite(rg::XE_GPU_REG_SHADER_CONSTANT_FETCH_00_0 + 31 * 6 + 4, fetch0) &&\n      tracker.LastWrite(rg::XE_GPU_REG_SHADER_CONSTANT_FETCH_00_0 + 31 * 6 + 5, fetch1) &&\n      (fetch0 & 3) == uint32_t(rg::xenos::FetchConstantType::kVertex)) {\n    copy(fetch0 & ~3u, ((fetch1 >> 2) & 0xFFFFFF) * 4);\n  }\n  uint32_t initiator, dma_base;\n  if (tracker.LastWrite(rg::XE_GPU_REG_VGT_DRAW_INITIATOR, initiator) && ((initiator >> 6) & 3) == 0 &&\n      tracker.LastWrite(rg::XE_GPU_REG_VGT_DMA_BASE, dma_base)) {  // DMA indices: 16 or 32 bits each\n    copy(dma_base, (initiator >> 16) * ((initiator >> 11) & 1 ? 4 : 2));\n  }\n}"
+INLINE_NEW = "bool CaptureInlineData(const StateTracker& tracker, const uint8_t* base, Command& c) {\n  namespace rg = rex::graphics;\n  auto copy = [&](uint32_t address, uint32_t size) -> bool {\n    constexpr uint32_t kMaxSize = 1u << 20;\n    // HULK/INLINE-SNAPSHOT-BOUNDS: do not wrap a guest GPU address into\n    // some unrelated low physical page. Fail the draw before queueing it.\n    constexpr uint64_t kGuestPhysicalBytes = 0x20000000ull;\n    if (!size || size > kMaxSize || c.copy_count >= c.copies.size() ||\n        uint64_t(address) + size > kGuestPhysicalBytes) return false;\n    const uint8_t* source = base + (0xA0000000u | address);\n    c.copies[c.copy_count++] = {address, uint32_t(c.data.size()), size};\n    c.data.insert(c.data.end(), source, source + size);\n    return true;\n  };\n  uint32_t fetch0, fetch1;\n  if (tracker.LastWrite(rg::XE_GPU_REG_SHADER_CONSTANT_FETCH_00_0 + 31 * 6 + 4, fetch0) &&\n      tracker.LastWrite(rg::XE_GPU_REG_SHADER_CONSTANT_FETCH_00_0 + 31 * 6 + 5, fetch1) &&\n      (fetch0 & 3) == uint32_t(rg::xenos::FetchConstantType::kVertex)) {\n    if (!copy(fetch0 & ~3u, ((fetch1 >> 2) & 0xFFFFFF) * 4)) return false;\n  }\n  uint32_t initiator, dma_base;\n  if (tracker.LastWrite(rg::XE_GPU_REG_VGT_DRAW_INITIATOR, initiator) && ((initiator >> 6) & 3) == 0 &&\n      tracker.LastWrite(rg::XE_GPU_REG_VGT_DMA_BASE, dma_base)) {  // DMA indices: 16 or 32 bits each\n    if (!copy(dma_base, (initiator >> 16) * ((initiator >> 11) & 1 ? 4 : 2))) return false;\n  }  return true;\n}"
+INLINE_CALL_OLD = "    CaptureInlineData(tracker, base, c);"
+INLINE_CALL_NEW = "    if (!CaptureInlineData(tracker, base, c)) {\n      // HULK/INLINE-SNAPSHOT-CANCEL: Capture destructor publishes on return.\n      // Preserve captured GPU register writes, but never execute a Draw\n      // whose inline indices/vertex stream were not captured safely.\n      c.type = Command::Type::kNone;\n      return;\n    }"
+
+
+def patch_inline_capture(source):
+    complete = INLINE_NEW in source and INLINE_CALL_NEW in source
+    if complete:
+        return source, False
+    if INLINE_NEW in source or INLINE_CALL_NEW in source or "HULK/INLINE-SNAPSHOT-BOUNDS" in source:
+        raise ValueError("Partially installed Hulk inline snapshot bounds/cancel")
+    if source.count(INLINE_OLD) != 1 or source.count(INLINE_CALL_OLD) != 1:
+        raise ValueError("Pinned NativeX inline capture/caller source drift")
+    return (source.replace(INLINE_OLD, INLINE_NEW, 1)
+                  .replace(INLINE_CALL_OLD, INLINE_CALL_NEW, 1)), True
+
+
+def patch_renderer_all(source):
+    source, capture_changed = patch_text(source)
+    source, inline_changed = patch_inline_capture(source)
+    if capture_changed != inline_changed:
+        raise ValueError("Mixed Hulk DMA/inline snapshot patch on NativeX renderer")
+    return source, capture_changed
+
+
 def patch_draw(source):
     if RESTORE_AFTER in source:
         if RESTORE in source or source.count(RESTORE_AFTER) != 1:
@@ -299,7 +329,7 @@ def main():
     if actual!=PIN:
         raise ValueError("Unexpected NativeX checkout SHA: "+actual)
     edits=[]
-    for name, action in (("src/renderer.cpp", patch_text), ("src/draw.cpp", patch_draw_all),
+    for name, action in (("src/renderer.cpp", patch_renderer_all), ("src/draw.cpp", patch_draw_all),
                          ("src/guest_memory.cpp", patch_memory),
                          ("src/guest_memory.h", patch_memory_header)):
         path=root/name
