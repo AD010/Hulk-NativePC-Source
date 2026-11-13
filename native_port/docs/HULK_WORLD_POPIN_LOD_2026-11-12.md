@@ -4,13 +4,12 @@ Date: 2026-11-12. **Source-only engineering note; no new Windows Release started
 
 ## Safeguard: graphics baseline
 
-Owner visually confirmed `Hulk NativePC Vulkan #68` (Actions
-`43109758266`, source workflow SHA `ee84256001b2`) renders menu and
-daytime city without the previous black sky, colored triangles, or missing
-geometry in the tested area. This is a **graphics baseline**, not proof that
-all missions, streaming paths or crashes are fixed. Maintain the same
-NativeXRenderer/DiligentCore/Vulkan path. Do not change Clear/ClearF,
-MSAA/depth ownership, or shader replay to mask world LOD popping.
+The historical #68 image is a visual comparison baseline only. Later project
+history identified it as Xenos fallback, not proof of correct NativeX output.
+Do not call it a verified NativeX branch or switch backends to conceal current
+NativeX defects. Current work must preserve the native Vulkan objective and
+separately validate the intro, menu, city, depth/Resolve and shader replay.
+World-distance work must not mask missing draws caused by renderer defects.
 
 ## Evidence: not solely a Vulkan defect
 
@@ -43,8 +42,7 @@ later traffic was dropped. Now the Hulk-only source patch logs the first 256
 reads in each ten-second observation window, then one of every 64 reads up to
 16,384 reads per window, with monotonic `t_ms`, measured `read_us`,
 `ok`, original `seq`, archive/offset/request/read bytes. It **never
-modifies asset data or file-read return codes**, and does not alter the
-confirmed #68 runtime until a future owner-requested build.
+modifies asset data or file-read return codes**, and remains opt-in; it is not a runtime LOD change.
 
 `ci/map_hulk_world_stream_trace.py` remains backward-compatible with
 existing five-field stream events and now reports:
@@ -92,7 +90,7 @@ https://reshax.com/topic/238-arc-files-from-the-incredible-hulk-game-2008/
   original values. Preserve mission/scene-specific thresholds and shadows.
 - Verify low-altitude movement, rooftop camera rotation and fast Hulk jumps.
   Compare *the same* route, draw submission counts, asset residency, 1%
-  lows, GPU VRAM and near pop-in on the working #68 graphics branch.
+  lows, GPU VRAM and near pop-in on the same identified source revision and native backend.
   Fallback to Original if any geometry, animation, traffic or physics errors
   appear. Avoid suppressing texture mips or deleting far LOD mesh outright.
 
@@ -104,3 +102,33 @@ https://github.com/portingpete/The-Darkness-Recomp/releases
 This milestone is a diagnostic improvement, **not** a claim that pop-in or
 far LOD is fixed or that an official-remaster-quality visibility range is
 present yet.
+
+
+## 13 November 2026 — resource-range accounting and unresolved distance controls
+
+A source defect in `map_hulk_world_stream_trace.py` could misclassify reads:
+looking at only the interval immediately preceding the read misses an earlier
+containing interval, or a second resource at the same start offset. The mapper
+now uses prefix maximum endpoints and tests every potentially intersecting
+half-open range. This matters when interpreting shared/nested index entries:
+absence from the old report was not reliable evidence of absent asset I/O.
+Six tests pass, including104 deterministic read-range cases checked against a
+brute-force interval oracle (nested, shared, endpoint and empty reads).
+Reports explicitly label statistics as sampled I/O; their p95 is a sample
+percentile, not the population latency of every streaming operation.
+
+Log200 contains no `[HULK/STREAM]` events. It cannot establish resource residency
+or the cause of world pop-in. Existing schema names (`CameraFarPlane`,
+`ZoneLowLod`, `HiResDataset`, `LODDistSq`) do not identify verified USA live
+values or writable offsets. No LOD multiplier or far-plane game hook was
+introduced by this change, and no runtime improvement is claimed.
+
+The remaining concrete world acceptance targets are: high-detail world models
+and textures at greater visible distance where assets exist; coordinated
+camera clipping, fog and shadow range; stable zone streaming during rooftop
+views, fast movement and jumps; preserved indoor/cutscene/mission overrides;
+no inadvertent expansion of NPC/traffic/physics simulation; measured CPU, VRAM
+and frame-time budgets. Rejected guest draws, pipeline readiness and Resolve
+errors must be distinguished from the engine choosing a low-detail model.
+Actual engine thresholds and ownership still need authenticated USA code/data
+and runtime evidence before changing them.

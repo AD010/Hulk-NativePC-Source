@@ -32,7 +32,14 @@ def summarize(index_data: dict, log: str) -> dict:
             (v["offset"],v["offset"]+v["size"],h)
             for h,v in info["entries"].items() if v["size"] > 0
         )
-        by_category[group] = ([r[0] for r in ranges], ranges)
+        # The predecessor alone misses nested/shared archive extents.
+        # Prefix maximum ends delimit every interval that can overlap a read.
+        max_ends = []
+        furthest = 0
+        for _, end, _ in ranges:
+            furthest = max(furthest, end)
+            max_ends.append(furthest)
+        by_category[group] = ([r[0] for r in ranges], max_ends, ranges)
     reads=Counter()
     hit=Counter()
     missing=Counter()
@@ -64,22 +71,16 @@ def summarize(index_data: dict, log: str) -> dict:
                                       "read_us":read_us,"bytes":size})
         if size <= 0: continue
         reads[group]+=1
-        starts,ranges=by_category[group]
-        i=bisect.bisect_right(starts,offset)-1
+        starts,max_ends,ranges=by_category[group]
+        first=bisect.bisect_right(max_ends,offset)
+        stop=bisect.bisect_left(starts,offset+size)
         matched=False
-        if i>=0 and ranges[i][1]>offset:
-            hit[(group,ranges[i][2])]+=1
-            if timed and ok:
-                row["resource_hits"][(group,ranges[i][2])]+=1
-            matched=True
-        i+=1
-        while i < len(ranges) and ranges[i][0] < offset+size:
+        for i in range(first,stop):
             if ranges[i][1]>offset:
                 hit[(group,ranges[i][2])]+=1
                 if timed and ok:
                     row["resource_hits"][(group,ranges[i][2])]+=1
                 matched=True
-            i+=1
         if not matched: missing[group]+=1
     windows=[]
     for bucket,row in sorted(timeline.items()):
@@ -101,6 +102,7 @@ def summarize(index_data: dict, log: str) -> dict:
                                for (g,h),n in hit.most_common(100)],
         "timeline_5s":windows[:17280],
         "slow_reads":sorted(stalled_reads, key=lambda x:-x["read_us"])[:50],
+        "sampling":"Logged read samples only; counts and p95 are not complete I/O totals or population latency percentiles. Overlapping resource extents may produce multiple hash matches for one read.",
         "warning":"Reads indicate file I/O only. Missing LODs may instead be game frustum/distance culling, predecoded resources, or CPU/GPU budgets; hashes do not identify asset names.",
     }
 

@@ -1,8 +1,27 @@
 #!/usr/bin/env python3
 import unittest
+import random
 from map_hulk_world_stream_trace import summarize
 
 class TestHulkWorldMap(unittest.TestCase):
+    def test_nested_and_shared_ranges_match_brute_force(self):
+        rng=random.Random(200)
+        entries={"outer":{"offset":0,"size":1000},
+                 "inner":{"offset":100,"size":10},
+                 "shared":{"offset":100,"size":10}}
+        for n in range(50):
+            entries[str(n)]={"offset":rng.randrange(0,1000),"size":rng.randrange(0,100)}
+        idx={"Models":{"entries":entries}}
+        for offset,size in [(105,1),(110,1),(999,1),(1000,0)]+[
+                (rng.randrange(0,1100),rng.randrange(1,100)) for _ in range(100)]:
+            report=summarize(idx,f"[HULK/STREAM] file=MODELS.ARC offset={offset} "
+                f"requested={size} read={size} seq=1 t_ms=1 read_us=1 ok=1")
+            expected={h for h,e in entries.items() if size>0 and e["size"]>0
+                      and e["offset"]<offset+size and e["offset"]+e["size"]>offset}
+            actual={x["hash"] for x in report["top_resource_hashes"]}
+            self.assertEqual(actual,expected)
+            self.assertEqual(report["timeline_5s"][0]["distinct_indexed_resources"],len(expected))
+
     def test_indexed_read_correlates_and_unmatched(self):
         idx={"Datasets":{"entries":{
            "721AAFDE":{"offset":4096,"size":500,"unknown":0},
