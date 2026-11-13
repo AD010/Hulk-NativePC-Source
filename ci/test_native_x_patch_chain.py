@@ -211,6 +211,30 @@ def run(sha=SHA):
             "(immediate ? type > 1u : (type & 3u) > 1u)" not in state or
             "uint64_t(address) + uint64_t(dwords) * 4ull" not in state):
             missing.append("NativeX physical guest shader/ALU source bounds")
+        # Hulk #198/no-regression gates: check the actual post-transform
+        # NativeX C++ for shader lifetime, strict packet framing, and
+        # cancellation of unsafely captured inline vertex/index bytes.
+        # These source-only assertions run BEFORE any game codegen or ZIP.
+        for marker, contents in (
+            ("HULK/INLINE-SNAPSHOT-BOUNDS",renderer),
+            ("HULK/INLINE-SNAPSHOT-CANCEL",renderer),
+            ("if (!CaptureInlineData(tracker, base, c))",renderer),
+            ("HULK/XDK-OWNED-IM-LOAD",state),
+            ("ScanPackets(base, p.scan_from, end, scan_, 0, false, true)",state),
+            ("HULK/XDK-BIN-TRANSACTION",state),
+            ("HULK/PM4-TYPE0-RANGE",state),
+            ("HULK/PM4-TYPE1-RESERVED",state),
+            ("HULK/PM4-TYPE2-RESERVED",state),
+            ("HULK/PM4-TYPE3-RESERVED",state),
+        ):
+            if marker not in contents:
+                missing.append("Hulk #198 missing owned PM4/inline state: " + marker)
+        header_state=(source/"src/state.h").read_text(encoding="utf-8")
+        if ("hulk_bin_mask_at_enter" not in header_state or
+            "hulk_bin_select_at_enter" not in header_state):
+            missing.append("Hulk #198 XDK PM4 predicate transaction checkpoint")
+        if "void CaptureInlineData(" in renderer:
+            missing.append("Old unchecked inline vertex/index capture still present")
         for name, body in (
             ("HULK/PM4-PAYLOAD",state),
             ("HULK/FETCH-WRITER",state),
