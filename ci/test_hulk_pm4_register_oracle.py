@@ -147,6 +147,38 @@ class PM4OracleTests(unittest.TestCase):
         self.assertEqual(invalid_index['draw_snapshots'], [])
         self.assertIn('truncated DMA DRAW_INDX 22', invalid_index['warnings'])
 
+    def test_seeded_dma_payload_fuzz_across_both_draw_opcodes(self):
+        # The existing Release preflight runs this exact deterministic loop.
+        # It checks every source_select mode, queried DRAW_INDX offsets, and
+        # missing initiator/base/size without modifying game drawing behavior.
+        rng = random.Random(0x2008feed)
+        for i in range(8192):
+            opcode = 0x22 if i & 1 else 0x36
+            at = 1 if opcode == 0x22 else 0
+            source_select = rng.randrange(4)
+            initiator = source_select << 6
+            remaining = rng.randrange(5)
+            payload = ([0x1234] if at else []) + [initiator] + [
+                rng.getrandbits(32) for _ in range(remaining)
+            ]
+            if i % 17 == 0:
+                payload = payload[:at]  # Missing initiator.
+            valid = (len(payload) > at and
+                     (source_select != 0 or len(payload) >= at + 3))
+            audit = replay(t3(opcode, payload or [0x1234]))
+            snapshots = audit['draw_snapshots']
+            if valid:
+                self.assertEqual(len(snapshots), 1)
+                self.assertEqual(snapshots[0]['initiator'],
+                                 f'0x{initiator:08x}')
+                self.assertTrue(audit['complete'])
+                regs = snapshots[0]['known_watched_registers']
+                self.assertEqual('0x21fa' in regs, source_select == 0)
+                self.assertEqual('0x21fb' in regs, source_select == 0)
+            else:
+                self.assertEqual(snapshots, [])
+                self.assertFalse(audit['complete'])
+
     def test_bad_packet_and_binary_data(self):
         self.assertFalse(replay([0xc0012d00, 0])['complete'])
         self.assertEqual(replay([])['draw_snapshots'], [])
