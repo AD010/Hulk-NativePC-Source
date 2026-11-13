@@ -79,6 +79,8 @@ void StateTracker::Reset() {
     cpp += '''    scan_.Clear();
     ScanPackets(base, last_hulk_segment_end_, p.begin,
                 scan_, 0, false, true);
+    if (scan_.complete) {
+    }
           scan_.Clear();
           uint32_t emitted = 0;
 '''
