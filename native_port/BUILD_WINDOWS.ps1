@@ -392,6 +392,10 @@ try {
     # Shader cache stores first origin; capture the latest *executed* PS load separately.
     Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_ps_recent_load.py')) $Source
     Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_ps_recent_load.py'), $NxrFull) $Source
+    # Upstream D139, reviewed for Hulk: memoize only byte-identical
+    # owned non-immediate IM_LOAD. Avoid D140 command-queue ABI migration.
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_d139_shader_memo.py')) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_d139_shader_memo.py'), $NxrFull) $Source
     # Log194: the XDK Draw ranges are generally valid, but 130k draws were
     # rejected as incomplete; report first exact PM4 failure site and header.
     Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_pm4_first_failure.py')) $Source
