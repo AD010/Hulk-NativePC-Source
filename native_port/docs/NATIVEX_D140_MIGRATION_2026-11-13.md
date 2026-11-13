@@ -79,6 +79,15 @@ and `record_.Clear();`. The migrated patch now accepts that layout and
 resets both the upstream shader-address memo and the Hulk pixel-program
 provenance counters, without inserting a second address cache.
 
+## Eighth source-only audit: distinct upstream and Hulk shader caches
+
+#102 passed the D140 Present, scene wait and PS recent-load patches.
+It exposed a false-positive in the *new* D139 idempotence check:
+the substring `loaded_at_ = {};` also appears inside Hulk's
+`hulk_loaded_at_ = {};`. The D140 detection now checks the exact
+standalone C++ statement, and the regression checks both real variants.
+No shader bytes or GPU commands are changed by this correction.
+
 ## Mandatory acceptance gates before upgrading main
 - Complete sequence of production-ordered Hulk patches applies on latest upstream with every regression test passing.
 - NativeX C++ compiles on Windows x64 Release without turning off the source checks.
