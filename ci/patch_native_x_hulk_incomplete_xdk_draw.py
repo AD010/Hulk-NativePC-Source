@@ -41,6 +41,11 @@ PATCH = """  // HULK/INCOMPLETE-XDK-DRAW-GUARD: a truncated or malformed PM4 cal
       REXLOG_WARN("[HULK/PRESENT-FRAME-RECOVERY] #{} incomplete PM4 tail; "
                   "preserved original XDK Present without replaying partial writes", n);
     last_hulk_segment_valid_ = false;
+    // HULK/PRESENT-CANCEL-INLINE: an incomplete PM4 Present must not
+    // carry an uncommitted BeginVertices draw into the next frame.
+    // The same deferred state is cancelled on incomplete Draw below.
+    inline_begin_.pending = false;
+    inline_begin_.end = 0;
     // HULK/XDK-BIN-TRANSACTION: an incomplete XDK packet scan did
     // not commit. Undo every BIN_MASK/SELECT change made by the
     // rejected call, including scans at nested KickSegment boundaries.
