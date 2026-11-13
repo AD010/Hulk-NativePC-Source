@@ -49,6 +49,17 @@ class TestHulkPm4FirstFailure(unittest.TestCase):
         self.assertIn("return void(hulk_note_failure(__LINE__))", fixed["src/state.cpp"])
         self.assertNotIn("HULK/PM4-FIRST-FAILURE", fixture()["src/state.cpp"])
 
+    def test_d140_dirty_slots_after_scanner_does_not_remove_diagnostic(self):
+        src=fixture()
+        src["src/state.cpp"]=src["src/state.cpp"].replace(
+            "bool FetchSlotDirty() {}", "uint64_t BitReverse() {}")
+        fixed,changed=patch(src)
+        self.assertTrue(changed)
+        self.assertEqual(patch(fixed),(fixed,False))
+        self.assertIn("hulk_note_failure(__LINE__)",fixed["src/state.cpp"])
+        self.assertIn("HULK/PM4-LAST-GOOD",fixed["src/state.cpp"])
+        self.assertIn("uint64_t BitReverse() {}",fixed["src/state.cpp"])
+
     def test_partial_and_unreviewed_sources_rejected(self):
         input_files = fixture()
         input_files["src/state.h"] = input_files["src/state.h"].replace(
