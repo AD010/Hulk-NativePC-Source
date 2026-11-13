@@ -125,6 +125,36 @@ class HulkLogAuditTests(unittest.TestCase):
                          ["incomplete_xdk_draws"], 0)
         self.assertIn("sampled", " ".join(result["limitations"]))
 
+    def test_log200_event_write_tail_classifies_without_guessing_draw_boundary(self):
+        log = "\n".join([
+            "[HULK/INCOMPLETE-XDK-DRAW] #1 call=0 range_ok=true "
+            "packet_draws=0 fail_site=152 fail_type=1 fail_opcode=0x0 "
+            "fail_depth=0 fail_packet=0xa28c5114 fail_header=0x44200000 "
+            "last_good_end=0xa28c5110 last_good_header=0xc0025800",
+            "[HULK/INCOMPLETE-XDK-DRAW] #2 call=0 range_ok=true "
+            "packet_draws=0 fail_site=142 fail_type=0 fail_opcode=0x0 "
+            "fail_depth=0 fail_packet=0xa296e500 fail_header=0x3f800000 "
+            "last_good_end=0xa296e4dc last_good_header=0xc0025800",
+            "[HULK/INCOMPLETE-XDK-DRAW] #3 call=0 range_ok=true "
+            "packet_draws=24 fail_site=160 fail_type=2 fail_opcode=0x0 "
+            "fail_depth=0 fail_packet=0xa2788ddc fail_header=0xb1800001 "
+            "last_good_end=0xa2788dd8 last_good_header=0xb2200",
+            "[HULK/INCOMPLETE-XDK-DRAW] #10000 call=0 range_ok=false "
+            "packet_draws=0 fail_site=0 fail_type=0 fail_opcode=0x0 "
+            "fail_depth=0 fail_packet=0x0 last_good_end=0x0 last_good_header=0x0",
+        ])
+        report = analyze(log)
+        observed = report["incomplete_xdk_tail_context_samples"]
+        self.assertEqual(observed["last_event_write_shd"], 2)
+        self.assertEqual(observed["other_last_good_packet"], 2)
+        self.assertEqual(observed["samples_with_draw_prefix"], 1)
+        self.assertEqual(observed["draws_in_rejected_sample_prefixes"], 24)
+        self.assertEqual(observed["fail_distance_from_last_good_end_4_bytes"], 2)
+        self.assertEqual(observed["fail_distance_from_last_good_end_36_bytes"], 1)
+        self.assertIn("not a verified end-of-call marker",
+                      " ".join(report["limitations"]))
+        self.assertEqual(report["incomplete_xdk_draw_samples"]["throttled_warnings"], 4)
+
     def test_log198_false_last_good_and_program_mismatch(self):
         sample = "\n".join([
             "[HULK/INCOMPLETE-XDK-DRAW] #1 range_ok=true bytes=984 "
