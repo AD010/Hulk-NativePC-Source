@@ -7,7 +7,9 @@ import tempfile
 from pathlib import Path
 from patch_native_x_hulk_packet_dma_snapshot import (
     ANCHOR, ADDITION, CALL_ANCHOR, CALL_NEW, patch_text,
-    RESTORE, AHEAD, RESTORE_AFTER, patch_draw
+    RESTORE, AHEAD, RESTORE_AFTER, patch_draw,
+    INLINE_OLD, INLINE_NEW, INLINE_CALL_OLD, INLINE_CALL_NEW,
+    patch_inline_capture, patch_renderer_all
 )
 
 class DmaSnapshotTests(unittest.TestCase):
@@ -280,6 +282,123 @@ int main() {
             if not compiler: self.fail('C++ compiler required for DMA lifetime regression')
             subprocess.run([compiler,'-std=c++20','-O0',str(cpp),'-o',str(exe)],check=True)
             subprocess.run([str(exe)],check=True)
+
+    @unittest.skipUnless(shutil.which('clang++') or shutil.which('g++'),
+                         'C++ compiler missing')
+    def test_inline_snapshot_bounds_and_ownership_cpp(self):
+        # Compile the exact production C++ implementation, replacing only
+        # the virtual 0xA0000000 guest mapping with a small test-memory array.
+        real = INLINE_NEW.replace(
+            'base + (0xA0000000u | address)', 'base + address')
+        self.assertIn('HULK/INLINE-SNAPSHOT-BOUNDS', real)
+        code = r"""
+#include <array>
+#include <cassert>
+#include <cstdint>
+#include <vector>
+#include <utility>
+namespace rex { namespace graphics {
+enum : uint32_t {
+  XE_GPU_REG_SHADER_CONSTANT_FETCH_00_0=0,
+  XE_GPU_REG_VGT_DRAW_INITIATOR=200,
+  XE_GPU_REG_VGT_DMA_BASE=201,
+};
+namespace xenos {
+enum class FetchConstantType : uint32_t {kVertex=3};
+}
+}}
+struct StateTracker {
+  std::array<uint32_t,256> reg{};
+  std::array<bool,256> present{};
+  bool LastWrite(uint32_t r, uint32_t& out) const {
+    if (!present.at(r)) return false;
+    out=reg[r]; return true;
+  }
+};
+struct Command {
+  struct Copy {uint32_t address,offset,size;};
+  std::array<Copy,2> copies{};
+  uint32_t copy_count=0;
+  std::vector<uint8_t> data;
+};
+""" + real + r"""
+int main() {
+  std::array<uint8_t,512> guest{};
+  for (int i=0;i<512;++i) guest[i]=uint8_t(i);
+  StateTracker tracker{};
+  constexpr uint32_t v0=31u*6u+4u, v1=v0+1u;
+  using rg=rex::graphics::RegisterFile; // intentionally not needed
+  tracker.present[v0]=tracker.present[v1]=true;
+  tracker.reg[v0]=64u|3u; // valid 16-byte inline vertex payload
+  tracker.reg[v1]=4u<<2;
+  tracker.present[200]=tracker.present[201]=true;
+  tracker.reg[200]=(2u<<16)|4u; // two 16-bit DMA indices
+  tracker.reg[201]=96u;
+  Command c;
+  assert(CaptureInlineData(tracker,guest.data(),c));
+  assert(c.copy_count==2 && c.copies[0].address==64 &&
+         c.copies[0].size==16 && c.copies[1].address==96 &&
+         c.copies[1].size==4 && c.data.size()==20);
+  const uint8_t first=c.data[0], last=c.data[16];
+  guest[64]=0xff;guest[96]=0xff;
+  assert(c.data[0]==first && c.data[16]==last);
+  // Previous implementation masked a bogus high GPU pointer into an
+  // unrelated low page and published its incorrect vertices.
+  tracker.reg[v0]=0xA0000043u;
+  Command high_alias;
+  assert(!CaptureInlineData(tracker,guest.data(),high_alias));
+  assert(high_alias.copy_count==0 && high_alias.data.empty());
+  // A valid base whose range crosses 512 MiB must be rejected without
+  // touching a single byte of mapped guest memory.
+  tracker.reg[v0]=0x1FFFFFF3u;
+  Command overflow;
+  assert(!CaptureInlineData(tracker,guest.data(),overflow));
+  assert(overflow.copy_count==0);
+  tracker.reg[v0]=64u|3u;
+  tracker.reg[v1]=0u;
+  Command empty;
+  assert(!CaptureInlineData(tracker,guest.data(),empty));
+  tracker.reg[v1]=4u<<2;
+  tracker.reg[201]=0x1FFFFFFEu;
+  Command bad_dma;
+  assert(!CaptureInlineData(tracker,guest.data(),bad_dma));
+  assert(bad_dma.copy_count==1); // safely copied first range, not published
+  // A missing inline fetch slot is NOT automatically an error: prior
+  // NativeX paths may use persistent vertex bindings.
+  tracker.present.fill(false);
+  Command inherited;
+  assert(CaptureInlineData(tracker,guest.data(),inherited));
+  assert(inherited.copy_count==0);
+}
+"""
+        code = code.replace(
+            '  using rg=rex::graphics::RegisterFile; // intentionally not needed\n',
+            '')
+        with tempfile.TemporaryDirectory(prefix="hulk_inline_snapshot_") as d:
+            src=Path(d)/"inline.cpp"; exe=Path(d)/"inline"
+            src.write_text(code,encoding="utf8")
+            compiler=shutil.which("clang++") or shutil.which("g++")
+            subprocess.run([compiler,"-std=c++20","-O0","-Wall",
+                            "-Wextra","-Werror",str(src),"-o",str(exe)],
+                           check=True,capture_output=True,text=True)
+            subprocess.run([str(exe)],check=True,capture_output=True,text=True)
+
+    def test_inline_snapshot_atomic_and_draw_cancel(self):
+        source = INLINE_OLD + "\n" + INLINE_CALL_OLD
+        patched, changed = patch_inline_capture(source)
+        self.assertTrue(changed)
+        self.assertEqual(patch_inline_capture(patched),(patched,False))
+        self.assertIn("if (!CaptureInlineData(tracker, base, c))",patched)
+        self.assertIn("c.type = Command::Type::kNone",patched)
+        self.assertNotIn("address & 0x1FFFFFFFu",patched)
+        with self.assertRaises(ValueError):
+            patch_inline_capture(source.replace(INLINE_OLD,"unreviewed inline copy"))
+        full = ANCHOR + "\n" + CALL_ANCHOR + "\n" + INLINE_OLD + "\n" + INLINE_CALL_OLD
+        updated, change = patch_renderer_all(full)
+        self.assertTrue(change)
+        self.assertEqual(patch_renderer_all(updated),(updated,False))
+        self.assertIn("HULK/PM4-DMA-SNAPSHOT",updated)
+        self.assertIn("HULK/INLINE-SNAPSHOT-BOUNDS",updated)
 
     def test_atomic_idempotent(self):
         original = ANCHOR + "\n" + CALL_ANCHOR
