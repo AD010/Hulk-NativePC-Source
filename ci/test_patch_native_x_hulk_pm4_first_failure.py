@@ -62,8 +62,10 @@ class TestHulkPm4FirstFailure(unittest.TestCase):
             "  if (header == 3) out.complete = false;\n", "")
         input_files["src/state.cpp"] = input_files["src/state.cpp"].replace(
             "  if (header == 2) out.complete = false;\n", "")
-        with self.assertRaises(ValueError):
-            patch(input_files)  # fewer than three verified fail sites
+        input_files["src/state.cpp"] = input_files["src/state.cpp"].replace(
+            "  if (header == 1) out.complete = false;\n", "")
+        with self.assertRaisesRegex(ValueError, "failure sites unexpectedly 2"):
+            patch(input_files)  # two sites, below the real three-site floor
 
     @unittest.skipUnless(shutil.which("clang++") or shutil.which("g++"),
                          "No standalone C++ compiler")
