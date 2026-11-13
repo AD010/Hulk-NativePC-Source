@@ -97,6 +97,13 @@ D139 replaced with `BitReverse/DirtySlots`. The candidate instrumentation
 now recognizes either exact reviewed top-level function sentinel and
 otherwise fails closed; a separate source-only regression covers D140.
 
+## Windows candidate integration — source compilation gate
+
+- NativeX checkout now uses exact D140 `fa19ea85fec5c7f7f8a2df82d6c4a86548817b52` in the **candidate branch** `BUILD_WINDOWS.ps1`, not a spoofed D135 HEAD.
+- All 45 Hulk patch scripts and 41 patch unit tests use `ci/native_x_d140_dispatch.py`; every patch still checks its real D140 source anchors and revision, and old test fixtures run in their originally supported environment.
+- The public D140 audit uses the **same** patch dispatcher as Windows, with an additional source-only parity test verifying all 86 builder steps and strict revision validation.
+- Stable `main`, sole manual Release workflow, and prior ZIP #95 are not replaced. Windows compile, render verification and frame-rate-sensitive physics still require independent gates.
+
 ## Mandatory acceptance gates before upgrading main
 - Complete sequence of production-ordered Hulk patches applies on latest upstream with every regression test passing.
 - NativeX C++ compiles on Windows x64 Release without turning off the source checks.
