@@ -4,6 +4,10 @@ on:
   # builds on source edits. Keep this single Release-only workflow available
   # for an explicit final validation through GitHub Actions.
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/hulk-free-windows.yml'
 permissions:
   contents: write
 concurrency:
