@@ -221,6 +221,26 @@ class PM4OracleTests(unittest.TestCase):
                 self.assertEqual(snapshots, [])
                 self.assertFalse(audit['complete'])
 
+    def test_log198_malformed_headers_stop_before_ghost_draws(self):
+        draw = t3(0x36, [0x40])
+        poisoned = [
+            ([0x44800000, 0x3f800000, 0x44340000], 'Type1'),
+            ([0xb1800001], 'Type2'),
+            ([0xffcccccc], 'Type3'),
+            ([0x00034fff, 1, 2, 3, 4], 'Type0'),
+        ]
+        for bad, label in poisoned:
+            with self.subTest(header=hex(bad[0])):
+                audit = replay(bad + draw)
+                self.assertFalse(audit['complete'])
+                self.assertEqual(audit['draw_snapshots'], [])
+                self.assertTrue(any(label in warning for warning in audit['warnings']))
+        for valid in ([0x80000000], [0x40000000, 1, 2],
+                      [0x00014ffe, 1, 2]):
+            audit = replay(valid + draw)
+            self.assertEqual(len(audit['draw_snapshots']), 1)
+            self.assertTrue(audit['complete'])
+
     def test_bad_packet_and_binary_data(self):
         self.assertFalse(replay([0xc0012d00, 0])['complete'])
         self.assertEqual(replay([])['draw_snapshots'], [])
