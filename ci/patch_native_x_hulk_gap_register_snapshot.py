@@ -70,11 +70,33 @@ TAIL_NEW="""            if (hulk_restore_shader_words() &&
                 hulk_restore_registers() &&
                 hulk_register_cursor == hulk_prescan_register_order.size()) {
               Gather(p, call, false, base);"""
+# HULK/PM4-XDK-FLOAT-TRUTH: the GPU packet is the authority when its
+# explicit float write differs from a post-call device shadow. Previously,
+# ScanPackets(...skip_constants=draw) discarded ALL XDK draw float SETs,
+# while Gather trusted only the post-call shadow. Owner log197 verifies
+# repeated VS c21.x discrepancies. Preserve packet bytes, never fabricate.
+FLOAT_SCAN_OLD = "    ScanPackets(base, p.scan_from, end, scan_, 0, draw, false);"
+FLOAT_SCAN_NEW = """    // HULK/PM4-XDK-FLOAT-TRUTH: capture actual GPU SET/LOAD constants
+    // before the XDK ring is recycled. A post-call shadow is not always
+    // equal to the earlier packet that the GPU actually consumed.
+    ScanPackets(base, p.scan_from, end, scan_, 0, false, false);"""
+FLOAT_GATHER_OLD = "      if (!draw || loaded) SendValue(reg, value);"
+FLOAT_GATHER_NEW = """      // HULK/PM4-XDK-FLOAT-TRUTH: dirty shadow groups are an efficient
+      // initial state, but explicit packet writes win in the Xenos order.
+      // Only resend values that differ (or were LOAD_ALU constants).
+      const uint32_t hulk_float_word = reg - kFloatConstants;
+      const uint32_t hulk_shadow_byte = hulk_float_word < kPixelConstantsDword
+          ? d.vs_float_constants + 4u * hulk_float_word
+          : d.ps_float_constants + 4u * (hulk_float_word - kPixelConstantsDword);
+      if (!draw || loaded || value != shadow(hulk_shadow_byte))
+        SendValue(reg, value);"""
+
 DIAG_OLD='REXLOG_ERROR("[HULK/PM4-SHADER-SNAPSHOT] rejected changed post-draw shader payload");'
 DIAG_NEW='REXLOG_ERROR("[HULK/PM4-REGISTER-SNAPSHOT] changed pre-scan register/LOAD sequence or shader payload");'
 
 def change(src: str) -> tuple[str,bool]:
-    parts=(HEAD_NEW,DRAW_NEW,TAIL_NEW,DIAG_NEW)
+    parts=(HEAD_NEW,DRAW_NEW,TAIL_NEW,DIAG_NEW,
+           FLOAT_SCAN_NEW,FLOAT_GATHER_NEW)
     if all(x in src for x in parts):
         return src,False
     if any(x in src for x in parts) or "HULK/PM4-REGISTER-SNAPSHOT" in src:
@@ -82,7 +104,9 @@ def change(src: str) -> tuple[str,bool]:
     if "HULK/PM4-PRESCAN-SHADER-SNAPSHOT" not in src:
         raise ValueError("Install pre-scan shader snapshot before register snapshot")
     pairs=((HEAD_OLD,HEAD_NEW),(DRAW_OLD,DRAW_NEW),(TAIL_OLD,TAIL_NEW),
-           (DIAG_OLD,DIAG_NEW))
+           (DIAG_OLD,DIAG_NEW),
+           (FLOAT_SCAN_OLD,FLOAT_SCAN_NEW),
+           (FLOAT_GATHER_OLD,FLOAT_GATHER_NEW))
     for old,new in pairs:
         if src.count(old)!=1:
             raise ValueError("NativeX register snapshot anchor drift: "+old[:60])
