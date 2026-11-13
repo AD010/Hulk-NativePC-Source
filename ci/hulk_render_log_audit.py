@@ -55,6 +55,11 @@ INCOMPLETE_FAIL = re.compile(
 # silently consumed data as two GPU register writes. Do not treat a
 # successfully advanced pointer as proof of a real PM4 packet.
 LAST_GOOD_HEADER = re.compile(r"\blast_good_header=(0x[0-9a-fA-F]+)")
+LAST_GOOD_END = re.compile(r"\blast_good_end=(0x[0-9a-fA-F]+)")
+FAIL_PACKET = re.compile(r"\bfail_packet=(0x[0-9a-fA-F]+)")
+# 0xC0025800 is exactly Type3 EVENT_WRITE_SHD with a three-word payload.
+# It may be followed by legitimate PM4; it is NOT a safe resync delimiter.
+EVENT_WRITE_SHD_HEADER = 0xC0025800
 VERIFY_FRAME = re.compile(r"verify: frames (\d+)\.\.(\d+): CPU draw calls (\d+)")
 VERIFY_MATCH = re.compile(
     r"(\d+) of (\d+) draw calls have no mismatches in compared state"
@@ -99,6 +104,7 @@ def analyze(text: str) -> dict:
     xdk_draw_samples: Counter[str] = Counter()
     xdk_failure_sites: Counter[str] = Counter()
     malformed_previous_headers: Counter[str] = Counter()
+    xdk_tail_context: Counter[str] = Counter()
     verifier_samples: list[dict[str, object]] = []
     cumulative: dict[str, int] = {name: 0 for name in CUMULATIVE}
     latest_frame: dict[str, object] = {}
@@ -127,9 +133,30 @@ def analyze(text: str) -> dict:
                 xdk_draw_samples["missing_range_metadata"] += 1
             previous_header = LAST_GOOD_HEADER.search(line)
             if previous_header:
-                cause = reserved_pm4_header(int(previous_header[1], 16))
+                word = int(previous_header[1], 16)
+                cause = reserved_pm4_header(word)
                 if cause:
                     malformed_previous_headers[cause] += 1
+                if word == EVENT_WRITE_SHD_HEADER:
+                    # HULK/XDK-TOPLEVEL-TAIL: 13 sampled examples in #200
+                    # terminate soon after EVENT_WRITE_SHD, often in floats.
+                    # Do not infer that EVENT_WRITE_SHD ends every XDK call.
+                    xdk_tail_context["last_event_write_shd"] += 1
+                else:
+                    xdk_tail_context["other_last_good_packet"] += 1
+                if metadata and int(metadata[2]) > 0:
+                    # These are draws ALREADY parsed before failure; accepting
+                    # the damaged suffix or automatically replaying the
+                    # prefix would risk incorrect ordering/double submission.
+                    xdk_tail_context["samples_with_draw_prefix"] += 1
+                    xdk_tail_context["draws_in_rejected_sample_prefixes"] += int(metadata[2])
+                last_end, failure_address = (LAST_GOOD_END.search(line),
+                                             FAIL_PACKET.search(line))
+                if last_end and failure_address:
+                    distance = int(failure_address[1], 16) - int(last_end[1], 16)
+                    if 0 <= distance <= 256:
+                        xdk_tail_context["fail_distance_from_last_good_end_" +
+                                         str(distance) + "_bytes"] += 1
             failure = INCOMPLETE_FAIL.search(line)
             if failure:
                 key = (f"site={int(failure[1])}/type={int(failure[2])}/"
@@ -220,6 +247,7 @@ def analyze(text: str) -> dict:
         "pm4_first_failure_sample_sites": dict(sorted(xdk_failure_sites.items())),
         "pm4_impossible_last_good_header_samples": dict(
             sorted(malformed_previous_headers.items())),
+        "incomplete_xdk_tail_context_samples": dict(sorted(xdk_tail_context.items())),
         "gpu_verification_samples": verifier_samples,
         "cumulative_reported_totals": cumulative,
         "last_renderer_frame": latest_frame,
@@ -250,6 +278,7 @@ def analyze(text: str) -> dict:
             "Missing usage analysis means raw float windows were compared; mismatching unused registers alone do not prove a rendering defect.",
             "GPU verifier compares selected state only; a 100% match does not prove shader semantics or absence of flicker.",
             "Malformed last-good header counts are sampled warning evidence, not complete rejected-packet totals.",
+            "EVENT_WRITE_SHD before rejected XDK tail is provenance only: it is not a verified end-of-call marker, recovery delimiter, or permission to replay partial draws.",
             "CI build success and log improvements cannot establish pixel-perfect GPU output.",
         ],
     }
