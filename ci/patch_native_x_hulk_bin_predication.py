@@ -121,6 +121,25 @@ def patch_state(source: str) -> str:
         "        if (header & 0xFEu) return void(out.complete = false);\n"
         "        uint32_t opcode = (header >> 8) & 0x7F;",
         "type3 reserved low bits")
+    # HULK/PM4-GAP-BIN-ROLLBACK: scanning an unhooked segment can
+    # encounter recycled inline vertex/constant data and fail validation.
+    # The segment did NOT submit a trustworthy state transaction, so its
+    # changed PFP BIN_MASK/BIN_SELECT must not leak into the next Draw.
+    source = once(source,
+        "    ScanPackets(base, last_hulk_segment_end_, p.begin,\n"
+        "                scan_, 0, false, true);\n"
+        "    if (scan_.complete) {",
+        "    // HULK/PM4-GAP-BIN-ROLLBACK: packet validation is transactional.\n"
+        "    const uint64_t hulk_bin_mask_before_gap = scan_.bin_mask;\n"
+        "    const uint64_t hulk_bin_select_before_gap = scan_.bin_select;\n"
+        "    ScanPackets(base, last_hulk_segment_end_, p.begin,\n"
+        "                scan_, 0, false, true);\n"
+        "    if (!scan_.complete) {\n"
+        "      scan_.bin_mask = hulk_bin_mask_before_gap;\n"
+        "      scan_.bin_select = hulk_bin_select_before_gap;\n"
+        "    }\n"
+        "    if (scan_.complete) {",
+        "gap BIN predicate rollback")
     # Log198: the words 0x44800000 / 0x44340000 were accepted as
     # Type-1 packets, even though bits 22..29 are RESERVED in the Xenos
     # MakePacketType1 layout. They are float-like payload, not validated
