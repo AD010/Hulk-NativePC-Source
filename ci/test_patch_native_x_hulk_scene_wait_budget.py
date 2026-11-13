@@ -82,7 +82,9 @@ class SceneBudgetTests(unittest.TestCase):
         gate = (Path(__file__).resolve().parent /
                 "test_native_x_patch_chain.py").read_text(encoding="utf-8")
         self.assertIn("HULK_SCENE_WAIT_CPP not in draw", gate)
-        self.assertIn("from patch_native_x_hulk_scene_wait_budget import DRAW_NEW", gate)
+        self.assertIn("from patch_native_x_hulk_scene_wait_budget import (", gate)
+        self.assertIn("DRAW_NEW as HULK_SCENE_WAIT_CPP", gate)
+        self.assertIn("DRAW_D140_NEW as HULK_SCENE_WAIT_D140_CPP", gate)
         self.assertNotIn('"hulk_scene_wait_start_ + std::chrono::milliseconds(', gate)
 
 
