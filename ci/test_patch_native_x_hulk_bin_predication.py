@@ -163,6 +163,18 @@ class TestHulkPfpPatch(unittest.TestCase):
         self.assertNotIn("if (depth == 0) {", s)
         self.assertIn("opcode == 0x37 || opcode == 0x3F", s)
 
+    def test_reserved_type1_type2_packet_bits_rejected(self):
+        source = self.patched["src/state.cpp"]
+        self.assertIn("HULK/PM4-TYPE1-RESERVED", source)
+        self.assertIn("header & 0x3FC00000u", source)
+        self.assertIn("HULK/PM4-TYPE2-RESERVED", source)
+        self.assertIn("header != 0x80000000u", source)
+        # Type1 0x44800000 / 0x44340000 in Hulk #198 look like
+        # floating values; no legal Xenos Type1 encoding sets bits 22..29.
+        for word in (0x44800000, 0x44340000):
+            self.assertNotEqual(word & 0x3FC00000, 0)
+        self.assertEqual(0x40000000 & 0x3FC00000, 0)
+
     def test_clear_does_not_erase_bin_flags(self):
         s = self.patched["src/state.cpp"]
         self.assertIn("bin_rejected = bin_rejected_draws = bin_rejected_state = 0;", s)
