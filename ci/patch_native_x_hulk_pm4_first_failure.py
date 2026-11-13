@@ -103,7 +103,7 @@ def patch(files: dict[str, str]) -> tuple[dict[str, str], bool]:
     # changing its return/branch structure. The first reason wins.
     scanner_failure = re.compile(r"\bout\.complete\s*=\s*false\b")
     errors = len(scanner_failure.findall(section))
-    if not 5 <= errors <= 40:
+    if not 3 <= errors <= 40:
         raise ValueError(f"NativeX scanner failure sites unexpectedly {errors}")
     section = scanner_failure.sub("hulk_note_failure(__LINE__)", section)
     section = exactly_once(section, SCAN_HEAD, SCAN_HEAD_NEW, "scanner header")
