@@ -196,3 +196,52 @@ single screenshots as static witnesses, not proof of temporal behavior.
 and nested-segment information; match *same* visible scene and shader
 hashes against Xenos CP truth. Never mark Vulkan parity reached solely
 because CI compiles or frame counters increase.
+
+
+## Log 194: verification coverage gap, 2026-11-13
+
+Audited against source main `04f76a9ddf20193f4492839ba67869fb4689997d`.
+User reports transient colored/light flashes in the 3D menu and gameplay,
+and a regular pixel/grid pattern at internal scale above 1. The two supplied
+screenshots show the spatial pattern, but cannot establish the lifetime or
+origin of the transient flashes. Neither symptom is fixed or release-qualified
+by this audit.
+
+The log confirms a 2x native scale: 1280x720 game surface -> 2560x1440 host
+surface, presented at (0,80) within a 2560x1600 swapchain. This is a scaled
+16:9 scene with letterboxing, not proof of correct per-pixel sampling or full
+16:10 scene rendering. The actual host dimensions already increase, so changing
+the output size alone cannot establish a fix for the grid.
+
+All six verifier summaries report 100% matches while comparing **zero VS and
+zero PS float constants**. The first summary matches 1274 draws and reports
+1274 without shader analysis; subsequent matched counts are 1218, 899, 865,
+1158 and 1618, likewise with zero float comparisons. The verifier returns early
+when the SDK provides no shader usage map. Missing program hashes also skip
+program comparisons. These summaries therefore do not exclude corrupted
+lighting, transformation constants, shader selection, or depth behavior.
+
+The existing observer patch now compares the full 256-vec4 register window
+for a stage lacking usage metadata. When metadata exists, it still compares
+only used constants (or the full window for dynamic addressing). The summary
+states only that compared state has no mismatches, explicitly warns about
+missing shader coverage, and counts missing analysis for either VS or PS.
+Raw-window differences can include unused registers; they are evidence of
+state divergence, not automatically evidence of a faulty rendered pixel.
+This does not create shader analysis, verify shader semantics, or modify any
+rendering pass, buffer, sampler, shader, depth test or resolution setting.
+
+Validation: four observer patch tests, including a compiled C++ regression
+using the actual old/new constant-selection loop. The old loop misses an
+injected PS c17 divergence; the replacement detects it, respects known usage
+and dynamic addressing, and handles a wrapping constant window. Complete
+80-step source patch chain passes on NativeX 919371b5. No Actions dispatch,
+Windows game execution or visual validation was performed for this change.
+
+Remaining investigation must distinguish packet/constant state divergence
+from sampling/resolve defects using the offending draw, shader and resource
+contents. Existing log warnings include invalid texture/vertex draws and
+incomplete XDK draw scans, but do not establish which operation produced a
+visible flash. The sampler/resource/scale source review has not established
+a new rendering fix. Do not replace missing evidence with arbitrary clamps,
+removed effects, forced 1x resolution, or a claim of graphical parity.
