@@ -357,8 +357,17 @@ int main() {
   tracker.reg[v0]=64u|3u;
   tracker.reg[v1]=0u;
   Command empty;
-  assert(!CaptureInlineData(tracker,guest.data(),empty));
+  // Old NativeX legitimately omitted a zero-length stream but could still
+  // copy the DMA index bytes. Do not cancel those already-working draws.
+  assert(CaptureInlineData(tracker,guest.data(),empty));
+  assert(empty.copy_count==1 && empty.copies[0].address==96u);
   tracker.reg[v1]=4u<<2;
+  tracker.reg[200]=4u; // DMA source with zero requested indices
+  Command no_dma_indices;
+  assert(CaptureInlineData(tracker,guest.data(),no_dma_indices));
+  assert(no_dma_indices.copy_count==1 &&
+         no_dma_indices.copies[0].address==64u);
+  tracker.reg[200]=(2u<<16)|4u;
   tracker.reg[201]=0x1FFFFFFEu;
   Command bad_dma;
   assert(!CaptureInlineData(tracker,guest.data(),bad_dma));
