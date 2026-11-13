@@ -135,10 +135,12 @@ REPLAY_BOUNDARY_OLD = """            if (!hulk_restore_shader_words() || !hulk_r
 REPLAY_BOUNDARY_NEW = """            // HULK/PM4-PER-DRAW-BOUNDARY: a changed ring must not deliver
             // incomplete per-Draw registers or IM_LOAD to the GPU.
             if (emitted >= hulk_prescan_draw_ends.size() ||
-                hulk_register_cursor + scan_.register_order.size() !=
-                    hulk_prescan_draw_ends[emitted].first ||
-                hulk_prescan_cursor + scan_.shader_loads.size() !=
-                    hulk_prescan_draw_ends[emitted].second) {
+                hulk_register_cursor > hulk_prescan_draw_ends[emitted].first ||
+                scan_.register_order.size() !=
+                    hulk_prescan_draw_ends[emitted].first - hulk_register_cursor ||
+                hulk_prescan_cursor > hulk_prescan_draw_ends[emitted].second ||
+                scan_.shader_loads.size() !=
+                    hulk_prescan_draw_ends[emitted].second - hulk_prescan_cursor) {
               hulk_shader_replay_ok = false;
               return;
             }
