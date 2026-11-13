@@ -36,6 +36,10 @@ class D139ShaderMemoTests(unittest.TestCase):
             self.assertIn(piece, converted["src/state.cpp"])
         self.assertIn("!std::memcmp(", converted["src/state.cpp"])
         self.assertIn("load.immediate ? nullptr", converted["src/state.cpp"])
+        # The Hulk-specific memo must never be confused with upstream's
+        # pre-existing D139 LoadedAt fast path on the D140 candidate.
+        self.assertIn("HULK/D139-OWNED-SHADER-MEMO", converted["src/state.cpp"])
+        self.assertNotIn("struct LoadedAt {", converted["src/state.h"])
         self.assertIn("program->ucode.size() == load.dwords", converted["src/state.cpp"])
         self.assertIn("hulk_loaded_at_ = {}", converted["src/state.cpp"])
         self.assertLess(
