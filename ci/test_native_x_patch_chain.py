@@ -104,9 +104,10 @@ def source_only_host_tests():
     return names
 
 
-def checked(args,cwd=ROOT):
+def checked(args,cwd=ROOT,env=None):
     result=subprocess.run(args,cwd=cwd,stdout=subprocess.PIPE,
-                          stderr=subprocess.STDOUT,text=True,errors="replace")
+                          stderr=subprocess.STDOUT,text=True,errors="replace",
+                          env=env)
     if result.returncode:
         print(result.stdout[-7000:],file=sys.stderr)
         raise RuntimeError(f"Source-only NativeX preflight failed: {Path(args[1]).name}")
@@ -125,7 +126,18 @@ def run_d140_patch(path: Path, source: Path) -> None:
     if spec is None or spec.loader is None:
         raise RuntimeError("Cannot load Hulk patch " + path.name)
     module=importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    # Some older Hulk modules reject unknown git pins at MODULE IMPORT.
+    # Import their known source transformer, then challenge it with real
+    # D140 C++ rather than weakening the source anchors or discarding tests.
+    previous_pin=os.environ.get("HULK_NATIVEX_SOURCE_SHA")
+    os.environ["HULK_NATIVEX_SOURCE_SHA"]=CANDIDATE_SHA
+    try:
+        spec.loader.exec_module(module)
+    finally:
+        if previous_pin is None:
+            os.environ.pop("HULK_NATIVEX_SOURCE_SHA",None)
+        else:
+            os.environ["HULK_NATIVEX_SOURCE_SHA"]=previous_pin
     for attr in ("PIN", "SOURCE_SHA"):
         original=getattr(module,attr,None)
         if isinstance(original,str) and original in (SHA,CANDIDATE_SHA):
@@ -184,6 +196,12 @@ def run(sha=SHA):
             if not name.startswith("ci/test_"): command.append(str(source))
             if sha == D140_SHA and not name.startswith("ci/test_"):
                 run_d140_patch(file,source)
+            elif sha == D140_SHA:
+                # Regression modules may pin a known-old SHA at import,
+                # while the actual patch is validated on D140 separately.
+                regression_env=dict(os.environ)
+                regression_env["HULK_NATIVEX_SOURCE_SHA"]=CANDIDATE_SHA
+                checked(command,env=regression_env)
             else:
                 checked(command)
             print("[NativeX/preflight] OK",name,flush=True)
