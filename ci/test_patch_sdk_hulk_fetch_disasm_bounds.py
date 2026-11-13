@@ -22,7 +22,6 @@ class FetchDisasmBoundsTests(unittest.TestCase):
         self.assertTrue(changed)
         self.assertEqual(patch_text(result), (result, False))
         self.assertIn("HULK/TEXTURE-FETCH-DISASM-BOUNDS", result)
-        self.assertIn(':"unknown";'.replace(":", ' : '), result.replace("\n", " ")) if False else None
         for old, new in REPLACEMENTS.items():
             self.assertNotIn(old, result)
             self.assertEqual(result.count(new), 1)
