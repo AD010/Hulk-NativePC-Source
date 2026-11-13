@@ -52,7 +52,7 @@ class D139ShaderMemoTests(unittest.TestCase):
 struct LoadedAt {uint32_t address=0, dwords=0; const Program* program=nullptr;};
 std::array<LoadedAt, 256> loaded_at_{};"""
         src["src/state.cpp"] += """
-loaded_at_ = {};
+  loaded_at_ = {};
 if (at && !std::memcmp(at->program->ucode.data(), ucode, 1)) {}
 if (at) *at = {load.address, load.dwords, recent};"""
         result, changed=patch(src)
