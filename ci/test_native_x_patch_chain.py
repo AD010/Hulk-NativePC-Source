@@ -140,6 +140,9 @@ def run(sha=SHA):
     print(f"[NativeX/preflight] source SHA={sha}; mode={'candidate-only' if sha != SHA else 'production'}", flush=True)
     scripts=commands()
     if sha == D140_SHA:
+        checked([sys.executable,str(ROOT/"ci/test_native_x_d140_dispatch.py")])
+        print("[NativeX/preflight] Windows D140 source dispatcher parity OK",flush=True)
+    if sha == D140_SHA:
         # Review the D140-specific pending-frame path against synthetic
         # minimization/Alt+Tab cases before touching actual renderer code.
         smoke_env=dict(os.environ)
