@@ -8,7 +8,7 @@ import subprocess
 import tempfile
 from patch_native_x_hulk_pm4_first_failure import (
     patch, HEADER_OLD, SCAN_HEAD, CLEAR_OLD, LOG_OLD,
-    LOG_ARGS_OLD, HEADER_NEW, SCAN_HEAD_NEW, LOG_NEW,
+    LOG_ARGS_OLD, HEADER_NEW, SCAN_HEAD_NEW, SCAN_TAIL_NEW, LOG_NEW,
 )
 
 
@@ -17,12 +17,13 @@ def fixture() -> dict[str, str]:
         "src/state.h": "struct PacketScan {\n" + HEADER_OLD + "\n};",
         "src/state.cpp": (
             "void ScanPackets() {\n" + SCAN_HEAD + "\n"
+            "    switch (header >> 30) {\n"
             "  if (p > end) return void(out.complete = false);\n"
             "  if (p == end) out.complete = false;\n"
             "  if (header == 1) out.complete = false;\n"
             "  if (header == 2) out.complete = false;\n"
             "  if (header == 3) out.complete = false;\n"
-            "}\n" + "bool FetchSlotDirty() {}\n"
+            "    }\n  }\n}\n\n" + "bool FetchSlotDirty() {}\n"
             "void PacketScan::Clear() {\n" + CLEAR_OLD + "\n}\n"
             "// HULK/INCOMPLETE-XDK-DRAW-GUARD\n"
             "REXLOG_WARN(\n" + LOG_OLD + "\n"
@@ -38,10 +39,12 @@ class TestHulkPm4FirstFailure(unittest.TestCase):
         self.assertEqual(patch(fixed), (fixed, False))
         self.assertEqual(fixed["src/state.cpp"].count("hulk_note_failure(__LINE__)"), 5)
         self.assertIn(SCAN_HEAD_NEW, fixed["src/state.cpp"])
+        self.assertIn(SCAN_TAIL_NEW, fixed["src/state.cpp"])
         self.assertIn(HEADER_NEW, fixed["src/state.h"])
         for token in ("fail_site={}", "fail_header={:#x}", "fail_depth={}",
                       "fail_remaining={}", "hulk_fail_header >> 30",
-                      "hulk_fail_remaining = p <= end ? end - p : 0u;"):
+                      "hulk_fail_remaining = p <= end ? end - p : 0u;",
+                      "last_good_begin={:#x}", "hulk_last_good_header"):
             self.assertIn(token, fixed["src/state.cpp"])
         self.assertIn("return void(hulk_note_failure(__LINE__))", fixed["src/state.cpp"])
         self.assertNotIn("HULK/PM4-FIRST-FAILURE", fixture()["src/state.cpp"])
@@ -85,6 +88,9 @@ struct PacketScan {
   uint32_t hulk_fail_header = 0;
   uint32_t hulk_fail_depth = 0;
   uint32_t hulk_fail_remaining = 0;
+  uint32_t hulk_last_good_begin = 0;
+  uint32_t hulk_last_good_end = 0;
+  uint32_t hulk_last_good_header = 0;
 };
 uint32_t Load32(const uint8_t* base, uint32_t p) {
   uint32_t value;
@@ -95,24 +101,29 @@ void ScanPackets(const uint8_t* base, uint32_t begin, uint32_t end,
                  PacketScan& out, int depth) {
 """
         suffix = r"""
-    p += 4;
     if (header == 0xdeadbeefu)
       return void(hulk_note_failure(__LINE__));
-  }
-}
+    p += 4;
+    switch (header >> 30) {
+      default:
+        break;
+""" + SCAN_TAIL_NEW + r"""
 int main() {
-  uint32_t data[] = {0xdeadbeefu, 0x12345678u};
+  uint32_t data[] = {0x11223344u, 0x55667788u, 0xdeadbeefu, 0x12345678u};
   PacketScan scan;
   const auto* bytes = reinterpret_cast<const uint8_t*>(data);
-  ScanPackets(bytes, 0, 8, scan, 2);
+  ScanPackets(bytes, 0, 16, scan, 2);
   assert(!scan.complete);
   assert(scan.hulk_fail_site != 0);
   assert(scan.hulk_fail_header == 0xdeadbeefu);
-  assert(scan.hulk_fail_packet == 0);
+  assert(scan.hulk_fail_packet == 8);
+  assert(scan.hulk_last_good_begin == 0);
+  assert(scan.hulk_last_good_end == 8);
+  assert(scan.hulk_last_good_header == 0x11223344u);
   assert(scan.hulk_fail_remaining == 4);
   assert(scan.hulk_fail_depth == 2);
   const uint32_t first_site = scan.hulk_fail_site;
-  ScanPackets(bytes, 0, 8, scan, 7);
+  ScanPackets(bytes, 0, 16, scan, 7);
   assert(scan.hulk_fail_site == first_site && scan.hulk_fail_depth == 2);
 }
 """
