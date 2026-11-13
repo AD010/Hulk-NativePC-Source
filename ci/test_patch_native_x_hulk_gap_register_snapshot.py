@@ -25,7 +25,7 @@ class Pm4RegisterLifetimeTests(unittest.TestCase):
     def test_atomic_patch_and_idempotence(self):
         src=("HULK/PM4-PRESCAN-SHADER-SNAPSHOT\n"+
              HEAD_OLD+DRAW_OLD+TAIL_OLD+DIAG_OLD+
-             FLOAT_SCAN_OLD+FLOAT_GATHER_OLD+BIN_MISMATCH_OLD+PRESCAN_BOUNDARY_OLD+REPLAY_BOUNDARY_OLD)
+             FLOAT_SCAN_OLD+FLOAT_GATHER_OLD+BIN_MISMATCH_OLD+PRESCAN_BOUNDARY_OLD)
         fixed,did=change(src)
         self.assertTrue(did)
         self.assertEqual(change(fixed),(fixed,False))
@@ -45,7 +45,7 @@ class Pm4RegisterLifetimeTests(unittest.TestCase):
         source=("HULK/PM4-PRESCAN-SHADER-SNAPSHOT\\n" +
                 HEAD_OLD + DRAW_OLD + TAIL_OLD + DIAG_OLD +
                 FLOAT_SCAN_OLD + FLOAT_GATHER_OLD + BIN_MISMATCH_OLD +
-                PRESCAN_BOUNDARY_OLD + REPLAY_BOUNDARY_OLD)
+                PRESCAN_BOUNDARY_OLD)
         actual, changed = change(source)
         self.assertTrue(changed)
         self.assertIn("HULK/PM4-REPLAY-BIN-OWNER", actual)
@@ -71,7 +71,7 @@ class Pm4RegisterLifetimeTests(unittest.TestCase):
         source=("HULK/PM4-PRESCAN-SHADER-SNAPSHOT\\n" +
                 HEAD_OLD + DRAW_OLD + TAIL_OLD + DIAG_OLD +
                 FLOAT_SCAN_OLD + FLOAT_GATHER_OLD + BIN_MISMATCH_OLD +
-                PRESCAN_BOUNDARY_OLD + REPLAY_BOUNDARY_OLD)
+                PRESCAN_BOUNDARY_OLD)
         patched, changed = change(source)
         self.assertTrue(changed)
         self.assertEqual(change(patched), (patched, False))
@@ -108,7 +108,7 @@ class Pm4RegisterLifetimeTests(unittest.TestCase):
     def test_xdk_draw_keeps_packet_float_constants(self):
         source=("HULK/PM4-PRESCAN-SHADER-SNAPSHOT\\n"+
                 HEAD_OLD+DRAW_OLD+TAIL_OLD+DIAG_OLD+
-                FLOAT_SCAN_OLD+FLOAT_GATHER_OLD+BIN_MISMATCH_OLD+PRESCAN_BOUNDARY_OLD+REPLAY_BOUNDARY_OLD)
+                FLOAT_SCAN_OLD+FLOAT_GATHER_OLD+BIN_MISMATCH_OLD+PRESCAN_BOUNDARY_OLD)
         actual, did = change(source)
         self.assertTrue(did)
         self.assertIn("ScanPackets(base, p.scan_from, end, scan_, 0, false, true)", actual)
