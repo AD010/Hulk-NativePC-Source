@@ -99,6 +99,10 @@ int main() {
   t.hulk_loaded_at_={};
   t.Scan(regular,original.ucode.data());
   assert(t.hashes==4); // resetting tracker clears memo
+  t.hulk_loaded_at_[((address >> 4) ^ (address >> 12)) & 255u] =
+      {address,0,&original};
+  t.Scan({false,address,0,1},original.ucode.data());
+  assert(t.hashes==5); // zero-length shader never goes through memcmp
 }
 """
         with tempfile.TemporaryDirectory(prefix="hulk_d139_memo_") as d:
