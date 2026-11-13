@@ -85,6 +85,8 @@ PATCHES = {
   (
    "  if (c.has_dest_point) {\n    to.x = c.dest_point[0];\n    to.y = c.dest_point[1];\n  }",
    "  if (c.has_dest_point) {\n    to.x = c.dest_point[0];\n    to.y = c.dest_point[1];\n  }\n"
+   "  const Blitter::Rect hulk_reverse_original_from = from;\n"
+   "  const Blitter::Rect hulk_reverse_original_to = to;\n"
    "  if (hulk_reverse_alias) {\n"
    "    // The source now uses the 640/4x guest view, not the caller's 1280/1x\n"
    "    // coordinates. Each source pixel contains a 2x2 native sample grid.\n"
@@ -134,6 +136,56 @@ if PIN == "919371b5bdae0c9c4c7120ca321f5a4d72b7e78e":
         old.replace(baseline, upstream, 1),
         new.replace(baseline, upstream, 1)
     )
+
+
+# HULK/REVERSE-ALIAS-EXACT-RECT: the original half-size conversion loses
+# subpixel (odd guest coordinate) placement and rounds widths up by two host
+# pixels. Use the actual 1280x720 caller rectangle for the verified 1x/4x
+# shared-storage alias when source and destination have the SAME integral host
+# scale. Leave every unmatched/smaller/shadow/indirect resolve untouched.
+HOST_RECT_OLD = """  from = HostRect(source->scale, from);
+  to = HostRect(target->scale, to);"""
+HOST_RECT_NEW = HOST_RECT_OLD + """
+  if (hulk_reverse_alias && surface && source && target &&
+      hulk_reverse_original_from.x >= 0 &&
+      hulk_reverse_original_from.y >= 0 &&
+      hulk_reverse_original_to.x >= 0 &&
+      hulk_reverse_original_to.y >= 0 &&
+      surface.width && surface.height &&
+      target->guest_width == surface.width &&
+      target->guest_height == surface.height &&
+      source->width % surface.width == 0 &&
+      source->height % surface.height == 0 &&
+      target->width % target->guest_width == 0 &&
+      target->height % target->guest_height == 0 &&
+      source->width / surface.width == target->width / target->guest_width &&
+      source->height / surface.height == target->height / target->guest_height &&
+      uint32_t(hulk_reverse_original_from.x) < surface.width &&
+      uint32_t(hulk_reverse_original_from.y) < surface.height &&
+      uint32_t(hulk_reverse_original_to.x) < target->guest_width &&
+      uint32_t(hulk_reverse_original_to.y) < target->guest_height) {
+    // HULK/REVERSE-ALIAS-EXACT-RECT: calculate host coordinates directly
+    // from the full-resolution guest region. Integer x/2, ceil(width/2)
+    // lost one or two source pixels for odd starts/widths, creating seams
+    // or a 2-pixel sample-grid mismatch in a 2560x1440 Vulkan frame.
+    const uint32_t src_x = uint32_t(hulk_reverse_original_from.x);
+    const uint32_t src_y = uint32_t(hulk_reverse_original_from.y);
+    const uint32_t dst_x = uint32_t(hulk_reverse_original_to.x);
+    const uint32_t dst_y = uint32_t(hulk_reverse_original_to.y);
+    const uint32_t scale_x = source->width / surface.width;
+    const uint32_t scale_y = source->height / surface.height;
+    const uint32_t copy_w = std::min({
+        hulk_reverse_original_from.width,
+        surface.width - src_x, target->guest_width - dst_x});
+    const uint32_t copy_h = std::min({
+        hulk_reverse_original_from.height,
+        surface.height - src_y, target->guest_height - dst_y});
+    from = {int32_t(src_x * scale_x), int32_t(src_y * scale_y),
+            copy_w * scale_x, copy_h * scale_y};
+    to = {int32_t(dst_x * scale_x), int32_t(dst_y * scale_y),
+          copy_w * scale_x, copy_h * scale_y};
+  }"""
+PATCHES["src/renderer.cpp"].append((HOST_RECT_OLD, HOST_RECT_NEW))
 
 
 def transform(source, rules):
