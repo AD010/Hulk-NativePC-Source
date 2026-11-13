@@ -20,6 +20,8 @@ class HulkStencilGridTests(unittest.TestCase):
         self.assertIn("!aliased", result)
         self.assertIn("source->samples == 1", result)
         self.assertIn("from.width == to.width", result)
+        self.assertIn("source->width == target->width", result)
+        self.assertIn("uint64_t(from.x) + from.width <= source->width", result)
         self.assertNotIn(OLD, result)
         for malformed in ("unreviewed", OLD, "HULK/DEPTH-STENCIL-GRID-PARITY"):
             with self.assertRaises(ValueError):
@@ -45,9 +47,11 @@ struct Target {
  bool stencil_srv = true;
  bool read_packed = true;
  int samples = 1;
+ uint32_t width = 2560, height = 1440;
 };
 bool ShouldPack(bool grid, bool scaled, bool aliased, bool is_depth,
-                bool stencil, bool matching_rect, bool multisample) {
+                bool stencil, bool matching_rect, bool multisample,
+                bool mismatched_extent = false, bool outside = false) {
  Surface surface; surface.depth = is_depth;
  Target src; src.depth = is_depth; src.stencil_srv = stencil;
  Target dst; dst.read_packed = true;
@@ -56,6 +60,8 @@ bool ShouldPack(bool grid, bool scaled, bool aliased, bool is_depth,
  Target* target = &dst;
  Rect from, to;
  if (!matching_rect) to.width = 1280;
+ if (mismatched_extent) dst.width = 1280;
+ if (outside) from.x = to.x = 1;
  bool cube = false;
  bool grid_enabled = grid;
 #define REXCVAR_GET(variable) grid_enabled
@@ -73,6 +79,8 @@ int main() {
   assert(!ShouldPack(true, true, false, true, false, true, false));
   assert(!ShouldPack(true, true, false, true, true, false, false));
   assert(!ShouldPack(true, true, false, true, true, true, true));
+  assert(!ShouldPack(true, true, false, true, true, true, false, true));
+  assert(!ShouldPack(true, true, false, true, true, true, false, false, true));
   assert(ShouldPack(false, false, false, true, true, true, false));
 }
 """
