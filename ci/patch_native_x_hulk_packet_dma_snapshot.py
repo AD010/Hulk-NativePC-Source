@@ -223,16 +223,33 @@ bool HulkProcessIndexCopies(Processor& processor, Result& result,
   // HULK/PM4-DMA-NO-LIVE-FALLBACK: an unsnapshotted DMA draw must not
   // read index bytes from the guest ring AFTER that memory was reused.
   if (!overlaps) return false;
-  std::vector<uint8_t> bytes(size), covered(size, 0);
+  // HULK/CPU-INDEX-INTERVAL-COVERAGE: Copy count is capped by Command
+  // (two owned copies). Verify the union of their byte intervals instead
+  // of allocating and filling an extra size-byte coverage mask per draw.
+  // This removes one allocation and one O(index_bytes) pass for every
+  // DMA-indexed Draw, while preserving last-copy-wins overlap semantics.
+  std::vector<uint8_t> bytes(size);
+  const uint64_t request_end = uint64_t(base) + size;
   for (const auto& copy : copies) {
     const uint64_t first = std::max(uint64_t(base), uint64_t(copy.address));
-    const uint64_t last = std::min(uint64_t(base) + size, uint64_t(copy.address) + copy.size);
+    const uint64_t last = std::min(request_end, uint64_t(copy.address) + copy.size);
     if (first >= last) continue;
     if (!copy.data) return false;
     std::memcpy(bytes.data() + (first - base), copy.data + (first - copy.address), last - first);
-    std::fill(covered.begin() + (first - base), covered.begin() + (last - base), 1);
   }
-  if (std::find(covered.begin(), covered.end(), uint8_t(0)) != covered.end()) return false;
+  uint64_t cursor = base;
+  while (cursor < request_end) {
+    uint64_t next = cursor;
+    for (const auto& copy : copies) {
+      const uint64_t first = uint64_t(copy.address);
+      const uint64_t last = first + copy.size;
+      if (first <= cursor && last > next)
+        next = std::min(last, request_end);
+    }
+    // An uncovered byte is never read from the live guest buffer.
+    if (next == cursor) return false;
+    cursor = next;
+  }
   return processor.ProcessCapturedIndices(result, bytes.data(), base, size);
 }
 
