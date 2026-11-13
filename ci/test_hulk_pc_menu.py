@@ -35,7 +35,7 @@ class TestHulkPcMenu(unittest.TestCase):
         self.assertIn('SetFlagByName("vsync", vsync ? "true" : "false")', menu)
         self.assertIn("HULK/FPS-CHOICES", menu)
         self.assertIn("Selecting a higher FPS does not change the physics timestep", menu)
-        self.assertIn("gpu_guest_fps_limit = 30", config)
+        self.assertIn("gpu_guest_fps_limit = 0", config)
         self.assertIn("src/pc_menu.cpp", cmake)
         self.assertIn('ImGui::Button("Exit to Windows"', menu)
         self.assertIn('ImGui::Button("Resume game"', menu)
