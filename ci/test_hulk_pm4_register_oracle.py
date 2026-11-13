@@ -38,7 +38,10 @@ class PM4OracleTests(unittest.TestCase):
     def test_predicated_constant_never_assumed_executed(self):
         state = t3(0x2d, [(1 << 16) | 6, 0x44a00000], pred=True)
         r = replay(state + t3(0x36, [0x40], pred=True))
-        self.assertEqual(r['draw_snapshots'][0]['known_watched_registers'], {})
+        # DRAW_INDX_2 writes its own VGT_DRAW_INITIATOR regardless of
+        # whether an earlier *constant* packet was BIN-predicated.
+        self.assertEqual(r['draw_snapshots'][0]['known_watched_registers'],
+                         {'0x21fc': '0x00000040'})
         self.assertTrue(r['draw_snapshots'][0]['predicate_state_unknown'])
         self.assertFalse(r['complete'])
 
@@ -162,7 +165,10 @@ class PM4OracleTests(unittest.TestCase):
                             for w in audit['warnings']))
         self.assertTrue(any('out-of-range SET_SHADER_CONSTANTS' in w
                             for w in audit['warnings']))
-        self.assertEqual(audit['draw_snapshots'][0]['known_watched_registers'], {})
+        # A valid auto-index draw sets VGT_DRAW_INITIATOR. Neither invalid
+        # SET_SHADER_CONSTANTS packet may populate any float/fetch slot.
+        self.assertEqual(audit['draw_snapshots'][0]['known_watched_registers'],
+                         {'0x21fc': '0x00000040'})
 
     def test_dma_packet_side_registers_and_payload_bounds(self):
         # DRAW_INDX_2 source_select=0 needs VGT initiator/base/size.
