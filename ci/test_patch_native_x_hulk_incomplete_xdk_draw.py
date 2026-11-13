@@ -50,6 +50,15 @@ class IncompleteXdkTests(unittest.TestCase):
         self.assertIn(ENTER_NEW, cpp)
         self.assertEqual(cpp.count("scan_.bin_mask = p.hulk_bin_mask_at_enter;"), 2)
         self.assertEqual(cpp.count("scan_.bin_select = p.hulk_bin_select_at_enter;"), 2)
+        # Both incomplete branches must restore the outer Enter checkpoint
+        # before Clear(), which intentionally retains BIN state.
+        present = cpp.split("if (!scan_.complete && call == Call::kPresent)", 1)[1].split("if (!scan_.complete)", 1)[0]
+        rejected = cpp.split("if (!scan_.complete) {", 1)[1].split("return nullptr;", 1)[0]
+        for branch in (present, rejected):
+            for field in ("mask", "select"):
+                restore = f"scan_.bin_{field} = p.hulk_bin_{field}_at_enter;"
+                self.assertEqual(branch.count(restore), 1)
+                self.assertLess(branch.index(restore), branch.index("scan_.Clear();"))
         self.assertLess(cpp.index("p.hulk_bin_mask_at_enter = scan_.bin_mask;"),
                         cpp.index("if (!scan_.complete && call == Call::kPresent)"))
         header, h_changed = patch_header(PENDING_HEADER_OLD)
