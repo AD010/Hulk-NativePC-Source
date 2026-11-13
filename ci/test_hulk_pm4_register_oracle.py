@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Synthetic-only PM4 tests; no game packets or assets in repo."""
 import hashlib
+import random
 import struct
 import tempfile
 from pathlib import Path
@@ -71,6 +72,32 @@ class PM4OracleTests(unittest.TestCase):
         self.assertEqual(r['shader_loads_by_stage']['ps'], 1)
         self.assertIn('truncated immediate shader microcode', r['warnings'])
         self.assertFalse(r['complete'])
+
+    def test_seeded_immediate_shader_fuzz_keeps_previous_on_corruption(self):
+        # 4096 deterministic synthetic tests: real shader-stage bits,
+        # advertised word count, payload length and bytecode fingerprints.
+        rng = random.Random(0x2008c0de)
+        for sample in range(4096):
+            stage = sample & 1
+            initial = t3(0x2b, [stage, 1, 0x01020304])
+            available = rng.randrange(0, 25)
+            advertised = rng.randrange(0, 32)
+            words = [rng.getrandbits(32) for _ in range(available)]
+            proposed = t3(0x2b, [stage, advertised] + words)
+            r = replay(initial + proposed + t3(0x36, [0]))
+            got = r['draw_snapshots'][0]['shader_programs']
+            target = 'ps' if stage else 'vs'
+            if 1 <= advertised <= available:
+                expected = hashlib.sha256(
+                    b''.join(struct.pack('>I', w) for w in words[:advertised])
+                ).hexdigest()
+                self.assertEqual(got[target]['sha256'], expected)
+                self.assertEqual(r['shader_loads_by_stage'][target], 2)
+            else:
+                expected = hashlib.sha256(struct.pack('>I', 0x01020304)).hexdigest()
+                self.assertEqual(got[target]['sha256'], expected)
+                self.assertEqual(r['shader_loads_by_stage'][target], 1)
+                self.assertFalse(r['complete'])
 
     def test_bad_packet_and_binary_data(self):
         self.assertFalse(replay([0xc0012d00, 0])['complete'])
