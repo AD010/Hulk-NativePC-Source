@@ -229,6 +229,7 @@ def run(sha=SHA):
             ("HULK/PS-PROGRAM-ORIGIN", renderer),
             ("HULK/PS-RECENT-LOAD", state),
             ("HULK/PM4-FIRST-FAILURE", state),
+            ("HULK/DEPTH-STENCIL-GRID-PARITY", renderer),
             ("last_load_packet=", renderer),
             ("HULK/PM4-REGISTER-ORDER", state),
             ("HULK/PM4-SHADER-BOUNDS", state),
