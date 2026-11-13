@@ -10,7 +10,9 @@ vulkan_allow_present_mode_mailbox = false
 vulkan_allow_present_mode_fifo_relaxed = false
 vsync = true
 vblank_follows_display = false
-gpu_guest_fps_limit = 30
+# Preserve current game pacing until a 60Hz physics simulation is validated.
+# 0 = no additional XDK submission cap; engine may still choose 30 FPS.
+gpu_guest_fps_limit = 0
 user_country = 103
 user_language = 1
 render_target_path_vulkan = "fsi"
