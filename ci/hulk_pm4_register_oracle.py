@@ -57,15 +57,21 @@ def replay(words: list[int], watch=WATCH, max_draws=MAX_DRAWS) -> dict:
         typ = h >> 30
         if typ == 0:
             n = ((h >> 16) & 0x3fff) + 1
-            if p + n > len(words):
-                warnings.append(f'truncated Type0 at word {p-1}'); break
             base = h & 0x7fff
             one = (h >> 15) & 1
+            if base >= 0x5000 or (not one and n > 0x5000 - base):
+                warnings.append(f'out-of-range Type0 register span at word {p-1}')
+                break
+            if p + n > len(words):
+                warnings.append(f'truncated Type0 at word {p-1}'); break
             for i in range(n):
                 write(base if one else base + i, words[p+i])
             p += n; counters['type0'] += 1
             continue
         if typ == 1:
+            if h & 0x3fc00000:
+                warnings.append(f'invalid Type1 reserved bits at word {p-1}')
+                break
             if p + 2 > len(words):
                 warnings.append(f'truncated Type1 at word {p-1}'); break
             write(h & 0x7ff, words[p])
@@ -73,7 +79,13 @@ def replay(words: list[int], watch=WATCH, max_draws=MAX_DRAWS) -> dict:
             p += 2; counters['type1'] += 1
             continue
         if typ == 2:  # Type2 no-op.
+            if h != 0x80000000:
+                warnings.append(f'invalid Type2 reserved bits at word {p-1}')
+                break
             continue
+        if h & 0xfe:
+            warnings.append(f'invalid Type3 reserved bits at word {p-1}')
+            break
         op = (h >> 8) & 0x7f
         n = ((h >> 16) & 0x3fff) + 1
         if p + n > len(words):
