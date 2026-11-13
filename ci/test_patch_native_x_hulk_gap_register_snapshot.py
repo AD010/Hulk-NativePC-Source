@@ -52,6 +52,7 @@ class Pm4RegisterLifetimeTests(unittest.TestCase):
         actual, did = change(source)
         self.assertTrue(did)
         self.assertIn("ScanPackets(base, p.scan_from, end, scan_, 0, false, false)", actual)
+        self.assertIn("!hulk_shadow_group_sent", actual)
         self.assertIn("value != shadow(hulk_shadow_byte)", actual)
         self.assertIn("d.ps_float_constants", actual)
         self.assertIn("d.vs_float_constants", actual)
@@ -81,6 +82,10 @@ struct Device {uint32_t vs_float_constants=0,ps_float_constants=4096;};
 int main(){
  Device d;
  std::array<uint32_t,2048> data{};
+ struct Pending {uint64_t vs_dirty=0, ps_dirty=0;};
+ Pending p;
+ p.vs_dirty = UINT64_C(1) << (63u - 84u / 16u);
+ p.ps_dirty = UINT64_C(1) << (63u - 84u / 16u);
  data[84]=0xBF7F67F5u;           // XDK VS c21.x device shadow
  data[(4096+84)/4]=0xBF7F67F5u;  // PS c21.x device shadow
  auto shadow=[&](uint32_t b){return data.at(b/4);};
@@ -97,10 +102,14 @@ int main(){
  assert(emitted==1 && effective==0xBF7FCBBAu);
  run(kFloatConstants+84,0xBF7F67F5u,true,false);
  assert(emitted==1);
+ // Dirty bit absent: even equality with shadow MUST emit packet state.
+ p.vs_dirty = 0;
+ run(kFloatConstants+84,0xBF7F67F5u,true,false);
+ assert(emitted==2 && effective==0xBF7F67F5u);
  run(kFloatConstants+kPixelConstantsDword+84,0xBF7FCBBAu,true,false);
- assert(emitted==2 && effective==0xBF7FCBBAu);
+ assert(emitted==3 && effective==0xBF7FCBBAu);
  run(kFloatConstants+84,0xBF7F67F5u,true,true);
- assert(emitted==3 && effective==0xBF7F67F5u);
+ assert(emitted==4 && effective==0xBF7F67F5u);
 }
 """
         with tempfile.TemporaryDirectory(prefix="hulk_float_pm4_") as tmp:
