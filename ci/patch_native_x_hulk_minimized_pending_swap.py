@@ -76,8 +76,21 @@ def transform(source: str) -> str:
     body = source[first:last]
     if body.count("ShowPendingFrame(") != 3:
         raise ValueError("D140 pending-frame presentation paths changed")
+    # The window guard belongs BEFORE the pacing statistics: a hidden
+    # frame must not be counted both as presented and then as skipped.
+    branches = (
+        ("  if (ready >= 0) {\n    ++g_pacing.at_swap;",
+         "  if (ready >= 0) {\n    if (!hulk_pending_visible()) return;\n    ++g_pacing.at_swap;"),
+        ("  } else if (room && g_pending_count == kMaxPendingFrames) {\n    ++g_pacing.before_swap;",
+         "  } else if (room && g_pending_count == kMaxPendingFrames) {\n    if (!hulk_pending_visible()) return;\n    ++g_pacing.before_swap;"),
+        ("  } else if (check_time && std::chrono::steady_clock::now() - g_pending_frames[0].since > kSwapTimeout) {\n    ++g_pacing.timed_out;",
+         "  } else if (check_time && std::chrono::steady_clock::now() - g_pending_frames[0].since > kSwapTimeout) {\n    if (!hulk_pending_visible()) return;\n    ++g_pacing.timed_out;"),
+    )
+    for before, after in branches:
+        if body.count(before) != 1:
+            raise ValueError("D140 Present decision structure changed")
+        body = body.replace(before, after, 1)
     body = body.replace(D140_HEAD_OLD, D140_HEAD_NEW, 1)
-    body = body.replace("    ShowPendingFrame(", "    if (!hulk_pending_visible()) return;\n    ShowPendingFrame(")
     return source[:first] + body + source[last:]
 
 def main() -> None:
