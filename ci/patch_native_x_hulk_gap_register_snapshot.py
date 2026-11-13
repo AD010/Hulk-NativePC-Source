@@ -120,12 +120,37 @@ BIN_MISMATCH_NEW = """          const bool hulk_bin_replay_match =
             scan_.bin_mask = hulk_prescan_bin_mask;
             scan_.bin_select = hulk_prescan_bin_select;"""
 
+PRESCAN_BOUNDARY_OLD = """    ScanPackets(base, last_hulk_segment_end_, p.begin,
+                scan_, 0, false, true);"""
+PRESCAN_BOUNDARY_NEW = """    // HULK/PM4-PER-DRAW-BOUNDARY: record register/shader counts at each
+    // trusted first-pass draw, including those inside indirect buffers.
+    std::vector<std::pair<size_t, size_t>> hulk_prescan_draw_ends;
+    const auto hulk_on_prescan_draw = [&]() {
+      hulk_prescan_draw_ends.emplace_back(
+          scan_.register_order.size(), scan_.shader_loads.size());
+    };
+    ScanPackets(base, last_hulk_segment_end_, p.begin,
+                scan_, 0, false, true, hulk_on_prescan_draw);"""
+REPLAY_BOUNDARY_OLD = """            if (!hulk_restore_shader_words() || !hulk_restore_registers()) {"""
+REPLAY_BOUNDARY_NEW = """            // HULK/PM4-PER-DRAW-BOUNDARY: a changed ring must not deliver
+            // incomplete per-Draw registers or IM_LOAD to the GPU.
+            if (emitted >= hulk_prescan_draw_ends.size() ||
+                hulk_register_cursor + scan_.register_order.size() !=
+                    hulk_prescan_draw_ends[emitted].first ||
+                hulk_prescan_cursor + scan_.shader_loads.size() !=
+                    hulk_prescan_draw_ends[emitted].second) {
+              hulk_shader_replay_ok = false;
+              return;
+            }
+            if (!hulk_restore_shader_words() || !hulk_restore_registers()) {"""
+
 DIAG_OLD='REXLOG_ERROR("[HULK/PM4-SHADER-SNAPSHOT] rejected changed post-draw shader payload");'
 DIAG_NEW='REXLOG_ERROR("[HULK/PM4-REGISTER-SNAPSHOT] changed pre-scan register/LOAD sequence or shader payload");'
 
 def change(src: str) -> tuple[str,bool]:
     parts=(HEAD_NEW,DRAW_NEW,TAIL_NEW,DIAG_NEW,
-           FLOAT_SCAN_NEW,FLOAT_GATHER_NEW,BIN_MISMATCH_NEW)
+           FLOAT_SCAN_NEW,FLOAT_GATHER_NEW,BIN_MISMATCH_NEW,
+           PRESCAN_BOUNDARY_NEW,REPLAY_BOUNDARY_NEW)
     if all(x in src for x in parts):
         return src,False
     if any(x in src for x in parts) or "HULK/PM4-REGISTER-SNAPSHOT" in src:
@@ -136,7 +161,9 @@ def change(src: str) -> tuple[str,bool]:
            (DIAG_OLD,DIAG_NEW),
            (FLOAT_SCAN_OLD,FLOAT_SCAN_NEW),
            (FLOAT_GATHER_OLD,FLOAT_GATHER_NEW),
-           (BIN_MISMATCH_OLD,BIN_MISMATCH_NEW))
+           (BIN_MISMATCH_OLD,BIN_MISMATCH_NEW),
+           (PRESCAN_BOUNDARY_OLD,PRESCAN_BOUNDARY_NEW),
+           (REPLAY_BOUNDARY_OLD,REPLAY_BOUNDARY_NEW))
     for old,new in pairs:
         if src.count(old)!=1:
             raise ValueError("NativeX register snapshot anchor drift: "+old[:60])
