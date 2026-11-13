@@ -33,6 +33,17 @@ D140 probe now isolates old unit-test imports and subjects each patch's
 actual C++ transformation to the latest D140 source separately. Only
 a source-only GitHub runner is used; no Xbox game input is fetched.
 
+## Third automated audit: real shared image ownership collision
+
+D140 source-only run #97 passed thirteen early post-patch stages (through
+MSAA, reverse alias, depth/stencil). The first genuine source collision is
+`ci/patch_native_x_hulk_shared_storage.py`'s old RenderTargets::Get
+lookup anchor. Upstream D139 introduced a four-entry recent-target cache.
+The candidate adaptation synchronizes `HostTarget::written` on both the
+recent-cache and the map-hit paths and remembers a newly shared guest view.
+Its D140 string anchor was verified unique against upstream `targets.cpp`;
+the new regression checks both alias paths and idempotence.
+
 ## Mandatory acceptance gates before upgrading main
 - Complete sequence of production-ordered Hulk patches applies on latest upstream with every regression test passing.
 - NativeX C++ compiles on Windows x64 Release without turning off the source checks.
