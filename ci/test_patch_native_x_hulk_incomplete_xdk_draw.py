@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Regression: incomplete XDK PM4 may never reach Gather or CaptureDraw."""
 import unittest
-from patch_native_x_hulk_incomplete_xdk_draw import patch, ANCHOR, PATCH
+from patch_native_x_hulk_incomplete_xdk_draw import (patch, patch_enter, patch_header,
+    ANCHOR, PATCH, ENTER_OLD, ENTER_NEW, PENDING_HEADER_OLD, PENDING_HEADER_NEW)
 
 class IncompleteXdkTests(unittest.TestCase):
     def test_atomic_idempotent(self):
@@ -34,6 +35,29 @@ class IncompleteXdkTests(unittest.TestCase):
         self.assertLess(out.index("if (!scan_.complete && call == Call::kPresent)"),
                         out.index("if (!scan_.complete)"))
 
+
+    def test_rejected_draw_and_present_rollback_all_bin_state(self):
+        cpp = ("void StateTracker::Enter(Call call, uint32_t device, const uint8_t* base, bool nested) {\n"
+               + ENTER_OLD
+               + "\n}\nconst TrackedCall* StateTracker::Leave(Call call, const uint8_t* base, bool nested) {\n"
+               + ANCHOR)
+        cpp, changed = patch_enter(cpp)
+        self.assertTrue(changed)
+        self.assertEqual(patch_enter(cpp), (cpp, False))
+        cpp, changed = patch(cpp)
+        self.assertTrue(changed)
+        self.assertEqual(patch(cpp), (cpp, False))
+        self.assertIn(ENTER_NEW, cpp)
+        self.assertEqual(cpp.count("scan_.bin_mask = p.hulk_bin_mask_at_enter;"), 2)
+        self.assertEqual(cpp.count("scan_.bin_select = p.hulk_bin_select_at_enter;"), 2)
+        self.assertLess(cpp.index("p.hulk_bin_mask_at_enter = scan_.bin_mask;"),
+                        cpp.index("if (!scan_.complete && call == Call::kPresent)"))
+        header, h_changed = patch_header(PENDING_HEADER_OLD)
+        self.assertTrue(h_changed)
+        self.assertEqual(patch_header(header), (header, False))
+        self.assertIn(PENDING_HEADER_NEW, header)
+        with self.assertRaises(ValueError):
+            patch_enter(cpp.replace(ENTER_NEW, "  // missing XDK Enter checkpoint"))
 
     def test_source_drift_is_rejected(self):
         source = "const TrackedCall* StateTracker::Leave(Call call, const uint8_t* base, bool nested) {\n" + ANCHOR
