@@ -358,6 +358,7 @@ def transform(files: dict[str,str]) -> dict[str,str]:
             "if (copy_microcode || immediate)", "HULK/PM4-SHADER-BOUNDS",
             "HULK/PFP-RESET", "HULK/PFP-BIN", "bin_rejected_draws", "bin_rejected_state",
             "HULK/PM4-LOAD-RANGE", "HULK/PM4-SET-RANGE", "HULK/PM4-DIRECT-SET-RANGE", "HULK/PM4-NESTED-IB",
+            "HULK/PM4-GAP-BIN-ROLLBACK", "hulk_bin_mask_before_gap", "hulk_bin_select_before_gap",
         )
         if any(mark not in cpp for mark in required):
             raise ValueError("Partially applied bin predicate patch")
