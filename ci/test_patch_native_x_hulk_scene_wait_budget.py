@@ -4,6 +4,7 @@ import unittest
 from patch_native_x_hulk_scene_wait_budget import (
     DRAW_NEW, DRAW_OLD, FIELDS_NEW, FIELDS_OLD, HEADER_NEW, HEADER_OLD,
     INC_OLD, LOOP_NEW, LOOP_OLD, RENDER_NEW, RENDER_OLD, patch,
+    DRAW_D140_NEW, DRAW_D140_OLD, LOOP_D140_OLD, LOOP_D140_NEW,
 )
 
 def fixture():
@@ -27,6 +28,27 @@ class SceneBudgetTests(unittest.TestCase):
         self.assertEqual(patched["src/draw.cpp"].count(LOOP_NEW), 2)
         self.assertNotIn(LOOP_OLD, patched["src/draw.cpp"])
         self.assertIn("wait_start + kPipelineWaitLimit", patched["src/draw.cpp"])
+
+    def test_d140_lazy_clock_and_shared_budget_port(self):
+        current=fixture()
+        current["src/draw.cpp"] = (DRAW_D140_OLD + "\n" +
+                                    LOOP_D140_OLD + "\n" + LOOP_D140_OLD)
+        patched, changed = patch(current)
+        self.assertTrue(changed)
+        self.assertEqual(patch(patched), (patched, False))
+        cpp=patched["src/draw.cpp"]
+        self.assertIn(DRAW_D140_NEW, cpp)
+        self.assertEqual(cpp.count(LOOP_D140_NEW), 2)
+        self.assertNotIn(LOOP_D140_OLD, cpp.replace(LOOP_D140_NEW,""))
+        self.assertIn("if (!hulk_scene_wait_) return true;", cpp)
+        self.assertIn("std::chrono::steady_clock::time_point wait_start{};", cpp)
+        self.assertIn("now - hulk_scene_wait_start_ <", cpp)
+        self.assertNotIn("const auto wait_start = std::chrono::steady_clock::now();", cpp)
+        self.assertIn("device_->frames_presented()", cpp)
+        self.assertIn("hulk_scene_wait_start_ + std::chrono", DRAW_NEW)
+        current["src/draw.cpp"] = DRAW_D140_OLD + "\n" + LOOP_D140_OLD
+        with self.assertRaises(ValueError):
+            patch(current)
 
     def test_partial_installs_and_source_drift_fail_closed(self):
         original = fixture()
