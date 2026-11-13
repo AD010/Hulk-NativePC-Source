@@ -79,7 +79,11 @@ FLOAT_SCAN_OLD = "    ScanPackets(base, p.scan_from, end, scan_, 0, draw, false)
 FLOAT_SCAN_NEW = """    // HULK/PM4-XDK-FLOAT-TRUTH: capture actual GPU SET/LOAD constants
     // before the XDK ring is recycled. A post-call shadow is not always
     // equal to the earlier packet that the GPU actually consumed.
-    ScanPackets(base, p.scan_from, end, scan_, 0, false, false);"""
+    // HULK/XDK-OWNED-IM-LOAD: snapshot all external shader microcode
+    // while scanning the command, not later at Gather/cache lookup.
+    // Immediate IM_LOAD was already owned; non-immediate must be too.
+    // The next command may recycle the same guest pages.
+    ScanPackets(base, p.scan_from, end, scan_, 0, false, true);"""
 FLOAT_GATHER_OLD = "      if (!draw || loaded) SendValue(reg, value);"
 FLOAT_GATHER_NEW = """      // HULK/PM4-XDK-FLOAT-TRUTH: dirty shadow groups are an efficient
       // initial state, but explicit packet writes win in the Xenos order.
