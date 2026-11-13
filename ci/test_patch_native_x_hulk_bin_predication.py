@@ -178,6 +178,20 @@ class TestHulkPfpPatch(unittest.TestCase):
         for word in (0x44800000, 0x44340000):
             self.assertNotEqual(word & 0x3FC00000, 0)
         self.assertEqual(0x40000000 & 0x3FC00000, 0)
+        # Exhaust the entire reserved field rather than testing only the
+        # two float-like words from log198. Both 11-bit register indices
+        # remain legal, including their upper boundary 0x7ff.
+        for bit in range(22, 30):
+            self.assertNotEqual((0x40000000 | (1 << bit)) & 0x3FC00000, 0)
+        for first, second in ((0, 0), (0x7ff, 0), (0, 0x7ff), (0x7ff, 0x7ff)):
+            header = 0x40000000 | (second << 11) | first
+            self.assertEqual(header & 0x3FC00000, 0)
+            self.assertEqual(header & 0x7ff, first)
+            self.assertEqual((header >> 11) & 0x7ff, second)
+        # Type2 has no fields: every single-bit mutation of the canonical
+        # NOP must be rejected (including bit 0, observed in log198).
+        for bit in range(30):
+            self.assertNotEqual(0x80000000 | (1 << bit), 0x80000000)
 
     def test_clear_does_not_erase_bin_flags(self):
         s = self.patched["src/state.cpp"]
