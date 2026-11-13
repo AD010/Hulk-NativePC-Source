@@ -83,12 +83,21 @@ FLOAT_SCAN_NEW = """    // HULK/PM4-XDK-FLOAT-TRUTH: capture actual GPU SET/LOAD
 FLOAT_GATHER_OLD = "      if (!draw || loaded) SendValue(reg, value);"
 FLOAT_GATHER_NEW = """      // HULK/PM4-XDK-FLOAT-TRUTH: dirty shadow groups are an efficient
       // initial state, but explicit packet writes win in the Xenos order.
-      // Only resend values that differ (or were LOAD_ALU constants).
+      // A matching shadow word is authoritative ONLY if its whole dirty
+      // 4-vec group was actually sent before this PM4 packet. Otherwise
+      // skipping this SET would keep an unrelated previous draw's value.
       const uint32_t hulk_float_word = reg - kFloatConstants;
+      const uint32_t hulk_stage_word = hulk_float_word % kPixelConstantsDword;
+      const uint32_t hulk_group = hulk_stage_word / 16u;
+      const uint64_t hulk_dirty_bits = hulk_float_word < kPixelConstantsDword
+          ? p.vs_dirty : p.ps_dirty;
+      const bool hulk_shadow_group_sent =
+          (hulk_dirty_bits & (uint64_t(1) << (63u - hulk_group))) != 0;
       const uint32_t hulk_shadow_byte = hulk_float_word < kPixelConstantsDword
-          ? d.vs_float_constants + 4u * hulk_float_word
-          : d.ps_float_constants + 4u * (hulk_float_word - kPixelConstantsDword);
-      if (!draw || loaded || value != shadow(hulk_shadow_byte))
+          ? d.vs_float_constants + 4u * hulk_stage_word
+          : d.ps_float_constants + 4u * hulk_stage_word;
+      if (!draw || loaded || !hulk_shadow_group_sent ||
+          value != shadow(hulk_shadow_byte))
         SendValue(reg, value);"""
 
 DIAG_OLD='REXLOG_ERROR("[HULK/PM4-SHADER-SNAPSHOT] rejected changed post-draw shader payload");'
