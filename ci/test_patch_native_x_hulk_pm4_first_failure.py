@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 """Synthetic PM4 parser failure provenance; no XEX/arc/shader data required."""
 import unittest
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import tempfile
 from patch_native_x_hulk_pm4_first_failure import (
     patch, HEADER_OLD, SCAN_HEAD, CLEAR_OLD, LOG_OLD,
     LOG_ARGS_OLD, HEADER_NEW, SCAN_HEAD_NEW, LOG_NEW,
@@ -59,6 +64,67 @@ class TestHulkPm4FirstFailure(unittest.TestCase):
             "  if (header == 2) out.complete = false;\n", "")
         with self.assertRaises(ValueError):
             patch(input_files)  # fewer than three verified fail sites
+
+    @unittest.skipUnless(shutil.which("clang++") or shutil.which("g++"),
+                         "No standalone C++ compiler")
+    def test_first_failure_cpp_exact_generated_lambda(self):
+        # The test builds the REAL inserted scanner header and first-failure
+        # lambda, not a duplicate reimplementation. The callback must work
+        # in return-void expressions and keep the first nested-IB failure.
+        from patch_native_x_hulk_pm4_first_failure import SCAN_HEAD_NEW
+        prefix = r"""
+#include <cassert>
+#include <cstdint>
+#include <cstring>
+struct PacketScan {
+  bool complete = true;
+  uint32_t hulk_fail_site = 0;
+  uint32_t hulk_fail_packet = 0;
+  uint32_t hulk_fail_header = 0;
+  uint32_t hulk_fail_depth = 0;
+  uint32_t hulk_fail_remaining = 0;
+};
+uint32_t Load32(const uint8_t* base, uint32_t p) {
+  uint32_t value;
+  std::memcpy(&value, base + p, sizeof(value));
+  return value;
+}
+void ScanPackets(const uint8_t* base, uint32_t begin, uint32_t end,
+                 PacketScan& out, int depth) {
+"""
+        suffix = r"""
+    p += 4;
+    if (header == 0xdeadbeefu)
+      return void(hulk_note_failure(__LINE__));
+  }
+}
+int main() {
+  uint32_t data[] = {0xdeadbeefu, 0x12345678u};
+  PacketScan scan;
+  const auto* bytes = reinterpret_cast<const uint8_t*>(data);
+  ScanPackets(bytes, 0, 8, scan, 2);
+  assert(!scan.complete);
+  assert(scan.hulk_fail_site != 0);
+  assert(scan.hulk_fail_header == 0xdeadbeefu);
+  assert(scan.hulk_fail_packet == 0);
+  assert(scan.hulk_fail_remaining == 4);
+  assert(scan.hulk_fail_depth == 2);
+  const uint32_t first_site = scan.hulk_fail_site;
+  ScanPackets(bytes, 0, 8, scan, 7);
+  assert(scan.hulk_fail_site == first_site && scan.hulk_fail_depth == 2);
+}
+"""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "first_failure.cpp"
+            target = root / ("first_failure.exe" if os.name == "nt" else "first_failure")
+            source.write_text(prefix + SCAN_HEAD_NEW + suffix, encoding="utf-8")
+            compiler = shutil.which("clang++") or shutil.which("g++")
+            subprocess.run([compiler, "-std=c++20", "-Wall", "-Wextra",
+                            "-Werror", str(source), "-o", str(target)],
+                           check=True, capture_output=True, text=True)
+            subprocess.run([str(target)], check=True, capture_output=True,
+                           text=True)
 
     def test_no_raster_or_descriptor_mutations(self):
         data, _ = patch(fixture())
