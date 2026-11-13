@@ -20,6 +20,10 @@ SUPPORTED={"bf965e952c98e050753e91d08f32685a9f754b12",
 HEAD_OLD="""          const auto hulk_prescan_words = scan_.shader_ucode;
           size_t hulk_prescan_cursor = 0;"""
 HEAD_NEW="""          const auto hulk_prescan_words = scan_.shader_ucode;
+          // HULK/PM4-REPLAY-BIN-OWNER: validated first pass owns final PFP
+          // predicate state; never leave partial replay values for new Draws.
+          const uint64_t hulk_prescan_bin_mask = scan_.bin_mask;
+          const uint64_t hulk_prescan_bin_select = scan_.bin_select;
           // HULK/PM4-REGISTER-SNAPSHOT: validated first-pass SET/LOAD values
           // must not be silently replaced by the reused ring during replay.
           const auto hulk_prescan_writes = scan_.writes;
@@ -104,12 +108,24 @@ FLOAT_GATHER_NEW = """      // HULK/PM4-XDK-FLOAT-TRUTH: dirty shadow groups are
           value != shadow(hulk_shadow_byte))
         SendValue(reg, value);"""
 
+BIN_MISMATCH_OLD = """          if (!hulk_shader_replay_ok || !scan_.complete || emitted != expected) {"""
+BIN_MISMATCH_NEW = """          const bool hulk_bin_replay_match =
+              scan_.bin_mask == hulk_prescan_bin_mask &&
+              scan_.bin_select == hulk_prescan_bin_select;
+          if (!hulk_shader_replay_ok || !scan_.complete ||
+              emitted != expected || !hulk_bin_replay_match) {
+            // HULK/PM4-REPLAY-BIN-OWNER: second scan may have consumed
+            // altered guest bytes. Restore the validated first-pass FINAL
+            // BIN values before any subsequent XDK device call.
+            scan_.bin_mask = hulk_prescan_bin_mask;
+            scan_.bin_select = hulk_prescan_bin_select;"""
+
 DIAG_OLD='REXLOG_ERROR("[HULK/PM4-SHADER-SNAPSHOT] rejected changed post-draw shader payload");'
 DIAG_NEW='REXLOG_ERROR("[HULK/PM4-REGISTER-SNAPSHOT] changed pre-scan register/LOAD sequence or shader payload");'
 
 def change(src: str) -> tuple[str,bool]:
     parts=(HEAD_NEW,DRAW_NEW,TAIL_NEW,DIAG_NEW,
-           FLOAT_SCAN_NEW,FLOAT_GATHER_NEW)
+           FLOAT_SCAN_NEW,FLOAT_GATHER_NEW,BIN_MISMATCH_NEW)
     if all(x in src for x in parts):
         return src,False
     if any(x in src for x in parts) or "HULK/PM4-REGISTER-SNAPSHOT" in src:
@@ -119,7 +135,8 @@ def change(src: str) -> tuple[str,bool]:
     pairs=((HEAD_OLD,HEAD_NEW),(DRAW_OLD,DRAW_NEW),(TAIL_OLD,TAIL_NEW),
            (DIAG_OLD,DIAG_NEW),
            (FLOAT_SCAN_OLD,FLOAT_SCAN_NEW),
-           (FLOAT_GATHER_OLD,FLOAT_GATHER_NEW))
+           (FLOAT_GATHER_OLD,FLOAT_GATHER_NEW),
+           (BIN_MISMATCH_OLD,BIN_MISMATCH_NEW))
     for old,new in pairs:
         if src.count(old)!=1:
             raise ValueError("NativeX register snapshot anchor drift: "+old[:60])
