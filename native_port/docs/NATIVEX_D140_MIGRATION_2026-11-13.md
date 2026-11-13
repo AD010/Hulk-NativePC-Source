@@ -88,6 +88,15 @@ the substring `loaded_at_ = {};` also appears inside Hulk's
 standalone C++ statement, and the regression checks both real variants.
 No shader bytes or GPU commands are changed by this correction.
 
+## Ninth source-only audit: D139 PM4 scanner structure
+
+#103 completed the D140-aware XDK pixel-program provenance and confirmed
+upstream D139 memoization is not duplicated. It stopped at the read-only
+first-failure scanner's old sentinel `bool FetchSlotDirty(`, which upstream
+D139 replaced with `BitReverse/DirtySlots`. The candidate instrumentation
+now recognizes either exact reviewed top-level function sentinel and
+otherwise fails closed; a separate source-only regression covers D140.
+
 ## Mandatory acceptance gates before upgrading main
 - Complete sequence of production-ordered Hulk patches applies on latest upstream with every regression test passing.
 - NativeX C++ compiles on Windows x64 Release without turning off the source checks.
