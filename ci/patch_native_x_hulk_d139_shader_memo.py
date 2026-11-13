@@ -79,6 +79,22 @@ def patch(files: dict[str, str]) -> tuple[dict[str, str], bool]:
     if set(files) != {"src/state.h", "src/state.cpp"}:
         raise ValueError("Expected only NativeX src/state.h and src/state.cpp")
     header, cpp = files["src/state.h"], files["src/state.cpp"]
+    # NativeX D139 is already implemented in the new D140 pin.
+    # Do NOT install a second copy of the same 256-slot address memo.
+    # Require upstream's byte comparison, cache update and reset together.
+    upstream_markers = (
+        "struct LoadedAt {" in header,
+        "std::array<LoadedAt, 256> loaded_at_{};" in header,
+        "loaded_at_ = {};" in cpp,
+        "!std::memcmp(at->program->ucode.data(), ucode," in cpp,
+        "if (at) *at = {load.address, load.dwords, recent};" in cpp,
+    )
+    if all(upstream_markers):
+        if "HULK/PS-RECENT-LOAD" not in cpp or "HULK/XDK-OWNED-IM-LOAD" not in cpp:
+            raise ValueError("Upstream D139 memo lacks Hulk validated IM_LOAD protection")
+        return files, False
+    if any(upstream_markers):
+        raise ValueError("Incomplete upstream D139 address memo; refusing duplicate")
     installed = [HEADER_NEW in header, RESET_NEW in cpp, HASH_NEW in cpp,
                  HIT_NEW in cpp, TAIL_NEW in cpp]
     if all(installed):
