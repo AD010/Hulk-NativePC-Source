@@ -94,6 +94,38 @@ class HulkLogAuditTests(unittest.TestCase):
                          ["incomplete_xdk_draws"], 0)
         self.assertIn("sampled", " ".join(result["limitations"]))
 
+    def test_log198_false_last_good_and_program_mismatch(self):
+        sample = "\\n".join([
+            "[HULK/INCOMPLETE-XDK-DRAW] #1 range_ok=true bytes=984 "
+            "packet_draws=0 fail_site=138 fail_type=0 fail_opcode=0x0 "
+            "fail_depth=0 last_good_header=0x44800000 - discarded",
+            "[HULK/INCOMPLETE-XDK-DRAW] #2 range_ok=true bytes=984 "
+            "packet_draws=0 fail_site=138 fail_type=0 fail_opcode=0x0 "
+            "fail_depth=0 last_good_header=0x44340000 - discarded",
+            "[HULK/INCOMPLETE-XDK-DRAW] #3 range_ok=true bytes=984 "
+            "packet_draws=0 fail_site=138 fail_type=0 fail_opcode=0x0 "
+            "fail_depth=0 last_good_header=0xb1800001 - discarded",
+            "[HULK/INCOMPLETE-XDK-DRAW] #4 range_ok=true bytes=984 "
+            "packet_draws=0 fail_site=138 fail_type=0 fail_opcode=0x0 "
+            "fail_depth=0 last_good_header=0xc0025800 - discarded",
+            "[native_x_renderer] verify: frames 2324..2324: CPU draw calls 1569: "
+            "DrawIndexedVertices=1546 DrawVertices=23",
+            "[native_x_renderer] verify: GPU draw packets of the verified frames "
+            "1620: 1569 matched to a D3D draw call; 1518 of 1569 draw calls "
+            "have no mismatches in compared state (not full shader validation)",
+            "[native_x_renderer] verify: pixel program mismatches "
+            "(tracker's microcode vs the command processor's): "
+            "50 draws, 0 with an inline program",
+        ])
+        report = analyze(sample)
+        self.assertEqual(report["pm4_impossible_last_good_header_samples"],
+                         {"type1_reserved_bits": 2, "type2_reserved_bits": 1})
+        self.assertEqual(report["gpu_verification_samples"], [{
+            "first_frame": 2324, "last_frame": 2324,
+            "cpu_draw_calls": 1569, "matched_state": 1518,
+            "matched_total": 1569, "pixel_program_mismatches": 50,
+        }])
+
     def test_later_frame_controls_values_and_empty_log(self):
         log = "\n".join([
             "[native_x_renderer] renderer: frame 100: 2 draw calls, 1 drawn, 0 without targets, 1 failed",
