@@ -50,6 +50,29 @@ INCOMPLETE_FAIL = re.compile(
     r"\bfail_opcode=(0x[0-9a-fA-F]+)\b.*?\bfail_depth=(\d+)"
 )
 
+# #198: "last good" headers can themselves be impossible Type1/Type2
+# values (for example 0x44800000 = IEEE754 1024.0), so the old scanner
+# silently consumed data as two GPU register writes. Do not treat a
+# successfully advanced pointer as proof of a real PM4 packet.
+LAST_GOOD_HEADER = re.compile(r"\\blast_good_header=(0x[0-9a-fA-F]+)")
+VERIFY_FRAME = re.compile(r"verify: frames (\\d+)\\.\\.(\\d+): CPU draw calls (\\d+)")
+VERIFY_MATCH = re.compile(
+    r"(\\d+) of (\\d+) draw calls have no mismatches in compared state"
+)
+VERIFY_PS = re.compile(
+    r"verify: pixel program mismatches .*?: (\\d+) draws"
+)
+
+
+def reserved_pm4_header(word: int) -> str | None:
+    kind = word >> 30
+    if kind == 1 and word & 0x3FC00000:
+        return "type1_reserved_bits"
+    if kind == 2 and word != 0x80000000:
+        return "type2_reserved_bits"
+    return None
+
+
 FRAME_STATS = re.compile(r"\[native_x_renderer\] renderer: frame (\d+):\s*(.*)")
 DRAWS = re.compile(r"(\d+) draw calls, (\d+) drawn, (\d+) without targets, (\d+) failed")
 FPS = re.compile(r"frame interval\s+([\d.]+) ms average,\s+([\d.]+) ms max")
@@ -69,6 +92,8 @@ def analyze(text: str) -> dict:
     writers: Counter[str] = Counter()
     xdk_draw_samples: Counter[str] = Counter()
     xdk_failure_sites: Counter[str] = Counter()
+    malformed_previous_headers: Counter[str] = Counter()
+    verifier_samples: list[dict[str, object]] = []
     cumulative: dict[str, int] = {name: 0 for name in CUMULATIVE}
     latest_frame: dict[str, object] = {}
     frames_seen: set[int] = set()
@@ -91,6 +116,11 @@ def analyze(text: str) -> dict:
                     xdk_draw_samples["zero_packet_draws"] += 1
             else:
                 xdk_draw_samples["missing_range_metadata"] += 1
+            previous_header = LAST_GOOD_HEADER.search(line)
+            if previous_header:
+                cause = reserved_pm4_header(int(previous_header[1], 16))
+                if cause:
+                    malformed_previous_headers[cause] += 1
             failure = INCOMPLETE_FAIL.search(line)
             if failure:
                 key = (f"site={int(failure[1])}/type={int(failure[2])}/"
@@ -108,6 +138,24 @@ def analyze(text: str) -> dict:
             match = pattern.search(line)
             if match:
                 cumulative[name] = max(cumulative[name], int(match[1]))
+        frame_verify = VERIFY_FRAME.search(line)
+        if frame_verify:
+            verifier_samples.append({
+                "first_frame": int(frame_verify[1]),
+                "last_frame": int(frame_verify[2]),
+                "cpu_draw_calls": int(frame_verify[3]),
+                "matched_state": None,
+                "matched_total": None,
+                "pixel_program_mismatches": None,
+            })
+        if verifier_samples:
+            verified = VERIFY_MATCH.search(line)
+            if verified:
+                verifier_samples[-1]["matched_state"] = int(verified[1])
+                verifier_samples[-1]["matched_total"] = int(verified[2])
+            program = VERIFY_PS.search(line)
+            if program:
+                verifier_samples[-1]["pixel_program_mismatches"] = int(program[1])
         match = FRAME_STATS.search(line)
         if not match:
             continue
@@ -136,6 +184,9 @@ def analyze(text: str) -> dict:
         "fetch_writer_samples": dict(sorted(writers.items())),
         "incomplete_xdk_draw_samples": dict(sorted(xdk_draw_samples.items())),
         "pm4_first_failure_sample_sites": dict(sorted(xdk_failure_sites.items())),
+        "pm4_impossible_last_good_header_samples": dict(
+            sorted(malformed_previous_headers.items())),
+        "gpu_verification_samples": verifier_samples,
         "cumulative_reported_totals": cumulative,
         "last_renderer_frame": latest_frame,
         "renderer_stat_frames_observed": sorted(frames_seen),
@@ -161,6 +212,8 @@ def analyze(text: str) -> dict:
             "New PM4 classifications are last observed throttled #N counters, not complete counts if samples are missing.",
             "No-writable attachment is not necessarily a failed scene geometry draw (queries/pipe helpers may issue PM4 draws).",
             "Same-frame scene, game area, camera and settings are needed to infer improvement between logs.",
+            "GPU verifier compares selected state only; a 100% match does not prove shader semantics or absence of flicker.",
+            "Malformed last-good header counts are sampled warning evidence, not complete rejected-packet totals.",
             "CI build success and log improvements cannot establish pixel-perfect GPU output.",
         ],
     }
