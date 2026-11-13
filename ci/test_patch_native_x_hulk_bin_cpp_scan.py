@@ -37,10 +37,10 @@ struct PacketScan {
   }
 };
 uint32_t Load32(const uint8_t* b,uint32_t addr){
-  uint32_t v;std::memcpy(&v,b+addr,4);return v;
+  uint32_t v;std::memcpy(&v,b+(addr & 0x1FFFFFFFu),4);return v;
 }
-uint32_t PhysicalToVirtual(uint32_t p){return p;}
-const uint8_t* GuestPointer(const uint8_t* b,uint32_t p){return b+p;}
+uint32_t PhysicalToVirtual(uint32_t p){return 0xA0000000u | (p & 0x1FFFFFFFu);}
+const uint8_t* GuestPointer(const uint8_t* b,uint32_t p){return b+(p & 0x1FFFFFFFu);}
 uint32_t ConstantBase(uint32_t t){
   switch(t){case 0:return 0x4000;case 1:return 0x4800;
   case 2:return 0x4900;case 3:return 0x4908;
@@ -51,7 +51,7 @@ void ScanDraw(const uint8_t*,uint32_t,uint32_t,uint32_t,PacketScan& out){++out.d
 """
 MAIN = r"""
 int main(){
-  std::vector<uint32_t> m(512,0);
+  std::vector<uint32_t> m(4096,0);
   auto emit=[&](int& off,uint32_t op,std::initializer_list<uint32_t> payload,bool pred=false){
     m[off++]=0xC0000000u | ((uint32_t(payload.size())-1)<<16) | (op<<8) | uint32_t(pred);
     for(auto x:payload)m[off++]=x;
@@ -251,6 +251,24 @@ int main(){
   PacketScan bad_range;
   ScanPackets(reinterpret_cast<uint8_t*>(m.data()),bad_range_begin*4,off*4,bad_range,0,false,false);
   assert(!bad_range.complete && bad_range.loads.empty());
+  // XDK external IM_LOAD: the caller's ScanPackets(copy_microcode=true)
+  // owns the actual bytes while they are still current, before Gather.
+  // The pinned NativeX address is a 0xA0000000 virtual alias of physical.
+  m[0x1400/4]=0x10203040u;
+  m[0x1400/4+1]=0x50607080u;
+  m[0x1400/4+2]=0x90A0B0C0u;
+  const int external_shader_begin=off;
+  emit(off,0x27,{0x1401u,3u});
+  PacketScan external_shader;
+  ScanPackets(reinterpret_cast<uint8_t*>(m.data()),external_shader_begin*4,
+              off*4,external_shader,0,false,true);
+  assert(external_shader.complete && external_shader.shader_loads.size()==1);
+  assert(external_shader.shader_loads[0].type==1u);
+  assert(external_shader.shader_loads[0].ucode_offset==0u);
+  assert(external_shader.shader_ucode.size()==3u);
+  assert(external_shader.shader_ucode[0]==0x10203040u);
+  m[0x1400/4]=0xDEADBEEFu;  // guest recycled shader allocation
+  assert(external_shader.shader_ucode[0]==0x10203040u); // immutable copy
   // A valid IM_LOAD_IMMEDIATE must retain its own immutable microcode
   // even if the guest's command ring is overwritten after scanning.
   const int shader_begin=off;
