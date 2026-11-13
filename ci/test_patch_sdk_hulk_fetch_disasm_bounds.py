@@ -12,7 +12,7 @@ def fixture():
     return (
         "// DataFormat=unlisted(0xDEAD)\n"
         + OLD + "\n"
-        + "\n".join(f'  out->AppendFormat("{}", {old});'
+        + "\n".join(f'  out->AppendFormat("{{}}", {old});'
                     for old in REPLACEMENTS) + "\n"
     )
 
