@@ -306,12 +306,20 @@ def run(sha=SHA):
                 "steady && !hulk_wait_scene" not in renderer:
             missing.append("Hulk bounded main-scene pipeline/shader wait")
         header_state=(source/"src/state.h").read_text(encoding="utf-8")
-        if ("HulkLoadedAt" not in header_state or
-            "hulk_loaded_at_" not in header_state):
-            missing.append("D139 owned shader memo address/size/cache storage")
-        if ("hulk_loaded_at_ = {};" not in state or
-            "if (hulk_at) *hulk_at = {load.address, load.dwords, recent};" not in state):
-            missing.append("D139 owned shader memo reset/cache update")
+        if sha == D140_SHA:
+            if ("struct LoadedAt {" not in header_state or
+                "std::array<LoadedAt, 256> loaded_at_{};" not in header_state or
+                "loaded_at_ = {};" not in state or
+                "!std::memcmp(at->program->ucode.data(), ucode," not in state or
+                "if (at) *at = {load.address, load.dwords, recent};" not in state):
+                missing.append("NativeX D139 upstream byte-verified shader memo incomplete")
+        else:
+            if ("HulkLoadedAt" not in header_state or
+                "hulk_loaded_at_" not in header_state):
+                missing.append("D139 owned shader memo address/size/cache storage")
+            if ("hulk_loaded_at_ = {};" not in state or
+                "if (hulk_at) *hulk_at = {load.address, load.dwords, recent};" not in state):
+                missing.append("D139 owned shader memo reset/cache update")
         header_draw=(source/"src/draw.h").read_text(encoding="utf-8")
         if ((HULK_SCENE_WAIT_CPP not in draw and HULK_SCENE_WAIT_D140_CPP not in draw) or
             "hulk_scene_wait_frame_" not in header_draw or
@@ -337,8 +345,7 @@ def run(sha=SHA):
             ("HULK/PM4-DEPTH-REBASE-4X", renderer),
             ("HULK/PS-PROGRAM-ORIGIN", renderer),
             ("HULK/PS-RECENT-LOAD", state),
-            ("HULK/D139-OWNED-SHADER-MEMO", state),
-            ("!std::memcmp(hulk_at->program->ucode.data(), ucode,", state),
+
             ("HULK/PM4-FIRST-FAILURE", state),
             ("HULK/DEPTH-STENCIL-GRID-PARITY", renderer),
             ("last_load_packet=", renderer),
