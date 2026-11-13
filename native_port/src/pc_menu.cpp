@@ -71,7 +71,12 @@ class PcMenu final : public rex::ui::ImGuiDialog {
       ImGui::Text("Pause / Start: %s", Bind("hulk_bind_start").c_str());
       ImGui::Text("Walk: %s", Bind("hulk_bind_walk").c_str());
       ImGui::Separator();
-      ImGui::Text("Guest FPS limiter: %d", rex::cvar::Query<int32_t>("gpu_guest_fps_limit"));
+      const int32_t guest_fps_limit = rex::cvar::Query<int32_t>("gpu_guest_fps_limit");
+      if (guest_fps_limit == 0) {
+        ImGui::TextUnformatted("Guest FPS limit: Unlimited (game may still run 30)");
+      } else {
+        ImGui::Text("Guest FPS limit: %d", guest_fps_limit);
+      }
       if (ImGui::Button("30 FPS (console physics)")) {
         (void)rex::cvar::SetFlagByName("gpu_guest_fps_limit", "30");
       }
