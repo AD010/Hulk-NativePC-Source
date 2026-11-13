@@ -121,6 +121,59 @@ int main() {
             subprocess.run([str(exe)], check=True, capture_output=True,
                            text=True)
 
+    @unittest.skipUnless(shutil.which("clang++") or shutil.which("g++"),
+                         "C++ compiler unavailable")
+    def test_compiled_exact_guest_read_guards(self):
+        # Compile the production C++ address guards, not a Python model.
+        # Cover both lower/upper edges, zero lengths, and overflow-prone
+        # payload sizes. No game binaries or guest memory are read.
+        from patch_native_x_hulk_guest_memory_bounds import LOAD_NEW, SHADER_NEW
+        import re
+        load = re.search(r"if \(uint64_t\(address\) < 0xA0000000ull.*?\n              }", LOAD_NEW, re.S)
+        shader = re.search(r"if \(!dwords \|\| uint64_t\(address\) < 0xA0000000ull.*?\n              }", SHADER_NEW, re.S)
+        self.assertIsNotNone(load)
+        self.assertIsNotNone(shader)
+        cpp = """
+#include <cassert>
+#include <cstdint>
+struct Scan { bool complete = true; };
+void Load(uint32_t address, uint32_t size, Scan& out) {
+""" + load.group(0) + """
+}
+void Shader(uint32_t address, uint32_t dwords, Scan& out) {
+""" + shader.group(0) + """
+}
+int main() {
+  constexpr uint32_t addresses[] = {
+    0u, 0x9FFFFFFCu, 0xA0000000u, 0xA0000004u,
+    0xBFFFF000u, 0xBFFFFFF8u, 0xBFFFFFFCu, 0xC0000000u,
+    0xFFFFFFFCu
+  };
+  constexpr uint32_t lengths[] = {0u, 1u, 2u, 1024u, 65535u, 0xFFFFFFFFu};
+  for (uint32_t address : addresses)
+    for (uint32_t size : lengths) {
+      const bool in_range = uint64_t(address) >= 0xA0000000ull &&
+          uint64_t(address) + uint64_t(size) * 4ull <= 0xC0000000ull;
+      Scan load_result, shader_result;
+      Load(address, size, load_result);
+      Shader(address, size, shader_result);
+      assert(load_result.complete == in_range);
+      assert(shader_result.complete == (in_range && size != 0));
+    }
+}
+"""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "guest_read_guards.cpp"
+            exe = root / "guest_read_guards"
+            source.write_text(cpp, encoding="utf-8")
+            compiler = shutil.which("clang++") or shutil.which("g++")
+            subprocess.run([compiler, "-std=c++20", "-Wall", "-Wextra",
+                            "-Werror", str(source), "-o", str(exe)],
+                           check=True, capture_output=True, text=True)
+            subprocess.run([str(exe)], check=True, capture_output=True,
+                           text=True)
+
     def test_guest_memory_edges(self):
         for address,words in ((0xA0000000,1),(0xBFFFFFFC,1),(0xBFFFFF94,27)):
             self.assertTrue(safe(address, words))
