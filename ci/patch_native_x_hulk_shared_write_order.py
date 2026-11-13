@@ -93,6 +93,34 @@ DEPTH_DECL_NEW = """  HostTarget* found = nullptr;
   Key from{SurfaceTuple{false, s.edram_base(), s.pitch(), 0, k8888, 0, 0}, Kind::kRender};"""
 
 
+# The Hulk reverse-Resolve bridge must not reinterpret a Vulkan image as
+# another source when both guest views already share that EXACT image.
+# Compare physical-write epochs only across truly distinct native textures.
+# Otherwise 1x/4x coordinate conversion can be applied to the same pixels.
+REVERSE_OLD = """    if (alias && alias->written > (source ? source->written : 0)) {"""
+REVERSE_NEW = """    // HULK/REVERSE-ALIAS-PHYSICAL: shared 1x/4x storage means there is
+    // no copy between native textures. Do not reinterpret its coordinates
+    // or use stale guest-view write stamps to select a Resolve source.
+    const uint64_t hulk_alias_write = alias
+        ? g_targets.HulkSharedLatestWrite(*alias) : 0u;
+    const uint64_t hulk_source_write = source
+        ? g_targets.HulkSharedLatestWrite(*source) : 0u;
+    if (alias && (!source || alias->texture.RawPtr() != source->texture.RawPtr()) &&
+        hulk_alias_write > hulk_source_write) {"""
+
+
+def patch_renderer(source: str) -> tuple[str, bool]:
+    if source.count(REVERSE_NEW) == 1:
+        if source.count(REVERSE_OLD):
+            raise ValueError("Partial Hulk physical reverse-alias condition")
+        return source, False
+    if source.count(REVERSE_OLD) != 1 or "HULK/REVERSE-ALIAS" not in source:
+        raise ValueError("Expected the existing pinned Hulk reverse-alias source")
+    if "HULK/REVERSE-ALIAS-PHYSICAL" in source:
+        raise ValueError("Partial reverse alias stabilization")
+    return source.replace(REVERSE_OLD, REVERSE_NEW, 1), True
+
+
 def replace_once(s: str, old: str, new: str) -> str:
     count = s.count(old)
     if count != 1:
@@ -126,12 +154,17 @@ def main() -> None:
     if PIN not in SUPPORTED or actual != PIN:
         raise ValueError("Unsupported pinned NativeX revision "+actual)
     header, cpp = root / "src/targets.h", root / "src/targets.cpp"
+    renderer = root / "src/renderer.cpp"
     h, c, changed = patch(header.read_text(encoding="utf-8"),
                           cpp.read_text(encoding="utf-8"))
+    render, alias_changed = patch_renderer(renderer.read_text(encoding="utf-8"))
+    if changed != alias_changed:
+        raise ValueError("Mixed Hulk physical-image write/resolve stabilization")
     if changed:
         header.write_text(h, encoding="utf-8", newline="\n")
         cpp.write_text(c, encoding="utf-8", newline="\n")
-    print("Hulk physical Vulkan RT/depth resolve write epochs:",
+        renderer.write_text(render, encoding="utf-8", newline="\n")
+    print("Hulk physical Vulkan RT/depth/alias resolve write epochs:",
           "patched" if changed else "already patched")
 
 
