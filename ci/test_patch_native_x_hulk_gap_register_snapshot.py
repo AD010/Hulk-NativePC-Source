@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """Synthetic PM4 first-pass SET/LOAD ownership tests."""
 import unittest
+import shutil
+import subprocess
+import tempfile
+from pathlib import Path
 from patch_native_x_hulk_gap_register_snapshot import (
     change,HEAD_OLD,HEAD_NEW,DRAW_OLD,DRAW_NEW,
     TAIL_OLD,TAIL_NEW,DIAG_OLD,DIAG_NEW,
@@ -61,6 +65,53 @@ class Pm4RegisterLifetimeTests(unittest.TestCase):
         self.assertEqual(resolved, packet)
         with self.assertRaises(ValueError):
             change(source.replace(FLOAT_SCAN_OLD, "unreviewed scanner"))
+
+    @unittest.skipUnless(shutil.which("clang++") or shutil.which("g++"),
+                         "Standalone C++ compiler unavailable")
+    def test_real_float_packet_precedence_cpp(self):
+        # Compile the exact production C++ branch, not a Python-only model.
+        fragment=FLOAT_GATHER_NEW
+        code=r"""
+#include <cassert>
+#include <cstdint>
+#include <array>
+constexpr uint32_t kFloatConstants=0x4000;
+constexpr uint32_t kPixelConstantsDword=1024;
+struct Device {uint32_t vs_float_constants=0,ps_float_constants=4096;};
+int main(){
+ Device d;
+ std::array<uint32_t,2048> data{};
+ data[84]=0xBF7F67F5u;           // XDK VS c21.x device shadow
+ data[(4096+84)/4]=0xBF7F67F5u;  // PS c21.x device shadow
+ auto shadow=[&](uint32_t b){return data.at(b/4);};
+ uint32_t emitted=0;
+ uint32_t effective=0;
+ auto SendValue=[&](uint32_t, uint32_t v){++emitted;effective=v;};
+ const auto run=[&](uint32_t input_reg,uint32_t input_value,
+                    bool input_draw,bool input_loaded) {
+   uint32_t reg=input_reg,value=input_value;
+   bool draw=input_draw,loaded=input_loaded;
+""" + fragment + r"""
+ };
+ run(kFloatConstants+84,0xBF7FCBBAu,true,false);
+ assert(emitted==1 && effective==0xBF7FCBBAu);
+ run(kFloatConstants+84,0xBF7F67F5u,true,false);
+ assert(emitted==1);
+ run(kFloatConstants+kPixelConstantsDword+84,0xBF7FCBBAu,true,false);
+ assert(emitted==2 && effective==0xBF7FCBBAu);
+ run(kFloatConstants+84,0xBF7F67F5u,true,true);
+ assert(emitted==3 && effective==0xBF7F67F5u);
+}
+"""
+        with tempfile.TemporaryDirectory(prefix="hulk_float_pm4_") as tmp:
+            cpp=Path(tmp)/"float_packet.cpp"
+            exe=Path(tmp)/"float_packet"
+            cpp.write_text(code,encoding="utf8")
+            compiler=shutil.which("clang++") or shutil.which("g++")
+            subprocess.run([compiler,"-std=c++20","-Wall","-Wextra","-Werror",
+                            str(cpp),"-o",str(exe)],
+                           check=True,capture_output=True,text=True)
+            subprocess.run([str(exe)],check=True,capture_output=True,text=True)
 
     def test_do_not_invent_texture_or_index_values(self):
         self.assertNotIn("skip_fetch",HEAD_NEW)
