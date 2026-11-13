@@ -19,7 +19,7 @@ REXCVAR_DEFINE_BOOL(hulk_frame_probe, false, "Hulk/Diagnostics",
 // HULK/GUEST-FPS-CAP: real runtime variable, not a decorative menu entry.
 // It limits the maximum frequency of guest submissions. It cannot make
 // a 30Hz game submit 60Hz frames or fix game-specific rigid-body updates.
-REXCVAR_DEFINE_INT32(gpu_guest_fps_limit, 30, "Hulk/Performance",
+REXCVAR_DEFINE_INT32(gpu_guest_fps_limit, 0, "Hulk/Performance",
                      "Maximum XDK VdSwap submits per second; 0 = no cap");
 
 '''
