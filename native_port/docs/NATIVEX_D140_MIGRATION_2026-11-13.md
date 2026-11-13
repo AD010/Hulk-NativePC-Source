@@ -62,6 +62,14 @@ three branches that actually call ShowPendingFrame: before the pacing
 statistics, not before each queue poll. The original D135 path remains
 unchanged and both paths have regression tests.
 
+## Sixth automated audit: source preflight dual-version regression
+
+#100 passed D140's pending swap code path and advanced to the Hulk
+frame-shared scene wait test. Its legacy assertion expected a single
+D135-style Python import, while the candidate preflight now imports both
+D135 and D140 exact wait snippets. Updated the test to verify both
+variants, without removing either C++ source marker or timeout assertion.
+
 ## Mandatory acceptance gates before upgrading main
 - Complete sequence of production-ordered Hulk patches applies on latest upstream with every regression test passing.
 - NativeX C++ compiles on Windows x64 Release without turning off the source checks.
