@@ -109,6 +109,28 @@ int main(){
   ScanPackets(reinterpret_cast<uint8_t*>(m.data()),nested_begin*4,(nested_begin+3)*4,
               cyclic,0,false,false);
   assert(!cyclic.complete && cyclic.indirect==9 && cyclic.draws==0);
+  // #198: false Type0 counts or Type3 reserved bits must not
+  // overwrite GPU registers even when their byte length fits a stream.
+  const int bad_type0_begin=off;
+  m[off++]=0x00004FFFu | (3u << 16);
+  m[off++]=1u; m[off++]=2u; m[off++]=3u; m[off++]=4u;
+  PacketScan bad_type0;
+  ScanPackets(reinterpret_cast<uint8_t*>(m.data()),
+              bad_type0_begin*4,off*4,bad_type0,0,false,false);
+  assert(!bad_type0.complete && bad_type0.writes.empty());
+  const int good_type0_begin=off;
+  m[off++]=0x00004FFEu | (1u << 16);
+  m[off++]=0x1122u; m[off++]=0x3344u;
+  PacketScan good_type0;
+  ScanPackets(reinterpret_cast<uint8_t*>(m.data()),
+              good_type0_begin*4,off*4,good_type0,0,false,false);
+  assert(good_type0.complete && good_type0.writes.size()==2);
+  const int bad_type3_begin=off;
+  m[off++]=0xC0012D04u; m[off++]=0u; m[off++]=42u;
+  PacketScan bad_type3;
+  ScanPackets(reinterpret_cast<uint8_t*>(m.data()),
+              bad_type3_begin*4,off*4,bad_type3,0,false,false);
+  assert(!bad_type3.complete && bad_type3.writes.empty());
   // #198 actual false Type1 header previously consumed 8 float bytes
   // as GPU registers, corrupting later fetch/shader state.
   const int invalid_type1_begin=off;
