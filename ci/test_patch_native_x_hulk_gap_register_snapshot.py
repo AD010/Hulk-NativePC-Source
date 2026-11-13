@@ -94,6 +94,59 @@ class Pm4RegisterLifetimeTests(unittest.TestCase):
         self.assertFalse(match(1,3,2,1,0))
         self.assertFalse(match(2,5,0,2,0))
 
+    @unittest.skipUnless(shutil.which("clang++") or shutil.which("g++"),
+                         "Standalone C++ compiler unavailable")
+    def test_exact_cpp_per_draw_boundary_guard(self):
+        # Compile the production C++ branch, rather than just duplicating
+        # its intent in a Python model. A missing IM_LOAD or one missing
+        # register must fail BEFORE the draw is published.
+        guard = REPLAY_BOUNDARY_NEW.split(
+            "            if (!hulk_restore_shader_words()", 1)[0]
+        self.assertIn("hulk_register_cursor + scan_.register_order.size()", guard)
+        self.assertIn("hulk_prescan_cursor + scan_.shader_loads.size()", guard)
+        code = r"""
+#include <vector>
+#include <utility>
+#include <cassert>
+#include <cstddef>
+#include <cstdint>
+struct Packet {std::vector<unsigned> register_order, shader_loads;};
+int main() {
+  const auto attempt = [&](size_t emitted, size_t reg_cursor, size_t regs,
+                           size_t shader_cursor, size_t shaders) {
+    Packet scan_;
+    scan_.register_order.resize(regs);
+    scan_.shader_loads.resize(shaders);
+    const std::vector<std::pair<size_t,size_t>> hulk_prescan_draw_ends{
+        {3,1},{5,2}};
+    size_t hulk_register_cursor=reg_cursor;
+    size_t hulk_prescan_cursor=shader_cursor;
+    bool hulk_shader_replay_ok=true, accepted=false;
+    const auto on_draw = [&]() {
+""" + guard + r"""
+      accepted=true;
+    };
+    on_draw();
+    return std::pair<bool,bool>{accepted, hulk_shader_replay_ok};
+  };
+  assert((attempt(0,0,3,0,1)==std::pair<bool,bool>{true,true}));
+  assert((attempt(0,0,2,0,1)==std::pair<bool,bool>{false,false}));
+  assert((attempt(0,0,3,0,0)==std::pair<bool,bool>{false,false}));
+  assert((attempt(1,3,2,1,1)==std::pair<bool,bool>{true,true}));
+  assert((attempt(1,3,2,1,0)==std::pair<bool,bool>{false,false}));
+  assert((attempt(2,5,0,2,0)==std::pair<bool,bool>{false,false}));
+}
+"""
+        with tempfile.TemporaryDirectory(prefix="hulk_draw_boundary_") as d:
+            src=Path(d)/"boundary.cpp"
+            exe=Path(d)/"boundary"
+            src.write_text(code,encoding="utf-8")
+            cxx=shutil.which("clang++") or shutil.which("g++")
+            subprocess.run([cxx,"-std=c++20","-Wall","-Wextra",
+                            "-Werror",str(src),"-o",str(exe)],
+                           check=True,capture_output=True,text=True)
+            subprocess.run([str(exe)],check=True,capture_output=True,text=True)
+
     def test_first_scan_owns_values_and_order(self):
         original=[(0,0x4806,0xDEADBEEF),(1,0x4807,0xAABBCCDD),
                   (0,0x2C10,0x00010004)]
