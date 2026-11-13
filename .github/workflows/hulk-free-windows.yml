@@ -1,19 +1,221 @@
-name: Hulk NativePC - D140 Source-only Compatibility Audit
+name: Hulk NativePC - D140 Isolated Windows Candidate Build
 on:
   push:
     branches: [ci/native-x-d140-migration]
     paths:
       - native_port/docs/NATIVEX_D140_MIGRATION_2026-11-13.md
+  workflow_dispatch:
 permissions:
-  contents: read
+  contents: write
+concurrency:
+  group: hulk-native-d140-candidate
+  # D140 candidate concurrency is isolated from the stable manual-only main Release.
+  cancel-in-progress: true
 jobs:
-  source-only-audit:
+  build:
     if: github.repository == 'AD010/Hulk-NativePC-Source' && github.ref == 'refs/heads/ci/native-x-d140-migration'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    runs-on: windows-2022
+    timeout-minutes: 330
+    env:
+      HULK_PINNED_XEX_SHA256: '346A73690303F6633BFDAF9850E78793FE07CDBFB8F849B89FBEE320630B11F0'
     steps:
-      - uses: actions/checkout@v4
-      - name: Verify source-only repository
-        run: python ci/check_public_source.py
-      - name: Audit D140 against full Hulk native patch chain, no proprietary inputs
-        run: python ci/test_native_x_patch_chain.py --d140
+      - name: Checkout public source only
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Inspect public source for accidentally committed Xbox binaries
+        shell: pwsh
+        run: |
+          python ci/check_public_source.py
+          if ($LASTEXITCODE -ne 0) { throw 'PUBLIC SOURCE AUDIT FAILED: prohibited assets in Git' }
+      - name: Diagnose previous private NativeX failure (redacted classification only)
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.HULK_PRIVATE_REPO_TOKEN }}
+        run: |
+          $ErrorActionPreference = 'Continue'
+          if (-not $env:GH_TOKEN) { Write-Host '[HULK/LAST-FAIL] Unavailable'; exit 0 }
+          $dir = Join-Path $env:RUNNER_TEMP 'hulk-previous-failure'
+          New-Item -ItemType Directory -Path $dir -Force | Out-Null
+          gh release download hulk-ci-input-on-publish --repo AD010/hulk-cloud --pattern 'Hulk-PrivateRunner-Diagnostics.zip' --dir $dir --clobber *> $null
+          if ($LASTEXITCODE -ne 0) { Write-Host '[HULK/LAST-FAIL] No private diagnosis'; exit 0 }
+          try {
+            Expand-Archive -LiteralPath (Join-Path $dir 'Hulk-PrivateRunner-Diagnostics.zip') -DestinationPath (Join-Path $dir 'read') -Force -ErrorAction Stop
+            $file = Get-ChildItem (Join-Path $dir 'read') -Recurse -File | Where-Object { $_.Name -eq 'hulk-compiler-private.log' } | Select-Object -First 1
+            if (-not $file) { Write-Host '[HULK/LAST-FAIL] No compiler file'; exit 0 }
+            # Print only compiler error categories/codes and public source basenames.
+            # Never expose private PPC generated code or raw compiler messages.
+            python ci/test_report_hulk_compiler_failure.py
+            if ($LASTEXITCODE -ne 0) { throw 'Redacted diagnostic reporter tests failed' }
+            python ci/report_hulk_compiler_failure.py $file.FullName
+            $lines = @(Get-Content -LiteralPath $file.FullName -Tail 550 -ErrorAction Stop)
+            $class = 'other'; $script = 'unknown'
+            foreach ($line in $lines) {
+              if ($line -match 'ci[\\/](test_patch_native_x_hulk_[a-z_]+\.py|patch_native_x_hulk_[a-z_]+\.py)') { $script = $Matches[1] }
+              if ($line -match '(AssertionError|unittest\.runner|FAILED \(failures)') { $class = 'source-test' }
+              if ($line -match '(Traceback|ValueError|anchor mismatch|source drift|Partial Hulk)') { $class = 'python-anchor-or-transform' }
+              if ($line -match '(error C[0-9]{4}|fatal error C[0-9]{4}|error:.*(member|identifier|undeclared|conversion))') { $class = 'cpp-compilation' }
+              if ($line -match '(LINK : fatal error|LNK[0-9]{4})') { $class = 'linker' }
+            }
+            Write-Host "[HULK/LAST-FAIL] Class=$class LastPatchScript=$script"
+          } catch { Write-Host '[HULK/LAST-FAIL] Unable to classify (private bytes withheld)' }
+      - name: Enable Windows long paths
+        shell: pwsh
+        run: |
+          git config --global core.longpaths true
+      - name: Configure MSVC and clang-cl
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: amd64
+      - name: Preflight complete pinned NativeX patch chain before private build
+        shell: pwsh
+        run: |
+          python ci/test_native_x_patch_chain.py
+          if ($LASTEXITCODE -ne 0) { throw 'NativeX full patch chain preflight FAILED. No private game data used.' }
+      - name: Verify latest NativeX D140 full source patch integration before XEX
+        shell: pwsh
+        run: |
+          python ci/test_native_x_patch_chain.py --d140
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Pinned NativeX 919371b5 source patch integration FAILED; refusing private Windows build.'
+          }
+          Write-Host '[HULK/UPGRADE] 43 real source adaptation steps passed on production NativeX 919371b5.'
+      - name: Get original input ONLY from private Hulk release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.HULK_PRIVATE_REPO_TOKEN }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (-not $env:GH_TOKEN) { throw 'Set HULK_PRIVATE_REPO_TOKEN in this PUBLIC repository Actions secrets; token must access PRIVATE AD010/hulk-cloud (Contents read/write).' }
+          New-Item -ItemType Directory -Path native_port/game -Force | Out-Null
+          gh release download hulk-ci-input-on-publish --repo AD010/hulk-cloud --pattern default.xex --dir native_port/game --clobber
+          if ($LASTEXITCODE -ne 0) { throw 'Private XEX download failed. Check PAT permissions and release asset.' }
+          $actual = (Get-FileHash native_port/game/default.xex -Algorithm SHA256).Hash.ToUpperInvariant()
+          if ($actual -ne $env:HULK_PINNED_XEX_SHA256) { throw "Source XEX fingerprint does not match verified USA codegen: $actual" }
+          Write-Host 'Private source XEX fingerprint verified. No Xbox binaries will be uploaded to public artifacts.'
+      - name: Verify XDK metadata, and prepare validated PPC recovery
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python ci/test_audit_hulk_xex_xdk.py
+          if ($LASTEXITCODE -ne 0) { throw 'XEX metadata tests failed' }
+          python ci/audit_hulk_xex_xdk.py native_port/game/default.xex --expected-sha256 $env:HULK_PINNED_XEX_SHA256
+          if ($LASTEXITCODE -ne 0) { throw 'XEX 6534 verification failed' }
+          python ci/test_prepare_hulk_tu1_stage.py
+          if ($LASTEXITCODE -ne 0) { throw 'EU TU1 source-stage test failed' }
+          python ci/check_hulk_tu1_xex.py native_port/game/default.xex
+          if ($LASTEXITCODE -ne 0) { throw 'TU1 compatibility check failed' }
+          python ci/seed_hulk_ppc_tails.py native_port/missing_funcs.toml native_port/indirect_funcs.toml
+          if ($LASTEXITCODE -ne 0) { throw 'Guest PPC hook preflight failed' }
+          python ci/patch_codegen_retry.py native_port/BUILD_WINDOWS.ps1
+          if ($LASTEXITCODE -ne 0) { throw 'PPC codegen recovery patch failed' }
+      - name: Compile Vulkan NativeXRenderer Hulk under Windows (PRIVATE diagnostic logs)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $false
+          Write-Host 'Building Hulk on free Windows runner; compiler output kept off PUBLIC Actions logs.'
+          # Do not echo compiler / PPC codegen messages into a public job log.
+          $log = Join-Path $env:RUNNER_TEMP 'hulk-compiler-private.log'
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File native_port/BUILD_WINDOWS.ps1 -GameRoot "$env:GITHUB_WORKSPACE/native_port/game" -NativeXLink *> $log
+          $rc = $LASTEXITCODE
+          New-Item -ItemType Directory -Force -Path native_port/out | Out-Null
+          Copy-Item -LiteralPath $log -Destination native_port/out/hulk-compiler-private.log -Force
+          if ($rc -ne 0) { throw "Windows NativeX build failed (exit $rc). Full diagnostics are delivered to the PRIVATE release, not public logs." }
+          if (-not (Test-Path native_port/out/HULK_NATIVE_PC_TEST/incredible_hulk.exe)) { throw 'Compiled EXE absent; see private diagnostics.' }
+      - name: Publish engine render call graph privately (addresses only)
+        if: false # preserve previous stable callgraph while D140 candidate unverified
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.HULK_PRIVATE_REPO_TOKEN }}
+        run: |
+          # This source-only audit is not a shader/asset dump. Preserve just
+          # the highest-level call relationships for Ghidra/IDA cross-check.
+          $source = 'native_port/out/analysis/hulk_engine_render_callgraph.json'
+          if (-not (Test-Path -LiteralPath $source)) {
+            Write-Host '[HULK/CALLGRAPH] No report yet (codegen or XDK audit did not complete)'
+            exit 0
+          }
+          if (-not $env:GH_TOKEN) {
+            Write-Host '[HULK/CALLGRAPH] No private token; report stays on runner'
+            exit 0
+          }
+          $destination = Join-Path $env:RUNNER_TEMP 'Hulk-EngineRender-Callgraph.json'
+          Copy-Item -LiteralPath $source -Destination $destination -Force
+          gh release upload hulk-ci-input-on-publish $destination --repo AD010/hulk-cloud --clobber *> $null
+          if ($LASTEXITCODE -eq 0) {
+            Write-Host '[HULK/CALLGRAPH] Updated single PRIVATE source-only callgraph report'
+          } else {
+            Write-Host '[HULK/CALLGRAPH] Private report upload unavailable; game build unaffected'
+          }
+      - name: Verify source-free output ZIP
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Path artifacts -Force | Out-Null
+          Compress-Archive -Path native_port/out/HULK_NATIVE_PC_TEST/* -DestinationPath artifacts/Hulk-NativePC-Vulkan.zip -Force
+          python ci/verify_hulk_release.py artifacts/Hulk-NativePC-Vulkan.zip
+          if ($LASTEXITCODE -ne 0) { throw 'ZIP verification failed' }
+      - name: Deliver game ZIP to PRIVATE GitHub release, not public artifact
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.HULK_PRIVATE_REPO_TOKEN }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (-not $env:GH_TOKEN) { throw 'Missing private release token' }
+          # Preserve the previous, user-tested Xenos-fallback build: never
+          # replace Hulk-NativePC-Vulkan.zip with a new untested native GPU build.
+          $shortSha = $env:GITHUB_SHA.Substring(0, 12)
+          $versioned = "artifacts/Hulk-NativePC-Vulkan-PresentFix-$shortSha.zip"
+          Copy-Item -LiteralPath 'artifacts/Hulk-NativePC-Vulkan.zip' -Destination $versioned -Force
+          gh release upload hulk-ci-input-on-publish $versioned --repo AD010/hulk-cloud
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to upload versioned ZIP to PRIVATE release; requires Contents read/write.' }
+          $digest = (Get-FileHash -LiteralPath $versioned -Algorithm SHA256).Hash
+          Write-Host "Private release asset: Hulk-NativePC-Vulkan-PresentFix-$shortSha.zip"
+          Write-Host "ZIP SHA256: $digest"
+          Write-Host 'Previous private Hulk-NativePC-Vulkan.zip remains unchanged.'
+          Write-Host 'No public downloadable game artifact or guest PPC sources were uploaded.'
+      - name: Save failure diagnostics privately (never public artifacts)
+        if: failure()
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.HULK_PRIVATE_REPO_TOKEN }}
+        run: |
+          if (-not $env:GH_TOKEN) { Write-Host 'No token available to save private diagnostic'; exit 0 }
+          $files = @('native_port/out/hulk-compiler-private.log', 'native_port/HULK_BUILD_LOG.txt') | Where-Object { Test-Path $_ }
+          if ($files.Count -eq 0) { Write-Host 'No private compiler output captured'; exit 0 }
+          $zip = Join-Path $env:RUNNER_TEMP 'Hulk-PrivateRunner-Diagnostics.zip'
+          Compress-Archive -Path $files -DestinationPath $zip -Force
+          gh release upload hulk-ci-input-on-publish $zip --repo AD010/hulk-cloud --clobber
+          if ($LASTEXITCODE -ne 0) { Write-Host 'Could not upload diagnostics to private release' }
+          else { Write-Host 'Saved compiler diagnostics to private hulk-cloud release' }
+      # Intentionally NO actions/upload-artifact, NO actions/cache and NO public release.
+      # Generated PPC and proprietary input exist only in this ephemeral runner.
+      # Cleanup is only after verified private publication and is nonfatal.
+      - name: Prune merged Hulk temporary branches
+        if: false # do not delete branches during candidate migration
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $names = @('hulk-2026-11-08-city-lod-trace',
+                     'hulk-2026-11-08-f10-native-diagnostics',
+                     'hulk-2026-11-08-heap-guard',
+                     'hulk-2026-11-08-native-front-resolve',
+                     'hulk-2026-11-08-present-abi-fix',
+                     'hulk-2026-11-08-us-assets-fifo')
+          foreach ($name in $names) {
+            $j = gh api "repos/$env:GITHUB_REPOSITORY/compare/$name...main" 2>$null
+            if ($LASTEXITCODE -ne 0 -or -not $j) { Write-Host "Skipped $name"; continue }
+            try { $x = $j | ConvertFrom-Json }
+            catch { Write-Host "Invalid compare for $name"; continue }
+            if ([int]$x.behind_by -ne 0) { Write-Host "Unmerged $name preserved"; continue }
+            gh api -X DELETE "repos/$env:GITHUB_REPOSITORY/git/refs/heads/$name" 2>$null
+            if ($LASTEXITCODE -eq 0) { Write-Host "Removed merged $name" }
+            else { Write-Host "Could not remove $name (token or protection)" }
+          }
+          # Best-effort cleanup: a missing temporary branch makes gh exit 1.
+          # Explicitly return success after checking all branches. The build,
+          # ZIP verification and private release upload already succeeded.
+          exit 0
