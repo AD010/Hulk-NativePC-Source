@@ -9,7 +9,9 @@ from patch_native_x_hulk_gap_register_snapshot import (
     change,HEAD_OLD,HEAD_NEW,DRAW_OLD,DRAW_NEW,
     TAIL_OLD,TAIL_NEW,DIAG_OLD,DIAG_NEW,
     FLOAT_SCAN_OLD,FLOAT_SCAN_NEW,FLOAT_GATHER_OLD,FLOAT_GATHER_NEW,
-    BIN_MISMATCH_OLD,BIN_MISMATCH_NEW
+    BIN_MISMATCH_OLD,BIN_MISMATCH_NEW,
+    PRESCAN_BOUNDARY_OLD,PRESCAN_BOUNDARY_NEW,
+    REPLAY_BOUNDARY_OLD,REPLAY_BOUNDARY_NEW
 )
 
 def restore(first, second):
@@ -23,13 +25,14 @@ class Pm4RegisterLifetimeTests(unittest.TestCase):
     def test_atomic_patch_and_idempotence(self):
         src=("HULK/PM4-PRESCAN-SHADER-SNAPSHOT\n"+
              HEAD_OLD+DRAW_OLD+TAIL_OLD+DIAG_OLD+
-             FLOAT_SCAN_OLD+FLOAT_GATHER_OLD+BIN_MISMATCH_OLD)
+             FLOAT_SCAN_OLD+FLOAT_GATHER_OLD+BIN_MISMATCH_OLD+PRESCAN_BOUNDARY_OLD+REPLAY_BOUNDARY_OLD)
         fixed,did=change(src)
         self.assertTrue(did)
         self.assertEqual(change(fixed),(fixed,False))
         for fragment in (HEAD_NEW,DRAW_NEW,TAIL_NEW,DIAG_NEW,
                          FLOAT_SCAN_NEW,FLOAT_GATHER_NEW,
-                         BIN_MISMATCH_NEW):
+                         BIN_MISMATCH_NEW,PRESCAN_BOUNDARY_NEW,
+                         REPLAY_BOUNDARY_NEW):
             self.assertIn(fragment,fixed)
         self.assertIn("hulk_register_cursor == hulk_prescan_register_order.size()",fixed)
         self.assertIn("prior.first != now.first",fixed)
@@ -41,7 +44,8 @@ class Pm4RegisterLifetimeTests(unittest.TestCase):
         # after consuming some BIN_MASK / BIN_SELECT commands.
         source=("HULK/PM4-PRESCAN-SHADER-SNAPSHOT\\n" +
                 HEAD_OLD + DRAW_OLD + TAIL_OLD + DIAG_OLD +
-                FLOAT_SCAN_OLD + FLOAT_GATHER_OLD + BIN_MISMATCH_OLD)
+                FLOAT_SCAN_OLD + FLOAT_GATHER_OLD + BIN_MISMATCH_OLD +
+                PRESCAN_BOUNDARY_OLD + REPLAY_BOUNDARY_OLD)
         actual, changed = change(source)
         self.assertTrue(changed)
         self.assertIn("HULK/PM4-REPLAY-BIN-OWNER", actual)
@@ -63,6 +67,33 @@ class Pm4RegisterLifetimeTests(unittest.TestCase):
                 restored = verified_final
             self.assertEqual(restored, verified_final)
 
+    def test_per_draw_boundaries_reject_missing_shader_or_registers(self):
+        source=("HULK/PM4-PRESCAN-SHADER-SNAPSHOT\\n" +
+                HEAD_OLD + DRAW_OLD + TAIL_OLD + DIAG_OLD +
+                FLOAT_SCAN_OLD + FLOAT_GATHER_OLD + BIN_MISMATCH_OLD +
+                PRESCAN_BOUNDARY_OLD + REPLAY_BOUNDARY_OLD)
+        patched, changed = change(source)
+        self.assertTrue(changed)
+        self.assertEqual(change(patched), (patched, False))
+        self.assertIn("HULK/PM4-PER-DRAW-BOUNDARY", patched)
+        self.assertIn("hulk_prescan_draw_ends.emplace_back", patched)
+        self.assertIn("hulk_register_cursor + scan_.register_order.size()", patched)
+        self.assertIn("hulk_prescan_cursor + scan_.shader_loads.size()", patched)
+        self.assertIn("hulk_shader_replay_ok = false;", patched)
+        # The old gate checked ONLY the total by the end of the replay.
+        # It could already emit a Draw after dropping its B SET or IM_LOAD.
+        verified = [(3, 1), (5, 2)]
+        def match(i, done_registers, draw_registers, done_shaders, draw_shaders):
+            return (i < len(verified) and
+                    (done_registers + draw_registers,
+                     done_shaders + draw_shaders) == verified[i])
+        self.assertTrue(match(0,0,3,0,1))
+        self.assertFalse(match(0,0,2,0,1))
+        self.assertFalse(match(0,0,3,0,0))
+        self.assertTrue(match(1,3,2,1,1))
+        self.assertFalse(match(1,3,2,1,0))
+        self.assertFalse(match(2,5,0,2,0))
+
     def test_first_scan_owns_values_and_order(self):
         original=[(0,0x4806,0xDEADBEEF),(1,0x4807,0xAABBCCDD),
                   (0,0x2C10,0x00010004)]
@@ -77,7 +108,7 @@ class Pm4RegisterLifetimeTests(unittest.TestCase):
     def test_xdk_draw_keeps_packet_float_constants(self):
         source=("HULK/PM4-PRESCAN-SHADER-SNAPSHOT\\n"+
                 HEAD_OLD+DRAW_OLD+TAIL_OLD+DIAG_OLD+
-                FLOAT_SCAN_OLD+FLOAT_GATHER_OLD+BIN_MISMATCH_OLD)
+                FLOAT_SCAN_OLD+FLOAT_GATHER_OLD+BIN_MISMATCH_OLD+PRESCAN_BOUNDARY_OLD+REPLAY_BOUNDARY_OLD)
         actual, did = change(source)
         self.assertTrue(did)
         self.assertIn("ScanPackets(base, p.scan_from, end, scan_, 0, false, true)", actual)
