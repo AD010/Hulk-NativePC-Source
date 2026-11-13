@@ -27,6 +27,12 @@ present_letterbox = true
 present_effect = "bilinear"
 native_x_renderer = true
 native_x_renderer_resolution_scale = 2.0
+# Image presentation options; native resolution is NOT a texture upscaler.
+# Sharpness 0 preserves the last known-good output. Try 0.10-0.20 via
+# the F10 menu if desired. FSR 1/NIS are optional, DLSS view hooks are not
+# yet validated in this game. These CVARs are startup-only.
+native_x_renderer_scaling = "bilinear"
+native_x_renderer_sharpness = 0.0
 native_x_renderer_hulk_front_fallback = true
 native_x_renderer_hulk_gap_single_draw = true
 native_x_renderer_hulk_expand_msaa_sample_grid = true

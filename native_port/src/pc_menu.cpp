@@ -42,7 +42,7 @@ class PcMenu final : public rex::ui::ImGuiDialog {
  protected:
   void OnDraw(ImGuiIO&) override {
     if (!visible.load(std::memory_order_acquire)) return;
-    ImGui::SetNextWindowSize(ImVec2(540.0f, 450.0f), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(610.0f, 590.0f), ImGuiCond_FirstUseEver);
     bool open = true;
     if (ImGui::Begin("The Incredible Hulk - NativePC (F10)", &open,
                      ImGuiWindowFlags_NoCollapse)) {
@@ -80,6 +80,46 @@ class PcMenu final : public rex::ui::ImGuiDialog {
         (void)rex::cvar::SetFlagByName("gpu_guest_fps_limit", "60");
       }
       ImGui::TextUnformatted("Use F4 Settings > Save to persist changed FPS.");
+      // HULK/PC-GRAPHICS: these NativeX settings are read at startup.
+      // Expose only renderer-supported paths; do not claim DLSS works
+      // before a verified main-scene view and motion vectors are available.
+      ImGui::Separator();
+      ImGui::TextUnformatted("PC graphics (restart game to apply)");
+      const double native_scale =
+          rex::cvar::Query<double>("native_x_renderer_resolution_scale");
+      ImGui::Text("Native rendering scale: %.2fx", native_scale);
+      if (ImGui::Button("Rendering x1")) {
+        (void)rex::cvar::SetFlagByName("native_x_renderer_resolution_scale", "1.0");
+      }
+      ImGui::SameLine();
+      if (ImGui::Button("Rendering x2")) {
+        (void)rex::cvar::SetFlagByName("native_x_renderer_resolution_scale", "2.0");
+      }
+      const std::string scaling = Bind("native_x_renderer_scaling");
+      ImGui::Text("Presentation filter: %s", scaling.c_str());
+      if (ImGui::Button("Bilinear + CAS")) {
+        (void)rex::cvar::SetFlagByName("native_x_renderer_scaling", "bilinear");
+      }
+      ImGui::SameLine();
+      if (ImGui::Button("FSR 1")) {
+        (void)rex::cvar::SetFlagByName("native_x_renderer_scaling", "fsr");
+      }
+      ImGui::SameLine();
+      if (ImGui::Button("NIS")) {
+        (void)rex::cvar::SetFlagByName("native_x_renderer_scaling", "nis");
+      }
+      float sharpness = static_cast<float>(
+          rex::cvar::Query<double>("native_x_renderer_sharpness"));
+      if (sharpness < 0.0f) sharpness = 0.0f;
+      if (sharpness > 1.0f) sharpness = 1.0f;
+      if (ImGui::SliderFloat("Sharpening", &sharpness, 0.0f, 0.5f, "%.2f")) {
+        (void)rex::cvar::SetFlagByName("native_x_renderer_sharpness",
+                                       std::to_string(sharpness));
+      }
+      ImGui::TextUnformatted("Note: sharpen cannot repair missing shader samples.");
+      ImGui::TextUnformatted("DLSS/DLAA requires verified scene and motion vectors.");
+      ImGui::TextUnformatted("Save in F4 Settings, then restart for graphics changes.");
+
       ImGui::Separator();
       ImGui::TextUnformatted("F4 - PC settings | F8 - recapture mouse");
       ImGui::TextUnformatted("F10 - toggle PC menu | Alt+F4 - close game");
