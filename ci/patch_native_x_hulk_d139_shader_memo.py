@@ -39,7 +39,7 @@ HASH_NEW = """    // HULK/D139-OWNED-SHADER-MEMO: the bytes are already owned by
     HulkLoadedAt* hulk_at = load.immediate ? nullptr
         : &hulk_loaded_at_[((load.address >> 4) ^ (load.address >> 12)) & 255u];
     if (hulk_at && hulk_at->program && hulk_at->address == load.address &&
-        hulk_at->dwords == load.dwords &&
+        hulk_at->dwords == load.dwords && load.dwords != 0 &&
         hulk_at->program->ucode.size() == load.dwords &&
         !std::memcmp(hulk_at->program->ucode.data(), ucode,
                      size_t(load.dwords) * sizeof(uint32_t))) {
