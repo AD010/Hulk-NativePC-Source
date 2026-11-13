@@ -98,6 +98,29 @@ def patch_state(source: str) -> str:
     source = once(source,
         "            default:\n              break;\n          }\n        }\n        p += 4 * count;",
         "            default:\n              break;\n          }\n        p += 4 * count;", "remove old unpredicated switch wrapper")
+    # #198: bogus Type0 from float payload may fit the byte range but
+    # overflow the physical GPU register file, silently wrapping shader
+    # or fetch state when the next packet reads the wrong alignment.
+    source = once(source,
+        "        bool one = (header >> 15) & 1;\n"
+        "        if (p + 4 * count > end) return void(out.complete = false);",
+        "        bool one = (header >> 15) & 1;\n"
+        "        // HULK/PM4-TYPE0-RANGE: Xenos register-file bounds.\n"
+        "        if (reg >= rex::graphics::RegisterFile::kRegisterCount ||\n"
+        "            (!one && count > rex::graphics::RegisterFile::kRegisterCount - reg))\n"
+        "          return void(out.complete = false);\n"
+        "        if (p + 4 * count > end) return void(out.complete = false);",
+        "type0 register-file bounds")
+    # Other than the low predicate bit, bits 1..7 in Type3 are not
+    # command fields. A float / inline payload must not spoof an opcode
+    # with the same 7-bit identity as a genuine packet.
+    source = once(source,
+        "      case 3: {\n        uint32_t opcode = (header >> 8) & 0x7F;",
+        "      case 3: {\n"
+        "        // HULK/PM4-TYPE3-RESERVED: only bit0 predicates Type3.\n"
+        "        if (header & 0xFEu) return void(out.complete = false);\n"
+        "        uint32_t opcode = (header >> 8) & 0x7F;",
+        "type3 reserved low bits")
     # Log198: the words 0x44800000 / 0x44340000 were accepted as
     # Type-1 packets, even though bits 22..29 are RESERVED in the Xenos
     # MakePacketType1 layout. They are float-like payload, not validated
