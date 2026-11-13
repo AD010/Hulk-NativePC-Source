@@ -113,49 +113,16 @@ def checked(args,cwd=ROOT,env=None):
         raise RuntimeError(f"Source-only NativeX preflight failed: {Path(args[1]).name}")
     return result.stdout
 
-def run_d140_patch(path: Path, source: Path) -> None:
-    """Try each current Hulk source patch on an actual D140 clone.
+from native_x_d140_dispatch import (
+    D140 as DISPATCH_D140_SHA, check_renderer as check_d140_checkout,
+    run_patch as apply_d140_reviewed_patch,
+)
+if DISPATCH_D140_SHA != D140_SHA:
+    raise RuntimeError("Windows D140 patch dispatcher and audit do not share pin")
 
-    Only while probing this explicitly reviewed SHA, augment Python module
-    pin allow-lists IN MEMORY. This does not rewrite any repository .py
-    source, disable any source-anchor check or touch the release builder.
-    A missing C++ anchor fails immediately and identifies the next port.
-    """
-    spec=importlib.util.spec_from_file_location(
-        "hulk_d140_probe_"+path.stem, path)
-    if spec is None or spec.loader is None:
-        raise RuntimeError("Cannot load Hulk patch " + path.name)
-    module=importlib.util.module_from_spec(spec)
-    # Some older Hulk modules reject unknown git pins at MODULE IMPORT.
-    # Import their known source transformer, then challenge it with real
-    # D140 C++ rather than weakening the source anchors or discarding tests.
-    previous_pin=os.environ.get("HULK_NATIVEX_SOURCE_SHA")
-    os.environ["HULK_NATIVEX_SOURCE_SHA"]=CANDIDATE_SHA
-    try:
-        spec.loader.exec_module(module)
-    finally:
-        if previous_pin is None:
-            os.environ.pop("HULK_NATIVEX_SOURCE_SHA",None)
-        else:
-            os.environ["HULK_NATIVEX_SOURCE_SHA"]=previous_pin
-    for attr in ("PIN", "SOURCE_SHA"):
-        original=getattr(module,attr,None)
-        if isinstance(original,str) and original in (SHA,CANDIDATE_SHA):
-            setattr(module,attr,D140_SHA)
-    for attr in ("PINS","SUPPORTED"):
-        value=getattr(module,attr,None)
-        if isinstance(value,set):
-            value.add(D140_SHA)
-    if not hasattr(module,"main"):
-        raise RuntimeError("Source patch has no main() " + path.name)
-    saved=sys.argv
-    try:
-        sys.argv=[str(path),str(source)]
-        module.main()
-    except Exception as exc:
-        raise RuntimeError("D140 source patch collision at "+path.name) from exc
-    finally:
-        sys.argv=saved
+def run_d140_patch(path: Path, source: Path) -> None:
+    """Use EXACT same code loader and C++ source guards as Windows builder."""
+    apply_d140_reviewed_patch(path, source)
 
 
 def run(sha=SHA):
@@ -198,6 +165,8 @@ def run(sha=SHA):
                  "https://github.com/ElGuslml/NativeXRenderer.git",str(source)])
         checked(["git","-C",str(source),"fetch","--depth","1","origin",sha])
         checked(["git","-C",str(source),"checkout","--detach",sha])
+        if sha == D140_SHA:
+            check_d140_checkout(str(source))
         for name in scripts:
             file=ROOT/name
             command=[sys.executable,str(file)]
