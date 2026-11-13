@@ -16,7 +16,40 @@ PATCH_MARKER = "HULK_FRAME_PROBE_V1"
 CVAR = '''// HULK_FRAME_PROBE_V1: reads true guest swaps, not driver FPS estimates.
 REXCVAR_DEFINE_BOOL(hulk_frame_probe, false, "Hulk/Diagnostics",
                     "Log one-second XDK VdSwap frequency; no FPS manipulation");
+// HULK/GUEST-FPS-CAP: real runtime variable, not a decorative menu entry.
+// It limits the maximum frequency of guest submissions. It cannot make
+// a 30Hz game submit 60Hz frames or fix game-specific rigid-body updates.
+REXCVAR_DEFINE_INT32(gpu_guest_fps_limit, 30, "Hulk/Performance",
+                     "Maximum XDK VdSwap submits per second; 0 = no cap");
 
+'''
+FPS_PACER = '''  // HULK/GUEST-FPS-CAP: actual guest submission pacing. This does not
+  // change the Xbox virtual clock or its physics timestep. If the PPC game
+  // submits only at 30Hz, setting 60 or 120 won't synthesize new frames.
+  {
+    using Clock = std::chrono::steady_clock;
+    const int32_t fps_limit = std::clamp(REXCVAR_GET(gpu_guest_fps_limit), 0, 240);
+    static std::mutex limiter_mutex;
+    static Clock::time_point next_submit{};
+    static int32_t previous_limit = -1;
+    std::unique_lock<std::mutex> guard(limiter_mutex);
+    if (!fps_limit) {
+      previous_limit = 0;
+      next_submit = Clock::time_point{};
+    } else {
+      const auto interval = std::chrono::duration_cast<Clock::duration>(
+          std::chrono::duration<double>(1.0 / double(fps_limit)));
+      const auto now = Clock::now();
+      if (previous_limit != fps_limit ||
+          next_submit.time_since_epoch().count() == 0 ||
+          now > next_submit + interval * 2) {
+        next_submit = now;
+      }
+      if (next_submit > now) std::this_thread::sleep_until(next_submit);
+      next_submit = Clock::now() + interval;
+      previous_limit = fps_limit;
+    }
+  }
 '''
 PRELUDE = '''  // HULK_FRAME_PROBE_V1: wall-clock XDK swap count. The VdSwap export is the
   // common game/guest-to-GPU boundary, independent from host presentation.
@@ -47,14 +80,14 @@ def patch_sdk(root: pathlib.Path) -> None:
     if original.count(INCLUDE_ANCHOR) != 1:
         raise ValueError("Unexpected SDK includes; no patch performed")
     updated = original.replace(INCLUDE_ANCHOR,
-        '#include <chrono>\n#include <mutex>\n' + INCLUDE_ANCHOR, 1)
+        '#include <chrono>\n#include <mutex>\n#include <thread>\n' + INCLUDE_ANCHOR, 1)
     if updated.count(CVAR_ANCHOR) != 1:
         raise ValueError("Expected one VdSwap exported function")
     updated = updated.replace(CVAR_ANCHOR, CVAR + CVAR_ANCHOR, 1)
     marker = "  // All of these parameters are REQUIRED.\n"
     if updated.count(marker) != 1:
         raise ValueError("Unexpected VdSwap body; no patch performed")
-    updated = updated.replace(marker, PRELUDE + marker, 1)
+    updated = updated.replace(marker, FPS_PACER + PRELUDE + marker, 1)
     path.write_text(updated, encoding="utf-8", newline="\n")
     print("Installed read-only Hulk VdSwap timing probe")
 
