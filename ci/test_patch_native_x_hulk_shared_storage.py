@@ -39,7 +39,10 @@ class NativeSharedStorageTests(unittest.TestCase):
         self.assertIn("std::max(it->second.written, sibling->written)", patched)
         self.assertIn("return remember(&target);", patched)
         self.assertIn("target.native = false;", patched)
-        self.assertNotIn("return recent.target;\n    }", patched)
+        # Returning a cached target is correct AFTER its shared-write
+        # epoch was refreshed; it is precisely the D139 optimization.
+        self.assertLess(patched.index("std::max(recent.target->written, sibling->written)"),
+                        patched.index("return recent.target;"))
         # The synthetic descriptor's alias identity is unchanged:
         # neither a reduced/shadow/native view nor a different EDRAM base
         # may be linked only because its host dimensions match.
