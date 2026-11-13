@@ -52,6 +52,16 @@ It now requires the shared-write epoch synchronization to happen BEFORE
 returning from the D139 cache, retaining the optimization without stale
 Hulk EDRAM alias state. The actual upstream C++ anchor was verified unique.
 
+## Fifth automated audit: minimized pending-frame compatibility
+
+Source-only #99 reached `patch_native_x_hulk_minimized_pending_swap.py`
+after passing all earlier PM4 register, shader prescan and Resolve fixes.
+NativeX D140 adds the `check_time` argument to PresentPending and calls it
+from command processing more often. The candidate now gates only the
+three branches that actually call ShowPendingFrame: before the pacing
+statistics, not before each queue poll. The original D135 path remains
+unchanged and both paths have regression tests.
+
 ## Mandatory acceptance gates before upgrading main
 - Complete sequence of production-ordered Hulk patches applies on latest upstream with every regression test passing.
 - NativeX C++ compiles on Windows x64 Release without turning off the source checks.
