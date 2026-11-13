@@ -104,6 +104,16 @@ otherwise fails closed; a separate source-only regression covers D140.
 - The public D140 audit uses the **same** patch dispatcher as Windows, with an additional source-only parity test verifying all 86 builder steps and strict revision validation.
 - Stable `main`, sole manual Release workflow, and prior ZIP #95 are not replaced. Windows compile, render verification and frame-rate-sensitive physics still require independent gates.
 
+## Windows D140 candidate compilation
+
+Following successful source-only GitHub Actions #105 on the exact D140 patch
+dispatcher, the original *single* workflow has been temporarily reused on this
+branch for a Windows x64 compilation. The stable `main` workflow and #95 ZIP
+remain intact. Candidate build source will check the real upstream SHA and
+all 45 patch transformations plus all 41 unit test steps again; only the
+private runner can access the verified USA XEX. A successful compile does
+not establish corrected 60+ FPS physics or absence of game visual artifacts.
+
 ## Mandatory acceptance gates before upgrading main
 - Complete sequence of production-ordered Hulk patches applies on latest upstream with every regression test passing.
 - NativeX C++ compiles on Windows x64 Release without turning off the source checks.
