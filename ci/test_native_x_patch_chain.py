@@ -226,6 +226,7 @@ def run(sha=SHA):
             ("HULK/PM4-DEPTH-REBASE-4X", renderer),
             ("HULK/PS-PROGRAM-ORIGIN", renderer),
             ("HULK/PS-RECENT-LOAD", state),
+            ("HULK/PM4-FIRST-FAILURE", state),
             ("last_load_packet=", renderer),
             ("HULK/PM4-REGISTER-ORDER", state),
             ("HULK/PM4-SHADER-BOUNDS", state),
