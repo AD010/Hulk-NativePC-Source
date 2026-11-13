@@ -3,7 +3,8 @@
 from __future__ import annotations
 import unittest
 from patch_native_x_hulk_shared_write_order import (
-    patch, HEADER_ANCHOR, MSAA_OLD, DEPTH_OLD, DEPTH_DECL_OLD, CPP_ANCHOR
+    patch, patch_renderer, REVERSE_OLD, REVERSE_NEW,
+    HEADER_ANCHOR, MSAA_OLD, DEPTH_OLD, DEPTH_DECL_OLD, CPP_ANCHOR
 )
 
 def fixture() -> tuple[str,str]:
@@ -37,6 +38,21 @@ class SharedWriteOrderTests(unittest.TestCase):
             patch(h,b)
         with self.assertRaises(ValueError):
             patch("wrong upstream",b)
+
+    def test_same_vulkan_image_is_never_reinterpreted_twice(self):
+        # If the guest 1x and 4x views already alias one native ITexture,
+        # reverse-Resolve must NOT halve coordinates a second time.
+        cpp = "// HULK/REVERSE-ALIAS\\n" + REVERSE_OLD
+        fixed, changed = patch_renderer(cpp)
+        self.assertTrue(changed)
+        self.assertEqual(patch_renderer(fixed), (fixed, False))
+        self.assertIn("alias->texture.RawPtr() != source->texture.RawPtr()", fixed)
+        self.assertIn("HulkSharedLatestWrite(*alias)", fixed)
+        self.assertIn("HulkSharedLatestWrite(*source)", fixed)
+        self.assertNotIn(REVERSE_OLD, fixed)
+        self.assertIn(REVERSE_NEW, fixed)
+        with self.assertRaises(ValueError):
+            patch_renderer("// unrelated upstream renderer")
 
     def test_physically_shared_1x_and_4x_writes(self):
         # 4x and 1x descriptions share image A; an unrelated candidate is B.
