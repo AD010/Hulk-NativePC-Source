@@ -70,6 +70,15 @@ D135-style Python import, while the candidate preflight now imports both
 D135 and D140 exact wait snippets. Updated the test to verify both
 variants, without removing either C++ source marker or timeout assertion.
 
+## Seventh source-only audit: PS provenance and D139 address-cache reset
+
+#101 applied the source patches through scene wait, driver compilation,
+incomplete Draw and PS origin. It stopped in the PS recent-load reset anchor:
+D139 inserted the original `loaded_at_ = {};` between `programs_ = {};`
+and `record_.Clear();`. The migrated patch now accepts that layout and
+resets both the upstream shader-address memo and the Hulk pixel-program
+provenance counters, without inserting a second address cache.
+
 ## Mandatory acceptance gates before upgrading main
 - Complete sequence of production-ordered Hulk patches applies on latest upstream with every regression test passing.
 - NativeX C++ compiles on Windows x64 Release without turning off the source checks.
