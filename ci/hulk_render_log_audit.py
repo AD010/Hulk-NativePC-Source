@@ -132,7 +132,10 @@ def analyze(text: str) -> dict:
             else:
                 xdk_draw_samples["missing_range_metadata"] += 1
             previous_header = LAST_GOOD_HEADER.search(line)
-            if previous_header:
+            if not previous_header or not metadata or metadata[1] != "true" or (
+                    int(previous_header[1], 16) == 0):
+                xdk_tail_context["missing_valid_last_good_packet"] += 1
+            else:
                 word = int(previous_header[1], 16)
                 cause = reserved_pm4_header(word)
                 if cause:
