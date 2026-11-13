@@ -38,6 +38,7 @@ try {
   # They never read copyrighted game bytes and cannot modify GPU state.
   # Shader disassembly must never access outside diagnostic filter tables.
   Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_sdk_hulk_fetch_disasm_bounds.py')) $Source
+  Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_sdk_hulk_cf_bounds.py')) $Source
   Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_hulk_pm4_register_oracle.py')) $Source
   Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_hulk_render_log_audit.py')) $Source
   Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_audit_hulk_tu1_resource_index.py')) $Source
@@ -90,6 +91,7 @@ try {
   Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_sdk_hulk_shader_disasm.py')) $Source
   Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_sdk_hulk_shader_disasm.py'), $Sdk) $Source
   Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_sdk_hulk_fetch_disasm_bounds.py'), $Sdk) $Source
+  Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_sdk_hulk_cf_bounds.py'), $Sdk) $Source
   # Validate a single SDK texture-fetch fix against known upstream anchors.
   # It affects shader colour math, NOT the native-GPU/XDK verification gate.
   Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_sdk_hulk_spirv_fetch.py')) $Source
