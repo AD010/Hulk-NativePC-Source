@@ -63,6 +63,12 @@ VERIFY_PS = re.compile(
     r"verify: pixel program mismatches .*?: (\d+) draws"
 )
 
+VERIFY_FLOAT = re.compile(r"verify: (VS|PS) float constant mismatches \((\d+) compared\):\s*(none)?")
+VERIFY_COVERAGE = re.compile(r"executions missing VS or PS analysis: (\d+)")
+FLOAT_ENTRY = re.compile(r"^\s+c(\d+) x(\d+)\b")
+FETCH_ENTRY = re.compile(r"^\s+tfetch(\d+) x(\d+)\b")
+OMITTED_ENTRIES = re.compile(r"^\s+\.\.\. (\d+) more")
+
 
 def reserved_pm4_header(word: int) -> str | None:
     kind = word >> 30
@@ -98,7 +104,10 @@ def analyze(text: str) -> dict:
     latest_frame: dict[str, object] = {}
     frames_seen: set[int] = set()
     scene_resolves: Counter[tuple[int, ...]] = Counter()
+    detail_block = None
     for line in text.splitlines():
+        if line.lstrip().startswith("[") or "verify:" in line:
+            detail_block = None
         scene = SCENE_RESOLVE.search(line)
         if scene:
             scene_resolves[tuple(int(scene[k]) for k in range(1, 10))] += 1
@@ -147,12 +156,37 @@ def analyze(text: str) -> dict:
                 "matched_state": None,
                 "matched_total": None,
                 "pixel_program_mismatches": None,
+                "missing_shader_analysis_executions": None,
+                "float_constants": {},
+                "texture_fetch_differences": None,
             })
         if verifier_samples:
             verified = VERIFY_MATCH.search(line)
             if verified:
                 verifier_samples[-1]["matched_state"] = int(verified[1])
                 verifier_samples[-1]["matched_total"] = int(verified[2])
+            coverage = VERIFY_COVERAGE.search(line)
+            if coverage:
+                verifier_samples[-1]["missing_shader_analysis_executions"] = int(coverage[1])
+            floats = VERIFY_FLOAT.search(line)
+            if floats:
+                detail_block = {"compared_vec4": int(floats[2]),
+                                "reported_none": bool(floats[3]),
+                                "entries": {}, "omitted_entries": 0}
+                verifier_samples[-1]["float_constants"][floats[1]] = detail_block
+            elif "verify: texture fetch slot differences" in line:
+                detail_block = {"reported_none": line.rstrip().endswith(": none"),
+                                "entries": {}, "omitted_entries": 0}
+                verifier_samples[-1]["texture_fetch_differences"] = detail_block
+            elif detail_block is not None:
+                entry = (FLOAT_ENTRY if "compared_vec4" in detail_block else FETCH_ENTRY).search(line)
+                omitted = OMITTED_ENTRIES.search(line)
+                if entry:
+                    detail_block["entries"][entry[1]] = int(entry[2])
+                elif omitted:
+                    detail_block["omitted_entries"] = int(omitted[1])
+                elif line.strip():
+                    detail_block = None
             program = VERIFY_PS.search(line)
             if program:
                 verifier_samples[-1]["pixel_program_mismatches"] = int(program[1])
@@ -212,6 +246,8 @@ def analyze(text: str) -> dict:
             "New PM4 classifications are last observed throttled #N counters, not complete counts if samples are missing.",
             "No-writable attachment is not necessarily a failed scene geometry draw (queries/pipe helpers may issue PM4 draws).",
             "Same-frame scene, game area, camera and settings are needed to infer improvement between logs.",
+            "Float/fetch entry counts overlap across draws; never sum them into a count of bad draws. Omitted entries are not reconstructed.",
+            "Missing usage analysis means raw float windows were compared; mismatching unused registers alone do not prove a rendering defect.",
             "GPU verifier compares selected state only; a 100% match does not prove shader semantics or absence of flicker.",
             "Malformed last-good header counts are sampled warning evidence, not complete rejected-packet totals.",
             "CI build success and log improvements cannot establish pixel-perfect GPU output.",

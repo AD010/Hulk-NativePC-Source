@@ -5,6 +5,37 @@ from hulk_render_log_audit import analyze, compare
 
 
 class HulkLogAuditTests(unittest.TestCase):
+    def test_raw_constants_and_fetch_divergence_survive_zero_ps_mismatches(self):
+        log = "\n".join([
+            "verify: frames 1800..1800: CPU draw calls 4",
+            "4 of 4 draw calls have no mismatches in compared state; executions missing VS or PS analysis: 4",
+            "verify: texture fetch slot differences (all slots, read or not):",
+            "    tfetch3 x2 (example omitted)",
+            "    tfetch4 x2 (example omitted)",
+            "verify: VS float constant mismatches (1024 compared):",
+            "    c21 x3 (example omitted)",
+            "    c22 x3 (example omitted)",
+            "    ... 108 more",
+            "verify: PS float constant mismatches (1024 compared): none",
+            "verify: pixel program mismatches (tracker vs CP): 0 draws",
+            "unrelated: c99 x88",
+            "verify: frames 1801..1801: CPU draw calls 1",
+            "verify: VS float constant mismatches (0 compared): none",
+        ])
+        samples = analyze(log)["gpu_verification_samples"]
+        a, b = samples
+        self.assertEqual(a["pixel_program_mismatches"], 0)
+        self.assertEqual(a["missing_shader_analysis_executions"], 4)
+        self.assertEqual(a["texture_fetch_differences"]["entries"], {"3":2,"4":2})
+        self.assertEqual(a["float_constants"]["VS"]["entries"], {"21":3,"22":3})
+        self.assertEqual(a["float_constants"]["VS"]["omitted_entries"], 108)
+        self.assertFalse(a["float_constants"]["VS"]["reported_none"])
+        self.assertTrue(a["float_constants"]["PS"]["reported_none"])
+        self.assertEqual(b["float_constants"]["VS"]["compared_vec4"], 0)
+        self.assertIsNone(b["missing_shader_analysis_executions"])
+        self.assertIsNone(b["texture_fetch_differences"])
+        self.assertNotIn("PS", b["float_constants"])
+
     def test_message_counts_and_cumulative_replay_not_additive(self):
         log = "\n".join([
             "[error] 1D texture is too wide (5891328) - ignoring!",
@@ -124,6 +155,8 @@ class HulkLogAuditTests(unittest.TestCase):
             "first_frame": 2324, "last_frame": 2324,
             "cpu_draw_calls": 1569, "matched_state": 1518,
             "matched_total": 1569, "pixel_program_mismatches": 50,
+            "missing_shader_analysis_executions": None,
+            "float_constants": {}, "texture_fetch_differences": None,
         }])
 
     def test_later_frame_controls_values_and_empty_log(self):

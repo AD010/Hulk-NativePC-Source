@@ -297,3 +297,78 @@ The current-main public preflight also failed before renderer preparation:
 main changed configuration and SDK default to 0 to preserve original guest
 pacing. The test now requires that intentional zero default in BOTH places;
 it does not enable an FPS unlock or assert corrected high-FPS physics.
+
+
+## Log 200 and cross-chat chronology — 13 November 2026
+
+Times below are Europe/Kyiv (UTC+02). GitHub run and release asset metadata
+were queried directly; conversation summaries alone were not treated as CI
+results. Log timestamps have no explicit timezone; they are interpreted as
+the user's local clock, consistent with the reported run sequence.
+
+| Event | Local time | Verified scope |
+| --- | --- | --- |
+| #93, source 3baba02ddffa | ZIP created 16:41:01 | Actual 55,178,493-byte ZIP; graphics remained faulty |
+| User requests final work then Actions in another project chat | 21:15:05 | Retrieved conversation instruction, not a successful build |
+| #94, source 890a9287 | 21:22:04–21:22:57 | FAILED preflight; no successful Windows build |
+| #95, source 2775a14efd50 | 21:25:23–21:47:52 | SUCCESS; ZIP created 21:47:43, 55,179,922 bytes |
+| Later FPS implementation/default/UI source | 21:33–21:38 | After #95 source checkout; not included in #95 |
+| Log 200 | 21:55:05.926–21:57:48.401 | User's latest archive run; normal window-close shutdown recorded |
+| Resolve/image identity and save enumeration fix 2cb2f6f | 22:04:53 | After log200, source-tested only, not in that archive |
+
+Run95: https://github.com/AD010/Hulk-NativePC-Source/actions/runs/43492048591
+Its private asset is `Hulk-NativePC-Vulkan-PresentFix-2775a14efd50.zip` under
+the existing hulk-cloud release. The log has no embedded source SHA: association
+with #95 is consistent with the user's latest-archive description and timing,
+not a cryptographic identification of the executable they launched. Do not
+relabel log200 as a test of 2cb2f6f or of the later FPS limiter.
+
+### What the new log actually establishes
+
+Native scene target is 2560x1440 for 2560x1600 output at scale2. Sampled
+verification results are:
+
+| Frame | Matched draws | No differences in compared state | PS program mismatches | VS float evidence | Texture-fetch evidence |
+| --- | ---: | ---: | ---: | --- | --- |
+| 900 | 11 | 11 | 0 | 2816 vec4 comparisons, none differ | none |
+| 1119 | 1847 | 1594 | 0 | 472832 comparisons; c21..c36 each differ on253 executions,108 more entries omitted | slots3/4 each59 |
+| 1790 | 1555 | 1282 | 0 | 398080 comparisons;16 entries shown,56 omitted; shown entries each273 | none |
+| 1800 | 1554 | 1379 | 0 | 397824 comparisons; c21..c36 each175,108 more entries omitted | slots3/4 each35 |
+
+All these executions lack VS or PS usage analysis, so float comparison is of
+raw windows. A mismatch in an unused register is not proof of a bad vertex.
+Do not sum per-register counts into a number of broken draws. Do not infer
+that all previous50 PS mismatches are fixed: different frames and scenes were
+sampled, zero program hashes can be unverified, and runtime appearance still
+fails the user's acceptance criterion.
+
+The highest logged incomplete-XDK rejection counter is20000 (a lower bound,
+not the number of detailed warning lines). The process closes normally in
+this run. Last sampled frame6000 has590/590 drawn,0 failed/compilation skips,
+16.67ms average frame interval. Earlier gameplay intervals are about33ms;
+this does not prove60FPS gameplay with corrected physics. Large no-writable-RT
+helper counters must not be called discarded scene meshes without attribution.
+
+The audit tool previously retained match rates and PS mismatch counts but
+lost float/fetch detail. It now retains per-sample coverage, compared counts,
+reported register/slot entries and explicit truncation counts. Missing reports
+remain unknown, not zero. This is an analysis correction, not a runtime fix.
+
+### Remaining acceptance gates
+
+- Graphics: resolve the actual state divergence and incomplete XDK streams;
+  identify whether divergent constants are read by the affected VS. Validate
+  shader semantics, depth/stencil, geometry, materials, lighting, shadows,
+  water, intro/title/pause/HUD and scale>1 by actual frame evidence.
+- Timing: preserve baseline by default; measure60+ gameplay and separately
+  prove physics/timestep behavior. A VdSwap cap is not a physics patch.
+- EU TU1: USA semantic match and tested water-entry change remain incomplete;
+  EU binary replacement is not a valid transfer.
+- Saves: native Documents namespace and guarded import exist but remain opt-in;
+  game load/save and atomic payload writes are not established. Metadata safety
+  is not whole-save transactional safety; retail-PC format differs.
+- Input/audio/window/UI: verify direct camera ownership, keyboard/mouse without
+  virtual-controller dependency, native menu/audio lifecycle, Alt+Tab and175%DPI.
+- Release: keep the existing single workflow. No new Actions was dispatched
+  during this audit; prior user-authorized #95 is already complete. Compilation
+  does not close any visual/gameplay gate. Never call the latest ZIP final.
