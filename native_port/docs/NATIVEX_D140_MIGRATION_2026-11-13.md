@@ -26,6 +26,13 @@ Date: 2026-11-13 (UTC). Branch: `ci/native-x-d140-migration`. **Not a release**.
 - Candidate test-runner updated to load old-regression tests under their original pin while checking actual transformations on D140.
 - **No full candidate NativeX compile or Hulk gameplay validation yet.**
 
+## Second automated audit
+
+After the first audit exposed a legacy module import-time pin, the
+D140 probe now isolates old unit-test imports and subjects each patch's
+actual C++ transformation to the latest D140 source separately. Only
+a source-only GitHub runner is used; no Xbox game input is fetched.
+
 ## Mandatory acceptance gates before upgrading main
 - Complete sequence of production-ordered Hulk patches applies on latest upstream with every regression test passing.
 - NativeX C++ compiles on Windows x64 Release without turning off the source checks.
