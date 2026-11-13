@@ -101,9 +101,9 @@ void ScanPackets(const uint8_t* base, uint32_t begin, uint32_t end,
                  PacketScan& out, int depth) {
 """
         suffix = r"""
+    p += 4;
     if (header == 0xdeadbeefu)
       return void(hulk_note_failure(__LINE__));
-    p += 4;
     switch (header >> 30) {
       default:
         break;
@@ -117,9 +117,9 @@ int main() {
   assert(scan.hulk_fail_site != 0);
   assert(scan.hulk_fail_header == 0xdeadbeefu);
   assert(scan.hulk_fail_packet == 8);
-  assert(scan.hulk_last_good_begin == 0);
+  assert(scan.hulk_last_good_begin == 4);
   assert(scan.hulk_last_good_end == 8);
-  assert(scan.hulk_last_good_header == 0x11223344u);
+  assert(scan.hulk_last_good_header == 0x55667788u);
   assert(scan.hulk_fail_remaining == 4);
   assert(scan.hulk_fail_depth == 2);
   const uint32_t first_site = scan.hulk_fail_site;
