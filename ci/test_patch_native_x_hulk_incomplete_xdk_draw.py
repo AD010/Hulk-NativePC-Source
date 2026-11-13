@@ -54,7 +54,12 @@ class IncompleteXdkTests(unittest.TestCase):
         # before Clear(), which intentionally retains BIN state.
         present = cpp.split("if (!scan_.complete && call == Call::kPresent)", 1)[1].split("if (!scan_.complete)", 1)[0]
         rejected = cpp.split("if (!scan_.complete) {", 1)[1].split("return nullptr;", 1)[0]
+        # A failed Present still advances the frame; no stale inline draw
+        # may survive that boundary or be submitted on a later call.
         for branch in (present, rejected):
+            self.assertEqual(branch.count("inline_begin_.pending = false;"), 1)
+            self.assertEqual(branch.count("inline_begin_.end = 0;"), 1)
+            self.assertLess(branch.index("inline_begin_.end = 0;"), branch.index("scan_.Clear();"))
             for field in ("mask", "select"):
                 restore = f"scan_.bin_{field} = p.hulk_bin_{field}_at_enter;"
                 self.assertEqual(branch.count(restore), 1)
