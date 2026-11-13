@@ -98,6 +98,28 @@ def patch_state(source: str) -> str:
     source = once(source,
         "            default:\n              break;\n          }\n        }\n        p += 4 * count;",
         "            default:\n              break;\n          }\n        p += 4 * count;", "remove old unpredicated switch wrapper")
+    # Log198: the words 0x44800000 / 0x44340000 were accepted as
+    # Type-1 packets, even though bits 22..29 are RESERVED in the Xenos
+    # MakePacketType1 layout. They are float-like payload, not validated
+    # GPU register packets. Reject before reading two unrelated register
+    # values; a malformed scan cannot contaminate the next Draw.
+    source = once(source,
+        "      case 1:\\n        if (p + 8 > end) return void(out.complete = false);",
+        "      case 1:\\n"
+        "        // HULK/PM4-TYPE1-RESERVED: real Type1 has only two 11-bit indices.\\n"
+        "        // Bits 22..29 are reserved (xenos::MakePacketType1).\\n"
+        "        if ((header & 0x3FC00000u) != 0u) return void(out.complete = false);\\n"
+        "        if (p + 8 > end) return void(out.complete = false);",
+        "type1 reserved bits")
+    # Type-2 is a one-dword no-op with exactly the 0x80000000 header.
+    # Garbage such as 0xB1800001 must not act as a valid PM4 packet.
+    source = once(source,
+        "      case 2:\\n        break;",
+        "      case 2:\\n"
+        "        // HULK/PM4-TYPE2-RESERVED: the Xenos Type2 NOP has no payload.\\n"
+        "        if (header != 0x80000000u) return void(out.complete = false);\\n"
+        "        break;",
+        "type2 reserved bits")
     # The PFP supports both ordinary IB (0x3F) and prefetch-pipelined
     # IB_PFD (0x37), and indirect buffers may nest. The previous Hulk scanner
     # ignored 0x37 and stopped at depth 1, silently losing real GPU state and
