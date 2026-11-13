@@ -135,6 +135,45 @@ int main(){
   ScanPackets(reinterpret_cast<uint8_t*>(m.data()),set_range_begin*4,off*4,
               invalid_set_range,0,false,false);
   assert(!invalid_set_range.complete && invalid_set_range.writes.empty());
+  // Cross-class writes fit the full GPU register file but corrupt
+  // adjacent shader/fetch state, so their PM4 span must fail closed.
+  const int fetch_overflow_begin=off;
+  emit(off,0x2D,{0x000100BFu,0x11111111u,0x22222222u});
+  PacketScan fetch_overflow;
+  ScanPackets(reinterpret_cast<uint8_t*>(m.data()),fetch_overflow_begin*4,
+              off*4,fetch_overflow,0,false,false);
+  assert(!fetch_overflow.complete && fetch_overflow.writes.empty());
+  const int fetch_last_begin=off;
+  emit(off,0x2D,{0x000100BFu,0x11111111u});
+  PacketScan fetch_last;
+  ScanPackets(reinterpret_cast<uint8_t*>(m.data()),fetch_last_begin*4,
+              off*4,fetch_last,0,false,false);
+  assert(fetch_last.complete && fetch_last.writes.size()==1 &&
+         fetch_last.writes[0].first==0x48BFu);
+  const int bool_overflow_begin=off;
+  emit(off,0x2D,{0x00020007u,0x11111111u,0x22222222u});
+  PacketScan bool_overflow;
+  ScanPackets(reinterpret_cast<uint8_t*>(m.data()),bool_overflow_begin*4,
+              off*4,bool_overflow,0,false,false);
+  assert(!bool_overflow.complete && bool_overflow.writes.empty());
+  const int loop_overflow_begin=off;
+  emit(off,0x2D,{0x0003001Fu,0x11111111u,0x22222222u});
+  PacketScan loop_overflow;
+  ScanPackets(reinterpret_cast<uint8_t*>(m.data()),loop_overflow_begin*4,
+              off*4,loop_overflow,0,false,false);
+  assert(!loop_overflow.complete && loop_overflow.writes.empty());
+  const int float_overflow_begin=off;
+  emit(off,0x2D,{0x000007FFu,0x11111111u,0x22222222u});
+  PacketScan float_overflow;
+  ScanPackets(reinterpret_cast<uint8_t*>(m.data()),float_overflow_begin*4,
+              off*4,float_overflow,0,false,false);
+  assert(!float_overflow.complete && float_overflow.writes.empty());
+  const int load_fetch_overflow_begin=off;
+  emit(off,0x2F,{0x1000u,0x000100BFu,2u});
+  PacketScan load_fetch_overflow;
+  ScanPackets(reinterpret_cast<uint8_t*>(m.data()),
+              load_fetch_overflow_begin*4,off*4,load_fetch_overflow,0,false,false);
+  assert(!load_fetch_overflow.complete && load_fetch_overflow.loads.empty());
   // SET_CONSTANT2 / SET_SHADER_CONSTANTS beyond GPU register file
   // must fail without submitting corrupted state.
   const int direct_set_begin=off;
