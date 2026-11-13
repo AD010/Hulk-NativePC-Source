@@ -180,6 +180,8 @@ def run(sha=SHA):
             missing.append("PM4 shader snapshot must survive validated gap replay")
         if ("HULK/PM4-GUEST-MEMORY-BOUNDS" not in state or
             "HULK/PM4-SHADER-SOURCE-BOUNDS" not in state or
+            "HULK/PM4-SHADER-STAGE-START" not in state or
+            "(immediate ? type > 1u : (type & 3u) > 1u)" not in state or
             "uint64_t(address) + uint64_t(dwords) * 4ull" not in state):
             missing.append("NativeX physical guest shader/ALU source bounds")
         for name, body in (
