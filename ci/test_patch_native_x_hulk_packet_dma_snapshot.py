@@ -85,6 +85,13 @@ int main() {
 
     def test_cpu_snapshot_copy_order_and_holes(self):
         from patch_native_x_hulk_packet_dma_snapshot import CPU_HELPER, CPU_ANCHOR, patch_cpu_draw
+        # No second allocation or per-byte coverage pass per indexed Draw.
+        # The existing exhaustive overlap/hole test below proves that
+        # interval union accepts exactly the same complete captured spans.
+        self.assertIn("HULK/CPU-INDEX-INTERVAL-COVERAGE", CPU_HELPER)
+        self.assertNotIn("covered(size, 0)", CPU_HELPER)
+        self.assertNotIn("std::fill(covered.begin()", CPU_HELPER)
+        self.assertIn("if (next == cursor) return false;", CPU_HELPER)
         original = 'struct DrawContext {\n' + CPU_ANCHOR
         patched, changed = patch_cpu_draw(original)
         self.assertTrue(changed)
