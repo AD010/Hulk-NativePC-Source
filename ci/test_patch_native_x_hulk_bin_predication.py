@@ -185,6 +185,24 @@ class TestHulkPfpPatch(unittest.TestCase):
         self.assertEqual(0xC0025800 & 0xFE, 0)  # actual Hulk legitimate SET
         self.assertNotEqual(0xFFCCCCCC & 0xFE, 0)  # Hulk #198 false Type3
 
+    def test_failed_unhooked_gap_restores_bin_predicate(self):
+        cpp = self.patched["src/state.cpp"]
+        self.assertIn("HULK/PM4-GAP-BIN-ROLLBACK", cpp)
+        self.assertIn("hulk_bin_mask_before_gap = scan_.bin_mask", cpp)
+        self.assertIn("hulk_bin_select_before_gap = scan_.bin_select", cpp)
+        self.assertIn("if (!scan_.complete) {", cpp)
+        self.assertIn("scan_.bin_mask = hulk_bin_mask_before_gap", cpp)
+        self.assertIn("scan_.bin_select = hulk_bin_select_before_gap", cpp)
+        # The validator may have applied a BIN change before rejecting a
+        # float payload. Such failed PM4 state is never allowed to persist.
+        first_mask, first_select = 0xFFFFFFFF, 0xFFFFFFFF
+        changed_mask, changed_select = 0x10, 0
+        complete = False
+        final_mask, final_select = (
+            (changed_mask, changed_select) if complete
+            else (first_mask, first_select))
+        self.assertEqual((final_mask, final_select), (first_mask, first_select))
+
     def test_reserved_type1_type2_packet_bits_rejected(self):
         source = self.patched["src/state.cpp"]
         self.assertIn("HULK/PM4-TYPE1-RESERVED", source)
