@@ -172,6 +172,14 @@ def run(sha=SHA):
     os.environ["HULK_NATIVEX_SOURCE_SHA"] = sha
     print(f"[NativeX/preflight] source SHA={sha}; mode={'candidate-only' if sha != SHA else 'production'}", flush=True)
     scripts=commands()
+    if sha == D140_SHA:
+        # Review the D140-specific pending-frame path against synthetic
+        # minimization/Alt+Tab cases before touching actual renderer code.
+        smoke_env=dict(os.environ)
+        smoke_env["HULK_NATIVEX_SOURCE_SHA"]=CANDIDATE_SHA
+        checked([sys.executable,str(ROOT/"ci/test_patch_native_x_hulk_minimized_pending_swap.py")],
+                env=smoke_env)
+        print("[NativeX/preflight] D140 minimized pending-frame model OK", flush=True)
     # The Windows release builder has its OWN late post-patch source checks.
     # Keep their exact source-call ABI synchronized with the real NativeX
     # patch, or CI wastes ~15 minutes compiling SDK before always failing.
