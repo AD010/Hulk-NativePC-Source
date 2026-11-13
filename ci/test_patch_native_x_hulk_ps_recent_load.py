@@ -35,6 +35,19 @@ class RecentPixelLoadTests(unittest.TestCase):
         self.assertIn("cache_first_packet", renderer)
         self.assertIn("last_load_packet", renderer)
 
+    def test_d140_reset_keeps_upstream_shader_address_memo(self):
+        data=fixture()
+        data["src/state.cpp"]=data["src/state.cpp"].replace(
+            RESET_OLD,RESET_D140_OLD)
+        patched,changed=patch(data)
+        self.assertTrue(changed)
+        self.assertEqual(patch(patched),(patched,False))
+        self.assertIn(RESET_D140_NEW,patched["src/state.cpp"])
+        self.assertIn("loaded_at_ = {};",patched["src/state.cpp"])
+        self.assertIn("hulk_ps_recent_serial_ = 0;",patched["src/state.cpp"])
+        self.assertEqual(patched["src/state.cpp"].count("loaded_at_ = {};"),1)
+        self.assertEqual(patched["src/state.cpp"].count("record_.Clear();"),1)
+
     def test_partial_install_rejected_and_no_implicit_gpu_edit(self):
         d = fixture()
         d["src/state.cpp"] = LOAD_NEW + "\n" + RESET_OLD
