@@ -77,8 +77,8 @@ class Pm4RegisterLifetimeTests(unittest.TestCase):
         self.assertEqual(change(patched), (patched, False))
         self.assertIn("HULK/PM4-PER-DRAW-BOUNDARY", patched)
         self.assertIn("hulk_prescan_draw_ends.emplace_back", patched)
-        self.assertIn("hulk_register_cursor + scan_.register_order.size()", patched)
-        self.assertIn("hulk_prescan_cursor + scan_.shader_loads.size()", patched)
+        self.assertIn("hulk_prescan_draw_ends[emitted].first - hulk_register_cursor", patched)
+        self.assertIn("hulk_prescan_draw_ends[emitted].second - hulk_prescan_cursor", patched)
         self.assertIn("hulk_shader_replay_ok = false;", patched)
         # The old gate checked ONLY the total by the end of the replay.
         # It could already emit a Draw after dropping its B SET or IM_LOAD.
@@ -102,8 +102,8 @@ class Pm4RegisterLifetimeTests(unittest.TestCase):
         # register must fail BEFORE the draw is published.
         guard = REPLAY_BOUNDARY_NEW.split(
             "            if (!hulk_restore_shader_words()", 1)[0]
-        self.assertIn("hulk_register_cursor + scan_.register_order.size()", guard)
-        self.assertIn("hulk_prescan_cursor + scan_.shader_loads.size()", guard)
+        self.assertIn("hulk_prescan_draw_ends[emitted].first - hulk_register_cursor", guard)
+        self.assertIn("hulk_prescan_draw_ends[emitted].second - hulk_prescan_cursor", guard)
         code = r"""
 #include <vector>
 #include <utility>
@@ -135,6 +135,8 @@ int main() {
   assert((attempt(1,3,2,1,1)==std::pair<bool,bool>{true,true}));
   assert((attempt(1,3,2,1,0)==std::pair<bool,bool>{false,false}));
   assert((attempt(2,5,0,2,0)==std::pair<bool,bool>{false,false}));
+  assert((attempt(0,SIZE_MAX,4,0,1)==std::pair<bool,bool>{false,false}));
+  assert((attempt(0,0,3,SIZE_MAX,2)==std::pair<bool,bool>{false,false}));
 }
 """
         with tempfile.TemporaryDirectory(prefix="hulk_draw_boundary_") as d:
