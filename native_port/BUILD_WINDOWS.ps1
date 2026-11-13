@@ -101,6 +101,9 @@ try {
   # of returning a fabricated zero for contradictory optional LOD flags.
   Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_sdk_hulk_computed_lod.py')) $Source
   Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_sdk_hulk_computed_lod.py'), $Sdk) $Source
+  # FPS control must be a real registered SDK cvar/limiter, not just
+  # decorative F10 buttons. Validate the source patch before game codegen.
+  Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_sdk_hulk_fps_probe.py')) $Source
   # Instrument real guest VdSwap frequency to locate the source of 30 FPS.
   $FpsPatch = Join-Path (Split-Path $Source -Parent) 'ci/patch_sdk_hulk_fps_probe.py'
   Invoke-Checked 'python' @($FpsPatch, $Sdk) $Source
