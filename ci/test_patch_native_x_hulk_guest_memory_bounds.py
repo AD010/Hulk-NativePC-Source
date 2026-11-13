@@ -6,7 +6,8 @@ import shutil
 import subprocess
 import tempfile
 from patch_native_x_hulk_guest_memory_bounds import (
-    patch, LOAD_OLD, LOAD_NEW, SHADER_OLD, SHADER_NEW, INLINE_OLD, INLINE_NEW
+    patch, LOAD_OLD, LOAD_NEW, SHADER_OLD, SHADER_NEW, INLINE_OLD, INLINE_NEW,
+    SHADER_CLASS_OLD, SHADER_CLASS_NEW
 )
 
 def safe(address, dwords):
@@ -15,13 +16,15 @@ def safe(address, dwords):
 
 class SourceMemoryBoundsTests(unittest.TestCase):
     def test_atomic_patch_idempotency_and_rejection(self):
-        source = "// HULK/PFP-PREDICATE HULK/PM4-SHADER-BOUNDS\n" + LOAD_OLD + "\n" + INLINE_OLD + "\n" + SHADER_OLD
+        source = "// HULK/PFP-PREDICATE HULK/PM4-SHADER-BOUNDS\n" + LOAD_OLD + "\n" + INLINE_OLD + "\n" + SHADER_OLD + "\n" + SHADER_CLASS_OLD
         installed, changed = patch(source)
         self.assertTrue(changed)
         self.assertEqual(patch(installed), (installed, False))
         self.assertIn("uint64_t(address) + uint64_t(size) * 4ull", installed)
         self.assertIn("uint64_t(address) + uint64_t(dwords) * 4ull", installed)
         self.assertIn("HULK/PM4-SHADER-INLINE-BOUNDS", installed)
+        self.assertIn("HULK/PM4-SHADER-STAGE-START", installed)
+        self.assertIn("immediate ? type > 1u : (type & 3u) > 1u", installed)
         self.assertNotIn(INLINE_OLD, installed)
         self.assertLess(installed.index(INLINE_NEW), installed.index(SHADER_NEW))
         self.assertLess(SHADER_NEW.index("out.complete = false"),
@@ -68,6 +71,45 @@ int main() {
             compiler = shutil.which("clang++") or shutil.which("g++")
             subprocess.run([compiler, "-std=c++20", "-Wall", "-Wextra",
                             "-Werror", str(cpp), "-o", str(exe)],
+                           check=True, capture_output=True, text=True)
+            subprocess.run([str(exe)], check=True, capture_output=True,
+                           text=True)
+
+    @unittest.skipUnless(shutil.which("clang++") or shutil.which("g++"),
+                         "C++ compiler unavailable")
+    def test_compiled_exact_shader_stage_and_start_guard(self):
+        # Exercise the EXACT C++ guard used by NativeX in 2x8x4
+        # stage/header combinations, including valid external addresses.
+        from patch_native_x_hulk_guest_memory_bounds import SHADER_CLASS_NEW
+        prefix = """
+#include <cassert>
+#include <cstdint>
+struct Scan { bool complete = true; };
+void Validate(bool immediate, uint32_t type, uint32_t start_size, Scan& out) {
+"""
+        suffix = """
+(void)dwords;
+}
+int main() {
+  for (int immediate = 0; immediate < 2; ++immediate)
+    for (uint32_t type = 0; type < 8; ++type)
+      for (uint32_t start = 0; start < 4; ++start) {
+        Scan out;
+        Validate(immediate != 0, type, (start << 16) | 1u, out);
+        const bool legal = start == 0 &&
+            (immediate != 0 ? type <= 1u : (type & 3u) <= 1u);
+        assert(out.complete == legal);
+      }
+}
+"""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            file = root / "shader_stage.cpp"
+            exe = root / "shader_stage"
+            file.write_text(prefix + SHADER_CLASS_NEW + suffix, encoding="utf-8")
+            compiler = shutil.which("clang++") or shutil.which("g++")
+            subprocess.run([compiler, "-std=c++20", "-Wall", "-Wextra",
+                            "-Werror", str(file), "-o", str(exe)],
                            check=True, capture_output=True, text=True)
             subprocess.run([str(exe)], check=True, capture_output=True,
                            text=True)

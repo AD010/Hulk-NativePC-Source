@@ -200,6 +200,11 @@ def replay(words: list[int], watch=WATCH, max_draws=MAX_DRAWS) -> dict:
                 continue
             kind, start_size = payload[:2]
             stage_id, words_count = kind & 3, start_size & 0xFFFF
+            if (start_size >> 16) or (op == 0x2b and kind > 1):
+                # HULK/PM4-SHADER-START-ORACLE: reject unsupported partial
+                # instruction-memory writes and invalid immediate stage IDs.
+                warnings.append(f'unsupported shader start/stage {op:02x}')
+                continue
             if stage_id not in (0, 1) or not words_count:
                 warnings.append(f'unresolved shader stage/length {op:02x}')
                 continue

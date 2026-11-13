@@ -83,6 +83,21 @@ class PM4OracleTests(unittest.TestCase):
                          '0x00000002')
         self.assertFalse(result['complete'])
 
+    def test_shader_start_offset_or_invalid_immediate_stage_preserves_old(self):
+        original = t3(0x2b, [1, 1, 0x01020304])
+        errors = [
+            t3(0x2b, [0x10001, 1, 0x99887766]),
+            t3(0x2b, [1, 0x10001, 0x99887766]),
+            t3(0x27, [0x1003, 1]),
+        ]
+        for broken in errors:
+            result = replay(original + broken + t3(0x36, [0x40]))
+            state = result['draw_snapshots'][0]['shader_programs']['ps']
+            self.assertEqual(state['sha256'],
+                             hashlib.sha256(struct.pack('>I', 0x01020304)).hexdigest())
+            self.assertEqual(result['shader_loads_by_stage']['ps'], 1)
+            self.assertFalse(result['complete'])
+
     def test_bad_immediate_does_not_clobber_previous_program(self):
         ps = t3(0x2b, [1, 1, 0x11223344])
         invalid = t3(0x2b, [1, 6, 0x12345678])

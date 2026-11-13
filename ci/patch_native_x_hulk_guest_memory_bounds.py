@@ -26,6 +26,17 @@ LOAD_NEW = """              // HULK/PM4-GUEST-MEMORY-BOUNDS: physical alias is
               }
 """ + LOAD_OLD
 
+SHADER_CLASS_OLD = "              uint32_t dwords = start_size & 0xFFFF;"
+SHADER_CLASS_NEW = SHADER_CLASS_OLD + """\n              // HULK/PM4-SHADER-STAGE-START: Xenia's Xenos CP only accepts
+              // VS/PS stage 0/1 and zero start offset for both IM_LOAD forms.
+              // IM_LOAD encodes stage in the low address bits; IM_LOAD_IMMEDIATE
+              // stores the stage as the entire first payload dword.
+              if ((start_size >> 16) != 0u ||
+                  (immediate ? type > 1u : (type & 3u) > 1u)) {
+                out.complete = false;
+                return;
+              }"""
+
 INLINE_OLD = "              if (immediate && dwords > count - 2) dwords = count - 2;"
 INLINE_NEW = """              // HULK/PM4-SHADER-INLINE-BOUNDS: a declared shader size
               // must fit the IM_LOAD_IMMEDIATE packet. Truncating invalid
@@ -46,19 +57,21 @@ SHADER_NEW = """              // HULK/PM4-SHADER-SOURCE-BOUNDS: no substituted s
 """ + SHADER_OLD
 
 def patch(src: str) -> tuple[str, bool]:
-    ready = (LOAD_NEW in src, SHADER_NEW in src, INLINE_NEW in src)
+    ready = (LOAD_NEW in src, SHADER_NEW in src, INLINE_NEW in src,
+             SHADER_CLASS_NEW in src)
     if all(ready):
         return src, False
     if any(ready) or "HULK/PM4-GUEST-MEMORY-BOUNDS" in src:
         raise ValueError("Partial Hulk PM4 guest source bounds patch")
     if "HULK/PFP-PREDICATE" not in src or "HULK/PM4-SHADER-BOUNDS" not in src:
         raise ValueError("Earlier BIN/SHADER bounds patch missing")
-    for old in (LOAD_OLD, SHADER_OLD, INLINE_OLD):
+    for old in (LOAD_OLD, SHADER_OLD, INLINE_OLD, SHADER_CLASS_OLD):
         if src.count(old) != 1:
             raise ValueError("NativeX PM4 source read anchor drift: " + old[:48])
     return (src.replace(LOAD_OLD, LOAD_NEW, 1)
                .replace(SHADER_OLD, SHADER_NEW, 1)
-               .replace(INLINE_OLD, INLINE_NEW, 1)), True
+               .replace(INLINE_OLD, INLINE_NEW, 1)
+               .replace(SHADER_CLASS_OLD, SHADER_CLASS_NEW, 1)), True
 
 def main():
     if len(sys.argv) != 2:
