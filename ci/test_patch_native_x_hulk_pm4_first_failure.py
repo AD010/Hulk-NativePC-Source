@@ -54,9 +54,11 @@ class TestHulkPm4FirstFailure(unittest.TestCase):
             patch(input_files)
         input_files = fixture()
         input_files["src/state.cpp"] = input_files["src/state.cpp"].replace(
-            "  if (header == 3) out.complete = false;\n", "")
+            "  if (header == 3) out.complete = false;\n", ""
+        input_files["src/state.cpp"] = input_files["src/state.cpp"].replace(
+            "  if (header == 2) out.complete = false;\n", "")
         with self.assertRaises(ValueError):
-            patch(input_files)  # fewer than five verified fail sites
+            patch(input_files)  # fewer than three verified fail sites
 
     def test_no_raster_or_descriptor_mutations(self):
         data, _ = patch(fixture())
