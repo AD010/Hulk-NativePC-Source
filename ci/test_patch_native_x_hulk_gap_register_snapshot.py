@@ -8,7 +8,8 @@ from pathlib import Path
 from patch_native_x_hulk_gap_register_snapshot import (
     change,HEAD_OLD,HEAD_NEW,DRAW_OLD,DRAW_NEW,
     TAIL_OLD,TAIL_NEW,DIAG_OLD,DIAG_NEW,
-    FLOAT_SCAN_OLD,FLOAT_SCAN_NEW,FLOAT_GATHER_OLD,FLOAT_GATHER_NEW
+    FLOAT_SCAN_OLD,FLOAT_SCAN_NEW,FLOAT_GATHER_OLD,FLOAT_GATHER_NEW,
+    BIN_MISMATCH_OLD,BIN_MISMATCH_NEW
 )
 
 def restore(first, second):
@@ -22,17 +23,45 @@ class Pm4RegisterLifetimeTests(unittest.TestCase):
     def test_atomic_patch_and_idempotence(self):
         src=("HULK/PM4-PRESCAN-SHADER-SNAPSHOT\n"+
              HEAD_OLD+DRAW_OLD+TAIL_OLD+DIAG_OLD+
-             FLOAT_SCAN_OLD+FLOAT_GATHER_OLD)
+             FLOAT_SCAN_OLD+FLOAT_GATHER_OLD+BIN_MISMATCH_OLD)
         fixed,did=change(src)
         self.assertTrue(did)
         self.assertEqual(change(fixed),(fixed,False))
         for fragment in (HEAD_NEW,DRAW_NEW,TAIL_NEW,DIAG_NEW,
-                         FLOAT_SCAN_NEW,FLOAT_GATHER_NEW):
+                         FLOAT_SCAN_NEW,FLOAT_GATHER_NEW,
+                         BIN_MISMATCH_NEW):
             self.assertIn(fragment,fixed)
         self.assertIn("hulk_register_cursor == hulk_prescan_register_order.size()",fixed)
         self.assertIn("prior.first != now.first",fixed)
         for wrong in ("upstream drift",HEAD_NEW+DRAW_OLD+TAIL_OLD):
             with self.assertRaises(ValueError):change(wrong)
+
+    def test_replay_keeps_validated_pfp_bin_even_on_failure(self):
+        # First pass wins even when second pass has fewer draws or fails
+        # after consuming some BIN_MASK / BIN_SELECT commands.
+        source=("HULK/PM4-PRESCAN-SHADER-SNAPSHOT\\n" +
+                HEAD_OLD + DRAW_OLD + TAIL_OLD + DIAG_OLD +
+                FLOAT_SCAN_OLD + FLOAT_GATHER_OLD + BIN_MISMATCH_OLD)
+        actual, changed = change(source)
+        self.assertTrue(changed)
+        self.assertIn("HULK/PM4-REPLAY-BIN-OWNER", actual)
+        self.assertIn("hulk_prescan_bin_mask = scan_.bin_mask", actual)
+        self.assertIn("hulk_prescan_bin_select = scan_.bin_select", actual)
+        self.assertIn("emitted != expected || !hulk_bin_replay_match", actual)
+        self.assertIn("scan_.bin_mask = hulk_prescan_bin_mask;", actual)
+        self.assertIn("scan_.bin_select = hulk_prescan_bin_select;", actual)
+        self.assertEqual(change(actual), (actual, False))
+        self.assertLess(actual.index("hulk_prescan_bin_mask ="),
+                        actual.index("const auto hulk_prescan_writes"))
+        verified_final = (0x01234567, 0xAAAABBBB)
+        poisoned_replay = (0x00110022, 0x33334444)
+        for complete, emitted, expected in ((False,1,3),(True,2,3),
+                                            (True,3,3)):
+            restored = poisoned_replay
+            replay_matched = restored == verified_final
+            if not complete or emitted != expected or not replay_matched:
+                restored = verified_final
+            self.assertEqual(restored, verified_final)
 
     def test_first_scan_owns_values_and_order(self):
         original=[(0,0x4806,0xDEADBEEF),(1,0x4807,0xAABBCCDD),
@@ -48,7 +77,7 @@ class Pm4RegisterLifetimeTests(unittest.TestCase):
     def test_xdk_draw_keeps_packet_float_constants(self):
         source=("HULK/PM4-PRESCAN-SHADER-SNAPSHOT\\n"+
                 HEAD_OLD+DRAW_OLD+TAIL_OLD+DIAG_OLD+
-                FLOAT_SCAN_OLD+FLOAT_GATHER_OLD)
+                FLOAT_SCAN_OLD+FLOAT_GATHER_OLD+BIN_MISMATCH_OLD)
         actual, did = change(source)
         self.assertTrue(did)
         self.assertIn("ScanPackets(base, p.scan_from, end, scan_, 0, false, true)", actual)
