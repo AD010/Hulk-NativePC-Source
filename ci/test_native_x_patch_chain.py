@@ -76,6 +76,27 @@ def commands():
             raise RuntimeError(f"NativeX patch ordering incorrect: {first} before {second}")
     return names
 
+def source_only_host_tests():
+    """Run the exact public-only unit tests before private XEX/codegen.
+
+    BUILD_WINDOWS.ps1 runs these at its very beginning, but formerly the
+    public preflight skipped them. Build #88 then failed in a private-log
+    step after every NativeX C++ source patch passed. Parse the existing
+    builder as the SINGLE authority, not a second manually copied list.
+    """
+    builder = BUILDER.read_text(encoding="utf-8")
+    parts = builder.split("  if (-not $GameRoot) {", 1)
+    if len(parts) != 2:
+        raise RuntimeError("Hulk game-input boundary missing from Windows builder")
+    before_private = parts[0]
+    rx = (r"Invoke-Checked 'python' @\(\(Join-Path "
+          r"\(Split-Path \$Source -Parent\) '(ci/test_[a-z0-9_]+\.py)'\)\)")
+    names = re.findall(rx, before_private)
+    if len(names) < 10 or len(names) != len(set(names)):
+        raise RuntimeError(f"Public-only host tests missing/duplicated: {len(names)}")
+    return names
+
+
 def checked(args,cwd=ROOT):
     result=subprocess.run(args,cwd=cwd,stdout=subprocess.PIPE,
                           stderr=subprocess.STDOUT,text=True,errors="replace")
@@ -87,6 +108,12 @@ def checked(args,cwd=ROOT):
 def run(sha=SHA):
     if sha not in (SHA, CANDIDATE_SHA):
         raise ValueError("NativeX revision must be one of the two explicitly audited pins")
+    # Fail fast, with PUBLIC synthetic-only test output, BEFORE touching
+    # copyrighted inputs. Re-run these again during the private build as
+    # defense in depth. The same builder is the source of both lists.
+    for name in source_only_host_tests():
+        checked([sys.executable, str(ROOT/name)])
+        print("[Hulk/public-host-preflight] OK", name, flush=True)
     # Every separate Hulk patch script compares its *actual* checkout HEAD
     # with this value. The candidate is not disguised as the old revision.
     os.environ["HULK_NATIVEX_SOURCE_SHA"] = sha
