@@ -38,10 +38,13 @@ SHADER_CLASS_NEW = SHADER_CLASS_OLD + """\n              // HULK/PM4-SHADER-STAG
               }"""
 
 INLINE_OLD = "              if (immediate && dwords > count - 2) dwords = count - 2;"
-INLINE_NEW = """              // HULK/PM4-SHADER-INLINE-BOUNDS: a declared shader size
-              // must fit the IM_LOAD_IMMEDIATE packet. Truncating invalid
-              // microcode silently can submit a corrupted shader.
-              if (immediate && (count < 2 || dwords > count - 2)) {
+# Earlier bin_predication performs this exact fail-closed inline shader
+# validation already. Never try to replace the now-absent legacy truncation
+# statement a SECOND time: that blocked source-only preflight #86.
+INLINE_NEW = """              // HULK/PM4-SHADER-BOUNDS: never truncate shader microcode.
+              // A partial load may decode the next PM4 packet as Xenos instructions.
+              if (immediate && (dwords == 0 || dwords > count - 2 ||
+                  (start_size >> 16) != 0 || (type & 3u) >= 2)) {
                 out.complete = false;
                 return;
               }"""
@@ -57,20 +60,20 @@ SHADER_NEW = """              // HULK/PM4-SHADER-SOURCE-BOUNDS: no substituted s
 """ + SHADER_OLD
 
 def patch(src: str) -> tuple[str, bool]:
-    ready = (LOAD_NEW in src, SHADER_NEW in src, INLINE_NEW in src,
-             SHADER_CLASS_NEW in src)
+    ready = (LOAD_NEW in src, SHADER_NEW in src, SHADER_CLASS_NEW in src)
+    if INLINE_NEW not in src:
+        raise ValueError("Pinned NativeX BIN inline shader guard missing/drift")
     if all(ready):
         return src, False
     if any(ready) or "HULK/PM4-GUEST-MEMORY-BOUNDS" in src:
         raise ValueError("Partial Hulk PM4 guest source bounds patch")
     if "HULK/PFP-PREDICATE" not in src or "HULK/PM4-SHADER-BOUNDS" not in src:
         raise ValueError("Earlier BIN/SHADER bounds patch missing")
-    for old in (LOAD_OLD, SHADER_OLD, INLINE_OLD, SHADER_CLASS_OLD):
+    for old in (LOAD_OLD, SHADER_OLD, SHADER_CLASS_OLD):
         if src.count(old) != 1:
             raise ValueError("NativeX PM4 source read anchor drift: " + old[:48])
     return (src.replace(LOAD_OLD, LOAD_NEW, 1)
                .replace(SHADER_OLD, SHADER_NEW, 1)
-               .replace(INLINE_OLD, INLINE_NEW, 1)
                .replace(SHADER_CLASS_OLD, SHADER_CLASS_NEW, 1)), True
 
 def main():

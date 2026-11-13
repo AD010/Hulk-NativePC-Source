@@ -16,16 +16,19 @@ def safe(address, dwords):
 
 class SourceMemoryBoundsTests(unittest.TestCase):
     def test_atomic_patch_idempotency_and_rejection(self):
-        source = "// HULK/PFP-PREDICATE HULK/PM4-SHADER-BOUNDS\n" + LOAD_OLD + "\n" + INLINE_OLD + "\n" + SHADER_OLD + "\n" + SHADER_CLASS_OLD
+        source = "// HULK/PFP-PREDICATE HULK/PM4-SHADER-BOUNDS\n" + LOAD_OLD + "\n" + INLINE_NEW + "\n" + SHADER_OLD + "\n" + SHADER_CLASS_OLD
         installed, changed = patch(source)
         self.assertTrue(changed)
         self.assertEqual(patch(installed), (installed, False))
         self.assertIn("uint64_t(address) + uint64_t(size) * 4ull", installed)
         self.assertIn("uint64_t(address) + uint64_t(dwords) * 4ull", installed)
-        self.assertIn("HULK/PM4-SHADER-INLINE-BOUNDS", installed)
+        self.assertIn("HULK/PM4-SHADER-BOUNDS", installed)
         self.assertIn("HULK/PM4-SHADER-STAGE-START", installed)
         self.assertIn("immediate ? type > 1u : (type & 3u) > 1u", installed)
         self.assertNotIn(INLINE_OLD, installed)
+        self.assertEqual(installed.count(INLINE_NEW), 1)
+        with self.assertRaisesRegex(ValueError, "BIN inline shader guard"):
+            patch(source.replace(INLINE_NEW, INLINE_OLD))
         self.assertLess(installed.index(INLINE_NEW), installed.index(SHADER_NEW))
         self.assertLess(SHADER_NEW.index("out.complete = false"),
                         SHADER_NEW.index("GuestPointer(base, address)"))
@@ -47,6 +50,10 @@ class SourceMemoryBoundsTests(unittest.TestCase):
 #include <cstdint>
 struct Scan { bool complete = true; };
 void Validate(bool immediate, uint32_t count, uint32_t dwords, Scan& out) {
+  uint32_t start_size = 0;
+  uint32_t type = 1;
+  // The preceding BIN packet validation rejects count < 2.
+  if (immediate && count < 2) { out.complete = false; return; }
 """
         suffix = """
 }
@@ -55,7 +62,7 @@ int main() {
     for (uint32_t size=0; size<128; ++size) {
       Scan inline_packet;
       Validate(true, count, size, inline_packet);
-      assert(inline_packet.complete == (count >= 2 && size <= count-2));
+      assert(inline_packet.complete == (count >= 2 && size > 0 && size <= count-2));
       Scan external_packet;
       Validate(false, count, size, external_packet);
       assert(external_packet.complete);
