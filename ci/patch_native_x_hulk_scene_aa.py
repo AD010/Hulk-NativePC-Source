@@ -67,6 +67,44 @@ PATCHES = {
 # Remove intentional no-op marker; the source is already exactly this way.
 PATCHES["src/renderer.cpp"].pop()
 
+# HULK/SCENE-AA-HALF-RESOLVE: Log195 shows 640x360/4x -> 640x360
+# resolves whose source AND destination already contain 2560x1440 host
+# pixels. The earlier detection erroneously required a 1280x720 guest
+# destination, so SMAA/FXAA was never applied (0 times per 600 frames).
+# Both forms are accepted ONLY for a full native-size, color-only,
+# 4xMSAA scene resolve, never for the HUD, depth or reduced targets.
+_old, _new = PATCHES["src/renderer.cpp"][2]
+_candidate_old = """      target->guest_width == g_profile->output_width &&
+      target->guest_height == g_profile->output_height &&
+      slice == 0 && level == 0 && !g_scene_antialiased;"""
+_candidate_new = """      // HULK/SCENE-AA-HALF-RESOLVE: accept guest output-size OR half-size
+      // guest resolve only when its host pixels cover the full native view.
+      source && source->width == target->width &&
+      source->height == target->height &&
+      target->width == g_scale.HostWidth(g_profile->output_width) &&
+      target->height == g_scale.HostHeight(g_profile->output_height) &&
+      ((target->guest_width == g_profile->output_width &&
+        target->guest_height == g_profile->output_height) ||
+       (target->guest_width * 2 == g_profile->output_width &&
+        target->guest_height * 2 == g_profile->output_height)) &&
+      slice == 0 && level == 0 && !g_scene_antialiased;"""
+if _new.count(_candidate_old) != 1:
+    raise ValueError("Hulk scene AA half-resolve condition drift")
+_new = _new.replace(_candidate_old, _candidate_new, 1)
+_gate_old = """      target->guest_width == g_profile->output_width &&
+      target->guest_height == g_profile->output_height &&
+      !(g_profile->scene_resolve_once && g_scene_antialiased)) {"""
+_gate_new = """      ((c.scene_caller &&
+        target->guest_width == g_profile->output_width &&
+        target->guest_height == g_profile->output_height) ||
+       hulk_scene_resolve) &&
+      !(g_profile->scene_resolve_once && g_scene_antialiased)) {"""
+if _new.count(_gate_old) != 1:
+    raise ValueError("Hulk scene AA outer gate drift")
+_new = _new.replace(_gate_old, _gate_new, 1)
+PATCHES["src/renderer.cpp"][2] = (_old, _new)
+
+
 def transform(source, rules):
     present = [new in source for old, new in rules]
     if all(present):
