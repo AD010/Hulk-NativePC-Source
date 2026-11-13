@@ -109,6 +109,35 @@ int main(){
   ScanPackets(reinterpret_cast<uint8_t*>(m.data()),nested_begin*4,(nested_begin+3)*4,
               cyclic,0,false,false);
   assert(!cyclic.complete && cyclic.indirect==9 && cyclic.draws==0);
+  // #198 actual false Type1 header previously consumed 8 float bytes
+  // as GPU registers, corrupting later fetch/shader state.
+  const int invalid_type1_begin=off;
+  m[off++]=0x44800000u; m[off++]=0x3F800000u; m[off++]=0x44340000u;
+  PacketScan invalid_type1;
+  ScanPackets(reinterpret_cast<uint8_t*>(m.data()),
+              invalid_type1_begin*4,off*4,invalid_type1,0,false,false);
+  assert(!invalid_type1.complete && invalid_type1.writes.empty());
+  const int valid_type1_begin=off;
+  m[off++]=0x40000000u | (0x140u << 11) | 0x120u;
+  m[off++]=0xAAAA0001u; m[off++]=0xBBBB0002u;
+  PacketScan valid_type1;
+  ScanPackets(reinterpret_cast<uint8_t*>(m.data()),
+              valid_type1_begin*4,off*4,valid_type1,0,false,false);
+  assert(valid_type1.complete && valid_type1.writes.size()==2);
+  assert(valid_type1.writes[0].first==0x120u);
+  assert(valid_type1.writes[1].first==0x140u);
+  const int invalid_type2_begin=off;
+  m[off++]=0xB1800001u;
+  PacketScan invalid_type2;
+  ScanPackets(reinterpret_cast<uint8_t*>(m.data()),
+              invalid_type2_begin*4,off*4,invalid_type2,0,false,false);
+  assert(!invalid_type2.complete);
+  const int valid_type2_begin=off;
+  m[off++]=0x80000000u;
+  PacketScan valid_type2;
+  ScanPackets(reinterpret_cast<uint8_t*>(m.data()),
+              valid_type2_begin*4,off*4,valid_type2,0,false,false);
+  assert(valid_type2.complete && valid_type2.writes.empty());
   // A truncated immediate shader load must be rejected before dereferencing
   // the absent second header dword or interpreting memory as microcode.
   const int bad_begin=off;
