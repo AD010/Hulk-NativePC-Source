@@ -44,6 +44,14 @@ recent-cache and the map-hit paths and remembers a newly shared guest view.
 Its D140 string anchor was verified unique against upstream `targets.cpp`;
 the new regression checks both alias paths and idempotence.
 
+## Fourth automated audit
+
+Run #98 reached the new D140 shared target regression but its source-only
+unit assertion incorrectly prohibited returning a cached target at all.
+It now requires the shared-write epoch synchronization to happen BEFORE
+returning from the D139 cache, retaining the optimization without stale
+Hulk EDRAM alias state. The actual upstream C++ anchor was verified unique.
+
 ## Mandatory acceptance gates before upgrading main
 - Complete sequence of production-ordered Hulk patches applies on latest upstream with every regression test passing.
 - NativeX C++ compiles on Windows x64 Release without turning off the source checks.
