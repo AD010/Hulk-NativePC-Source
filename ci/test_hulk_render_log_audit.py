@@ -95,7 +95,7 @@ class HulkLogAuditTests(unittest.TestCase):
         self.assertIn("sampled", " ".join(result["limitations"]))
 
     def test_log198_false_last_good_and_program_mismatch(self):
-        sample = "\\n".join([
+        sample = "\n".join([
             "[HULK/INCOMPLETE-XDK-DRAW] #1 range_ok=true bytes=984 "
             "packet_draws=0 fail_site=138 fail_type=0 fail_opcode=0x0 "
             "fail_depth=0 last_good_header=0x44800000 - discarded",
