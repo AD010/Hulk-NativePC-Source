@@ -37,7 +37,7 @@ class PM4OracleTests(unittest.TestCase):
 
     def test_predicated_constant_never_assumed_executed(self):
         state = t3(0x2d, [(1 << 16) | 6, 0x44a00000], pred=True)
-        r = replay(state + t3(0x36, [0], pred=True))
+        r = replay(state + t3(0x36, [0x40], pred=True))
         self.assertEqual(r['draw_snapshots'][0]['known_watched_registers'], {})
         self.assertTrue(r['draw_snapshots'][0]['predicate_state_unknown'])
         self.assertFalse(r['complete'])
