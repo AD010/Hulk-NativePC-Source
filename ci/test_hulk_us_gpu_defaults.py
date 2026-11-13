@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Gate default USA region and 30 FPS Vulkan FIFO against accidental regressions."""
+"""Gate USA region, baseline guest pacing and Vulkan FIFO defaults."""
 from pathlib import Path
 import tomllib
 import unittest
@@ -7,11 +7,14 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 
 class TestHulkUsGpuDefaults(unittest.TestCase):
-    def test_us_region_vsync_and_30_guest_fps(self):
+    def test_us_region_vsync_and_baseline_guest_pacing(self):
         config = tomllib.loads((ROOT / "native_port/incredible_hulk.toml").read_text(encoding="utf-8"))
         self.assertEqual(config["user_country"], 103)
         self.assertEqual(config["user_language"], 1)
-        self.assertEqual(config["gpu_guest_fps_limit"], 30)
+        # Zero leaves the original game pacing intact; it is not a physics unlock.
+        self.assertEqual(config["gpu_guest_fps_limit"], 0)
+        sdk_patch = (ROOT / "ci/patch_sdk_hulk_fps_probe.py").read_text()
+        self.assertIn('REXCVAR_DEFINE_INT32(gpu_guest_fps_limit, 0,', sdk_patch)
         self.assertEqual(config["vsync"], True)
         for key in ("vulkan_allow_present_mode_immediate",
                     "vulkan_allow_present_mode_mailbox",

@@ -8,7 +8,7 @@ import tempfile
 import unittest
 from patch_sdk_hulk_native_save_root import (
     INCLUDE_ANCHOR, NS_ANCHOR, ROOT_OLD, HEADER_OLD,
-    ROOT_NEW, HEADER_NEW, patch_cpp, SOURCE
+    ROOT_NEW, HEADER_NEW, LIST_OLD, LIST_NEW, patch_cpp, SOURCE
 )
 
 SDK = pathlib.Path(sys.argv.pop(1)) if len(sys.argv)>1 and not sys.argv[1].startswith("-") else None
@@ -16,13 +16,14 @@ SDK = pathlib.Path(sys.argv.pop(1)) if len(sys.argv)>1 and not sys.argv[1].start
 class TestHulkNativeSaveRoot(unittest.TestCase):
     def test_atomic_patch_against_real_sdk_or_fixture(self):
         cpp=(SDK/SOURCE).read_text(encoding="utf-8") if SDK else (
-            INCLUDE_ANCHOR+NS_ANCHOR+ROOT_OLD+"\n"+HEADER_OLD)
+            INCLUDE_ANCHOR+NS_ANCHOR+ROOT_OLD+"\n"+HEADER_OLD+"\n"+LIST_OLD)
         installed,changed=patch_cpp(cpp)
         self.assertTrue(changed)
         self.assertEqual(patch_cpp(installed),(installed,False))
         self.assertIn('REXCVAR_DEFINE_BOOL(hulk_native_pc_saves, false',installed)
         self.assertIn("HULK/NATIVE-PC-SAVE-ROOT",installed)
         self.assertIn("HULK/NATIVE-PC-SAVE-HEADER",installed)
+        self.assertIn(LIST_NEW, installed)
         self.assertIn("return native / \"Headers\" /",installed)
         self.assertLess(installed.index(ROOT_NEW),installed.index(HEADER_NEW))
         with self.assertRaises(ValueError):
@@ -43,6 +44,13 @@ class TestHulkNativeSaveRoot(unittest.TestCase):
 #include "native_windows_save_root.h"
 int main() {
   using namespace hulk::native_save;
+  assert(IsMetadataDirectory("Headers", true));
+  assert(IsMetadataDirectory("HEADERS", true));
+  assert(IsMetadataDirectory("headers", true));
+  assert(!IsMetadataDirectory("Headers", false));
+  assert(!IsMetadataDirectory("HULK.SAV", true));
+  assert(!IsMetadataDirectory("Headers2", true));
+  assert(!IsMetadataDirectory("", true));
   const std::filesystem::path documents = std::filesystem::path("C:/Users/Test/OneDrive/Documents");
   const auto saved=RootUnderDocuments(documents,0x534507F1,1);
   assert(saved ==

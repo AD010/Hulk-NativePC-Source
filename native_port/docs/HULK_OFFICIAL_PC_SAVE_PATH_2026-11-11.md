@@ -241,3 +241,19 @@ successful in-game reopen or recovery from interrupted writes on Windows.
 The `hulk_native_pc_saves` runtime switch remains false until in-game
 load/save tests confirm continuity. User is not required to run this manually
 until there is a validated opt-in migration path in the future launcher.
+
+
+## 13 November 2026 — exclude metadata from native package enumeration
+
+Source inspection found a concrete native-path defect: `ResolvePackageRoot`
+places `Headers` under `SavedGames`, while `ContentManager::ListContent`
+enumerates every subdirectory and invents fallback package metadata whenever
+its header cannot be read. Thus the metadata directory itself becomes a bogus
+save entry. The SDK adapter now excludes the exact `Headers` directory,
+case-insensitively, only when the native Windows root is selected. Legacy
+storage and other title/content types retain their original behavior.
+The change does not enable native saves, migrate, delete or overwrite files.
+
+Validation: two native-root tests pass against the actual SDK source, including
+compiled C++ path/title/metadata-name checks; three import tests also pass.
+Windows in-game save/reload and atomic payload writes remain unverified.

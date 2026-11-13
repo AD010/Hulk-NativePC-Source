@@ -245,3 +245,55 @@ incomplete XDK draw scans, but do not establish which operation produced a
 visible flash. The sampler/resource/scale source review has not established
 a new rendering fix. Do not replace missing evidence with arbitrary clamps,
 removed effects, forced 1x resolution, or a claim of graphical parity.
+
+
+## 13 November 2026 — never sample an allocated but unwritten resolve
+
+A separate source-level defect exists in both `ResolvedTextures::FindNewest`
+overloads. `GetOrCreate` allocates a texture with `last_resolve == 0`, while
+`Resolve` may subsequently return before copying (for example, when its
+requested destination slice has no view). Both address lookup overloads
+previously returned this allocated image even though `Touch` had never recorded
+a completed resolve. Texture sampling or presentation could consequently read
+uninitialized GPU data instead of following the existing no-resolve path.
+
+The existing resolved-resource patch now requires nonzero `last_resolve` at
+both lookup returns. Valid completed resolves remain selectable. An invalidated
+newest resolve still returns null; the change deliberately does not resurrect
+an older version. No surfaces are cleared to invented colors, no effects or
+depth tests are disabled, and scale is unchanged. Per-slice completeness and
+whether every blit path reports actual success remain separate audit questions.
+
+Four resource-guard tests pass. A compiled C++ regression executes the exact
+old/new lookup-return expressions: the old expression exposes an unwritten
+image, the replacement rejects it, accepts a completed image, and rejects
+invalidated/null images. This proves the source defect and local fix, not
+that it caused the transient color flashes in log 194 or fixes the scale>1
+pixel grid. No Windows Actions compilation or game visual test was launched.
+
+
+## 13 November evening — forward Resolve physical identity
+
+Rebased pending fixes onto main 6cc4297, retaining its newer PM4 boundary,
+BIN predication, depth/stencil and FPS work. Review found an asymmetry in
+`patch_native_x_hulk_shared_write_order.py`: reverse alias selection compares
+physical image identities and latest physical write epochs, while forward
+`FindMsaaAlias` consumption still compared `HostTarget*` and per-view stamps.
+Two distinct guest descriptors sharing one ITexture could therefore satisfy
+the forward alias test and enter coordinate reinterpretation for an image
+already represented by the source. A separate candidate could also appear
+newer than a stale source view although older than its actual physical image.
+
+Both directions now require a distinct physical image and a newer physical
+write epoch. A compiled C++ test executes the exact old/new forward condition:
+old code selects a same-image alias, fixed code rejects it, rejects an older
+distinct image, accepts a newer distinct image even with a stale descriptor
+stamp, and handles null/self candidates. No guest addresses, shader bytes,
+scale settings or effects were changed. This is a tested source fix, not
+runtime proof of elimination of log198's flashes or the scale>1 grid.
+
+The current-main public preflight also failed before renderer preparation:
+`test_hulk_us_gpu_defaults.py` still required gpu_guest_fps_limit=30 after
+main changed configuration and SDK default to 0 to preserve original guest
+pacing. The test now requires that intentional zero default in BOTH places;
+it does not enable an FPS unlock or assert corrected high-FPS physics.

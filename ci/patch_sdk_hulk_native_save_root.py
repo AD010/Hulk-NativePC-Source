@@ -67,6 +67,17 @@ HEADER_NEW = """std::filesystem::path ContentManager::ResolvePackageHeaderPath(c
   if (content_type == XContentType::kMarketplaceContent) {"""
 
 
+LIST_OLD = """  auto file_infos = rex::filesystem::ListFiles(package_root);
+  for (const auto& file_info : file_infos) {"""
+LIST_NEW = """  const bool hulk_native_root = !hulk::native_save::WindowsRoot(
+      title_id, uint32_t(content_type), REXCVAR_GET(hulk_native_pc_saves)).empty();
+  auto file_infos = rex::filesystem::ListFiles(package_root);
+  for (const auto& file_info : file_infos) {
+    // Headers is metadata, not a save package. Do not manufacture a fallback
+    // XCONTENT entry when its nonexistent package header cannot be read.
+    if (hulk::native_save::IsMetadataDirectory(file_info.name, hulk_native_root)) continue;"""
+
+
 def replace_once(s: str, old: str, new: str) -> str:
     count = s.count(old)
     if count != 1:
@@ -76,14 +87,14 @@ def replace_once(s: str, old: str, new: str) -> str:
 
 def patch_cpp(s: str) -> tuple[str, bool]:
     ready = all(part in s for part in
-                (INCLUDE_NEW, NS_NEW, ROOT_NEW, HEADER_NEW))
+                (INCLUDE_NEW, NS_NEW, ROOT_NEW, HEADER_NEW, LIST_NEW))
     if ready:
         return s, False
     if any(part in s for part in
-           (INCLUDE_NEW, NS_NEW, ROOT_NEW, HEADER_NEW)) or "HULK/NATIVE-PC-SAVE-" in s:
+           (INCLUDE_NEW, NS_NEW, ROOT_NEW, HEADER_NEW, LIST_NEW)) or "HULK/NATIVE-PC-SAVE-" in s:
         raise ValueError("Partial native save root install")
     for old,new in ((INCLUDE_ANCHOR,INCLUDE_NEW),(NS_ANCHOR,NS_NEW),
-                    (ROOT_OLD,ROOT_NEW),(HEADER_OLD,HEADER_NEW)):
+                    (ROOT_OLD,ROOT_NEW),(HEADER_OLD,HEADER_NEW),(LIST_OLD,LIST_NEW)):
         s = replace_once(s, old, new)
     return s, True
 

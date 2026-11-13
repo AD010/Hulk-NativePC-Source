@@ -71,6 +71,19 @@ def patch_text(source: str) -> tuple[str, bool]:
         source = source.replace(old, new, 1)
     return source, True
 
+# Allocation is not a completed resolve. An early return after GetOrCreate
+# (for example an invalid destination slice) leaves last_resolve at zero.
+LOOKUP_OLD = "  return newest && !newest->invalidated ? newest : nullptr;"
+LOOKUP_NEW = "  return newest && newest->last_resolve && !newest->invalidated ? newest : nullptr;"
+
+def patch_lookup(source: str) -> tuple[str, bool]:
+    if source.count(LOOKUP_NEW) == 2 and LOOKUP_OLD not in source:
+        return source, False
+    if source.count(LOOKUP_OLD) != 2 or LOOKUP_NEW in source:
+        raise ValueError("Pinned NativeX completed-resolve lookup anchors drifted")
+    return source.replace(LOOKUP_OLD, LOOKUP_NEW), True
+
+
 def main() -> None:
     if len(sys.argv) != 2:
         raise SystemExit("Usage: patch_native_x_hulk_resolved_resource_guard.py <NativeX checkout>")
@@ -81,6 +94,8 @@ def main() -> None:
         raise ValueError("Unexpected NativeX revision: " + actual)
     path = root / "src/targets.cpp"
     updated, changed = patch_text(path.read_text(encoding="utf-8"))
+    updated, lookup_changed = patch_lookup(updated)
+    changed = changed or lookup_changed
     if changed:
         path.write_text(updated, encoding="utf-8", newline="\n")
     print("Hulk resolved resource Vulkan descriptor guard:",

@@ -109,16 +109,24 @@ REVERSE_NEW = """    // HULK/REVERSE-ALIAS-PHYSICAL: shared 1x/4x storage means 
         hulk_alias_write > hulk_source_write) {"""
 
 
+FORWARD_OLD = "  bool aliased = alias && alias != source && alias->written > source->written;"
+FORWARD_NEW = """  // HULK/FORWARD-ALIAS-PHYSICAL: 1x and 4x descriptors may already
+  // share one native image. Only a newer DISTINCT image needs reinterpretation.
+  bool aliased = alias && alias->texture.RawPtr() != source->texture.RawPtr() &&
+      g_targets.HulkSharedLatestWrite(*alias) > g_targets.HulkSharedLatestWrite(*source);"""
+
 def patch_renderer(source: str) -> tuple[str, bool]:
-    if source.count(REVERSE_NEW) == 1:
-        if source.count(REVERSE_OLD):
-            raise ValueError("Partial Hulk physical reverse-alias condition")
+    pairs = ((REVERSE_OLD, REVERSE_NEW), (FORWARD_OLD, FORWARD_NEW))
+    if all(source.count(new) == 1 and old not in source for old, new in pairs):
         return source, False
-    if source.count(REVERSE_OLD) != 1 or "HULK/REVERSE-ALIAS" not in source:
+    if "HULK/REVERSE-ALIAS" not in source:
         raise ValueError("Expected the existing pinned Hulk reverse-alias source")
-    if "HULK/REVERSE-ALIAS-PHYSICAL" in source:
-        raise ValueError("Partial reverse alias stabilization")
-    return source.replace(REVERSE_OLD, REVERSE_NEW, 1), True
+    for old, new in pairs:
+        if source.count(old) != 1 or new in source:
+            raise ValueError("Partial or drifted physical-image alias condition")
+    for old, new in pairs:
+        source = source.replace(old, new, 1)
+    return source, True
 
 
 def replace_once(s: str, old: str, new: str) -> str:

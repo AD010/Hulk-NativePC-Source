@@ -4,6 +4,7 @@
 // Keep the original 2008 PC HULK.sav strictly outside this namespace.
 #include <cstdint>
 #include <filesystem>
+#include <string>
 #ifdef _WIN32
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -23,6 +24,16 @@
 namespace hulk::native_save {
 inline constexpr uint32_t kHulkTitle = 0x534507F1u;
 inline constexpr uint32_t kSavedGame = 0x00000001u;
+
+// Windows names are case-insensitive even when tests run on a POSIX host.
+// Apply only to the selected native namespace, never to legacy packages.
+inline bool IsMetadataDirectory(const std::filesystem::path& leaf, bool native_root) {
+  if (!native_root) return false;
+  auto name = leaf.wstring();
+  if (name.size() != 7) return false;
+  for (auto& c : name) if (c >= L'A' && c <= L'Z') c += L'a' - L'A';
+  return name == L"headers";
+}
 
 inline std::filesystem::path RootUnderDocuments(
     const std::filesystem::path& documents, uint32_t title, uint32_t type) {
