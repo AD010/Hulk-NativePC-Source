@@ -82,11 +82,52 @@ def replay(words: list[int], watch=WATCH, max_draws=MAX_DRAWS) -> dict:
         counters['type3'] += 1
         if h & 1:
             counters['predicated_packets'] += 1
-            # BIN predicate state isn't available from this standalone stream.
-            # Snapshot possible draws but never apply uncertain register writes.
+            # HULK/PM4-PREDICATE-UNKNOWN: the standalone dump doesn't
+            # establish persistent BIN_MASK/BIN_SELECT. A predicated packet
+            # can execute or not, so stale program/register identities must
+            # NOT be reported as verified when either outcome changes state.
             if op not in (0x22, 0x36):
                 warnings.append(f'predicated state packet {op:02x}: result unknown')
+                affected = None
+                if op == 0x2d and n >= 2:
+                    desc = payload[0]
+                    cls = (desc >> 16) & 0xff
+                    if cls in BASE:
+                        affected = (BASE[cls] + (desc & 0x7ff), n - 1)
+                elif op in (0x55, 0x56) and n >= 2:
+                    affected = (payload[0] & 0xffff, n - 1)
+                elif op == 0x2f and n >= 3:
+                    desc = payload[1]
+                    cls = (desc >> 16) & 0xff
+                    if cls in BASE:
+                        affected = (BASE[cls] + (desc & 0x7ff),
+                                    payload[2] & 0xfff)
+                if affected:
+                    mark_unknown(*affected)
+                elif op in (0x27, 0x2b) and n >= 1:
+                    stage_id = payload[0] & 3
+                    stages = ('vs',) if stage_id == 0 else (
+                        ('ps',) if stage_id == 1 else ('vs', 'ps'))
+                    for stage in stages:
+                        programs[stage] = {
+                            'source': 'predicated_unresolved',
+                            'dwords': None, 'sha256': None,
+                            'external_guest_address': None,
+                        }
+                else:
+                    # Unknown predicated packet/indirect buffer may change
+                    # anything: don't leave a misleading known state behind.
+                    for reg in tuple(known):
+                        mark_unknown(reg, 1)
+                    for stage in ('vs', 'ps'):
+                        programs[stage] = {
+                            'source': 'predicated_unresolved',
+                            'dwords': None, 'sha256': None,
+                            'external_guest_address': None,
+                        }
                 continue
+            # Even a well-formed draw may not execute in any selected BIN.
+            warnings.append(f'predicated DRAW_INDX {op:02x}: execution unknown')
         if op == 0x2d and n >= 2:
             desc = payload[0]; cls = (desc >> 16) & 0xff
             if cls not in BASE:

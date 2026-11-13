@@ -62,6 +62,27 @@ class PM4OracleTests(unittest.TestCase):
         self.assertEqual(first['shader_programs']['ps']['sha256'], expected)
         self.assertFalse(r['complete'])
 
+    def test_predicated_shader_does_not_reuse_stale_known_hash(self):
+        original = t3(0x2b, [1, 1, 0x10203040])
+        conditional = t3(0x2b, [1, 1, 0xdeadbeef], pred=True)
+        result = replay(original + conditional + t3(0x36, [0x40]))
+        state = result['draw_snapshots'][0]['shader_programs']['ps']
+        self.assertIsNone(state['sha256'])
+        self.assertEqual(state['source'], 'predicated_unresolved')
+        self.assertFalse(result['complete'])
+        self.assertEqual(result['shader_loads_by_stage']['ps'], 1)
+
+    def test_predicated_constant_invalidates_only_its_registers(self):
+        known = t3(0x2d, [(1 << 16), 0x00000002, 0x00000002])
+        changed = t3(0x56, [0x4800, 0x44a00000], pred=True)
+        result = replay(known + changed + t3(0x36, [0x40]))
+        draw = result['draw_snapshots'][0]
+        self.assertNotIn('0x4800', draw['known_watched_registers'])
+        self.assertIn('0x4800', draw['unresolved_watched_registers'])
+        self.assertEqual(draw['known_watched_registers']['0x4801'],
+                         '0x00000002')
+        self.assertFalse(result['complete'])
+
     def test_bad_immediate_does_not_clobber_previous_program(self):
         ps = t3(0x2b, [1, 1, 0x11223344])
         invalid = t3(0x2b, [1, 6, 0x12345678])
