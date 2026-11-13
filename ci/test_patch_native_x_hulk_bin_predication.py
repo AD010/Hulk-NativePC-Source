@@ -127,6 +127,15 @@ class TestHulkPfpPatch(unittest.TestCase):
         self.assertLess(cpp.index("HULK/PM4-SET-RANGE"),
                         cpp.index("for (uint32_t i = 1; i < count; ++i) out.writes.emplace_back"))
 
+    def test_constant_class_windows_protect_fetch_and_bool(self):
+        cpp = self.patched["src/state.cpp"]
+        self.assertEqual(cpp.count("HULK/PM4-CLASS-BOUNDS"), 2)
+        self.assertIn("constant_type == 1u ? 192u", cpp)
+        self.assertIn("constant_type == 2u ? 8u", cpp)
+        self.assertIn("constant_type == 3u ? 32u", cpp)
+        self.assertIn("size > hulk_class_words - hulk_class_offset", cpp)
+        self.assertIn("count - 1 > hulk_class_words - hulk_class_offset", cpp)
+
     def test_set_constant2_and_shader_constants_are_bounded(self):
         cpp = self.patched["src/state.cpp"]
         self.assertIn("HULK/PM4-DIRECT-SET-RANGE", cpp)
