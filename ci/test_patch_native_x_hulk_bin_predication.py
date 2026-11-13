@@ -10,10 +10,19 @@ from pathlib import Path
 from patch_native_x_hulk_bin_predication import transform, BIN_SWITCH
 
 def fixture():
-    cpp = '''      case 1:
+    cpp = '''      case 0: {
+        uint32_t count = ((header >> 16) & 0x3FFF) + 1;
+        uint32_t reg = header & 0x7FFF;
+        bool one = (header >> 15) & 1;
+        if (p + 4 * count > end) return void(out.complete = false);
+      }
+      case 1:
         if (p + 8 > end) return void(out.complete = false);
       case 2:
         break;
+      case 3: {
+        uint32_t opcode = (header >> 8) & 0x7F;
+      }
         if ((header & 1) && (opcode == 0x22 || opcode == 0x36)) {
           ++out.predicated;
           ScanDraw(base, opcode, p, count, out);
@@ -166,6 +175,15 @@ class TestHulkPfpPatch(unittest.TestCase):
         self.assertIn("if (!out.complete) return;", s)
         self.assertNotIn("if (depth == 0) {", s)
         self.assertIn("opcode == 0x37 || opcode == 0x3F", s)
+
+    def test_type0_register_bounds_and_type3_predicate_only(self):
+        cpp = self.patched["src/state.cpp"]
+        self.assertIn("HULK/PM4-TYPE0-RANGE", cpp)
+        self.assertIn("(!one && count > rex::graphics::RegisterFile::kRegisterCount - reg)", cpp)
+        self.assertIn("HULK/PM4-TYPE3-RESERVED", cpp)
+        self.assertIn("if (header & 0xFEu) return void(out.complete = false);", cpp)
+        self.assertEqual(0xC0025800 & 0xFE, 0)  # actual Hulk legitimate SET
+        self.assertNotEqual(0xFFCCCCCC & 0xFE, 0)  # Hulk #198 false Type3
 
     def test_reserved_type1_type2_packet_bits_rejected(self):
         source = self.patched["src/state.cpp"]
