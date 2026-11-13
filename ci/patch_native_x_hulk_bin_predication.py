@@ -104,20 +104,20 @@ def patch_state(source: str) -> str:
     # GPU register packets. Reject before reading two unrelated register
     # values; a malformed scan cannot contaminate the next Draw.
     source = once(source,
-        "      case 1:\\n        if (p + 8 > end) return void(out.complete = false);",
-        "      case 1:\\n"
-        "        // HULK/PM4-TYPE1-RESERVED: real Type1 has only two 11-bit indices.\\n"
-        "        // Bits 22..29 are reserved (xenos::MakePacketType1).\\n"
-        "        if ((header & 0x3FC00000u) != 0u) return void(out.complete = false);\\n"
+        "      case 1:\n        if (p + 8 > end) return void(out.complete = false);",
+        "      case 1:\n"
+        "        // HULK/PM4-TYPE1-RESERVED: real Type1 has only two 11-bit indices.\n"
+        "        // Bits 22..29 are reserved (xenos::MakePacketType1).\n"
+        "        if ((header & 0x3FC00000u) != 0u) return void(out.complete = false);\n"
         "        if (p + 8 > end) return void(out.complete = false);",
         "type1 reserved bits")
     # Type-2 is a one-dword no-op with exactly the 0x80000000 header.
     # Garbage such as 0xB1800001 must not act as a valid PM4 packet.
     source = once(source,
-        "      case 2:\\n        break;",
-        "      case 2:\\n"
-        "        // HULK/PM4-TYPE2-RESERVED: the Xenos Type2 NOP has no payload.\\n"
-        "        if (header != 0x80000000u) return void(out.complete = false);\\n"
+        "      case 2:\n        break;",
+        "      case 2:\n"
+        "        // HULK/PM4-TYPE2-RESERVED: the Xenos Type2 NOP has no payload.\n"
+        "        if (header != 0x80000000u) return void(out.complete = false);\n"
         "        break;",
         "type2 reserved bits")
     # The PFP supports both ordinary IB (0x3F) and prefetch-pipelined
