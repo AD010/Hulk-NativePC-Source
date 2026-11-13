@@ -20,7 +20,7 @@ class HulkStencilGridTests(unittest.TestCase):
         self.assertIn("!aliased", result)
         self.assertIn("source->samples == 1", result)
         self.assertIn("from.width == to.width", result)
-        self.assertNotIn("!cube && source->stencil_srv) {", OLD[:20])
+        self.assertNotIn(OLD, result)
         for malformed in ("unreviewed", OLD, "HULK/DEPTH-STENCIL-GRID-PARITY"):
             with self.assertRaises(ValueError):
                 patch_text(malformed)
