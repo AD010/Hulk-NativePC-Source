@@ -189,12 +189,14 @@ class TestHulkPfpPatch(unittest.TestCase):
 
     def test_failed_unhooked_gap_restores_bin_predicate(self):
         cpp = self.patched["src/state.cpp"]
-        self.assertIn("HULK/PM4-GAP-BIN-ROLLBACK", cpp)
-        self.assertIn("hulk_bin_mask_before_gap = scan_.bin_mask", cpp)
-        self.assertIn("hulk_bin_select_before_gap = scan_.bin_select", cpp)
+        # The original Hulk PFP prescan already snapshots and restores
+        # bin predicate state when ScanPackets rejects a malformed stream.
+        # Verify the existing protection; do not insert a duplicate patch.
+        self.assertIn("hulk_bin_mask_at_gap = scan_.bin_mask", cpp)
+        self.assertIn("hulk_bin_select_at_gap = scan_.bin_select", cpp)
         self.assertIn("if (!scan_.complete) {", cpp)
-        self.assertIn("scan_.bin_mask = hulk_bin_mask_before_gap", cpp)
-        self.assertIn("scan_.bin_select = hulk_bin_select_before_gap", cpp)
+        self.assertIn("scan_.bin_mask = hulk_bin_mask_at_gap", cpp)
+        self.assertIn("scan_.bin_select = hulk_bin_select_at_gap", cpp)
         # The validator may have applied a BIN change before rejecting a
         # float payload. Such failed PM4 state is never allowed to persist.
         first_mask, first_select = 0xFFFFFFFF, 0xFFFFFFFF
