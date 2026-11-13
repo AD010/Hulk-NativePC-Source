@@ -41,6 +41,11 @@ PATCH = """  // HULK/INCOMPLETE-XDK-DRAW-GUARD: a truncated or malformed PM4 cal
       REXLOG_WARN("[HULK/PRESENT-FRAME-RECOVERY] #{} incomplete PM4 tail; "
                   "preserved original XDK Present without replaying partial writes", n);
     last_hulk_segment_valid_ = false;
+    // HULK/XDK-BIN-TRANSACTION: an incomplete XDK packet scan did
+    // not commit. Undo every BIN_MASK/SELECT change made by the
+    // rejected call, including scans at nested KickSegment boundaries.
+    scan_.bin_mask = p.hulk_bin_mask_at_enter;
+    scan_.bin_select = p.hulk_bin_select_at_enter;
     scan_.Clear();
     last_.call = call;
     last_.draw = false;
@@ -82,6 +87,11 @@ PATCH = """  // HULK/INCOMPLETE-XDK-DRAW-GUARD: a truncated or malformed PM4 cal
     // TrackedCall with stale shaders and index data. Cancel that deferred draw.
     inline_begin_.pending = false;
     inline_begin_.end = 0;
+    // HULK/XDK-BIN-TRANSACTION: Clear intentionally preserves the
+    // bin predicate for valid calls. On a rejected XDK call it MUST be
+    // restored from Enter, otherwise future PM4 draws inherit bad BINs.
+    scan_.bin_mask = p.hulk_bin_mask_at_enter;
+    scan_.bin_select = p.hulk_bin_select_at_enter;
     scan_.Clear();
     return nullptr;
   }
@@ -97,6 +107,48 @@ def patch(source: str) -> tuple[str, bool]:
         raise ValueError("NativeX XDK Leave/Gather anchor drift")
     return source.replace(ANCHOR, PATCH, 1), True
 
+# XDK Enter may be followed by a nested segment Kick before Leave.
+# Checkpoint the entire outer call rather than the last individual segment.
+PENDING_HEADER_OLD = """    uint64_t fetch_dirty = 0;
+  };
+
+  // The registers a finished call changed"""
+PENDING_HEADER_NEW = """    uint64_t fetch_dirty = 0;
+    // HULK/XDK-BIN-TRANSACTION: the actual beginning of this XDK call.
+    uint64_t hulk_bin_mask_at_enter = 0xFFFFFFFFull;
+    uint64_t hulk_bin_select_at_enter = 0xFFFFFFFFull;
+  };
+
+  // The registers a finished call changed"""
+
+ENTER_OLD = """  p.fetch_dirty = fetch_dirty;
+  scan_.Clear();"""
+ENTER_NEW = """  p.fetch_dirty = fetch_dirty;
+  // HULK/XDK-BIN-TRANSACTION: preserve the state at the beginning of
+  // this call, before any nested segment scan can update BIN registers.
+  p.hulk_bin_mask_at_enter = scan_.bin_mask;
+  p.hulk_bin_select_at_enter = scan_.bin_select;
+  scan_.Clear();"""
+
+
+def patch_header(src: str) -> tuple[str, bool]:
+    if PENDING_HEADER_NEW in src:
+        return src, False
+    if "HULK/XDK-BIN-TRANSACTION" in src:
+        raise ValueError("Partial XDK predicate transaction header")
+    if src.count(PENDING_HEADER_OLD) != 1:
+        raise ValueError("XDK Pending header anchor mismatch")
+    return src.replace(PENDING_HEADER_OLD, PENDING_HEADER_NEW, 1), True
+
+
+def patch_enter(src: str) -> tuple[str, bool]:
+    if ENTER_NEW in src:
+        return src, False
+    if src.count(ENTER_OLD) != 1:
+        raise ValueError("XDK Enter checkpoint anchor mismatch")
+    return src.replace(ENTER_OLD, ENTER_NEW, 1), True
+
+
 def main():
     if len(sys.argv) != 2:
         raise SystemExit("Usage: patch_native_x_hulk_incomplete_xdk_draw.py NativeXRoot")
@@ -105,12 +157,20 @@ def main():
         ["git", "-C", str(root), "rev-parse", "HEAD"], text=True).strip()
     if PIN not in PINS or actual != PIN:
         raise ValueError("Unreviewed NativeX source SHA " + actual)
-    target = root / "src/state.cpp"
-    output, changed = patch(target.read_text(encoding="utf-8"))
-    if changed:
-        target.write_text(output, encoding="utf-8", newline="\n")
-    print("Hulk incomplete XDK PM4 draw fail-closed guard:",
-          "installed" if changed else "already installed")
+    state_cpp = root / "src/state.cpp"
+    state_h = root / "src/state.h"
+    cpp, header = (state_cpp.read_text(encoding="utf-8"),
+                   state_h.read_text(encoding="utf-8"))
+    enter, changed_enter = patch_enter(cpp)
+    result, changed_guard = patch(enter)
+    hdr, changed_header = patch_header(header)
+    if len({changed_enter, changed_guard, changed_header}) != 1:
+        raise ValueError("Mixed XDK predicate transaction / draw guard patch; refusing write")
+    if changed_enter:
+        state_cpp.write_text(result, encoding="utf-8", newline="\n")
+        state_h.write_text(hdr, encoding="utf-8", newline="\n")
+    print("Hulk incomplete XDK PM4 fail-closed + BIN rollback:",
+          "installed" if changed_enter else "already installed")
 
 if __name__ == "__main__":
     main()
