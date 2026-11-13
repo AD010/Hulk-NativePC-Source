@@ -4,7 +4,7 @@ import unittest
 from patch_native_x_hulk_ps_recent_load import (
     patch, HEADER_GETTER_OLD, HEADER_GETTER_NEW,
     HEADER_FIELD_OLD, HEADER_FIELD_NEW, LOAD_OLD, LOAD_NEW,
-    RESET_OLD, RESET_NEW, LOG_OLD, LOG_NEW, ARGS_OLD, ARGS_NEW)
+    RESET_OLD, RESET_NEW, RESET_D140_OLD, RESET_D140_NEW, LOG_OLD, LOG_NEW, ARGS_OLD, ARGS_NEW)
 
 
 def fixture():
