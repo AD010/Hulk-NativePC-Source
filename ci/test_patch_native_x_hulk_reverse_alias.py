@@ -118,6 +118,15 @@ int main() {
       assert(b.height == 4);
     }
   }
+  // Right-edge crop must never sample beyond the 1280-wide guest view.
+  // The previous ceil(width/2) alias conversion expanded this by 2 pixels.
+  Blitter::Rect edge_src{}, edge_dst{};
+  Map(true, 1279, 2, edge_src, edge_dst);
+  assert(edge_src.x == 2558 && edge_src.width == 2);
+  assert(edge_dst.x == 0 && edge_dst.width == 2);
+  Map(true, 1278, 8, edge_src, edge_dst);
+  assert(edge_src.x == 2556 && edge_src.width == 4);
+  assert(edge_dst.width == 4);
   Blitter::Rect a{}, b{};
   Map(false, 3, 7, a, b);
   assert(a.x == 4 && a.width == 16);
