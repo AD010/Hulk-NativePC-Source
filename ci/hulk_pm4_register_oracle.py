@@ -11,6 +11,7 @@ command-vs-shadow comparison method in Fable2RE (not its capture format).
 """
 from __future__ import annotations
 import argparse
+import hashlib
 import json
 from pathlib import Path
 import struct
@@ -31,6 +32,10 @@ def replay(words: list[int], watch=WATCH, max_draws=MAX_DRAWS) -> dict:
                 'predicated_packets': 0, 'indirect_packets': 0, 'unrecognized_classes': 0}
     warnings: list[str] = []
     captures: list[dict] = []
+    # Independently track the loaded VS/PS identities at each real GPU draw.
+    # External shader memory is unavailable to this oracle; never guess it.
+    programs: dict[str, dict] = {}
+    shader_loads_by_stage = {'vs': 0, 'ps': 0}
     p = 0
 
     def write(reg: int, value: int) -> None:
@@ -114,14 +119,50 @@ def replay(words: list[int], watch=WATCH, max_draws=MAX_DRAWS) -> dict:
                                                  for k, v in sorted(known.items())},
                     'unresolved_watched_registers': [f'0x{k:04x}' for k in sorted(unresolved)],
                     'predicate_state_unknown': bool(h & 1),
+                    'shader_programs': {stage: state.copy()
+                                        for stage, state in programs.items()},
                 })
-        elif op in (0x27, 0x2b) and n < 2:
-            warnings.append(f'truncated shader load packet {op:02x}')
+        elif op in (0x27, 0x2b):
+            # HULK/PM4-SHADER-ORACLE: NativeX uses type & 3 for stage
+            # and start_size & 0xFFFF for word count. Inline bytecode
+            # starts after those first two descriptor dwords.
+            if n < 2:
+                warnings.append(f'truncated shader load packet {op:02x}')
+                continue
+            kind, start_size = payload[:2]
+            stage_id, words_count = kind & 3, start_size & 0xFFFF
+            if stage_id not in (0, 1) or not words_count:
+                warnings.append(f'unresolved shader stage/length {op:02x}')
+                continue
+            stage = 'vs' if stage_id == 0 else 'ps'
+            if op == 0x2b:
+                if words_count > n - 2:
+                    warnings.append('truncated immediate shader microcode')
+                    continue
+                raw = b''.join(struct.pack('>I', word)
+                               for word in payload[2:2 + words_count])
+                programs[stage] = {
+                    'source': 'immediate',
+                    'dwords': words_count,
+                    'sha256': hashlib.sha256(raw).hexdigest(),
+                    'external_guest_address': None,
+                }
+            else:
+                programs[stage] = {
+                    'source': 'external_unresolved',
+                    'dwords': words_count,
+                    'sha256': None,
+                    'external_guest_address':
+                        f'0x{(0xA0000000 | (kind & 0x1FFFFFFC)):08x}',
+                }
+                warnings.append('external shader bytecode not available in PM4')
+            shader_loads_by_stage[stage] += 1
         elif op in (0x2d, 0x2f):
             warnings.append(f'truncated constant write/load {op:02x}')
     return {'draw_snapshots': captures, 'packet_counters': counters,
+            'shader_loads_by_stage': shader_loads_by_stage,
             'warnings': warnings, 'complete': not warnings,
-            'limitations': 'Unresolved memory loads, indirect packets and BIN predicates are NOT authoritative.'}
+            'limitations': 'External shaders, memory loads, indirect packets and BIN predicates are NOT authoritative; SHA256 differs from NativeX XXH3.'}
 
 
 def read_words(path: Path) -> list[int]:
