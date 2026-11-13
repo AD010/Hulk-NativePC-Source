@@ -17,7 +17,7 @@ from pathlib import Path
 import struct
 
 BASE = {0: 0x4000, 1: 0x4800, 2: 0x4900, 3: 0x4908, 4: 0x2000}
-WATCH = tuple(range(0x2000, 0x2400)) + tuple(range(0x4800, 0x48c0))
+WATCH = tuple(range(0x2000, 0x2400)) + tuple(range(0x4000, 0x48c0))
 MAX_WORDS = 4_000_000
 MAX_DRAWS = 256
 
@@ -29,7 +29,8 @@ def replay(words: list[int], watch=WATCH, max_draws=MAX_DRAWS) -> dict:
     known: dict[int, int] = {}
     unresolved: set[int] = set()
     counters = {'type0': 0, 'type1': 0, 'type3': 0, 'unknown_loads': 0,
-                'predicated_packets': 0, 'indirect_packets': 0, 'unrecognized_classes': 0}
+                'predicated_packets': 0, 'indirect_packets': 0, 'unrecognized_classes': 0,
+                'shader_constant_packets': 0}
     warnings: list[str] = []
     captures: list[dict] = []
     # Independently track the loaded VS/PS identities at each real GPU draw.
@@ -93,6 +94,20 @@ def replay(words: list[int], watch=WATCH, max_draws=MAX_DRAWS) -> dict:
             else:
                 for i, val in enumerate(payload[1:]):
                     write(BASE[cls] + (desc & 0x7ff) + i, val)
+        elif op in (0x55, 0x56):
+            # HULK/PM4-DIRECT-SHADER-CONSTANTS: NativeX ScanPackets uses
+            # payload word 0 & 0xFFFF as the absolute starting GPU register.
+            # Unlike SET_CONSTANT (0x2D), no constant-type base is added.
+            if n < 2:
+                warnings.append(f'truncated SET_SHADER_CONSTANTS {op:02x}')
+                continue
+            start = payload[0] & 0xFFFF
+            if start >= 0x5000 or n - 1 > 0x5000 - start:
+                warnings.append(f'out-of-range SET_SHADER_CONSTANTS {op:02x}')
+                continue
+            for offset, value in enumerate(payload[1:]):
+                write(start + offset, value)
+            counters['shader_constant_packets'] += 1
         elif op == 0x2f and n >= 3:
             desc = payload[1]; cls = (desc >> 16) & 0xff
             count = payload[2] & 0xfff

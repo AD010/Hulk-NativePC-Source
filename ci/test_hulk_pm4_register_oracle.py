@@ -99,6 +99,35 @@ class PM4OracleTests(unittest.TestCase):
                 self.assertEqual(r['shader_loads_by_stage'][target], 1)
                 self.assertFalse(r['complete'])
 
+    def test_direct_shader_constants_in_vs_ps_float_and_fetch_windows(self):
+        # Xenos Type3 opcodes 0x55/0x56 use absolute register indices.
+        # Verify real SET/LOAD ordering and distinguish fetch vs floats.
+        write_vs = t3(0x56, [0x4000, 0x44a00000, 0x44340000])
+        write_ps = t3(0x55, [0x4400, 0x3f800000])
+        fetch = t3(0x2d, [(1 << 16), 0x00000002])
+        draw = t3(0x36, [0])
+        state = replay(write_vs + write_ps + fetch + draw)
+        regs = state['draw_snapshots'][0]['known_watched_registers']
+        self.assertEqual(regs['0x4000'], '0x44a00000')
+        self.assertEqual(regs['0x4001'], '0x44340000')
+        self.assertEqual(regs['0x4400'], '0x3f800000')
+        self.assertEqual(regs['0x4800'], '0x00000002')
+        self.assertEqual(state['packet_counters']['shader_constant_packets'], 2)
+        self.assertTrue(state['complete'])
+
+    def test_shader_constant_packet_requires_payload_and_valid_address(self):
+        invalid_short = t3(0x56, [0x4000])
+        invalid_address = t3(0x55, [0x4fff, 0x1, 0x2])
+        draw = t3(0x36, [0])
+        audit = replay(invalid_short + invalid_address + draw)
+        self.assertFalse(audit['complete'])
+        self.assertEqual(audit['packet_counters']['shader_constant_packets'], 0)
+        self.assertTrue(any('truncated SET_SHADER_CONSTANTS' in w
+                            for w in audit['warnings']))
+        self.assertTrue(any('out-of-range SET_SHADER_CONSTANTS' in w
+                            for w in audit['warnings']))
+        self.assertEqual(audit['draw_snapshots'][0]['known_watched_registers'], {})
+
     def test_bad_packet_and_binary_data(self):
         self.assertFalse(replay([0xc0012d00, 0])['complete'])
         self.assertEqual(replay([])['draw_snapshots'], [])
