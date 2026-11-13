@@ -146,7 +146,9 @@ class HulkLogAuditTests(unittest.TestCase):
         report = analyze(log)
         observed = report["incomplete_xdk_tail_context_samples"]
         self.assertEqual(observed["last_event_write_shd"], 2)
-        self.assertEqual(observed["other_last_good_packet"], 2)
+        self.assertEqual(observed["other_last_good_packet"], 1)
+        self.assertEqual(observed["missing_valid_last_good_packet"], 1)
+        self.assertNotIn("fail_distance_from_last_good_end_0_bytes", observed)
         self.assertEqual(observed["samples_with_draw_prefix"], 1)
         self.assertEqual(observed["draws_in_rejected_sample_prefixes"], 24)
         self.assertEqual(observed["fail_distance_from_last_good_end_4_bytes"], 2)
