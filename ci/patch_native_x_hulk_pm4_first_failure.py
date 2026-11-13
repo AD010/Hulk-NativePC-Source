@@ -31,7 +31,11 @@ HEADER_NEW = HEADER_OLD + """
   uint32_t hulk_fail_packet = 0;
   uint32_t hulk_fail_header = 0;
   uint32_t hulk_fail_depth = 0;
-  uint32_t hulk_fail_remaining = 0;"""
+  uint32_t hulk_fail_remaining = 0;
+  // HULK/PM4-LAST-GOOD: metadata for the last fully parsed packet.
+  uint32_t hulk_last_good_begin = 0;
+  uint32_t hulk_last_good_end = 0;
+  uint32_t hulk_last_good_header = 0;"""
 
 SCAN_START = "void ScanPackets("
 SCAN_END = "bool FetchSlotDirty("
@@ -53,26 +57,50 @@ SCAN_HEAD_NEW = """  uint32_t p = begin;
     out.complete = false;
   };
   while (p + 4 <= end) {
+    const uint32_t hulk_packet_begin = p;
     uint32_t header = Load32(base, p);
     hulk_current_header = header;"""
+
+# Last fully validated packet boundary. A failed scan still discards
+# the draw; never resynchronize on apparent packet headers in float data.
+SCAN_TAIL_OLD = """    }
+  }
+}
+
+"""
+SCAN_TAIL_NEW = """    }
+    // HULK/PM4-LAST-GOOD: the last fully consumed packet, not a guess.
+    if (out.complete) {
+      out.hulk_last_good_begin = hulk_packet_begin;
+      out.hulk_last_good_end = p;
+      out.hulk_last_good_header = header;
+    }
+  }
+}
+
+"""
 
 CLEAR_HEAD = "void PacketScan::Clear() {"
 CLEAR_OLD = "  complete = true;"
 CLEAR_NEW = """  complete = true;
   hulk_fail_site = hulk_fail_packet = hulk_fail_header = 0;
-  hulk_fail_depth = hulk_fail_remaining = 0;"""
+  hulk_fail_depth = hulk_fail_remaining = 0;
+  hulk_last_good_begin = hulk_last_good_end = hulk_last_good_header = 0;"""
 
 LOG_OLD = '''                  "writes={} loads={} shader_loads={} - discarded",'''
 LOG_NEW = '''                  "writes={} loads={} shader_loads={} "
                   "fail_site={} fail_packet={:#x} fail_header={:#x} "
                   "fail_type={} fail_opcode={:#x} fail_depth={} "
-                  "fail_remaining={} - discarded",'''
+                  "fail_remaining={} last_good_begin={:#x} "
+                  "last_good_end={:#x} last_good_header={:#x} - discarded",'''
 LOG_ARGS_OLD = """                  scan_.loads.size(), scan_.shader_loads.size());"""
 LOG_ARGS_NEW = """                  scan_.loads.size(), scan_.shader_loads.size(),
                   scan_.hulk_fail_site, scan_.hulk_fail_packet,
                   scan_.hulk_fail_header, scan_.hulk_fail_header >> 30,
                   (scan_.hulk_fail_header >> 8) & 0x7fu,
-                  scan_.hulk_fail_depth, scan_.hulk_fail_remaining);"""
+                  scan_.hulk_fail_depth, scan_.hulk_fail_remaining,
+                  scan_.hulk_last_good_begin, scan_.hulk_last_good_end,
+                  scan_.hulk_last_good_header);"""
 
 def exactly_once(source: str, before: str, after: str, label: str) -> str:
     if source.count(before) != 1:
@@ -84,6 +112,7 @@ def patch(files: dict[str, str]) -> tuple[dict[str, str], bool]:
         raise ValueError("Need exactly NativeX state.cpp and state.h")
     cpp, header = files["src/state.cpp"], files["src/state.h"]
     complete = (HEADER_NEW in header, SCAN_HEAD_NEW in cpp,
+                SCAN_TAIL_NEW in cpp,
                 CLEAR_NEW in cpp, LOG_NEW in cpp, LOG_ARGS_NEW in cpp)
     if all(complete):
         if "hulk_note_failure(__LINE__)" not in cpp:
@@ -107,6 +136,7 @@ def patch(files: dict[str, str]) -> tuple[dict[str, str], bool]:
         raise ValueError(f"NativeX scanner failure sites unexpectedly {errors}")
     section = scanner_failure.sub("hulk_note_failure(__LINE__)", section)
     section = exactly_once(section, SCAN_HEAD, SCAN_HEAD_NEW, "scanner header")
+    section = exactly_once(section, SCAN_TAIL_OLD, SCAN_TAIL_NEW, "scanner last good")
     cpp = cpp[:start] + section + cpp[end:]
     clear = cpp.find(CLEAR_HEAD)
     if clear < 0:
