@@ -26,6 +26,7 @@ ISSUES = {
     "pm4_zero_surface_pitch": re.compile(r"\[HULK/PM4-ZERO-SURFACE\]"),
     "empty_dma_draw": re.compile(r"\[HULK/EMPTY-DMA-INDEX\]"),
     "fetch_writer": re.compile(r"\[HULK/FETCH-WRITER\]"),
+    "incomplete_xdk_draw": re.compile(r"\[HULK/INCOMPLETE-XDK-DRAW\]"),
 }
 CUMULATIVE = {
     "pm4_ambiguous_binding": re.compile(r"\[HULK/PM4-SURFACE\] skipped ambiguous synthetic RT/depth binding; total=(\d+)"),
@@ -35,9 +36,20 @@ CUMULATIVE = {
     "pm4_no_writable_rt": re.compile(r"\[HULK/PM4-NO-WRITABLE-RT\] #(\d+)"),
     "pm4_actual_surface_misses": re.compile(r"\[HULK/PM4-ACTUAL-MISS\] #(\d+)"),
     "pm4_zero_surface_pitch": re.compile(r"\[HULK/PM4-ZERO-SURFACE\] #(\d+)"),
+    "incomplete_xdk_draws": re.compile(r"\[HULK/INCOMPLETE-XDK-DRAW\] #(\d+)"),
 }
 RT_MISS = re.compile(r"\[HULK/PM4-MISS\] slot=(\d+) kind=(\w+) reason=([\w_]+)")
 FETCH_WRITER = re.compile(r"\[HULK/FETCH-WRITER\].*?slot=(\d+) dword=(\d+) value=(0x[0-9a-fA-F]+).*?source=(\w+)")
+# HULK/LOG194-GAP-TRIAGE: the #N warning is throttled (first 16, then
+# every 10,000). Keep its cumulative maximum and distinguish the few
+# diagnostic samples from the actual number of discarded calls.
+INCOMPLETE_XDK = re.compile(r"\[HULK/INCOMPLETE-XDK-DRAW\] #(\d+)")
+INCOMPLETE_META = re.compile(r"\brange_ok=(true|false)\b.*?\bpacket_draws=(\d+)")
+INCOMPLETE_FAIL = re.compile(
+    r"\bfail_site=(\d+)\b.*?\bfail_type=(\d+)\b.*?"
+    r"\bfail_opcode=(0x[0-9a-fA-F]+)\b.*?\bfail_depth=(\d+)"
+)
+
 FRAME_STATS = re.compile(r"\[native_x_renderer\] renderer: frame (\d+):\s*(.*)")
 DRAWS = re.compile(r"(\d+) draw calls, (\d+) drawn, (\d+) without targets, (\d+) failed")
 FPS = re.compile(r"frame interval\s+([\d.]+) ms average,\s+([\d.]+) ms max")
@@ -55,6 +67,8 @@ def analyze(text: str) -> dict:
     counts: Counter[str] = Counter()
     rt_misses: Counter[str] = Counter()
     writers: Counter[str] = Counter()
+    xdk_draw_samples: Counter[str] = Counter()
+    xdk_failure_sites: Counter[str] = Counter()
     cumulative: dict[str, int] = {name: 0 for name in CUMULATIVE}
     latest_frame: dict[str, object] = {}
     frames_seen: set[int] = set()
@@ -66,6 +80,24 @@ def analyze(text: str) -> dict:
         for name, pattern in ISSUES.items():
             if pattern.search(line):
                 counts[name] += 1
+        incomplete = INCOMPLETE_XDK.search(line)
+        if incomplete:
+            xdk_draw_samples["throttled_warnings"] += 1
+            metadata = INCOMPLETE_META.search(line)
+            if metadata:
+                xdk_draw_samples["valid_range" if metadata[1] == "true"
+                                 else "invalid_range"] += 1
+                if int(metadata[2]) == 0:
+                    xdk_draw_samples["zero_packet_draws"] += 1
+            else:
+                xdk_draw_samples["missing_range_metadata"] += 1
+            failure = INCOMPLETE_FAIL.search(line)
+            if failure:
+                key = (f"site={int(failure[1])}/type={int(failure[2])}/"
+                       f"opcode={failure[3].lower()}/depth={int(failure[4])}")
+                xdk_failure_sites[key] += 1
+            else:
+                xdk_draw_samples["missing_first_failure_metadata"] += 1
         match = RT_MISS.search(line)
         if match:
             rt_misses["slot=" + match[1] + "/" + match[2] + "/" + match[3]] += 1
@@ -102,6 +134,8 @@ def analyze(text: str) -> dict:
         "issue_messages_observed": {key: counts[key] for key in ISSUES},
         "pm4_miss_samples": dict(sorted(rt_misses.items())),
         "fetch_writer_samples": dict(sorted(writers.items())),
+        "incomplete_xdk_draw_samples": dict(sorted(xdk_draw_samples.items())),
+        "pm4_first_failure_sample_sites": dict(sorted(xdk_failure_sites.items())),
         "cumulative_reported_totals": cumulative,
         "last_renderer_frame": latest_frame,
         "renderer_stat_frames_observed": sorted(frames_seen),
@@ -122,6 +156,7 @@ def analyze(text: str) -> dict:
         "limitations": [
             "A smaller intermediate Resolve may be intentional: confirm subsequent shader sampling and final image before claiming pixelation fixed.",
             "Some warnings are throttled; counts are logged samples, not total GPU errors.",
+            "HULK incomplete XDK #N is cumulative, while the range/failure-site breakdown covers sampled log warnings ONLY.",
             "PM4-SURFACE total is a cumulative replay counter, not a count of distinct discarded draw objects.",
             "New PM4 classifications are last observed throttled #N counters, not complete counts if samples are missing.",
             "No-writable attachment is not necessarily a failed scene geometry draw (queries/pipe helpers may issue PM4 draws).",

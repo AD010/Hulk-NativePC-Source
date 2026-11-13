@@ -55,6 +55,45 @@ class HulkLogAuditTests(unittest.TestCase):
         self.assertEqual(analyze("")["cumulative_reported_totals"]["pm4_no_writable_rt"], 0)
         self.assertIn("throttled", " ".join(audit["limitations"]))
 
+    def test_log194_incomplete_draw_count_and_first_failure_samples(self):
+        # 130,000 rejected calls are represented by TWO throttled lines here,
+        # not 130,000 detailed samples. Never sum the warning IDs.
+        log = "\\n".join([
+            "[HULK/INCOMPLETE-XDK-DRAW] #1 call=0 was_draw=true "
+            "begin=0xa2728794 scan_from=0xa2728794 end=0xa2728d04 "
+            "segment_kick=false range_ok=true bytes=1392 packet_draws=0 "
+            "indirect=0 writes=4 loads=0 shader_loads=1 "
+            "fail_site=412 fail_packet=0xa2728d00 fail_header=0xc0002d00 "
+            "fail_type=3 fail_opcode=0x2d fail_depth=1 fail_remaining=0 - discarded",
+            "[HULK/PRESENT-FRAME-RECOVERY] #99999 incomplete PM4 tail; "
+            "preserved original XDK Present",
+            "[HULK/INCOMPLETE-XDK-DRAW] #130000 call=0 was_draw=true "
+            "begin=0xa296bbe4 scan_from=0xa296bbe4 end=0xa296c7bc "
+            "segment_kick=false range_ok=true bytes=3032 packet_draws=0 "
+            "indirect=0 writes=0 loads=0 shader_loads=0 "
+            "fail_site=412 fail_packet=0xa296c7b8 fail_header=0xc0002d00 "
+            "fail_type=3 fail_opcode=0x2d fail_depth=1 fail_remaining=0 - discarded",
+            "[HULK/INCOMPLETE-XDK-DRAW] #129999 call=0 was_draw=true "
+            "range_ok=false bytes=0 packet_draws=0 indirect=0 writes=0 "
+            "loads=0 shader_loads=0 - discarded",
+        ])
+        result = analyze(log)
+        self.assertEqual(result["cumulative_reported_totals"]
+                         ["incomplete_xdk_draws"], 130000)
+        samples = result["incomplete_xdk_draw_samples"]
+        self.assertEqual(samples["throttled_warnings"], 3)
+        self.assertEqual(samples["valid_range"], 2)
+        self.assertEqual(samples["invalid_range"], 1)
+        self.assertEqual(samples["zero_packet_draws"], 3)
+        self.assertEqual(samples["missing_first_failure_metadata"], 1)
+        self.assertEqual(result["pm4_first_failure_sample_sites"]
+                         ["site=412/type=3/opcode=0x2d/depth=1"], 2)
+        self.assertEqual(result["issue_messages_observed"]
+                         ["incomplete_xdk_draw"], 3)
+        self.assertEqual(analyze("")["cumulative_reported_totals"]
+                         ["incomplete_xdk_draws"], 0)
+        self.assertIn("sampled", " ".join(result["limitations"]))
+
     def test_later_frame_controls_values_and_empty_log(self):
         log = "\n".join([
             "[native_x_renderer] renderer: frame 100: 2 draw calls, 1 drawn, 0 without targets, 1 failed",
