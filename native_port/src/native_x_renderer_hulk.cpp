@@ -155,6 +155,15 @@ bool NativeXInitialize(
     return false;
   }
 
+  // D140's EnterLean/LeaveLean bypass StateTracker::Enter, where Hulk's
+  // PM4 gap patches capture packets emitted between hooked XDK calls.
+  // Keep those boundaries even with trace/observer disabled. Override old
+  // user configs too; enabling diagnostics must not change command coverage.
+  if (rex::cvar::Query<bool>("native_x_renderer_lean_setters")) {
+    rex::cvar::SetFlagByName("native_x_renderer_lean_setters", "false");
+    REXLOG_INFO("[HULK/PM4] Disabled lean setters to preserve gap capture");
+  }
+
   // The profile and its string storage must remain alive
   // while renderer worker threads are active.
   g_profile = std::move(candidate);

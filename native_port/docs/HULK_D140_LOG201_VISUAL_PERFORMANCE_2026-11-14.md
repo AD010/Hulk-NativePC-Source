@@ -97,3 +97,36 @@ and staged source tests.
 ## Windows release retry after preflight guard (2026-11-14)
 
 Actions #107 stopped in the public test `test_release_workflow_remains_manual_and_main_only` because its one-shot document-triggered workflow was not accounted for by the test. That failure happened before proprietary input download and before compiling D140. The updated gate explicitly permits *only* this temporary, exact documentation-only trigger on `main`, disallows PR/schedule or broader pushes, and restores the sole workflow to manual-only after the new Actions run begins. This is a user-authorized rebuild and does not waive any NativeX C++ source test or gameplay-fidelity checks.
+
+## #108 missing text / log 202 regression (2026-11-14)
+
+Actions run 43585479558 succeeded at f81c55f5bb0ea8e6e5e3dc63ffd0da83facb64d0.
+The user reports missing startup/menu text and persistent colored flicker.
+Log `incredible_hulk_202.log` shows warmed menu frames with 10 submitted and
+10 drawn calls, no translation/pipeline waits. Those counts cannot prove
+that missing text draws were submitted at all. Gameplay still reports invalid
+vertex slot 95; neither that symptom nor flicker is declared fixed.
+
+D140 enables `g_lean` when the renderer runs without trace/observer and
+`native_x_renderer_lean_setters` is true (the upstream default). Disabling
+trace/verify for #108 thus enabled a previously inactive capture path:
+
+- `EnterLean` bypasses the patched `StateTracker::Enter` gap scan.
+- A setter that emits packets calls `PromoteLean` then normal `Leave`.
+- Hulk's `Leave` patch advances `last_hulk_segment_end_` beyond the setter,
+  without having replayed the preceding gap. Later normal calls cannot
+  recover that skipped interval. An empty setter alone does not advance it.
+
+The application now disables lean setters before NativeX initialization,
+including when an existing user's TOML enables them. The shipped config also
+sets this false. Full tracked setter boundaries are required until the lean
+path implements equivalent Hulk gap replay. Trace/verify remain off; no draw,
+shader, texture, depth or lighting effect is hidden to mask the symptoms.
+
+Validation: the D140 full source patch gate passed all 86 steps and 13 public
+host preflight programs. The defaults/startup-order regression gate passed
+both tests. No Windows Actions build was requested or launched for this fix.
+The capture incompatibility is established from source; attribution of all
+missing text or color flicker to it remains unverified without game execution.
+Visual release acceptance, mip/LOD quality, TU1 water behavior and the other
+open port requirements remain outstanding.

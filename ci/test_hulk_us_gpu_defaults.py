@@ -43,6 +43,12 @@ class TestHulkUsGpuDefaults(unittest.TestCase):
         # extra per-frame GPU/CPU observer work in the user's retail build.
         self.assertFalse(config["native_x_renderer_verify"])
         self.assertFalse(config["native_x_renderer_trace"])
+        self.assertFalse(config["native_x_renderer_lean_setters"])
+        # Existing installations may retain a TOML enabling the D140 fast
+        # path. Force full capture before Initialize computes g_lean.
+        override = 'rex::cvar::SetFlagByName("native_x_renderer_lean_setters", "false")'
+        self.assertIn(override, app)
+        self.assertLess(app.index(override), app.index('native_x_renderer::Initialize('))
         self.assertEqual(config["native_x_renderer_verify_at"], 900)
         self.assertEqual(config["native_x_renderer_trace_dump_at"], 900)
         self.assertEqual(config["bind_native_x_renderer_verify"], "F11")

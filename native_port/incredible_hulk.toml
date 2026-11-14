@@ -48,6 +48,8 @@ hulk_native_x_verify_only = false
 # state. It is a diagnostic, not required for the native Vulkan render.
 # Switch on explicitly for source-provenance investigations only.
 native_x_renderer_trace = false
+# Hulk gap replay requires the normal StateTracker::Enter boundaries.
+native_x_renderer_lean_setters = false
 native_x_renderer_trace_interval = 300
 native_x_renderer_trace_dump_frames = 1
 native_x_renderer_trace_dump_at = 900
