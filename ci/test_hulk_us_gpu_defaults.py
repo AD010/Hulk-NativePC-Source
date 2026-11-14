@@ -49,6 +49,14 @@ class TestHulkUsGpuDefaults(unittest.TestCase):
         override = 'rex::cvar::SetFlagByName("native_x_renderer_lean_setters", "false")'
         self.assertIn(override, app)
         self.assertLess(app.index(override), app.index('native_x_renderer::Initialize('))
+        # The D140 fast path must not survive a stale user TOML or failed
+        # runtime override. A verified false value is a startup invariant.
+        self.assertIn('if (rex::cvar::Query<bool>("native_x_renderer_lean_setters")) {', app)
+        self.assertIn("Unsafe D140 lean setters remain enabled", app)
+        self.assertIn("refusing native renderer initialization", app)
+        self.assertIn("Full setter PM4 gap capture enforced (lean OFF)", app)
+        self.assertLess(app.index("Unsafe D140 lean setters remain enabled"),
+                        app.index('native_x_renderer::Initialize('))
         self.assertEqual(config["native_x_renderer_verify_at"], 900)
         self.assertEqual(config["native_x_renderer_trace_dump_at"], 900)
         self.assertEqual(config["bind_native_x_renderer_verify"], "F11")
