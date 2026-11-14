@@ -123,9 +123,9 @@ def patch(src: str) -> tuple[str, bool]:
     anchors = (TEXTURE_OLD, VERTEX_OLD, PROBE_CVAR_ANCHOR)
     if any(src.count(old) != 1 for old in anchors):
         raise ValueError("NativeX draw fetch/LOD source anchors drifted")
-    if src.count("#include <bit>\\n") != 1:
+    if src.count("#include <bit>\n") != 1:
         raise ValueError("NativeX draw source <bit> include anchor drifted")
-    return (src.replace("#include <bit>\\n", "#include <atomic>\\n#include <bit>\\n", 1)
+    return (src.replace("#include <bit>\n", "#include <atomic>\n#include <bit>\n", 1)
                .replace(TEXTURE_OLD, TEXTURE_NEW, 1)
                .replace(VERTEX_OLD, VERTEX_NEW, 1)
                .replace(PROBE_CVAR_ANCHOR, PROBE_CVAR_NEW, 1)), True
