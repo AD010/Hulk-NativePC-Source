@@ -21,7 +21,8 @@ class TestHulkPcMenu(unittest.TestCase):
         self.assertIn("F4: save changed settings", menu)
         self.assertIn("No inactive sliders or fake apply buttons", menu)
         self.assertIn("No unimplemented accessibility toggles", menu)
-        self.assertIn("Native volume controls are not wired", menu)
+        self.assertIn("Native volume ", menu)
+        self.assertIn("controls are not wired to a verified engine API yet.", menu)
         self.assertIn('Query<bool>("native_x_renderer_pipeline_storage")', menu)
         self.assertIn("GameWindowMenuClosed()", menu)
         # The preview is a themed host overlay, not a false claim that
