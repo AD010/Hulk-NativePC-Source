@@ -363,3 +363,73 @@ The current runtime still depends on ReXGlue; no claim of complete
 independence or an official-quality playable port is made. Before
 removing the runtime, each subsystem needs verified original-data
 behavior and executable functionality, not empty stubs.
+
+## 2026-11-14: first portable native EoR runtime module and in-game TOML save
+
+**Implementation, not an emulation shim:**
+
+- `native_port/src/eor_archive.h/.cpp` now supplies a self-contained
+  C++20 EoR index parser for the original PC (LE) and Xbox 360 (BE)
+  formats, a canonical original-name CRC32 hasher including TXFL/LFXT
+  authoring prefixes, sorted category/hash lookup, and bounded exact
+  `.ARC` reads. It contains NO ReXGlue, Xenia, XDK, guest PPC or Vulkan
+  references. It is compiled directly in the existing Hulk executable
+  target as the first native asset subsystem.
+- `ci/eor_archive_native_test.cpp` exercises both serialized index
+  endiannesses, eleven original verified resource-name/CRC pairs,
+  rejection of truncated/bad indexes, unknown names, exact binary
+  resource boundaries and out-of-bounds access. This synthetic source
+  is compiled with MSVC C++20 by the EXISTING Windows Release preflight
+  before any user-owned game code is downloaded. It must pass before
+  any new release is issued. No retail assets are included in Git.
+- `native_port/src/native_pc_options_store.h/.cpp` is a portable
+  native TOML writer (no SDK calls). The current F10 menu uses the
+  REAL resolved `paths.config_path` and can save FPS limit, VSync,
+  internal scale, FSR1/NIS/bilinear and sharpening into the
+  SAME `incredible_hulk.toml` without requiring F4. Only enumerated
+  supported fields are accepted; atomically replace a temporary
+  adjacent file and keep all unrelated settings and asset paths.
+  Failure is reported in the UI rather than advertised as a saved
+  setting.
+- `ci/native_pc_options_store_test.cpp` is a synthetic C++20 test
+  that checks preservation of the game-data-root, existing comments,
+  CRLF, unrelated graphics, refusal of invalid/duplicate TOML keys,
+  scale/filter formatting, and no unwanted permanent sidecar.
+  Compiled/run in the same existing manual-only Windows CI workflow.
+
+**Testing limitation:** These C++ files and tests are now committed and
+connected to the Windows runner, but no Windows runner was launched for
+this change. The local Python/container runtime raised ClientError.
+The last independent successful playable EXE remains #112 (which
+still has GPU artifacts); #114 failed before release, with its full
+failure log retained only in the user's private Hulk cloud release.
+Do not claim new MSVC tests passed, that quality/flicker has been
+validated, or that a new ZIP exists.
+
+**Two strictly ordered completion gates:**
+
+1. **Quality first**: rebuild cleanly, fix the corrupted shader/PM4/RT
+   paths and intermittent display artifacts, validate ~60Hz physics
+   independently of rendering, and test camera/input and Alt+Tab with
+   frame-by-frame evidence. Open a native-feeling PC options screen
+   from actual game title/pause state and save settings without F4.
+   Compare production frame captures, no misleading '100%' GPU metric.
+2. **Fully native next**: replace remaining platform-specific runtime
+   systems with modules that consume original game resources directly.
+   The present native EoR index/archive reader is one such module,
+   NOT a replacement world renderer, object deserializer, audio mixer,
+   gameplay script VM or physics engine. Port those only with verified
+   original semantics and tests before removing the executable
+   dependency on ReXGlue. Final game package should have a direct
+   Windows x64 entrypoint, own renderer/input/audio/save/settings
+   subsystems and official-PC-style structure.
+
+**Useful architectural comparator**:
+`hedge-dev/UnleashedRecomp` implements a heavily game-themed
+`ui/options_menu.cpp`, with an original-title-state event hook in
+`patches/CTitleStateMenu_patches.cpp` that opens/closes that screen.
+The practical lesson for Hulk is to map and patch its authentic
+`UI_ActivateOptions`, `UI_OptionScreen`, and
+`UIPage_Pause_Settings` event owners. Do not confuse an ImGui
+backend with a non-native presentation. No Xbox menu ABI has yet been
+verified by the Ghidra source script, so no game-state hook is claimed.
