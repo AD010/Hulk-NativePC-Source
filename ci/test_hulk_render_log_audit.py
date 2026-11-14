@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Source-only regression tests for GPU log triage; never include game logs."""
 import unittest
-from hulk_render_log_audit import analyze, compare, shader_static_cf
+from hulk_render_log_audit import analyze, compare, shader_static_cf, shader_unsupported_executed_fetches
 
 
 class HulkLogAuditTests(unittest.TestCase):
@@ -72,6 +72,37 @@ class HulkLogAuditTests(unittest.TestCase):
         self.assertEqual(summary["shader_failures_without_static_cf"], 0)
         self.assertIsNone(shader_static_cf([0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF]))
         self.assertIsNone(shader_static_cf(base[:17]))
+
+    def test_reserved_xenos_fetch_opcode_3_inside_direct_exec(self):
+        # Synthetic CF pattern equivalent to the *structure* of the three
+        # 27-word log203 failures, without embedding proprietary bytecode.
+        words = [0] * 27
+        words[:6] = [0x00052003, 0x00001000, 0xC0000000,
+                     0x00001005, 0x00001000, 0xC0000000]
+        words[9] = 0        # instruction 3: defined vertex fetch
+        words[12] = 3       # instruction 4: reserved fetch opcode
+        self.assertEqual(shader_unsupported_executed_fetches(words),
+                         [{"instruction": 4, "opcode": 3}])
+        words[12] = 1       # defined texture fetch opcode
+        self.assertEqual(shader_unsupported_executed_fetches(words), [])
+        words[12] = 24      # defined set-texture-LOD opcode
+        self.assertEqual(shader_unsupported_executed_fetches(words), [])
+        words[12] = 31
+        self.assertEqual(shader_unsupported_executed_fetches(words),
+                         [{"instruction": 4, "opcode": 31}])
+        self.assertEqual(shader_unsupported_executed_fetches(words[:17]), [])
+        # The family report must include the specific invalid instruction.
+        words[12] = 3
+        log = ("[native_x_renderer] vertex shader 1234567890ABCDEF "
+               "(27 dwords): analysis failed: access violation\n" +
+               "[native_x_renderer] the vertex program came from "
+               "IM_LOAD_IMMEDIATE at 0xa2001000 (packet 0xa2000ff4) "
+               "in DrawIndexedVertices: " +
+               " ".join(f"{w:08X}" for w in words))
+        families = analyze(log)["shader_analysis_families"]
+        self.assertEqual(families[0]["unsupported_exec_fetch_opcodes"],
+                         [{"instruction": 4, "opcode": 3}])
+        self.assertNotIn("00052003", str(families))
 
     def test_invalid_fetch_rejects_correlate_to_real_shader_owner(self):
         log = ("[HULK/INVALID-TEXTURE-DRAW] #1 slot=0 type=3 dim=0 "
