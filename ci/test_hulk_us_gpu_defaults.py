@@ -29,6 +29,15 @@ class TestHulkUsGpuDefaults(unittest.TestCase):
         self.assertTrue(config["native_x_renderer"])
         self.assertTrue(config["native_x_renderer_present_with_swaps"])
         self.assertTrue(config["native_x_renderer_thread"])
+        # 2x native geometry and valid Xbox mip chains are separate.
+        # Xenos D44 AF override 4 is 8x on eligible samplers, never new
+        # texture pixels. The lightweight mip audit is temporary for QA.
+        self.assertEqual(config["native_x_renderer_resolution_scale"], 2.0)
+        self.assertEqual(config["anisotropic_override"], 4)
+        self.assertTrue(config["native_x_renderer_hulk_mip_probe"])
+        fetch_patch = (ROOT / "ci/patch_native_x_hulk_draw_fetch_guard.py").read_text()
+        self.assertIn("HULK/MIP-PROVENANCE", fetch_patch)
+        self.assertIn("native_x_renderer_hulk_mip_probe", fetch_patch)
         import configparser
         scene_profile = configparser.ConfigParser(interpolation=None)
         scene_profile.read(ROOT / "native_port/hulk_native_x_profile.ini")
