@@ -45,7 +45,22 @@ class TestHulkUsGpuDefaults(unittest.TestCase):
         # 2x native geometry and valid Xbox mip chains are separate.
         # Xenos D44 AF override 4 is 8x on eligible samplers, never new
         # texture pixels. The lightweight mip audit is temporary for QA.
-        self.assertEqual(config["native_x_renderer_resolution_scale"], 2.0)
+        # NativeX D140 computes its true raster size from the host
+        # Vulkan swapchain for 16:9, 16:10, 4K and ultrawide outputs.
+        # Guest output stays 1280x720 until game-owned projections are
+        # explicitly reverse engineered; not emulator 720p upscaling.
+        self.assertEqual(config["native_x_renderer_resolution_scale"], 0.0)
+        self.assertIs(config["native_x_renderer_fill_screen"], False)
+        self.assertEqual(config["native_x_renderer_aspect"], 0.0)
+        self.assertEqual(config["video_mode_width"], 1280)
+        self.assertEqual(config["video_mode_height"], 720)
+        renderer = (ROOT / "native_port/src/native_x_renderer_hulk.cpp").read_text()
+        self.assertIn("[HULK/WIDESCREEN-GUARD]", renderer)
+        self.assertIn("!candidate->profile.widens_cameras", renderer)
+        self.assertIn('SetFlagByName("native_x_renderer_fill_screen", "false")', renderer)
+        self.assertIn("[HULK/HOST-PIXELS]", renderer)
+        self.assertLess(renderer.index("[HULK/HOST-PIXELS]"),
+                        renderer.index("native_x_renderer::Initialize("))
         self.assertEqual(config["anisotropic_override"], 4)
         self.assertFalse(config["native_x_renderer_hulk_mip_probe"])
         # User log203 proved that an older TOML or saved CVar can override
