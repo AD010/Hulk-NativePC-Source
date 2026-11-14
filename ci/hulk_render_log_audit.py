@@ -40,6 +40,10 @@ CUMULATIVE = {
 }
 RT_MISS = re.compile(r"\[HULK/PM4-MISS\] slot=(\d+) kind=(\w+) reason=([\w_]+)")
 FETCH_WRITER = re.compile(r"\[HULK/FETCH-WRITER\].*?slot=(\d+) dword=(\d+) value=(0x[0-9a-fA-F]+).*?source=(\w+)")
+FETCH_REJECT_OWNER = re.compile(
+    r"\[HULK/INVALID-(VERTEX|TEXTURE)-DRAW\].*?slot=(\d+).*?"
+    r"VS=([0-9a-fA-F]{16})(?:\s+PS=([0-9a-fA-F]{16}))?"
+)
 # HULK/LOG194-GAP-TRIAGE: the #N warning is throttled (first 16, then
 # every 10,000). Keep its cumulative maximum and distinguish the few
 # diagnostic samples from the actual number of discarded calls.
@@ -152,6 +156,7 @@ def analyze(text: str) -> dict:
     counts: Counter[str] = Counter()
     rt_misses: Counter[str] = Counter()
     writers: Counter[str] = Counter()
+    invalid_fetch_shader_owners: Counter[str] = Counter()
     xdk_draw_samples: Counter[str] = Counter()
     xdk_failure_sites: Counter[str] = Counter()
     malformed_previous_headers: Counter[str] = Counter()
@@ -238,6 +243,12 @@ def analyze(text: str) -> dict:
         match = FETCH_WRITER.search(line)
         if match:
             writers[f"slot={match[1]}/dword={match[2]}/source={match[4]}/value={match[3].lower()}"] += 1
+        owned_fetch = FETCH_REJECT_OWNER.search(line)
+        if owned_fetch:
+            kind, slot, vs, ps = owned_fetch.groups()
+            invalid_fetch_shader_owners[
+                f"{kind.lower()}/slot={slot}/vs={vs.lower()}/ps={(ps or 'n/a').lower()}"
+            ] += 1
         for name, pattern in CUMULATIVE.items():
             match = pattern.search(line)
             if match:
@@ -364,6 +375,7 @@ def analyze(text: str) -> dict:
         "issue_messages_observed": {key: counts[key] for key in ISSUES},
         "pm4_miss_samples": dict(sorted(rt_misses.items())),
         "fetch_writer_samples": dict(sorted(writers.items())),
+        "invalid_fetch_shader_owner_samples": dict(sorted(invalid_fetch_shader_owners.items())),
         "incomplete_xdk_draw_samples": dict(sorted(xdk_draw_samples.items())),
         "pm4_first_failure_sample_sites": dict(sorted(xdk_failure_sites.items())),
         "pm4_impossible_last_good_header_samples": dict(
