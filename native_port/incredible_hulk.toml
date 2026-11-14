@@ -2,6 +2,8 @@ game_data_root = ""
 hulk_native_mnk = true
 hulk_native_mnk_force = true
 mnk_mode = false
+# Windows x64 Release: no per-hook PPC ABI profiler is compiled; all
+# optional render/input trace modes below stay disabled by default.
 hulk_mouse_sensitivity = 4.0
 hulk_mouse_invert_y = false
 hulk_mouse_diagnostics = false
