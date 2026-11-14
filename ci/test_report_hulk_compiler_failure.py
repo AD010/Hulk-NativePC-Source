@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """No Hulk game data needed for diagnostic redaction regression tests."""
 import unittest
-from report_hulk_compiler_failure import summarize, stage_report, hint_report
+from report_hulk_compiler_failure import (
+    summarize, stage_report, hint_report, failed_source_tests,
+)
 
 class RedactionTests(unittest.TestCase):
     def test_compiler_codes_without_private_source(self):
@@ -40,6 +42,24 @@ class RedactionTests(unittest.TestCase):
         self.assertNotIn('default.xex', stages)
         self.assertNotIn('PASSWORD', stages + hints)
         self.assertIn('invalid-cli-arguments', hints)
+
+    def test_safe_source_test_name_without_xex_or_guest_backtrace(self):
+        raw = (
+            "FAIL: test_shader_exec_stage_bounds "
+            "(sdk.TestShaderBounds)\n"
+            "AssertionError: private XEX sub_821ABCDE text\n"
+            "ERROR: test_native_index_hash "
+            "(resources.TestOriginalEor)\n"
+            "Traceback: default.xex with private PPC instructions\n"
+        )
+        out = " ".join(failed_source_tests(raw))
+        self.assertIn("test_shader_exec_stage_bounds:1", out)
+        self.assertIn("test_native_index_hash:1", out)
+        self.assertNotIn("sub_821ABCDE", out)
+        self.assertNotIn("default.xex", out)
+        self.assertNotIn("AssertionError", out)
+        self.assertIn("none-identified", " ".join(
+            failed_source_tests("FAIL: private_name (sensitive)")))
 
     def test_error_group_count_limit(self):
         raw = '\n'.join(f'file{i}.cpp: error C{i+1000}: private token' for i in range(50))
