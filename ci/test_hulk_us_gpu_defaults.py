@@ -12,9 +12,10 @@ class TestHulkUsGpuDefaults(unittest.TestCase):
         self.assertEqual(config["user_country"], 103)
         self.assertEqual(config["user_language"], 1)
         # Zero leaves the original game pacing intact; it is not a physics unlock.
-        self.assertEqual(config["gpu_guest_fps_limit"], 0)
+        self.assertEqual(config["hulk_guest_swap_fps_cap"], 0)
+        self.assertNotIn("gpu_guest_fps_limit", config)
         sdk_patch = (ROOT / "ci/patch_sdk_hulk_fps_probe.py").read_text()
-        self.assertIn('REXCVAR_DEFINE_INT32(gpu_guest_fps_limit, 0,', sdk_patch)
+        self.assertIn('REXCVAR_DEFINE_INT32(hulk_guest_swap_fps_cap, 0,', sdk_patch)
         self.assertEqual(config["vsync"], True)
         for key in ("vulkan_allow_present_mode_immediate",
                     "vulkan_allow_present_mode_mailbox",
