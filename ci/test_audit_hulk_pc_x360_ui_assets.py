@@ -144,6 +144,35 @@ class TestHulkOriginalUiArchives(unittest.TestCase):
         self.assertFalse(summary["game_bytes_exported"])
         self.assertFalse(summary["original_ui_hooked"])
 
+    def test_nearby_hash_is_tentative_eor_ui_resource_link(self):
+        # A texture-hash dword next to an authored UI string is a useful
+        # candidate, never a proven widget pointer or ABI call.
+        from audit_hulk_pc_x360_ui_assets import scan_ui_app
+        tex_hash = 0x11223344
+        text = b"UIPage_Pause_Settings\0"
+        pc = self.write("pc_decoded_app", text + tex_hash.to_bytes(4, "little"))
+        xbox = self.write("xbox_decoded_app", text + tex_hash.to_bytes(4, "big"))
+        rows = {"Textures":[{"hash":"11223344","offset":4,"size":8}]}
+        for path, byte_order in ((pc,"little"),(xbox,"big")):
+            info = scan_ui_app(path, rows, byte_order)
+            candidates = info["index_hash_proximity_candidates"]
+            self.assertEqual(len(candidates), 1)
+            self.assertEqual(candidates[0]["indexed_hash"], "11223344")
+            self.assertEqual(candidates[0]["ui_identifier"],
+                             "uipage_pause_settings")
+            self.assertFalse(candidates[0]["verified_link"])
+            self.assertFalse(info["nearby_hashes_are_verified_bindings"])
+            self.assertNotIn("UIPage_Pause_Settings", json.dumps(info))
+
+    def test_undecoded_app_name_finding_is_not_resource_decoding(self):
+        from audit_hulk_pc_x360_ui_assets import scan_ui_app
+        app = self.write("app", b"some binary prefix\0"
+                         b"TXFLui_menuitems_da\0bogus")
+        info = scan_ui_app(app)
+        self.assertIn("txflui_menuitems_da", info["ui_identifiers"])
+        self.assertNotIn("index_hash_proximity_candidates", info)
+        self.assertFalse(info["nearby_hashes_are_verified_bindings"])
+
     def test_large_tail_suggests_wrong_platform_not_proof(self):
         f = self.write("claimed_pc_objects.arc", make_data(b"1234",pad=100))
         info = audit_archive(f, [{"hash":"A","offset":4,"size":4}])
