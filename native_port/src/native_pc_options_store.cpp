@@ -1,6 +1,7 @@
 // Atomic, bounded edit of the ONE existing NativePC TOML file.
 // Independent of RexGlue and of GPU/guest execution.
 #include "native_pc_options_store.h"
+#include "native_pc_bindings.h"
 
 #include <cmath>
 #include <cstdlib>
@@ -24,6 +25,9 @@ namespace hulk::options {
 namespace {
 
 bool Allowed(std::string_view key, std::string_view value) {
+  // Exact source-supported native mouse/keyboard bindings, not arbitrary
+  // guest flags. All token values are single, known BindTokenDown names.
+  if (IsBindingOption(key)) return IsBindingToken(value);
   if (key == "vsync") return value == "true" || value == "false";
   if (key == "hulk_guest_swap_fps_cap")
     return value == "0" || value == "30" || value == "60" ||
@@ -71,7 +75,7 @@ bool Save(const std::filesystem::path& config_file,
     const bool crlf = original.find("\r\n") != std::string::npos;
     const std::string ending = crlf ? "\r\n" : "\n";
     std::string new_value(value);
-    if (key == "native_x_renderer_scaling")
+    if (key == "native_x_renderer_scaling" || IsBindingOption(key))
       new_value = "\"" + new_value + "\"";
     const std::string assignment = std::string(key) + " = " + new_value;
 
