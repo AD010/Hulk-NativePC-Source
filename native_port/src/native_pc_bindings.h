@@ -7,16 +7,14 @@
 
 namespace hulk::options {
 
-inline constexpr std::array<std::string_view, 58> kBindingTokens = {
+inline constexpr std::array<std::string_view, 50> kBindingTokens = {
     "A","B","C","D","E","F","G","H","I","J","K","L","M",
     "N","O","P","Q","R","S","T","U","V","W","X","Y","Z",
     "0","1","2","3","4","5","6","7","8","9",
     "Space","Enter","Tab","Shift","Ctrl","Alt","Esc",
     "Up","Down","Left","Right",
-    "MouseLeft","MouseRight","MouseMiddle",
-    // Explicitly invalid/unsupported tokens are never offered or saved.
-    // Keep this list EXACTLY in sync with BindTokenDown.
-    "" , "" , "" , "" , "" , "" , "" , ""
+    // Mirror native_input_win.cpp::BindTokenDown exactly.
+    "MouseLeft","MouseRight","MouseMiddle"
 };
 
 // Only actual Xbox-to-PC input actions present in the current host
