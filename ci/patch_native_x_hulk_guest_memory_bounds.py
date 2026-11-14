@@ -59,8 +59,26 @@ SHADER_NEW = """              // HULK/PM4-SHADER-SOURCE-BOUNDS: no substituted s
               }
 """ + SHADER_OLD
 
+# Copy every program into the command-owned buffer while the original
+# PM4 memory is still mapped. The first and second reads must agree byte for
+# byte. Otherwise the ring or external shader storage changed DURING this
+# very capture: never cache a torn 27-dword shader as a valid program.
+SNAPSHOT_OLD = (
+    "                out.shader_ucode.insert(out.shader_ucode.end(), ucode, ucode + dwords);"
+)
+SNAPSHOT_NEW = """                // HULK/PM4-SHADER-IMMUTABLE-COPY: never let a torn
+                // IM_LOAD snapshot reach the Vulkan shader translator.
+                const size_t hulk_owned_start = out.shader_ucode.size();
+                out.shader_ucode.insert(out.shader_ucode.end(), ucode, ucode + dwords);
+                if (std::memcmp(out.shader_ucode.data() + hulk_owned_start,
+                                ucode, size_t(dwords) * sizeof(uint32_t)) != 0) {
+                  out.complete = false;
+                  return;
+                }"""
+
 def patch(src: str) -> tuple[str, bool]:
-    ready = (LOAD_NEW in src, SHADER_NEW in src, SHADER_CLASS_NEW in src)
+    ready = (LOAD_NEW in src, SHADER_NEW in src, SHADER_CLASS_NEW in src,
+             SNAPSHOT_NEW in src)
     if INLINE_NEW not in src:
         raise ValueError("Pinned NativeX BIN inline shader guard missing/drift")
     if all(ready):
@@ -69,12 +87,13 @@ def patch(src: str) -> tuple[str, bool]:
         raise ValueError("Partial Hulk PM4 guest source bounds patch")
     if "HULK/PFP-PREDICATE" not in src or "HULK/PM4-SHADER-BOUNDS" not in src:
         raise ValueError("Earlier BIN/SHADER bounds patch missing")
-    for old in (LOAD_OLD, SHADER_OLD, SHADER_CLASS_OLD):
+    for old in (LOAD_OLD, SHADER_OLD, SHADER_CLASS_OLD, SNAPSHOT_OLD):
         if src.count(old) != 1:
             raise ValueError("NativeX PM4 source read anchor drift: " + old[:48])
     return (src.replace(LOAD_OLD, LOAD_NEW, 1)
                .replace(SHADER_OLD, SHADER_NEW, 1)
-               .replace(SHADER_CLASS_OLD, SHADER_CLASS_NEW, 1)), True
+               .replace(SHADER_CLASS_OLD, SHADER_CLASS_NEW, 1)
+               .replace(SNAPSHOT_OLD, SNAPSHOT_NEW, 1)), True
 
 def main():
     if len(sys.argv) != 2:
