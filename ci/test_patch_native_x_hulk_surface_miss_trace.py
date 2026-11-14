@@ -24,8 +24,10 @@ class TestMissTrace(unittest.TestCase):
         for s in ("void unrelated() {}", original + "\n" + OLD):
             with self.assertRaises(ValueError): patch_text(s)
     def test_batched_packet_snapshot_does_not_reenter_mutex(self):
-        self.assertIn("std::lock_guard<std::mutex> guard(g_hulk_surface_history_mutex)", NO_WRITE_OLD)
-        self.assertEqual(NO_WRITE_NEW.count("std::lock_guard<std::mutex> guard(g_hulk_surface_history_mutex)"), 1)
+        self.assertEqual(NO_WRITE_OLD, "  std::array<GuestSurface, 5> bound_now{};")
+        self.assertNotIn("std::lock_guard<std::mutex>", NO_WRITE_NEW)
+        self.assertLess(NO_WRITE_NEW.index("HULK/PM4-NO-WRITE-EARLY"),
+                        NO_WRITE_NEW.index("bound_now{}"))
         self.assertIn("      unresolved = true;\n    }\n  }", OLD)
 
     def test_reason_counters_are_mutually_exclusive(self):
@@ -60,7 +62,7 @@ class TestMissTrace(unittest.TestCase):
         # Execute the actual C++ gate copied from the source patch; this
         # does NOT fake any Hulk frame or GPU target. Missing attachments
         # still fail closed elsewhere in HulkPacketSurfaces.
-        prefix = NO_WRITE_NEW.split("  bool has_target = false", 1)[0]
+        prefix = NO_WRITE_NEW.split("  std::array<GuestSurface, 5> bound_now{}", 1)[0]
         code = """#include <atomic>
 #include <cassert>
 #include <cstdint>
