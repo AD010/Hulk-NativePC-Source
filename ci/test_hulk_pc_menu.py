@@ -72,6 +72,15 @@ class TestHulkPcMenu(unittest.TestCase):
         self.assertIn('native_x_renderer_fill_screen = false', config)
         self.assertIn("HULK/WIDESCREEN-GUARD", gpu)
         self.assertIn("HULK/HOST-PIXELS", menu)
+        # HP1 and HP3 recomp menus bound their UI to client size.
+        # Hulk must not keep the old fixed 850x610 rectangle at 175% DPI.
+        self.assertIn("HULK/PC-MENU-DPI-RESPONSIVE", menu)
+        self.assertIn("ImGuiCond_Always", menu)
+        self.assertIn("menu_width", menu)
+        self.assertIn("menu_height", menu)
+        self.assertIn("section_width", menu)
+        self.assertIn("footer_height", menu)
+        self.assertNotIn("ImGuiCond_FirstUseEver", menu)
         self.assertIn("io.DisplayFramebufferScale.x", menu)
         self.assertIn("io.DisplayFramebufferScale.y", menu)
         self.assertIn("display::FitOriginalPicture(", menu)
