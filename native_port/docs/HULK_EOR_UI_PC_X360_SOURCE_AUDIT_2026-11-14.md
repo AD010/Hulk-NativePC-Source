@@ -87,10 +87,29 @@ private USA original input in CI; Xbox `_app_`, `_engine_`,
 `OBJECTS.ARC`, `QUICKDAT.ARC`, `QDMETADA.ARC`,
 `PCLEFFEC.ARC`, `SHADEREF.ARC` plus earlier PPC diagnostics.
 
-**Still not individually supplied for the PC build:** PC
-`Fonts.arc` and PC `Textures.arc` (the PC index declares one font
-and 1,365 textures), and PC `Objects.arc`. The Xbox
-`OBJECTS.ARC` already provided matches the Xbox archive inventory.
+**PC retail 2008 originals supplied on 2026-11-14 by the owner:**
+- `FMODPROJ.ARC` (1,279,360 bytes) — audio-project resources
+- `FONTS(1).ARC` (152,736 bytes) — original PC font archive
+- `OBJECTS(1).ARC` (21,646,272 bytes) — claimed PC original object archive
+- `PCLEFFEC(1).ARC` (929,472 bytes) — PC effects
+- `QDMETADA(1).ARC` (325,472 bytes) — PC quick-data metadata
+- `QUICKDAT(1).ARC` (3,413,216 bytes) — PC quick data
+
+Their existence and lengths are confirmed by the current-conversation
+attachment metadata, and their platform provenance is explicitly stated
+by the owner. **Binary integrity checks and extraction have not yet run:**
+Python/container file reads returned ClientError in this session, so no
+SHA-256 or record-level equality is claimed. The older
+`OBJECTS.ARC` (Xbox user original) and the newly supplied
+`OBJECTS(1).ARC` have *identical lengths* (21,646,272 bytes);
+this is not proof that their contents are equal. Compare hashes and
+index-record bounds before treating them as distinct PC/Xbox resources.
+
+**Still not individually supplied among the new PC archives:** PC
+`Textures.arc` (1,365 indexed texture resources). The previously
+available PC `datasets.arc` and `indexPC.ind` should be used
+with these new PC files. Do not assume a missing individual Library
+upload means the original game installation lacks this archive.
 
 **New Xbox 360 UI source archives uploaded in the current conversation
 on 2026-11-14 (do NOT ask for them again):**
@@ -164,3 +183,16 @@ missing reverse-engineered **UI dispatch, resource bindings and ABI**,
 not an absent general-purpose GUI framework. The rendering path's
 existing corruption is a separate blocker for pixel-perfect output.
 Do not claim "full EoR engine reverse engineered" or "native menu done".
+
+## Cross-platform original UI next-step after PC 2008 archive upload
+
+Once binary inspection is available, use *both* index tables to compare
+the shared font resource hash (PC/Xbox `Fonts`: 1/1 shared entry but
+different bytes), and inspect typed UI widget objects and quick data
+against the page names and native option-script entrypoints identified
+above. PC objects are marked by the owner's provenance and must be
+validated against `indexPC.ind` before classifying their widget
+resources. Reconstruct actual Xbox input event dispatch and PC settings
+handlers; no claims are made that a functional console-native menu
+exists merely because the assets are present. All game binaries and
+content stay private; only sanitized metadata may enter public Git.
