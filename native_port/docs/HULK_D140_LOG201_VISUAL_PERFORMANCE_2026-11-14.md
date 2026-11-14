@@ -579,3 +579,28 @@ scheduling. No resolution, SMAA, native Vulkan, vertex/texture fetch,
   or prove a smooth building collapse. Any GPU optimization needs
   per-pass timings and capture-time EDRAM/PM4 identity, not a claim based
   only on utilization percent
+
+## Release candidate: strip inactive developer profiler (2026-11-14)
+
+The single Windows x64 Release target excludes
+`native_port/src/native_gpu_hook_probe.cpp` unless the developer explicitly
+enables `HULK_NATIVE_GPU_HOOK_PROBE=ON`. Its generated XDK wrapper call
+is compiled out by default. The retail TOML no longer contains the obsolete
+`hulk_gpu_hook_probe` setting. All original NativeX Enter/Leave hooks,
+PM4/DMA safety checks, XDK 6534 profile, Vulkan render scale 2, SMAA and
+persistent pipeline storage remain intact.
+
+Other developer modules (`HULK_XDK_PM4_PROBE`,
+`HULK_GAME_INPUT_PROBE`) are OFF in the normal CMake target. Trace,
+observer, mip provenance, mouse diagnostics, world stream and frame probes
+remain explicitly OFF in the packaged settings. Source-only regression
+tests are retained to prevent uploading a bad EXE. The private compiler log
+is outside the app ZIP; `ci/verify_hulk_release.py` permits only the EXE,
+its single TOML and required runtime DLLs.
+
+Run #113 was rejected by the existing
+`test_native_x_d140_dispatch.py` *before any private input or compilation*:
+the temporary push trigger was scoped to the TOML instead of the canonical
+audit-document path. That workflow guard is preserved. The corrected
+owner-authorized, one-shot docs-only trigger uses the current audited sources
+and is removed immediately after the new run registers.
