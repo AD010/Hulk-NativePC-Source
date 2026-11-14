@@ -8,13 +8,17 @@ import tempfile
 import unittest
 from patch_sdk_hulk_cf_bounds import (
     patch_text, ANCHOR, GUARD, INCLUDE_OLD, INCLUDE_NEW, REPLACEMENT,
+    CF_SUCCESSOR_OLD, CF_SUCCESSOR_GUARD,
 )
 
 def fixture():
     return (INCLUDE_OLD
             + "void Shader::GatherExecInformation("
             + "const ParsedExecInstruction& instr) {\n"
-            + ANCHOR + "\n}\n")
+            + ANCHOR + "\n}\n"
+            + "if (!cf_memexport_info_.empty()) {\n"
+            + CF_SUCCESSOR_OLD + "\n"
+            + "    cf_memexport_info_[successor_cf_index];\n}\n")
 
 class HulkCfBoundsTests(unittest.TestCase):
     def test_guard_idempotence_and_negative_source_drift(self):
@@ -28,6 +32,69 @@ class HulkCfBoundsTests(unittest.TestCase):
                         fixture().replace(ANCHOR, "different source")):
             with self.assertRaises(ValueError):
                 patch_text(damaged)
+
+    def test_shader_cf_successors_are_checked_before_dereference(self):
+        source, changed = patch_text(fixture())
+        self.assertTrue(changed)
+        self.assertIn("HULK/CF-SUCCESSOR-BOUNDS", source)
+        self.assertLess(source.index("HULK/CF-SUCCESSOR-BOUNDS"),
+                        source.index("cf_memexport_info_[successor_cf_index]"))
+        self.assertIn("successor_cf_index >> 1", CF_SUCCESSOR_GUARD)
+        self.assertIn("std::out_of_range", CF_SUCCESSOR_GUARD)
+        with self.assertRaises(ValueError):
+            patch_text(fixture().replace(CF_SUCCESSOR_OLD, "unknown CF walker"))
+        with self.assertRaises(ValueError):
+            patch_text(source.replace("HULK/CF-SUCCESSOR-BOUNDS", "removed marker"))
+
+    @unittest.skipUnless(shutil.which("clang++") or shutil.which("g++"),
+                         "A C++ compiler is required")
+    def test_actual_successor_guard_checks_all_cf_indices(self):
+        # Compile the actual injected C++ guard in a minimal CF graph,
+        # including UINT32_MAX to catch overflow and unchecked targets.
+        pre = r"""
+#include <cassert>
+#include <cstdint>
+#include <stdexcept>
+#include <vector>
+struct Graph {
+  std::vector<uint32_t> cf_memexport_info_ = std::vector<uint32_t>(6);
+  uint32_t cf_pair_index_bound_ = 3;
+  void Check(uint32_t index) {
+    std::vector<uint32_t> successor_stack{index};
+    while (!successor_stack.empty()) {
+"""
+        # The production snippet's following assignment needs an SDK
+        # ControlFlowMemExportInfo; test the exact guard prefix only.
+        guard_prefix = CF_SUCCESSOR_GUARD.split("          ControlFlowMemExportInfo&")[0]
+        post = r"""
+    }
+  }
+};
+int main() {
+  Graph g;
+  for (uint32_t idx = 0; idx < 9; ++idx) {
+    bool rejected = false;
+    try { g.Check(idx); }
+    catch (const std::out_of_range&) { rejected = true; }
+    assert(rejected == (idx >= 6));
+  }
+  for (auto bad : {UINT32_MAX, UINT32_MAX - 1u}) {
+    bool rejected = false;
+    try { g.Check(bad); }
+    catch (const std::out_of_range&) { rejected = true; }
+    assert(rejected);
+  }
+}
+"""
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "successor.cpp"
+            exe = Path(d) / ("successor.exe" if os.name == "nt" else "successor")
+            path.write_text(pre + guard_prefix + post, encoding="utf-8")
+            compiler = shutil.which("clang++") or shutil.which("g++")
+            subprocess.run([compiler, "-std=c++20", "-Wall", "-Wextra",
+                            "-Werror", str(path), "-o", str(exe)],
+                           check=True, capture_output=True, text=True)
+            subprocess.run([str(exe)], check=True, capture_output=True, text=True)
 
     @unittest.skipUnless(shutil.which("clang++") or shutil.which("g++"),
                          "A C++ compiler is required")
