@@ -162,13 +162,24 @@ class PcMenu final : public rex::ui::ImGuiDialog {
       if (ImGui::Button("NIS")) {
         Change("native_x_renderer_scaling", "nis");
       }
-      float sharpness = static_cast<float>(
-          rex::cvar::Query<double>("native_x_renderer_sharpness"));
+      // HULK/PC-MENU-NO-DISK-DRAG: native UI slider state is local
+      // while dragging. Flush the shared TOML only on commit/release;
+      // rewriting it every mouse movement would itself cause stutter.
+      float sharpness = sharpness_edit_active_
+          ? sharpness_edit_value_
+          : static_cast<float>(
+                rex::cvar::Query<double>("native_x_renderer_sharpness"));
       if (sharpness < 0.0f) sharpness = 0.0f;
-      if (sharpness > 1.0f) sharpness = 1.0f;
-      if (ImGui::SliderFloat("Sharpening", &sharpness, 0.0f, 0.5f, "%.2f")) {
+      if (sharpness > 0.5f) sharpness = 0.5f;
+      const bool sharpness_changed =
+          ImGui::SliderFloat("Sharpening", &sharpness, 0.0f, 0.5f, "%.2f");
+      if (sharpness_changed) sharpness_edit_value_ = sharpness;
+      if (ImGui::IsItemActive()) sharpness_edit_active_ = true;
+      if (ImGui::IsItemDeactivatedAfterEdit() ||
+          (sharpness_changed && !ImGui::IsItemActive())) {
         Change("native_x_renderer_sharpness",
-                                       std::to_string(sharpness));
+               std::to_string(sharpness_edit_value_));
+        sharpness_edit_active_ = false;
       }
       ImGui::TextUnformatted("Note: sharpen cannot repair missing shader samples.");
       ImGui::TextUnformatted("DLSS/DLAA requires verified scene and motion vectors.");
@@ -323,6 +334,8 @@ class PcMenu final : public rex::ui::ImGuiDialog {
       REXLOG_WARN("[HULK/PCMENU] Existing TOML settings could not be saved");
   }
   std::filesystem::path config_;
+  float sharpness_edit_value_ = 0.0f;
+  bool sharpness_edit_active_ = false;
   std::optional<bool> last_save_ok_;
   int active_section_ = 0;
   std::function<void()> on_exit_;
