@@ -40,9 +40,12 @@ _seen_call = False
 for _edit in EDITS:
     if (_edit["path"] == "src/renderer.cpp" and
             _edit["old"].startswith("void CaptureDraw(")):
-        if not _edit["new"].startswith("void CaptureDraw("):
+        if _edit["new"].count("void CaptureDraw(") != 1:
             raise ValueError("D140 CaptureDraw signature changed")
-        _edit["new"] = _BATCH_METHOD + _edit["new"]
+        # Helper comes AFTER surface globals and the packet lookup routine.
+        # Prepending it would use undeclared mutex/history globals.
+        _edit["new"] = _edit["new"].replace(
+            "void CaptureDraw(", _BATCH_METHOD + "void CaptureDraw(", 1)
         _seen_batch = True
     if (_edit["path"] == "src/renderer.cpp" and
             "if (!packet_surfaces) HulkRememberSurface(c.surfaces[i], i);" in
