@@ -103,6 +103,20 @@ int main() {
          "Missing but known setting should be appended once");
   Expect(Read(config).find("vsync = true\n") != std::string::npos,
          "New setting was not appended");
+  // Native Windows editors often preserve UTF-8 BOM. Replacing the
+  // first setting must keep the BOM without adding a second TOML key.
+  Write(config, "\xEF\xBB\xBF" "vsync = true\r\n");
+  Expect(Save(config, "vsync", "false"),
+         "UTF-8 BOM-prefixed first key update failed");
+  const std::string bom = Read(config);
+  Expect(bom.size() >= 6 &&
+         static_cast<unsigned char>(bom[0]) == 0xef &&
+         static_cast<unsigned char>(bom[1]) == 0xbb &&
+         static_cast<unsigned char>(bom[2]) == 0xbf,
+         "UTF-8 BOM was discarded during NativePC options save");
+  Expect(bom.find("vsync = false") == 3 &&
+         bom.find("vsync =", 4) == std::string::npos,
+         "BOM caused a second or stale first TOML setting");
   std::filesystem::remove(config);
   Expect(!Save(config, "vsync", "true"),
          "Do not create a second permanent TOML when the original is missing");
