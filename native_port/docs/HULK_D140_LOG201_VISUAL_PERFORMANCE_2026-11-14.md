@@ -241,3 +241,19 @@ Source-level candidate for the user's explicit next Release:
 Validation performed so far is source/anchor regression and cross-source
 consistency, **not** a full compiled Vulkan run or visual acceptance.
 The Windows Release action and private ZIP verification are the next gate.
+
+## USER-AUTHORIZED Windows x64 Release checkpoint (2026-11-14)
+
+The user explicitly requested a new candidate ZIP after the bounded
+XDK prefix recovery, 2x/8x-AF mip provenance instrument and PM4 empty
+setter fix. The existing single Release-only workflow may run once on
+this exact documentation checkpoint on `main`. It must pass the full
+D140 source-patch preflight and private ZIP verification; no general
+push/schedule/PR builder remains enabled. The trigger must be removed
+immediately after the run is recorded. Earlier versioned private ZIP
+assets must remain untouched.
+
+Do not call this visually verified: missing menu text, city flashes,
+signage sharpness, 60+ FPS and correct physics require actual execution
+of the produced binary. No speculative 30 Hz physics detachment or
+arbitrary Xenos memory interpretation was introduced.
