@@ -82,6 +82,9 @@ PATCH = """  // HULK/INCOMPLETE-XDK-DRAW-GUARD: a truncated or malformed PM4 cal
           hulk_validated_prefix.bin_mask == scan_.bin_mask &&
           hulk_validated_prefix.bin_select == scan_.bin_select &&
           hulk_same_shader_loads()) {
+        // Preserve the trusted prefix boundary before replacing scan_: the
+        // fresh prefix scan has no incomplete-tail failure metadata.
+        const auto hulk_recovered_end = scan_.hulk_last_good_end;
         scan_ = std::move(hulk_validated_prefix);
         Gather(p, call, draw, base);
         last_hulk_segment_valid_ = false;
@@ -89,7 +92,7 @@ PATCH = """  // HULK/INCOMPLETE-XDK-DRAW-GUARD: a truncated or malformed PM4 cal
         last_.draw = draw;
         last_.device = p.device;
         last_.begin = GpuAddress(p.begin);
-        last_.end = GpuAddress(scan_.hulk_last_good_end);
+        last_.end = GpuAddress(hulk_recovered_end);
         last_.scan = &scan_;
         static std::atomic<uint32_t> hulk_prefix_recovered{0};
         const uint32_t n = ++hulk_prefix_recovered;
