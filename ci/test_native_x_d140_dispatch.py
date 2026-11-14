@@ -52,7 +52,17 @@ class D140WindowsDispatchTests(unittest.TestCase):
         # migration-branch edit into a private Windows build/release.
         workflow=(ROOT/".github"/"workflows"/"hulk-free-windows.yml").read_text("utf-8")
         self.assertRegex(workflow,r"(?m)^  workflow_dispatch:\s*$")
-        self.assertNotRegex(workflow,r"(?m)^  (?:push|pull_request|schedule|workflow_run):")
+        # GitHub connector cannot call workflow_dispatch. One user-approved
+        # release may be dispatched from a narrowly-scoped docs-only push.
+        # The workflow is restored to manual-only as soon as the run starts.
+        # Never permit generic push/PR/schedule triggers or other branches.
+        self.assertNotRegex(workflow,r"(?m)^  (?:pull_request|schedule|workflow_run):")
+        if re.search(r"(?m)^  push:", workflow):
+            self.assertIn("One-shot USER-AUTHORIZED D140 integration build",workflow)
+            self.assertRegex(workflow,
+                r"(?m)^  push:\n    branches: \[main\]\n    paths:\n"
+                r"      - native_port/docs/HULK_D140_LOG201_VISUAL_PERFORMANCE_2026-11-14\.md$")
+            self.assertEqual(len(re.findall(r"(?m)^  push:",workflow)),1)
         self.assertIn("github.ref == 'refs/heads/main'",workflow)
         self.assertIn("github.repository == 'AD010/Hulk-NativePC-Source'",workflow)
         self.assertIn("HULK_PINNED_XEX_SHA256:",workflow)
