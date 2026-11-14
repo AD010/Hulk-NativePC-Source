@@ -29,8 +29,14 @@ class SurfaceTests(unittest.TestCase):
   # 4 colors + depth must use one consistent PM4-state snapshot.
   source = "\\n".join(e["new"] for e in EDITS if e["path"]=="src/renderer.cpp")
   start = source.index("bool HulkPacketSurfaces(")
-  end = source.index("void CaptureDraw(", start)
+  # The separate hooked-XDK batch helper is inserted AFTER this
+  # function and owns its own legitimate lock. Test ONLY the body of
+  # HulkPacketSurfaces; the previous slice incorrectly included both.
+  end = source.index("void HulkRememberSurfaces(", start)
+  capture = source.index("void CaptureDraw(", end)
   packet = source[start:end]
+  batch = source[end:capture]
+  self.assertEqual(batch.count("std::lock_guard<std::mutex> guard(g_hulk_surface_history_mutex)"), 1)
   self.assertIn("HULK/PM4-SURFACE-SNAPSHOT-BATCH", packet)
   self.assertIn("std::array<GuestSurface, 5> bound_now{}", packet)
   self.assertIn("const HulkSurfaceIdentity gpu_key", packet)
