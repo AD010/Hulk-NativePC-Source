@@ -198,7 +198,18 @@ class PcMenu final : public rex::ui::ImGuiDialog {
       ImGui::TextUnformatted("PC graphics (restart game to apply)");
       const double native_scale =
           rex::cvar::Query<double>("native_x_renderer_resolution_scale");
-      ImGui::Text("Native rendering scale: %.2fx", native_scale);
+      ImGui::TextUnformatted(native_scale <= 0.0
+          ? "Render resolution: Auto (actual host framebuffer)"
+          : "Render resolution: fixed scale");
+      if (native_scale > 0.0)
+        ImGui::Text("Native rendering scale: %.2fx", native_scale);
+      // HULK/NATIVE-AUTO-PIXELS: D140 derives the actual 3D render scale
+      // from the host swapchain instead of reproducing an emulator's 720p
+      // output upscale. The game-owned 1280x720 descriptors never change.
+      if (ImGui::Button("Native / Auto")) {
+        Change("native_x_renderer_resolution_scale", "0.0");
+      }
+      ImGui::SameLine();
       if (ImGui::Button("Rendering x1")) {
         Change("native_x_renderer_resolution_scale", "1.0");
       }
