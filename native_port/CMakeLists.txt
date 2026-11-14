@@ -21,6 +21,8 @@ set(INCREDIBLEHULK_SOURCES
     src/main.cpp
     src/crash_report.cpp
     src/assets_locator.cpp
+    # Self-contained, native original EoR resource backend. No SDK dependency.
+    src/eor_archive.cpp
     src/native_pc_save_path.cpp
     src/pc_menu.cpp
     # Existing game-side input/window hooks; no separate launcher is built.
