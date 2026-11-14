@@ -48,24 +48,48 @@ CF_SUCCESSOR_GUARD = """          uint32_t successor_cf_index = successor_stack.
 
           ControlFlowMemExportInfo& successor_memexport_info ="""
 
+# The prior source used successor_cf_index < (cf_pair_index_bound_ << 1)
+# and then queued successor_cf_index + 1. At the FINAL legal CF index
+# (2*bound-1), this unconditionally queued the first OUT-OF-RANGE CF index.
+# End the graph traversal instead, preserving its own memexport end marker.
+CF_NEXT_OLD = """          if (next_instr_is_new_successor) {
+            if (successor_cf_index < (cf_pair_index_bound_ << 1)) {
+              successor_stack.push_back(successor_cf_index + 1);
+            } else {
+              memexport_eM_potentially_written_before_end_ |= eM_written_by_cf_instr;
+            }
+          }"""
+CF_NEXT_NEW = """          if (next_instr_is_new_successor) {
+            // HULK/CF-LAST-SUCCESSOR: the final decoded instruction has
+            // NO next CF instruction. Do not queue one-past-the-end.
+            if (successor_cf_index + 1 < (cf_pair_index_bound_ << 1)) {
+              successor_stack.push_back(successor_cf_index + 1);
+            } else {
+              memexport_eM_potentially_written_before_end_ |= eM_written_by_cf_instr;
+            }
+          }"""
+
 def patch_text(source: str) -> tuple[str, bool]:
     ready = (INCLUDE_NEW in source and REPLACEMENT in source and
-             CF_SUCCESSOR_GUARD in source)
+             CF_SUCCESSOR_GUARD in source and CF_NEXT_NEW in source)
     if ready:
         return source, False
     if ("HULK/CF-BOUNDS" in source or "HULK/CF-SUCCESSOR-BOUNDS" in source or
+            "HULK/CF-LAST-SUCCESSOR" in source or CF_NEXT_NEW in source or
             REPLACEMENT in source or CF_SUCCESSOR_GUARD in source or
             INCLUDE_NEW in source):
         raise ValueError("Partial Hulk Xenos CF bounds guard")
     if (source.count(INCLUDE_OLD) != 1 or source.count(ANCHOR) != 1 or
-            source.count(CF_SUCCESSOR_OLD) != 1):
+            source.count(CF_SUCCESSOR_OLD) != 1 or
+            source.count(CF_NEXT_OLD) != 1):
         raise ValueError("Xenos shader SDK EXEC/successor analysis anchors changed")
     if ("void Shader::GatherExecInformation(" not in source or
             "if (!cf_memexport_info_.empty()) {" not in source):
         raise ValueError("Guards must be in SDK shader EXEC and CF successor analysis")
     return (source.replace(INCLUDE_OLD, INCLUDE_NEW, 1)
                   .replace(ANCHOR, REPLACEMENT, 1)
-                  .replace(CF_SUCCESSOR_OLD, CF_SUCCESSOR_GUARD, 1)), True
+                  .replace(CF_SUCCESSOR_OLD, CF_SUCCESSOR_GUARD, 1)
+                  .replace(CF_NEXT_OLD, CF_NEXT_NEW, 1)), True
 
 def main() -> None:
     if len(sys.argv) != 2:
