@@ -93,6 +93,7 @@ jobs:
           $nativeTest = Join-Path $env:RUNNER_TEMP 'hulk-eor-asset-test.exe'
           $cppArgs = @('/nologo', '/std:c++20', '/EHsc', '/W4', '/WX', '/utf-8',
                        "/Fe:$nativeTest", 'native_port/src/eor_archive.cpp',
+                       'native_port/src/eor_ui_asset_catalog.cpp',
                        'ci/eor_archive_native_test.cpp')
           & cl.exe @cppArgs
           if ($LASTEXITCODE -ne 0) { throw 'Native C++ EoR asset backend failed MSVC compile' }
