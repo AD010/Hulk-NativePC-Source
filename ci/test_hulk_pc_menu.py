@@ -42,7 +42,7 @@ class TestHulkPcMenu(unittest.TestCase):
         self.assertIn("options::kBindingTokens", menu)
         self.assertNotIn("Full key rebinding from this screen is not implemented yet", menu)
         names = set(re.findall(r'"(hulk_bind_[a-z_]+)"', bindings))
-        declared = set(re.findall(r'REXCVAR_DEFINE_STRING\\((hulk_bind_[a-z_]+),',
+        declared = set(re.findall(r'REXCVAR_DEFINE_STRING\((hulk_bind_[a-z_]+),',
                                   input_code))
         self.assertEqual(names, declared)
         self.assertEqual(len(names), 21)
