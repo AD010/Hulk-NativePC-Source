@@ -5,7 +5,7 @@ import struct
 import tempfile
 import unittest
 from pathlib import Path
-from hulk_shader_effect_bank import make_bank
+from hulk_shader_effect_bank import make_bank, scan_xenos_containers
 
 def synthetic_index(big_endian=True):
     fmt = '>' if big_endian else '<'
@@ -44,6 +44,28 @@ class ShaderEffectBankTest(unittest.TestCase):
             index.write_bytes(synthetic_index(False))
             with self.assertRaises(ValueError):
                 make_bank(index,arc,private,repo_root=repo,extract=False)
+
+    def test_standalone_xenos_containers_for_xenosrecomp(self):
+        def container(flag):
+            header=struct.pack('>9I',flag,64,12,0,40,0,48,0,0)
+            return header+b"\0"*(64-len(header))+b"VALIDCODE123"
+        vs=container(0x102A1101)
+        ps=container(0x102A1100)
+        stream=b"TECHNIQUE\0"+vs+b"MATERIAL\0"+ps
+        records=list(scan_xenos_containers(stream))
+        self.assertEqual(len(records),2)
+        self.assertEqual((records[0][1],records[1][1]),('VS','PS'))
+        self.assertEqual(records[0][2],vs)
+        self.assertEqual(records[1][2],ps)
+        invalid=bytearray(vs)
+        struct.pack_into('>I',invalid,4,0xFFFFFFFF)
+        with self.assertRaises(ValueError):
+            list(scan_xenos_containers(bytes(invalid)))
+        invalid=bytearray(vs)
+        struct.pack_into('>I',invalid,28,1)
+        with self.assertRaises(ValueError):
+            list(scan_xenos_containers(bytes(invalid)))
+        self.assertEqual(list(scan_xenos_containers(b'NO XENOS SHADER')),[])
 
     def test_bounds_and_overlap(self):
         with tempfile.TemporaryDirectory() as tmp:
