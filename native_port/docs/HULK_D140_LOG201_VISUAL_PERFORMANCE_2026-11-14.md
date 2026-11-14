@@ -604,3 +604,21 @@ the temporary push trigger was scoped to the TOML instead of the canonical
 audit-document path. That workflow guard is preserved. The corrected
 owner-authorized, one-shot docs-only trigger uses the current audited sources
 and is removed immediately after the new run registers.
+## 2026-11-15: safety integration evidence (diagnostic only)
+
+The source-only RT/depth chain was repaired and validated after real GitHub
+Actions failures #115-#119. In #120, the complete upstream NativeX D140
+source-only chain and 14 public host checks passed. The separate D140
+integration gate then rejected the temporary workflow-file push trigger:
+`test_native_x_d140_dispatch.py` requires an owner-authorized one-shot
+**docs-only** trigger. This note is that exact safe trigger; the one workflow
+is returned to manual dispatch immediately after queuing the new run.
+
+Safety changes since #114: batch RT/depth history under a single mutex,
+never-bound MRT1-3 filtering, verified 1x/4x surface associations without
+recursive locks, live XDK object checks, bounded history and early rejection
+of packet draws that cannot write color or depth **before** reading XDK
+surface bindings. These are source semantics and CI results only, not
+proof of correct GPU output or complete USA camera, native EoR menus,
+physics at 60+ FPS, mip selection, Alt+Tab or gameplay audio. No game
+binaries, shaders or textures are included in this public report.
