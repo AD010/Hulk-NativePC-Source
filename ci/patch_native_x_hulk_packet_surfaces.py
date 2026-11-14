@@ -48,13 +48,13 @@ for _edit in EDITS:
             "if (!packet_surfaces) HulkRememberSurface(c.surfaces[i], i);" in
             _edit["new"]):
         _edit["new"] = _edit["new"].replace(
-            "    if (!packet_surfaces) HulkRememberSurface(c.surfaces[i], i);\\n",
+            "    if (!packet_surfaces) HulkRememberSurface(c.surfaces[i], i);\n",
             "")
         # The existing source patch records the five c.surfaces first,
         # then remembers them together to avoid repeated map locking.
         _edit["new"] = _edit["new"].replace(
             "  c.programs[0] = tracker.vertex_program_ptr();",
-            "  if (!packet_surfaces) HulkRememberSurfaces(c.surfaces);\\n"
+            "  if (!packet_surfaces) HulkRememberSurfaces(c.surfaces);\n"
             "  c.programs[0] = tracker.vertex_program_ptr();",
             1)
         _seen_call = True
