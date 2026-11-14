@@ -294,3 +294,79 @@ upstream source shapes are now targeted by the same transform.
 
 User-authorized Release QA checkpoint: run the existing Windows workflow
 once, then immediately disable the temporary docs-only trigger.
+
+## Log 203 — real Windows Vulkan performance and rendering regression (2026-11-14)
+
+Owner tested **#112** on NVIDIA RTX 5070 Ti Laptop at 2560x1600 output
+(2560x1440 Vulkan render, native scale 2.0) and reported persistent
+red/yellow building and menu flashes, approximately 92%+ GPU utilization
+and visibly uneven destruction/falling-building animation. GPU utilization
+is the owner's external observation; the logger does not print a utilization
+percentage.
+
+Complete uploaded `incredible_hulk_203.log`: 7,266 lines,
+16:31:10–16:33:53 local, clean application termination. It confirms
+`[HULK/PM4] Full setter PM4 gap capture enforced (lean OFF)`.
+The new #112 `[HULK/XDK-VALIDATED-PREFIX-DRAW]` appeared 12 times
+before its first sampling interval, proving this path is executed, **not**
+that incomplete XDK packet reconstruction is finished.
+
+- By 16:33:52 the accumulated gap-stream counter reached **1,476,023**
+  original packet-draw replay attempts, and the gap-draw capture counter
+  reached **136,000**. Do not equate these aggregate counters with the
+  number of completed host raster draws or unique on-screen objects.
+- Rejected incomplete XDK Draw counter reached at least **60,000**.
+  The sampled failures mostly have `packet_draws=0` before corrupt
+  float-like headers; accepting them as packets would be unsafe.
+- Multiple real shader/fetch faults remain: 20 sampled
+  `HULK/INVALID-VERTEX-DRAW` (including slot 95 and later slot 0),
+  8 sampled invalid texture draws, 5 indexed DMA rejections,
+  **3 vertex-shader analysis access violations** (27-dword shaders),
+  and **2** `getCompTexLOD requires pixel shader implicit derivatives`
+  translation errors. No evidence yet that these all share one root cause.
+- Gameplay is substantially more demanding than the early menu. At
+  frame 15600 (600-frame statistics window): **1,887 actual host draw
+  calls/frame**, GPU average **22.36 ms**, CPU render thread **11.54 ms**,
+  GPU wait **10.33 ms**, average presented frame interval **23.25 ms**,
+  maximum frame interval **122.82 ms**. The command processor spent
+  **21.03 ms** per frame at its signals and the game thread waited
+  **2.46 ms** average for renderer-queue room. Per frame: **4,524.5**
+  buffer copies, **12,484 KB** copied, **12.6** upload-ahead batches
+  at around **177.2** draws/batch. This explains stutter without requiring
+  an emulated 30-FPS cap.
+- At frame 16800, no new shader translation or pipeline creation was
+  recorded but the GPU still averaged **17.12 ms** (CPU 10.72 ms).
+  Therefore ongoing slowdown is **not solely shader compilation**.
+  The reported 92%+ GPU utilization is plausible for this measured
+  GPU-bound interval but is not an in-log counter.
+- Native scene 640x360 4x-MSAA resolves reach 2560x1440 host; the renderer
+  reports about **28 resolves per gameplay frame**, plus conditional SMAA.
+  Unconditional reduced-resolution shortcuts would reintroduce blurred
+  output or broken screen-space effects; this requires per-pass profiling.
+- **Actual runtime settings differ from the repository TOML**: the log
+  reports scaling `"smaa"` invalid and substituted with bilinear;
+  `AMD CAS at 1.00`; and mip-probe AF override **5** (vs shipped 4).
+  `smaa` is an *antialiasing* setting, not a valid scaling filter.
+  The exact precedence mechanism (saved F4 cvars, older TOML or CLI
+  overrides) has not been proven. Do not infer the user's ZIP contained
+  the wrong base configuration.
+
+Changes AFTER #112 (source candidate, **not** in that published ZIP):
+- `native_x_renderer_hulk.cpp` now logs effective startup scaling,
+  sharpness, anisotropy, upload-ahead and scene waits, and normalizes
+  only an unsupported scaling name to bilinear. It retains valid user
+  choices instead of silently overwriting them.
+- `native_x_renderer_hulk_mip_probe` defaults to **false** now that
+  log203 captured fetch words; this removes unnecessary per-draw
+  QA instrumentation from ordinary runs.
+- The existing single TOML requests `native_x_renderer_upload_ahead = 512`
+  rather than the D140 upstream 256. This batches *original queued data*
+  and may reduce CPU/render-pass overhead in scenes with ~12.6 upload
+  batches/frame; it is **not** proven to reduce GPU load or eliminate a
+  122 ms spike. Do not skip Draw, fake shaders, mutate Xenos indexes, lower
+  native resolution or alter physics to force a faster benchmark.
+
+Release acceptance still needs separate evidence for menu text, colored
+flashes, malformed vertex/shader identity, 2x texture mip selection,
+real 60/120 Hz physics, and building-collapse frame-time spikes. No
+visual success should be claimed from a new CI archive alone.
