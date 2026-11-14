@@ -2,6 +2,7 @@
 """Verified EoR CRC32 resource extraction; synthetic archives, no game bytes."""
 from __future__ import annotations
 
+import csv
 import hashlib
 from pathlib import Path
 import sys
@@ -51,6 +52,36 @@ class TestEorNamedResourceExtraction(unittest.TestCase):
             resource_hash("../ui_menuitems_da")
         with self.assertRaises(ValueError):
             resource_hash("path\\ui_menuitems_da")
+
+    def test_verified_original_pc_xbox_ui_asset_map(self):
+        from hulk_eor_extract_named_assets import REPOSITORY_ROOT
+        path = REPOSITORY_ROOT / "native_port/analysis/eor_ui_original_resource_map.csv"
+        with path.open(encoding="utf-8", newline="") as fp:
+            rows = list(csv.DictReader(fp))
+        self.assertEqual(len(rows), 20)
+        maxsizes = {
+            ("PC", "Fonts"): 152736,
+            ("XBOX360", "Fonts"): 136928,
+            ("PC", "Textures"): 131721440,
+            ("XBOX360", "Textures"): 351883360,
+        }
+        seen = set()
+        for row in rows:
+            key = (row["platform"], row["group"])
+            self.assertIn(key, maxsizes)
+            resource = row["canonical_resource_name"]
+            self.assertEqual(resource_hash(resource), row["crc32_upper_hash"])
+            self.assertTrue(4 <= int(row["offset"]))
+            self.assertTrue(int(row["size"]) > 0)
+            self.assertLessEqual(int(row["offset"]) + int(row["size"]),
+                                 maxsizes[key])
+            unique = (key, resource)
+            self.assertNotIn(unique, seen)
+            seen.add(unique)
+        self.assertIn((("PC", "Fonts"), "font_clean"), seen)
+        self.assertIn((("XBOX360", "Fonts"), "font_clean"), seen)
+        self.assertIn((("PC", "Textures"), "ui_menuitems_da"), seen)
+        self.assertIn((("XBOX360", "Textures"), "ui_xbox360_a_da"), seen)
 
     def test_extract_font_and_glyph_by_actual_hash(self):
         font_bytes = b"EOR-FONT-A"
