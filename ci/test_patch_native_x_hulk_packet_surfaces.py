@@ -25,6 +25,22 @@ class SurfaceTests(unittest.TestCase):
   self.assertIn("HULK/PM4-SURFACE-BATCH",txt)
   self.assertIn("void HulkRememberSurfaces(const std::array<GuestSurface, 5>& surfaces)",txt)
   self.assertIn("std::lock_guard<std::mutex> guard(g_hulk_surface_history_mutex);",txt)
+ def test_synthetic_packet_surface_bindings_lock_once(self):
+  # 4 colors + depth must use one consistent PM4-state snapshot.
+  source = "\\n".join(e["new"] for e in EDITS if e["path"]=="src/renderer.cpp")
+  start = source.index("bool HulkPacketSurfaces(")
+  end = source.index("void CaptureDraw(", start)
+  packet = source[start:end]
+  self.assertIn("HULK/PM4-SURFACE-SNAPSHOT-BATCH", packet)
+  self.assertIn("std::array<GuestSurface, 5> bound_now{}", packet)
+  self.assertIn("const HulkSurfaceIdentity gpu_key", packet)
+  self.assertEqual(packet.count("std::lock_guard<std::mutex> guard(g_hulk_surface_history_mutex)"), 1)
+  self.assertNotIn("HulkRememberSurface(bound, slot)", packet)
+  self.assertIn("remembered[gpu_key] = {bound, ++g_hulk_surface_stamp};", packet)
+  self.assertIn("out[slot] = it->second.first;", packet)
+  self.assertIn("unresolved = true;", packet)
+  self.assertIn("auto oldest = std::min_element(", packet)
+
  def test_surface_history_key_does_not_alias_distinct_registers(self):
   # Real log176: hundreds of thousands of ambiguous bindings. Never allow
   # another surface to reuse a saved GPU target solely because upper register
