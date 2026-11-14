@@ -35,8 +35,10 @@ class TestHulkUsGpuDefaults(unittest.TestCase):
         self.assertIn("v!=0x8263BF50u", source)
         self.assertFalse(config["hulk_world_stream_trace"])
         self.assertFalse(config["hulk_native_x_verify_only"])
-        self.assertTrue(config["native_x_renderer_verify"])
-        self.assertTrue(config["native_x_renderer_trace"])
+        # Source verification and trace are developer-only: they execute
+        # extra per-frame GPU/CPU observer work in the user's retail build.
+        self.assertFalse(config["native_x_renderer_verify"])
+        self.assertFalse(config["native_x_renderer_trace"])
         self.assertEqual(config["native_x_renderer_verify_at"], 900)
         self.assertEqual(config["native_x_renderer_trace_dump_at"], 900)
         self.assertEqual(config["bind_native_x_renderer_verify"], "F11")
