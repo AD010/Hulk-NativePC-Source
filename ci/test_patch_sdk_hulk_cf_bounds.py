@@ -8,7 +8,7 @@ import tempfile
 import unittest
 from patch_sdk_hulk_cf_bounds import (
     patch_text, ANCHOR, GUARD, INCLUDE_OLD, INCLUDE_NEW, REPLACEMENT,
-    CF_SUCCESSOR_OLD, CF_SUCCESSOR_GUARD,
+    CF_SUCCESSOR_OLD, CF_SUCCESSOR_GUARD, CF_NEXT_OLD, CF_NEXT_NEW,
 )
 
 def fixture():
@@ -18,7 +18,8 @@ def fixture():
             + ANCHOR + "\n}\n"
             + "if (!cf_memexport_info_.empty()) {\n"
             + CF_SUCCESSOR_OLD + "\n"
-            + "    cf_memexport_info_[successor_cf_index];\n}\n")
+            + "    cf_memexport_info_[successor_cf_index];\n}\n"
+            + CF_NEXT_OLD + "\n")
 
 class HulkCfBoundsTests(unittest.TestCase):
     def test_guard_idempotence_and_negative_source_drift(self):
@@ -41,10 +42,58 @@ class HulkCfBoundsTests(unittest.TestCase):
                         source.index("cf_memexport_info_[successor_cf_index]"))
         self.assertIn("successor_cf_index >> 1", CF_SUCCESSOR_GUARD)
         self.assertIn("std::out_of_range", CF_SUCCESSOR_GUARD)
+        # The old SDK also enqueued one-past-end from its final valid CF
+        # instruction. Preserve the end-of-program memexport bookkeeping.
+        self.assertIn("HULK/CF-LAST-SUCCESSOR", source)
+        self.assertIn("successor_cf_index + 1 < (cf_pair_index_bound_ << 1)", source)
+        self.assertIn("memexport_eM_potentially_written_before_end_", CF_NEXT_NEW)
+        self.assertNotIn("if (successor_cf_index < (cf_pair_index_bound_ << 1))",
+                         CF_NEXT_NEW)
         with self.assertRaises(ValueError):
             patch_text(fixture().replace(CF_SUCCESSOR_OLD, "unknown CF walker"))
         with self.assertRaises(ValueError):
             patch_text(source.replace("HULK/CF-SUCCESSOR-BOUNDS", "removed marker"))
+
+    @unittest.skipUnless(shutil.which("clang++") or shutil.which("g++"),
+                         "A C++ compiler is required")
+    def test_final_cf_instruction_marks_end_without_enqueue(self):
+        pre = r"""
+#include <cassert>
+#include <cstdint>
+#include <vector>
+struct Graph {
+ uint32_t cf_pair_index_bound_ = 3;
+ void Check(uint32_t successor_cf_index) {
+   bool next_instr_is_new_successor = true;
+   std::vector<uint32_t> successor_stack;
+   uint32_t eM_written_by_cf_instr = 4;
+   uint32_t memexport_eM_potentially_written_before_end_ = 0;
+"""
+        post = r"""
+   if (successor_cf_index < 5) {
+     assert(successor_stack.size() == 1u);
+     assert(successor_stack[0] == successor_cf_index + 1);
+     assert(memexport_eM_potentially_written_before_end_ == 0u);
+   } else {
+     assert(successor_stack.empty());
+     assert(memexport_eM_potentially_written_before_end_ == 4u);
+   }
+ }
+};
+int main() {
+  Graph g;
+  for (uint32_t i=0; i < 6; ++i) g.Check(i);
+}
+"""
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "last_cf.cpp"
+            exe = Path(d) / ("last_cf.exe" if os.name == "nt" else "last_cf")
+            path.write_text(pre + CF_NEXT_NEW + post, encoding="utf-8")
+            compiler = shutil.which("clang++") or shutil.which("g++")
+            subprocess.run([compiler, "-std=c++20", "-Wall", "-Wextra",
+                            "-Werror", str(path), "-o", str(exe)],
+                           check=True, capture_output=True, text=True)
+            subprocess.run([str(exe)], check=True, capture_output=True, text=True)
 
     @unittest.skipUnless(shutil.which("clang++") or shutil.which("g++"),
                          "A C++ compiler is required")
