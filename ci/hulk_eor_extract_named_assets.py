@@ -39,7 +39,14 @@ def resource_hash(name: str) -> str:
     """CRC32(ASCII uppercase name), verified against three EoR dataset IDs."""
     if not SAFE_NAME.fullmatch(name):
         raise ValueError("EoR asset name must be ASCII and have no path separators")
-    return f"{zlib.crc32(name.upper().encode('ascii')) & 0xFFFFFFFF:08X}"
+    normalized = name.upper()
+    # EoR serialized _app_ uses type-tagged links (TXFL..., LFXT...),
+    # while both ARC indexes hash the base ui_* name, not the 4-char
+    # type tag. This was proven against five original PC/Xbox index
+    # records: menuitems, menubands, WASD, Xbox A and left mouse button.
+    if normalized.startswith(("TXFLUI_", "LFXTUI_")):
+        normalized = normalized[4:]
+    return f"{zlib.crc32(normalized.encode('ascii')) & 0xFFFFFFFF:08X}"
 
 
 def labeled(value: str) -> tuple[str, str]:
