@@ -23,10 +23,12 @@ with tempfile.TemporaryDirectory() as temp:
     module.patch_sdk(root)
     content = source.read_text()
     assert 'REXCVAR_DEFINE_BOOL(hulk_frame_probe' in content
-    assert 'REXCVAR_DEFINE_INT32(gpu_guest_fps_limit, 0' in content
+    assert 'REXCVAR_DEFINE_INT32(hulk_guest_swap_fps_cap, 0' in content
+    # No collision with SDK/runtime's independent gpu_guest_fps_limit flag.
+    assert 'gpu_guest_fps_limit' not in content
     assert 'HULK/GUEST-FPS-CAP' in content
     assert 'std::this_thread::sleep_until(next_submit)' in content
-    assert 'std::clamp(REXCVAR_GET(gpu_guest_fps_limit), 0, 240)' in content
+    assert 'std::clamp(REXCVAR_GET(hulk_guest_swap_fps_cap), 0, 240)' in content
     assert '#include <thread>' in content
     assert 'REXKRNL_INFO("[HULK/FPS] VdSwap rate=' in content
     assert content.count("HULK_FRAME_PROBE_V1") >= 1
