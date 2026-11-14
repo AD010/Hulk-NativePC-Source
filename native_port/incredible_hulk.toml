@@ -76,7 +76,13 @@ bind_native_x_renderer_verify = "F11"
 hulk_world_stream_trace = false
 hulk_gpu_hook_probe = false
 hulk_frame_probe = false
-native_x_renderer_pipeline_storage = false
+# D140 pipeline storage keeps validated guest shaders, translated programs,
+# graphics PSO records and a driver-compatible Vulkan pipeline cache in the
+# user's local renderer cache. This reuses compilation across game launches,
+# avoiding repetitive first-visit stalls, not extra on-screen effects.
+# Invalid shaders that failed analysis are not recorded as valid programs.
+# Do not confuse this with native_x_renderer_pipeline_library (D132).
+native_x_renderer_pipeline_storage = true
 # Serialize NVIDIA Vulkan shader/PSO creation to reduce simultaneous driver compiler work.
 # Experimental crash containment; does not fix invalid Xenos PM4 state.
 native_x_renderer_hulk_serial_driver_creation = true
