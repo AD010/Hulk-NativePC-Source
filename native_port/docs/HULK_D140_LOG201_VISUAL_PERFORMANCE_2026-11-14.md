@@ -281,3 +281,16 @@ actual newline. No GPU correctness condition or invalid-fetch guard was
 relaxed. Run the one existing Release workflow again on this user-authorized
 documentation checkpoint, then restore manual-only. Previous ZIP files
 remain untouched.
+
+## #112 pin-compatibility QA retry (2026-11-14)
+
+#111 reached the genuine upstream source transform and rejected a
+D140-only mip probe anchor on the legacy NativeX pin. The mip probe was
+moved directly after the common shader-used RequestTextures call, with
+its cvar registered beside the common native draw-log cvar. The emitter
+still logs only bounded raw fetch and actual scale/LOD provenance and
+does not modify texture data, shader state or physics. All three pinned
+upstream source shapes are now targeted by the same transform.
+
+User-authorized Release QA checkpoint: run the existing Windows workflow
+once, then immediately disable the temporary docs-only trigger.
