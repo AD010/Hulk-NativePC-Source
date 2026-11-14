@@ -93,3 +93,7 @@ previous #95/#106 private assets are preserved. A successful CI does NOT
 prove the observed color flicker, sign textures, 60+ FPS physics or TU1
 water behavior correct. It proves only the named compilation, package,
 and staged source tests.
+
+## Windows release retry after preflight guard (2026-11-14)
+
+Actions #107 stopped in the public test `test_release_workflow_remains_manual_and_main_only` because its one-shot document-triggered workflow was not accounted for by the test. That failure happened before proprietary input download and before compiling D140. The updated gate explicitly permits *only* this temporary, exact documentation-only trigger on `main`, disallows PR/schedule or broader pushes, and restores the sole workflow to manual-only after the new Actions run begins. This is a user-authorized rebuild and does not waive any NativeX C++ source test or gameplay-fidelity checks.
