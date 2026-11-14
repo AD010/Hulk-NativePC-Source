@@ -84,7 +84,9 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'USA game configuration test failed' }
           python ci/test_hulk_pc_menu.py
           if ($LASTEXITCODE -ne 0) { throw 'Native PC menu regression failed' }
-          Write-Host '[HULK/D140] Full source adaptation and native performance controls verified.'
+          python ci/test_audit_hulk_pc_x360_ui_assets.py
+          if ($LASTEXITCODE -ne 0) { throw 'Original EoR UI archive/index regression failed (no game assets used)' }
+          Write-Host '[HULK/D140] Full source adaptation, UI archive parser and native performance controls verified.'
       - name: Get original input ONLY from private Hulk release
         shell: pwsh
         env:
