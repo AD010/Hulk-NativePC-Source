@@ -52,11 +52,11 @@ native_x_renderer_hulk_auto_scene_aa = true
 native_x_renderer_antialiasing = "smaa"
 native_x_renderer_present_with_swaps = true
 native_x_renderer_thread = true
-# Log203: ~12.6 upload batches and 4,525 buffer copies/frame in the
-# heaviest scene. D98 batches uploads of *original* queued draw data;
-# 512 (vs upstream 256) reduces potential render-pass interruptions.
-# This is a scheduling A/B candidate, NOT a confirmed FPS or GPU fix.
-native_x_renderer_upload_ahead = 512
+# Keep the upstream D140 upload-ahead window until a matched-scene
+# benchmark proves a different size actually reduces GPU/CPU time.
+# Enlarging it speculatively to 512 may increase speculative work during
+# destruction and cannot by itself reduce required Vulkan Resolve work.
+native_x_renderer_upload_ahead = 256
 hulk_native_x_verify_only = false
 # HULK/RETAIL-CPU-BUDGET: the NativeX trace path captures per-frame D3D
 # state. It is a diagnostic, not required for the native Vulkan render.
