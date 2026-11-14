@@ -143,6 +143,28 @@ int main() {
   Expect(!hulk::camera::AspectForView(2560.0, 0.0, guest_aspect, 1.0) &&
          !hulk::camera::AspectForView(2560.0, 1600.0, guest_aspect, 0.0),
          "Invalid projection FOV/framebuffer must fail closed");
+  const auto full_16_10 = hulk::display::FullScreen3DContract(2560, 1600);
+  Expect(full_16_10.valid && full_16_10.host_width == 2560 &&
+         full_16_10.host_height == 1600 &&
+         std::abs(full_16_10.scale_x - 2.0) < 1e-8 &&
+         std::abs(full_16_10.scale_y - 20.0/9.0) < 1e-8 &&
+         std::abs(full_16_10.projection_x_multiplier - 10.0/9.0) < 1e-8,
+         "True 2560x1600 host 3D raster/projection compensation changed");
+  const auto full_16_9 = hulk::display::FullScreen3DContract(3840, 2160);
+  Expect(full_16_9.valid &&
+         std::abs(full_16_9.projection_x_multiplier - 1.0) < 1e-8,
+         "Native 16:9 must not change 3D projection geometry");
+  const auto full_ultra = hulk::display::FullScreen3DContract(3440, 1440);
+  Expect(full_ultra.valid && full_ultra.host_width == 3440 &&
+         full_ultra.host_height == 1440 &&
+         full_ultra.projection_x_multiplier < 1.0,
+         "Full 21:9 target needs corresponding wider perspective");
+  Expect(!hulk::display::FullScreen3DContract(1024, 768).valid &&
+         !hulk::display::FullScreen3DContract(0, 1080).valid,
+         "Unsupported sub-native output must not corrupt GPU surfaces");
+  Expect(std::abs(full_16_10.projection_x_multiplier -
+                  proj_16_10->horizontal_focal_multiplier) < 1e-8,
+         "Native raster and camera projection contracts must agree");
   const auto fit_16_10 = hulk::display::FitOriginalPicture(2560, 1600);
   Expect(fit_16_10.valid && fit_16_10.width == 2560 &&
          fit_16_10.height == 1440 && fit_16_10.y == 80 &&
