@@ -265,3 +265,101 @@ audit over the already-uploaded PC and Xbox archives and the full
 Xbox 360 dataset. No additional user file is presently required for
 the PC texture category, and no replacement XEX or new GitHub workflow
 should be created.
+
+## 2026-11-14 — EoR resource name hashing REVERSED and indexed UI mapped
+
+**New verified result, replacing guesswork about resource identity:** The
+EoR `index.ind` resource key is `CRC32(ASCII_UPPER(name))` for the
+three independently known dataset records, the common font record and
+multiple real PC/Xbox menu artwork entries. Exact checks:
+
+- `_app_` -> `721AAFDE`, `_engine_` -> `CA54CBC0`,
+  `_shader_effects_` -> `2485AB96`.
+- `font_clean` -> `A796ECFA`. The original PC Fonts index
+  identifies the payload at offset **4**, size **152,671**; the original
+  Xbox Fonts index identifies the SAME hash at offset **4**, size
+  **136,859**. Both file sizes are compatible with these bounds.
+- The four-character EoR resource type tags **TXFL** (PC) and **LFXT**
+  (Xbox) appear in `_app_` references, but must be removed before
+  hashing the `ui_*` name. Example:
+  `TXFLui_menuitems_da` -> `ui_menuitems_da`
+  -> `2F95A2B1`; original PC Textures record at offset
+  **34,685,932**, size **32,942**.
+- `ui_menubands_da` -> `20CE9F3C`, PC texture offset
+  **24,712,998**, size **65,710**.
+- `ui_key_wasd_da` -> `6274200A`, PC texture offset
+  **58,601,534**, size **2,221**.
+- `ui_key_space_da` -> `D813EA9A`, PC texture offset
+  **115,157,098**, size **4,270**.
+- `ui_xbox360_a_da` -> `16FEB6A7`, PC texture offset
+  **20,149,222**, size **1,198**; Xbox texture offset
+  **29,541,697**, size **16,486**.
+
+All these matches were found *inside the user's previously decoded
+PC and Xbox indices*, not guessed from a graphics screenshot.
+Twenty exact font/texture records, including Xbox A/B/X/Y/LT/RT glyphs
+on both platforms, are catalogued in the source-only file
+`native_port/analysis/eor_ui_original_resource_map.csv`. It contains
+resource IDs, offsets and sizes, **no original game bytes**. The map
+was independently checked for uppercase CRC32 equality and archived
+bounds with a separate JS validation step.
+
+### Actual extraction and decompilation tools now in the existing repo
+
+- `ci/hulk_eor_extract_named_assets.py`: deterministic, safe private
+  extractor using both original index endiannesses; resolves a typed
+  `TXFL`/`LFXT` link, hashes the normalized EoR name, seeks
+  directly to the matching original `ARC` offset, hashes and copies
+  exactly the indexed resource span into a **private** directory. It
+  rejects malformed/missing/out-of-bounds names and does not rename
+  raw unknown formats to PNG/DDS without evidence.
+- `ci/test_hulk_eor_extract_named_assets.py`: synthetic PC LE and Xbox
+  BE archive tests, independent name/ID truth table, 20-record index
+  bounds regression. Wired into the existing single manual-only Windows
+  Release preflight, not a second CI workflow.
+- `ci/ghidra_hulk_ui_xrefs.py`: Ghidra's headless Jython Script for
+  *original* `HULK.EXE`, and for correctly imported USA `default.xex`
+  using **XEXLoaderWV**. Locates whitelisted EoR UI option strings and
+  direct reference/caller addresses to reconstruct genuine pause-menu
+  command dispatch, not another ImGui view. Its addresses are leads,
+  **NOT** proven callable ABI signatures.
+- Independent historical format source: Luigi Auriemma's
+  `incredible_hulk_2008.bms` script for EoR `index.ind` / `ARC`,
+  documented in the 2019 ZenHAX discussion:
+  https://reshax.com/topic/17543-the-incredible-hulk-2008-quickbms-script-for-indexind-to-extract-arc/
+  and script URL:
+  https://aluigi.altervista.org/bms/incredible_hulk_2008.bms .
+- Ghidra XEX loader reference: https://github.com/zeroKilo/XEXLoaderWV
+  (a suitable verified loader must be installed when analyzing USA
+  Xbox PPC; normal PE import suffices for the PC retail EXE).
+
+### Reproducible, private extraction commands
+
+From a checkout of the existing repo, with the user's original files
+in their own separate/private directory:
+
+```powershell
+python ci/hulk_eor_extract_named_assets.py --index "D:\PrivateHulk\PC\indexPC.ind" --archive "Fonts=D:\PrivateHulk\PC\FONTS(1).ARC" --name "Fonts:font_clean" --out-dir "D:\PrivateHulk\ExtractedPC"
+python ci/hulk_eor_extract_named_assets.py --index "D:\PrivateHulk\PC\indexPC.ind" --archive "Textures=D:\PrivateHulk\PC\textures(1).arc" --name "Textures:TXFLui_menuitems_da" --name "Textures:TXFLui_key_wasd_da" --out-dir "D:\PrivateHulk\ExtractedPC"
+python ci/hulk_eor_extract_named_assets.py --index "D:\PrivateHulk\Xbox\indexXBOX360.ind" --archive "Fonts=D:\PrivateHulk\Xbox\FONTS.ARC" --name "Fonts:font_clean" --out-dir "D:\PrivateHulk\ExtractedXbox"
+```
+
+These are reproducible examples, **not claims that private binary
+extraction already ran**. The original uploaded binary files remain
+unreadable to the container runtime in this session; the Files content
+tool also reports no readable text for raw `FONTS.ARC`. Thus actual
+payload SHA256 and image/bitmap decoding remain UNVERIFIED. No Xbox or
+PC game executable/asset was committed to public GitHub.
+
+### Independent-native runtime status
+
+The resource-name hash is now understood and an exact portable extraction
+path exists; this is genuine source-format progress. It does **not**
+mean a rebuilt EoR runtime already exists. A *true* independent Windows
+x64 game would require original object deserialization, frontend scripts,
+scene/animation/physics/audio, game rules, renderer, file I/O and saves.
+Ghidra plus QuickBMS do not automatically reconstruct those programs.
+The current runtime still depends on ReXGlue; no claim of complete
+independence or an official-quality playable port is made. Before
+removing the runtime, each subsystem needs verified original-data
+behavior and executable functionality, not empty stubs.
