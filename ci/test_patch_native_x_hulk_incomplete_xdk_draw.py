@@ -40,7 +40,7 @@ class IncompleteXdkTests(unittest.TestCase):
         # This must remain a NARROW recovery. Logs 200-202 mostly fail
         # before a GPU DRAW packet, which must continue to be discarded.
         cpp, changed = patch(
-            "const TrackedCall* StateTracker::Leave(Call call, const uint8_t* base, bool nested) {\\n"
+            "const TrackedCall* StateTracker::Leave(Call call, const uint8_t* base, bool nested) {\n"
             + ANCHOR)
         self.assertTrue(changed)
         start = cpp.index("HULK/XDK-VALIDATED-PREFIX-DRAW")
