@@ -41,4 +41,3 @@ native_port/*.map
 *.xcp
 *.pak
 *.dat
-native_port/generated/default/
