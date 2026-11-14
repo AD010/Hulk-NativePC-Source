@@ -21,14 +21,14 @@ ZERO_NEW = "  // HULK/PM4-ZERO-SURFACE: distinguish invalid pitch from RT identi
 # HULK/PM4-ACCEPT: without an accepted-draw counter, the previous million-
 # scale rejection count was impossible to compare against successfully mapped
 # packet draws. These are PM4 surface mapping counts, not rasterized objects.
-ACCEPT_OLD = "  return true;\n}\n\n// HULK/PM4-DMA-SNAPSHOT:"
+ACCEPT_OLD = "  return true;\n}\n\n// HULK/PM4-SURFACE-BATCH:"
 ACCEPT_NEW = (
     "  static std::atomic<uint64_t> hulk_packet_draws_mapped{0};\n"
     "  const uint64_t mapped = ++hulk_packet_draws_mapped;\n"
     "  if (mapped <= 12 || mapped % 50000 == 0)\n"
     "    REXLOG_INFO(\"[HULK/PM4-ACCEPT] #{} surface={:#x} color_mask={:#x} depth_control={:#x}\",\n"
     "                mapped, gpu_surface, gpu_color_mask, gpu_depth_control);\n"
-    "  return true;\n}\n\n// HULK/PM4-DMA-SNAPSHOT:"
+    "  return true;\n}\n\n// HULK/PM4-SURFACE-BATCH:"
 )
 
 def patch_text(source):

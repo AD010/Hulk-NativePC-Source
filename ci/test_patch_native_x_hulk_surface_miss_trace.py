@@ -19,6 +19,8 @@ class TestMissTrace(unittest.TestCase):
         self.assertIn("HULK/PM4-MISS", result)
         self.assertIn("HULK/PM4-ACCEPT", result)
         self.assertIn("hulk_packet_draws_mapped", result)
+        self.assertIn("HULK/PM4-SURFACE-BATCH:", ACCEPT_NEW)
+        self.assertNotIn("HULK/PM4-DMA-SNAPSHOT:", ACCEPT_OLD)
         for s in ("void unrelated() {}", original + "\n" + OLD):
             with self.assertRaises(ValueError): patch_text(s)
     def test_batched_packet_snapshot_does_not_reenter_mutex(self):
