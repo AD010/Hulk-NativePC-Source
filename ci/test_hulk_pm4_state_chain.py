@@ -55,6 +55,9 @@ def apply_state_chain(files: dict[str, str]) -> dict[str, str]:
     required_cpp = (
         "HULK/PFP-PREDICATE", "HULK/PFP-RESET", "HULK/PFP-BIN",
         "HULK/PM4-PACKET-BOUNDS", "HULK/PM4-SHADER-BOUNDS",
+        "HULK/PM4-GAP-CONSUME-EMPTY",
+        "last_hulk_segment_end_ = p.begin;",
+        "last_hulk_segment_valid_ = false;",
         "if (copy_microcode || immediate)", "hulk_bin_mask_at_gap",
         "if (on_packet_draw && out.complete) on_packet_draw();",
         "const bool stream_gap = scan_.complete &&",
