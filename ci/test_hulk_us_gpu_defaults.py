@@ -34,7 +34,20 @@ class TestHulkUsGpuDefaults(unittest.TestCase):
         # texture pixels. The lightweight mip audit is temporary for QA.
         self.assertEqual(config["native_x_renderer_resolution_scale"], 2.0)
         self.assertEqual(config["anisotropic_override"], 4)
-        self.assertTrue(config["native_x_renderer_hulk_mip_probe"])
+        self.assertFalse(config["native_x_renderer_hulk_mip_probe"])
+        # User log203 proved that an older TOML or saved CVar can override
+        # packaged scaling/AF/sharpness settings. Normalize unsupported
+        # scaling names before NativeX reads its startup-only values.
+        self.assertEqual(config["native_x_renderer_scaling"], "bilinear")
+        self.assertEqual(config["native_x_renderer_sharpness"], 0.0)
+        self.assertIn('requested_scaling != "bilinear"', app)
+        self.assertIn('requested_scaling != "fsr"', app)
+        self.assertIn('requested_scaling != "nis"', app)
+        self.assertIn('rex::cvar::SetFlagByName("native_x_renderer_scaling", "bilinear")', app)
+        self.assertIn("[HULK/QUALITY-203] effective scaling=", app)
+        self.assertIn('rex::cvar::Query<int32_t>("native_x_renderer_upload_ahead")', app)
+        self.assertLess(app.index("HULK/EFFECTIVE-QUALITY-203"),
+                        app.index('native_x_renderer::Initialize('))
         fetch_patch = (ROOT / "ci/patch_native_x_hulk_draw_fetch_guard.py").read_text()
         self.assertIn("HULK/MIP-PROVENANCE", fetch_patch)
         self.assertIn("native_x_renderer_hulk_mip_probe", fetch_patch)
