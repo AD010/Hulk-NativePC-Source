@@ -34,9 +34,10 @@ native_x_renderer_resolution_scale = 2.0
 # 4 = 8x AF, -1 = respect the game, 5 = 16x AF (more bandwidth).
 # This cannot recover missing high-resolution source texels.
 anisotropic_override = 4
-# Temporary, low-frequency release diagnostic: raw texture fetch + native
-# LOD provenance for blurred billboards. No texture/sampler modifications.
-native_x_renderer_hulk_mip_probe = true
+# Log203 already captured raw texture-fetch/mip/LOD provenance; disable
+# this per-draw diagnostic for normal gameplay. Re-enable only for a new
+# targeted texture audit (it never changes texture or sampler values).
+native_x_renderer_hulk_mip_probe = false
 # Image presentation options; native resolution is NOT a texture upscaler.
 # Sharpness 0 preserves the last known-good output. Try 0.10-0.20 via
 # the F10 menu if desired. FSR 1/NIS are optional, DLSS view hooks are not
