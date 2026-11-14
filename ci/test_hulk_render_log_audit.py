@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Source-only regression tests for GPU log triage; never include game logs."""
 import unittest
-from hulk_render_log_audit import analyze, compare
+from hulk_render_log_audit import analyze, compare, shader_static_cf
 
 
 class HulkLogAuditTests(unittest.TestCase):
@@ -35,6 +35,64 @@ class HulkLogAuditTests(unittest.TestCase):
         self.assertIsNone(b["missing_shader_analysis_executions"])
         self.assertIsNone(b["texture_fetch_differences"])
         self.assertNotIn("PS", b["float_constants"])
+
+    def test_xenos_vs_family_static_exec_and_safe_log_203_classification(self):
+        # Synthetic 27-word CF: two EXEC packets (instructions 3-4 and 5),
+        # two ALLOC, and NOPs. The deliberately altered trailing word is
+        # NOT borrowed game microcode and is not in a direct EXEC range.
+        base = [0] * 27
+        base[:6] = [0x00002003, 0x00001000, 0xC0000000,
+                    0x00001005, 0x00001000, 0xC0000000]
+        used, execs, cf_pairs = shader_static_cf(base)
+        self.assertEqual(cf_pairs, 3)
+        self.assertEqual(execs, ((3, 2), (5, 1)))
+        self.assertEqual(len(used), 18)
+        self.assertNotIn(23, used)
+        a, b = base[:], base[:]
+        a[23], b[23] = 0x01234567, 0x89ABCDEF
+        def failed(shader_hash, payload):
+            return ("[native_x_renderer] vertex shader " + shader_hash +
+                    " (27 dwords): analysis failed: access violation\\n" +
+                    "[native_x_renderer] the vertex program came from " +
+                    "IM_LOAD_IMMEDIATE at 0xa2001000 (packet 0xa2000ff4) " +
+                    "in DrawIndexedVertices: " +
+                    " ".join(f"{w:08X}" for w in payload))
+        log = failed("1234567890ABCDEF", a) + "\\n" + failed("FEDCBA0987654321", b)
+        summary = analyze(log)
+        family = summary["shader_analysis_families"]
+        self.assertEqual(len(family), 1)
+        self.assertEqual(family[0]["failure_count"], 2)
+        self.assertEqual(family[0]["varying_word_indices"], [23])
+        self.assertTrue(family[0]["varying_words_outside_direct_exec"])
+        self.assertEqual(family[0]["direct_exec_ranges"], [[3, 2], [5, 1]])
+        self.assertEqual(family[0]["load_kinds"], ["IM_LOAD_IMMEDIATE"])
+        # Public JSON must never contain shader instruction payloads.
+        self.assertNotIn("01234567", str(family))
+        self.assertNotIn("89ABCDEF", str(family))
+        self.assertEqual(summary["shader_failures_without_static_cf"], 0)
+        self.assertIsNone(shader_static_cf([0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF]))
+        self.assertIsNone(shader_static_cf(base[:17]))
+
+    def test_log203_resolve_gpu_and_upload_cost_fields(self):
+        log = "\\n".join([
+            "[native_x_renderer] renderer: frame 15600: 9 clears, 28 resolves (0 skipped)",
+            "[native_x_renderer] renderer: frame 15600: 1887 draw calls, 1887 drawn, "
+            "0 without targets, 0 failed; GPU 22.36 ms average, 76.72 ms max",
+            "[native_x_renderer] renderer: frame 15600: per frame, "
+            "4524.5 buffer copies average, 7187 max; guest memory 12484 KB copied",
+            "[native_x_renderer] renderer: frame 15600: frame interval 23.25 ms average, "
+            "122.82 ms max; renderer CPU 11.54 ms per frame; "
+            "waiting for the GPU 10.33 ms per frame",
+        ])
+        frame = analyze(log)["last_renderer_frame"]
+        self.assertEqual(frame["frame"], 15600)
+        self.assertEqual(frame["resolve_stats"]["resolves"], 28)
+        self.assertEqual(frame["gpu_ms"]["average"], 22.36)
+        self.assertEqual(frame["buffer_copies_per_frame"]["average"], 4524.5)
+        self.assertEqual(frame["buffer_copies_per_frame"]["guest_kb_copied"], 12484)
+        self.assertEqual(frame["render_cpu_ms"], 11.54)
+        self.assertEqual(frame["gpu_wait_ms"], 10.33)
+        self.assertEqual(frame["interval_ms"]["max"], 122.82)
 
     def test_message_counts_and_cumulative_replay_not_additive(self):
         log = "\n".join([
