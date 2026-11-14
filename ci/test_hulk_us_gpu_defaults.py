@@ -29,9 +29,9 @@ class TestHulkUsGpuDefaults(unittest.TestCase):
         self.assertTrue(config["native_x_renderer"])
         self.assertTrue(config["native_x_renderer_present_with_swaps"])
         self.assertTrue(config["native_x_renderer_thread"])
-        # D140 D98 bundles owned draw uploads without touching Xenos state.
-        # Log203's worst scene required ~12.6 upload batches/frame at 256.
-        self.assertEqual(config["native_x_renderer_upload_ahead"], 512)
+        # Revert unbenchmarked 512 look-ahead; use D140's pinned 256
+        # until a matched-case Vulkan benchmark proves a better window.
+        self.assertEqual(config["native_x_renderer_upload_ahead"], 256)
         # 2x native geometry and valid Xbox mip chains are separate.
         # Xenos D44 AF override 4 is 8x on eligible samplers, never new
         # texture pixels. The lightweight mip audit is temporary for QA.
