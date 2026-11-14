@@ -622,3 +622,16 @@ surface bindings. These are source semantics and CI results only, not
 proof of correct GPU output or complete USA camera, native EoR menus,
 physics at 60+ FPS, mip selection, Alt+Tab or gameplay audio. No game
 binaries, shaders or textures are included in this public report.
+
+### 2026-11-15 continued: Xenos EXEC fetch dual-path integration
+
+#121 passed all D140 source-only checks and reached the private Windows
+build, but failed the SDK bounds patch before MSVC. The upstream SDK
+`ElGuslml/rexglue-sdk` `recomp` branch's `translator.cpp` has **two**
+same-shaped Fetch instruction branches: `Shader::GatherExecInformation`
+and `ShaderTranslator::TranslateExecInstructions`. The old CF patch expected
+one and rejected both. The new source-only change verifies both and rejects
+unsupported opcodes before either analysis or real shader translation.
+This fixes a proven build/source mismatch, not the underlying malformed
+27-dword GPU microcode or any color artifacts. This is an owner-authorized
+docs-only diagnostic trigger; release/ZIP output remains disabled.
