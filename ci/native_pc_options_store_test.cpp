@@ -1,5 +1,6 @@
 // Synthetic-only NativePC options write regression; no user TOML touched.
 #include "../native_port/src/native_pc_options_store.h"
+#include "../native_port/src/native_pc_bindings.h"
 
 #include <filesystem>
 #include <fstream>
@@ -47,6 +48,15 @@ int main() {
   Expect(Save(config, "hulk_guest_swap_fps_cap", "30"),
          "Native guest FPS cap update failed");
 
+  Expect(Save(config, "hulk_bind_forward", "Up"), "Forward key rebinding failed");
+  Expect(Save(config, "hulk_bind_primary", "MouseRight"),
+         "Mouse attack rebinding failed");
+  Expect(hulk::options::IsBindingOption("hulk_bind_forward") &&
+         !hulk::options::IsBindingOption("hulk_bind_fake_action"),
+         "Only source-supported native actions may be rebound");
+  Expect(hulk::options::IsBindingToken("MouseRight") &&
+         !hulk::options::IsBindingToken("MouseWheelDown"),
+         "Keyboard/mouse selector accepted an unsupported token");
   const auto changed = Read(config);
   Expect(changed.find("game_data_root = \"C:/Private/USA\"\r\n") != std::string::npos,
          "User data path was lost");
@@ -60,6 +70,10 @@ int main() {
          "Vsync value did not persist");
   Expect(changed.find("hulk_guest_swap_fps_cap = 30\r\n") != std::string::npos,
          "FPS cap value did not persist");
+  Expect(changed.find(R"toml(hulk_bind_forward = "Up")toml") != std::string::npos,
+         "Forward key TOML string was not quoted and persisted");
+  Expect(changed.find(R"toml(hulk_bind_primary = "MouseRight")toml") != std::string::npos,
+         "Mouse attack TOML string was not quoted and persisted");
   Expect(changed.find("# preserve unrelated game graphics\r\n") != std::string::npos,
          "TOML comment was lost");
   Expect(!std::filesystem::exists(sidecar),
@@ -72,6 +86,9 @@ int main() {
       std::pair{"native_x_renderer_sharpness", "0.8"},
       std::pair{"hulk_guest_swap_fps_cap", "-1"},
       std::pair{"game_data_root", "C:/untrusted"},
+      std::pair{"hulk_bind_forward", "MouseWheelDown"},
+      std::pair{"hulk_bind_fake_action", "W"},
+      std::pair{"hulk_bind_primary", "A\\ninjected=true"},
       std::pair{"native_x_renderer_scaling", "nis\ninjected=true"},
   }) {
     Expect(!Save(config, key, value), "Unsafe setting should be rejected");
