@@ -40,37 +40,43 @@ class PcMenu final : public rex::ui::ImGuiDialog {
     return visible.load(std::memory_order_acquire);
   }
  protected:
-  void OnDraw(ImGuiIO&) override {
+  void OnDraw(ImGuiIO& io) override {
     if (!visible.load(std::memory_order_acquire)) return;
-    ImGui::SetNextWindowSize(ImVec2(610.0f, 590.0f), ImGuiCond_FirstUseEver);
+    // HULK/PC-MENU-SECTIONS: accessible in-game host overlay, not a
+    // counterfeit edit of the Xbox pause-menu or an asset replacement.
+    // Do not advertise controls until real CVars or game APIs are wired.
+    ImGui::SetNextWindowSize(ImVec2(850.0f, 610.0f), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f,
+                                   io.DisplaySize.y * 0.5f),
+                            ImGuiCond_FirstUseEver, ImVec2(0.5f, 0.5f));
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.065f, 0.082f, 0.061f, 0.96f));
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.095f, 0.125f, 0.087f, 0.95f));
+    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.19f, 0.28f, 0.13f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.32f, 0.46f, 0.20f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0.31f, 0.42f, 0.20f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(0.36f, 0.51f, 0.24f, 1.0f));
     bool open = true;
-    if (ImGui::Begin("The Incredible Hulk - NativePC (F10)", &open,
+    if (ImGui::Begin("The Incredible Hulk | PC Settings (F10)", &open,
                      ImGuiWindowFlags_NoCollapse)) {
-      ImGui::TextUnformatted("PC keyboard and mouse");
+      ImGui::TextUnformatted("THE INCREDIBLE HULK");
+      ImGui::SameLine();
+      ImGui::TextDisabled("  /  PC SETTINGS");
       ImGui::Separator();
-      const std::string w = Bind("hulk_bind_forward");
-      const std::string a = Bind("hulk_bind_left");
-      const std::string s = Bind("hulk_bind_backward");
-      const std::string d = Bind("hulk_bind_right");
-      ImGui::Text("Move: %s / %s / %s / %s", w.c_str(), a.c_str(), s.c_str(), d.c_str());
-      ImGui::TextUnformatted("Look: mouse");
-      const std::string jump = Bind("hulk_bind_confirm");
-      const std::string action = Bind("hulk_bind_primary");
-      const std::string secondary = Bind("hulk_bind_secondary");
-      const std::string back = Bind("hulk_bind_back");
-      ImGui::Text("Jump / Confirm: %s", jump.c_str());
-      ImGui::Text("Primary attack: %s", action.c_str());
-      ImGui::Text("Secondary attack: %s", secondary.c_str());
-      ImGui::Text("Back / Cancel: %s", back.c_str());
-      const std::string lb = Bind("hulk_bind_lb");
-      const std::string rb = Bind("hulk_bind_rb");
-      const std::string lt = Bind("hulk_bind_lt");
-      const std::string rt = Bind("hulk_bind_rt");
-      ImGui::Text("Abilities: %s / %s", lb.c_str(), rb.c_str());
-      ImGui::Text("Triggers: %s / %s", lt.c_str(), rt.c_str());
-      ImGui::Text("Pause / Start: %s", Bind("hulk_bind_start").c_str());
-      ImGui::Text("Walk: %s", Bind("hulk_bind_walk").c_str());
-      ImGui::Separator();
+      ImGui::BeginChild("##hulk_sections", ImVec2(176.0f, -66.0f), true);
+      static constexpr const char* kSections[] = {
+          "Display", "Graphics", "Post-processing", "Audio",
+          "Controls", "Accessibility", "Enhancements"};
+      for (int i = 0; i < 7; ++i) {
+        if (ImGui::Selectable(kSections[i], active_section_ == i))
+          active_section_ = i;
+      }
+      ImGui::EndChild();
+      ImGui::SameLine();
+      ImGui::BeginChild("##hulk_settings", ImVec2(0.0f, -66.0f), true);
+      switch (active_section_) {
+        case 0: {
+          ImGui::TextUnformatted("Display");
+          ImGui::Separator();
       const int32_t guest_fps_limit = rex::cvar::Query<int32_t>("hulk_guest_swap_fps_cap");
       if (guest_fps_limit == 0) {
         ImGui::TextUnformatted("Guest FPS limit: Unlimited (game may still run 30)");
@@ -112,6 +118,11 @@ class PcMenu final : public rex::ui::ImGuiDialog {
           "animations and rigid-body interactions can still run incorrectly. "
           "Selecting a higher FPS does not change the physics timestep.");
       ImGui::TextUnformatted("Use F4 Settings > Save to persist changed FPS.");
+          break;
+        }
+        case 1: {
+          ImGui::TextUnformatted("Graphics");
+          ImGui::Separator();
       // HULK/PC-GRAPHICS: these NativeX settings are read at startup.
       // Expose only renderer-supported paths; do not claim DLSS works
       // before a verified main-scene view and motion vectors are available.
@@ -127,6 +138,11 @@ class PcMenu final : public rex::ui::ImGuiDialog {
       if (ImGui::Button("Rendering x2")) {
         (void)rex::cvar::SetFlagByName("native_x_renderer_resolution_scale", "2.0");
       }
+          break;
+        }
+        case 2: {
+          ImGui::TextUnformatted("Post-processing");
+          ImGui::Separator();
       const std::string scaling = Bind("native_x_renderer_scaling");
       ImGui::Text("Presentation filter: %s", scaling.c_str());
       if (ImGui::Button("Bilinear + CAS")) {
@@ -151,10 +167,79 @@ class PcMenu final : public rex::ui::ImGuiDialog {
       ImGui::TextUnformatted("Note: sharpen cannot repair missing shader samples.");
       ImGui::TextUnformatted("DLSS/DLAA requires verified scene and motion vectors.");
       ImGui::TextUnformatted("Save in F4 Settings, then restart for graphics changes.");
-
+          break;
+        }
+        case 3: {
+          ImGui::TextUnformatted("Audio");
+          ImGui::Separator();
+          ImGui::TextWrapped(
+              "Audio still uses the game's current mixer. Native volume "
+              "controls are not wired to a verified engine API yet.");
+          ImGui::TextDisabled("No inactive sliders or fake apply buttons.");
+          break;
+        }
+        case 4: {
+          ImGui::TextUnformatted("Controls");
+          ImGui::Separator();
+      const std::string w = Bind("hulk_bind_forward");
+      const std::string a = Bind("hulk_bind_left");
+      const std::string s = Bind("hulk_bind_backward");
+      const std::string d = Bind("hulk_bind_right");
+      ImGui::Text("Move: %s / %s / %s / %s", w.c_str(), a.c_str(), s.c_str(), d.c_str());
+      ImGui::TextUnformatted("Look: mouse");
+      const std::string jump = Bind("hulk_bind_confirm");
+      const std::string action = Bind("hulk_bind_primary");
+      const std::string secondary = Bind("hulk_bind_secondary");
+      const std::string back = Bind("hulk_bind_back");
+      ImGui::Text("Jump / Confirm: %s", jump.c_str());
+      ImGui::Text("Primary attack: %s", action.c_str());
+      ImGui::Text("Secondary attack: %s", secondary.c_str());
+      ImGui::Text("Back / Cancel: %s", back.c_str());
+      const std::string lb = Bind("hulk_bind_lb");
+      const std::string rb = Bind("hulk_bind_rb");
+      const std::string lt = Bind("hulk_bind_lt");
+      const std::string rt = Bind("hulk_bind_rt");
+      ImGui::Text("Abilities: %s / %s", lb.c_str(), rb.c_str());
+      ImGui::Text("Triggers: %s / %s", lt.c_str(), rt.c_str());
+      ImGui::Text("Pause / Start: %s", Bind("hulk_bind_start").c_str());
+      ImGui::Text("Walk: %s", Bind("hulk_bind_walk").c_str());
+          ImGui::Separator();
+          ImGui::TextWrapped(
+              "Bindings shown are the active PC CVar values. Full key "
+              "rebinding from this screen is not implemented yet.");
+          break;
+        }
+        case 5: {
+          ImGui::TextUnformatted("Accessibility");
+          ImGui::Separator();
+          ImGui::TextWrapped(
+              "Mouse and keyboard controls are available in Controls. "
+              "Subtitles and interface scale need verified Hulk UI hooks "
+              "before they can be offered as working options.");
+          ImGui::TextDisabled("No unimplemented accessibility toggles.");
+          break;
+        }
+        case 6: {
+          ImGui::TextUnformatted("Enhancements");
+          ImGui::Separator();
+          ImGui::Text("Vulkan NativeXRenderer: %s",
+              rex::cvar::Query<bool>("native_x_renderer") ? "Enabled" : "Disabled");
+          ImGui::Text("Anisotropic override: %d",
+              rex::cvar::Query<int32_t>("anisotropic_override"));
+          ImGui::Text("Persistent pipeline cache: %s",
+              rex::cvar::Query<bool>("native_x_renderer_pipeline_storage")
+                  ? "Enabled" : "Disabled");
+          ImGui::TextWrapped(
+              "Verified renderer options are in Graphics and "
+              "Post-processing. DLSS/DLAA and uncapped physics are "
+              "not presented as working enhancements.");
+          break;
+        }
+      }
+      ImGui::EndChild();
       ImGui::Separator();
-      ImGui::TextUnformatted("F4 - PC settings | F8 - recapture mouse");
-      ImGui::TextUnformatted("F10 - toggle PC menu | Alt+F4 - close game");
+      ImGui::TextDisabled("F4: save changed settings  |  F8: recapture mouse"
+                          "  |  F10: close settings");
       if (ImGui::Button("Resume game", ImVec2(210, 36))) {
         PcMenuSetOpen(false);
       }
@@ -166,9 +251,11 @@ class PcMenu final : public rex::ui::ImGuiDialog {
       }
     }
     ImGui::End();
+    ImGui::PopStyleColor(6);
     if (!open) PcMenuSetOpen(false);
   }
  private:
+  int active_section_ = 0;
   std::function<void()> on_exit_;
 };
 } // namespace
