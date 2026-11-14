@@ -176,15 +176,59 @@ def compare_shared_records(pc_path: Path, xbox_path: Path,
             "xbox_only": len(right)-len(shared)}
 
 
-def scan_ui_app(path: Path) -> dict:
-    """Read decoded _app_ privately, report only verified UI-namespace markers."""
+def scan_ui_app(path: Path, index_groups: dict[str, list[dict]] | None = None,
+                byte_order: str = "little") -> dict:
+    """Decode only *candidate* links near UI names in a private _app_ dump.
+
+    A 32-bit index hash found within 64 bytes is a lead, not proof that
+    the owning UI widget references the asset. No guest bytes are exported.
+    """
     if path.stat().st_size > 64 * CHUNK_SIZE:
         raise ValueError("Unexpectedly large decoded _app_")
     data = path.read_bytes()
-    names = sorted({m.group(0).decode("ascii").lower()
-                    for m in UI_MARKER.finditer(data)})
-    return {"decoded_app_size": len(data), "ui_identifier_count": len(names),
-            "ui_identifiers": names[:512], "truncated": len(names) > 512}
+    markers = list(UI_MARKER.finditer(data))
+    names = sorted({m.group(0).decode("ascii").lower() for m in markers})
+    output = {"decoded_app_size": len(data),
+              "ui_identifier_count": len(names),
+              "ui_identifiers": names[:512], "truncated": len(names) > 512,
+              "nearby_hashes_are_verified_bindings": False}
+    if not index_groups:
+        return output
+    known: dict[int, tuple[str, str]] = {}
+    for category in ("Textures", "Fonts", "Objects"):
+        for record in index_groups.get(category, []):
+            known[int(record["hash"], 16)] = (category, record["hash"])
+    if not known:
+        output["index_hash_proximity_candidates"] = []
+        return output
+    byteorder = "little" if byte_order == "little" else "big"
+    hits: dict[tuple[str, str, str], tuple[int, int]] = {}
+    for marker in markers[:2048]:
+        identifier = marker.group(0).decode("ascii").lower()
+        lo = max(0, marker.start() - 64)
+        hi = min(len(data) - 4, marker.end() + 64)
+        for pos in range(lo, hi + 1):
+            value = int.from_bytes(data[pos:pos+4], byteorder)
+            match = known.get(value)
+            if match is None:
+                continue
+            category, hashed = match
+            distance = min(abs(pos - marker.start()), abs(pos - marker.end()))
+            key = (identifier, category, hashed)
+            frequency, best = hits.get(key, (0, 9999))
+            hits[key] = (frequency + 1, min(best, distance))
+    candidates = [
+        {"ui_identifier": key[0], "resource_group": key[1],
+         "indexed_hash": key[2], "observations": value[0],
+         "closest_byte_distance": value[1], "verified_link": False}
+        for key, value in hits.items()
+    ]
+    candidates.sort(key=lambda row: (-row["observations"],
+                                     row["closest_byte_distance"],
+                                     row["ui_identifier"], row["indexed_hash"]))
+    output["index_hash_proximity_candidates"] = candidates[:128]
+    output["hash_candidates_truncated"] = len(candidates) > 128
+    return output
 
 
 def labeled_path(item: str) -> tuple[str, Path]:
@@ -227,9 +271,9 @@ def run(pc_index: Path, xbox_index: Path,
             pc_archives[category], xbox_archives[category],
             pc["groups"][category], xbox["groups"][category])
     if pc_app:
-        result["pc_ui_app"] = scan_ui_app(pc_app)
+        result["pc_ui_app"] = scan_ui_app(pc_app, pc["groups"], "little")
     if xbox_app:
-        result["xbox_ui_app"] = scan_ui_app(xbox_app)
+        result["xbox_ui_app"] = scan_ui_app(xbox_app, xbox["groups"], "big")
     if pc_app and xbox_app:
         a = set(result["pc_ui_app"]["ui_identifiers"])
         b = set(result["xbox_ui_app"]["ui_identifiers"])
