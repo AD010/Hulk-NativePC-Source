@@ -291,6 +291,19 @@ class PcMenu final : public rex::ui::ImGuiDialog {
       const std::string d = Bind("hulk_bind_right");
       ImGui::Text("Move: %s / %s / %s / %s", w.c_str(), a.c_str(), s.c_str(), d.c_str());
       ImGui::TextUnformatted("Look: mouse");
+      // Black V3-style separate axis controls; both routes use live CVars.
+      bool invert_x = rex::cvar::Query<bool>("hulk_mouse_invert_x");
+      if (ImGui::Checkbox("Invert mouse X", &invert_x))
+        Change("hulk_mouse_invert_x", invert_x ? "true" : "false");
+      bool invert_y = rex::cvar::Query<bool>("hulk_mouse_invert_y");
+      if (ImGui::Checkbox("Invert mouse Y", &invert_y))
+        Change("hulk_mouse_invert_y", invert_y ? "true" : "false");
+      DrawMouseMultiplier("Mouse horizontal speed",
+                          "hulk_mouse_horizontal_multiplier",
+                          mouse_x_edit_value_, mouse_x_edit_active_);
+      DrawMouseMultiplier("Mouse vertical speed",
+                          "hulk_mouse_vertical_multiplier",
+                          mouse_y_edit_value_, mouse_y_edit_active_);
       const std::string jump = Bind("hulk_bind_confirm");
       const std::string action = Bind("hulk_bind_primary");
       const std::string secondary = Bind("hulk_bind_secondary");
@@ -416,14 +429,33 @@ class PcMenu final : public rex::ui::ImGuiDialog {
   // Preserve all unrelated renderer/input options and the user's data root.
   void Change(const char* key, const std::string& value) {
     last_save_ok_ = hulk::options::Save(config_, key, value);
-    (void)rex::cvar::SetFlagByName(key, value);
-    if (!*last_save_ok_)
+    if (*last_save_ok_)
+      (void)rex::cvar::SetFlagByName(key, value);
+    else
       REXLOG_WARN("[HULK/PCMENU] Existing TOML settings could not be saved");
+  }
+  void DrawMouseMultiplier(const char* label, const char* key,
+                           float& pending, bool& editing) {
+    // Commit once when releasing the slider; no repeated disk writes.
+    float value = editing ? pending : static_cast<float>(rex::cvar::Query<double>(key));
+    value = std::clamp(value, 0.25f, 4.0f);
+    const bool changed = ImGui::SliderFloat(label, &value, 0.25f, 4.0f, "%.2fx");
+    if (changed) pending = value;
+    if (ImGui::IsItemActive()) editing = true;
+    if (ImGui::IsItemDeactivatedAfterEdit() ||
+        (changed && !ImGui::IsItemActive())) {
+      Change(key, std::to_string(pending));
+      editing = false;
+    }
   }
   std::filesystem::path config_;
   std::optional<bool> pending_fullscreen_;
   std::optional<uint32_t> pending_window_width_;
   std::optional<uint32_t> pending_window_height_;
+  float mouse_x_edit_value_ = 1.0f;
+  float mouse_y_edit_value_ = 1.0f;
+  bool mouse_x_edit_active_ = false;
+  bool mouse_y_edit_active_ = false;
   float sharpness_edit_value_ = 0.0f;
   bool sharpness_edit_active_ = false;
   std::optional<bool> last_save_ok_;

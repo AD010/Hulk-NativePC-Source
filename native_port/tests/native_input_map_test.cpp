@@ -41,6 +41,15 @@ int main() {
  CHECK(be(s,12)==0 && be(s,14)==0);
  CHECK(be(s,10)>0);
  CHECK((static_cast<uint16_t>(be(s,4)) & 0x5000)==0x5000);
+ // Independent sensitivity values must affect only the corresponding axis.
+ Frame axes{};
+ axes.mouse_dx = 3; axes.mouse_dy = -3;
+ axes.sensitivity_x = 1.0f; axes.sensitivity_y = 12.0f;
+ ApplyFrame(axes, s.data());
+ CHECK(be(s,14) > be(s,12) && be(s,12) > 8689);
+ axes.sensitivity_x = 12.0f; axes.sensitivity_y = 1.0f;
+ ApplyFrame(axes, s.data());
+ CHECK(be(s,12) > be(s,14));
  // Walk speed is genuinely analog, not a binary walk/run toggle.
  Frame move{};
  move.keys = W;

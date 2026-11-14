@@ -27,6 +27,11 @@ int main(){
  REQUIRE(ApplyToGuestSpan(memory.data(),memory.size(),c,10,-20,2.0f));
  REQUIRE(std::abs(R(memory,0x224)-0.2f)<1.e-5f);
  REQUIRE(std::abs(R(memory,0x228)+0.4f)<1.e-5f);
+ W(memory,0x224,std::bit_cast<uint32_t>(0.0f));
+ W(memory,0x228,std::bit_cast<uint32_t>(0.0f));
+ REQUIRE(ApplyToGuestSpan(memory.data(),memory.size(),c,10,-20,2.0f,0.5f));
+ REQUIRE(std::abs(R(memory,0x224)-0.2f)<1.e-5f);
+ REQUIRE(std::abs(R(memory,0x228)+0.1f)<1.e-5f);
  REQUIRE(ApplyToGuestSpan(memory.data(),memory.size(),c,0,10000));
  REQUIRE(std::abs(R(memory,0x228)-1.2f)<1.e-5f);
  W(memory,0x80,0xFFFFFF00u);

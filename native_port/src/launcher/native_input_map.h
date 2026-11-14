@@ -14,6 +14,8 @@ struct Frame {
   uint32_t keys = 0;
   int32_t mouse_dx = 0, mouse_dy = 0;
   float sensitivity = 4.0f;
+  // Zero means inherit the legacy unified sensitivity.
+  float sensitivity_x = 0.0f, sensitivity_y = 0.0f;
   // Keyboard WASD sends a partial Xbox 360 left-stick tilt, not a binary
   // digital movement command. Physical pads retain their original analog input.
   float move_stick_strength = 28000.0f / 32767.0f;

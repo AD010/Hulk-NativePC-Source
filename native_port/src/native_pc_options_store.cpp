@@ -33,7 +33,8 @@ bool Allowed(std::string_view key, std::string_view value) {
   // Exact source-supported native mouse/keyboard bindings, not arbitrary
   // guest flags. All token values are single, known BindTokenDown names.
   if (IsBindingOption(key)) return IsBindingToken(value);
-  if (key == "vsync" || key == "fullscreen")
+  if (key == "vsync" || key == "fullscreen" ||
+      key == "hulk_mouse_invert_x" || key == "hulk_mouse_invert_y")
     return value == "true" || value == "false";
   if (key == "hulk_guest_swap_fps_cap")
     return value == "0" || value == "30" || value == "60" ||
@@ -42,6 +43,15 @@ bool Allowed(std::string_view key, std::string_view value) {
     return value == "0.0" || value == "1.0" || value == "2.0";
   if (key == "native_x_renderer_scaling")
     return value == "bilinear" || value == "fsr" || value == "nis";
+  if (key == "hulk_mouse_horizontal_multiplier" ||
+      key == "hulk_mouse_vertical_multiplier") {
+    if (value.empty() || value.size() > 24) return false;
+    const std::string copy(value);
+    char* end = nullptr;
+    const double number = std::strtod(copy.c_str(), &end);
+    return end == copy.c_str() + copy.size() &&
+           std::isfinite(number) && number >= 0.25 && number <= 4.0;
+  }
   if (key == "native_x_renderer_sharpness") {
     if (value.empty() || value.size() > 24) return false;
     const std::string copy(value);

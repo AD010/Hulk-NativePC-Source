@@ -6,6 +6,11 @@ mnk_mode = false
 # optional render/input trace modes below stay disabled by default.
 hulk_mouse_sensitivity = 4.0
 hulk_mouse_invert_y = false
+# NativePC per-axis sensitivity relative to existing mouse sensitivity.
+# Exposed in F10 controls until the original EoR pause UI is wired.
+hulk_mouse_invert_x = false
+hulk_mouse_horizontal_multiplier = 1.0
+hulk_mouse_vertical_multiplier = 1.0
 hulk_mouse_diagnostics = false
 vulkan_allow_present_mode_immediate = false
 vulkan_allow_present_mode_mailbox = false

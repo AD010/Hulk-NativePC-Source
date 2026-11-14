@@ -39,6 +39,12 @@ REXCVAR_DEFINE_DOUBLE(hulk_mouse_sensitivity, 4.0, "Hulk/PC Controls",
                       "Mouse look sensitivity (right stick fallback)").range(0.1, 20.0);
 REXCVAR_DEFINE_BOOL(hulk_mouse_invert_y, false, "Hulk/PC Controls",
                     "Invert vertical mouse motion");
+REXCVAR_DEFINE_BOOL(hulk_mouse_invert_x, false, "Hulk/PC Controls",
+                    "Invert horizontal mouse motion");
+REXCVAR_DEFINE_DOUBLE(hulk_mouse_horizontal_multiplier, 1.0, "Hulk/PC Controls",
+                    "Horizontal mouse sensitivity multiplier (also for direct camera)").range(0.25, 4.0);
+REXCVAR_DEFINE_DOUBLE(hulk_mouse_vertical_multiplier, 1.0, "Hulk/PC Controls",
+                    "Vertical mouse sensitivity multiplier (also for direct camera)").range(0.25, 4.0);
 REXCVAR_DEFINE_STRING(hulk_bind_forward, "W", "Hulk/PC Controls/Keys", "Move forward");
 REXCVAR_DEFINE_STRING(hulk_bind_left, "A", "Hulk/PC Controls/Keys", "Move left");
 REXCVAR_DEFINE_STRING(hulk_bind_backward, "S", "Hulk/PC Controls/Keys", "Move back");
@@ -260,6 +266,7 @@ bool NativeInputApply(uint32_t user, bool real_pad_connected, uint8_t* state, ui
       add(REXCVAR_GET(hulk_bind_rstick_click), input::MouseMiddle);
       f.mouse_dx = g_dx.exchange(0);
       f.mouse_dy = g_dy.exchange(0);
+      if (REXCVAR_GET(hulk_mouse_invert_x)) f.mouse_dx = -f.mouse_dx;
       if (REXCVAR_GET(hulk_mouse_invert_y)) f.mouse_dy = -f.mouse_dy;
       const auto now = static_cast<uint64_t>(GetTickCount64());
       const int wheel = g_pending_wheel.exchange(0);
@@ -295,6 +302,14 @@ bool NativeInputApply(uint32_t user, bool real_pad_connected, uint8_t* state, ui
       g_dy = 0;
     }
     f.sensitivity = Sensitivity();
+    // Relative axis sensitivity applies equally to the fallback and the
+    // validated direct-camera path, preserving the legacy scalar by default.
+    const auto multiplier = [](double value) -> float {
+      return std::isfinite(value) ?
+          static_cast<float>(std::clamp(value, 0.25, 4.0)) : 1.0f;
+    };
+    f.sensitivity_x = f.sensitivity * multiplier(REXCVAR_GET(hulk_mouse_horizontal_multiplier));
+    f.sensitivity_y = f.sensitivity * multiplier(REXCVAR_GET(hulk_mouse_vertical_multiplier));
     // Walk modifier temporarily selects level 0; wheel controls the persistent
     // five-step level. Xbox left-stick remains the game's only movement input.
     const bool walking = BindDown(REXCVAR_GET(hulk_bind_walk));
@@ -310,7 +325,9 @@ bool NativeInputApply(uint32_t user, bool real_pad_connected, uint8_t* state, ui
   // camera state; zero the Xbox right stick so it cannot double-rotate.
   // No profile => keep the old input path unchanged for playability.
   const bool direct_camera = camera::ApplyToGameMemory(
-      guest_base, f.mouse_dx, f.mouse_dy, f.sensitivity / 4.0f);
+      guest_base, f.mouse_dx, f.mouse_dy,
+      f.sensitivity_x > 0.0f ? f.sensitivity_x / 4.0f : f.sensitivity / 4.0f,
+      f.sensitivity_y > 0.0f ? f.sensitivity_y / 4.0f : f.sensitivity / 4.0f);
 #if defined(_WIN32)
   // A game can poll XInput many times between rendered frames. Preserve small
   // mouse movements briefly *only for stick emulation*, not direct camera:

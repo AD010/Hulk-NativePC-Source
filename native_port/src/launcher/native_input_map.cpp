@@ -61,8 +61,12 @@ void ApplyFrame(const Frame& f, uint8_t state[16]) {
   const int y = (pressed(W)?1:0)-(pressed(S)?1:0);
   StoreBE16(state, 8, static_cast<uint16_t>(Axis(x, f.move_stick_strength)));
   StoreBE16(state, 10, static_cast<uint16_t>(Axis(y, f.move_stick_strength)));
-  const auto rx = f.mouse_as_right_stick ? MouseAxis(f.mouse_dx, f.sensitivity) : int16_t(0);
-  const auto ry = f.mouse_as_right_stick ? MouseAxis(-f.mouse_dy, f.sensitivity) : int16_t(0);
+  const float sx = std::isfinite(f.sensitivity_x) && f.sensitivity_x > 0.0f
+      ? f.sensitivity_x : f.sensitivity;
+  const float sy = std::isfinite(f.sensitivity_y) && f.sensitivity_y > 0.0f
+      ? f.sensitivity_y : f.sensitivity;
+  const auto rx = f.mouse_as_right_stick ? MouseAxis(f.mouse_dx, sx) : int16_t(0);
+  const auto ry = f.mouse_as_right_stick ? MouseAxis(-f.mouse_dy, sy) : int16_t(0);
   StoreBE16(state, 12, static_cast<uint16_t>(rx));
   StoreBE16(state, 14, static_cast<uint16_t>(ry));
 }
