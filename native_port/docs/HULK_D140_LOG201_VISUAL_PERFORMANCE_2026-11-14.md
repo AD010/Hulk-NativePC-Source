@@ -270,3 +270,14 @@ Run once more with the existing D140 Windows x64 Release workflow;
 restore manual-only dispatch immediately once the run is recorded.
 Previous versioned ZIP releases remain untouched. A passing full
 source gate is not evidence of visually correct graphics.
+
+## #111 scoped retry (2026-11-14)
+
+#110 passed the previously failing PM4 empty-setter fixture, then stopped
+at `ci/test_patch_native_x_hulk_draw_fetch_guard.py`. The new mip probe's
+Python transformer had mistakenly encoded a literal backslash-n in the
+`#include <bit>` source anchor. The transformer is corrected to use an
+actual newline. No GPU correctness condition or invalid-fetch guard was
+relaxed. Run the one existing Release workflow again on this user-authorized
+documentation checkpoint, then restore manual-only. Previous ZIP files
+remain untouched.
