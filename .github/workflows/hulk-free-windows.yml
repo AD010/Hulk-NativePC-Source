@@ -4,11 +4,6 @@ on:
   # builds on source edits. Keep this single Release-only workflow available
   # for an explicit final validation through GitHub Actions.
   workflow_dispatch:
-  # One-shot USER-AUTHORIZED D140 integration build (diagnostic only, no ZIP).
-  push:
-    branches: [main]
-    paths:
-      - native_port/docs/HULK_D140_LOG201_VISUAL_PERFORMANCE_2026-11-14.md
 permissions:
   contents: write
 concurrency:
@@ -21,7 +16,6 @@ jobs:
     runs-on: windows-2022
     timeout-minutes: 330
     env:
-      HULK_DIAGNOSTIC_ONLY: '1'
       HULK_PINNED_XEX_SHA256: '346A73690303F6633BFDAF9850E78793FE07CDBFB8F849B89FBEE320630B11F0'
     steps:
       - name: Checkout public source only
@@ -199,7 +193,6 @@ jobs:
             Write-Host '[HULK/CALLGRAPH] Private report upload unavailable; game build unaffected'
           }
       - name: Verify source-free output ZIP
-        if: env.HULK_DIAGNOSTIC_ONLY != '1'
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -208,7 +201,6 @@ jobs:
           python ci/verify_hulk_release.py artifacts/Hulk-NativePC-Vulkan.zip
           if ($LASTEXITCODE -ne 0) { throw 'ZIP verification failed' }
       - name: Deliver game ZIP to PRIVATE GitHub release, not public artifact
-        if: env.HULK_DIAGNOSTIC_ONLY != '1'
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.HULK_PRIVATE_REPO_TOKEN }}
