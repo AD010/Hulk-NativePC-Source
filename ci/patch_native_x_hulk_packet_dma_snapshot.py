@@ -216,13 +216,28 @@ bool HulkProcessIndexCopies(Processor& processor, Result& result,
   if (!size) return false; // A zero-length DMA request has no safe index data.
   if (base >= 0x20000000u || size > 0x20000000u - base || size > (1u << 20))
     return false;
-  bool overlaps = false;
-  for (const auto& copy : copies)
-    overlaps |= uint64_t(copy.address) < uint64_t(base) + size &&
-                uint64_t(base) < uint64_t(copy.address) + copy.size;
+  // HULK/CPU-INDEX-DIRECT-SPAN: if exactly ONE captured command
+  // interval intersects the index request and covers ALL of it, use the
+  // already-owned bytes directly. ReXGlue ProcessCapturedIndices consumes
+  // them synchronously and aligns internally. No extra scratch copy or
+  // allocation; overlapping writes still use the ordered merge below.
+  const uint64_t request_end = uint64_t(base) + size;
+  uint32_t intersecting = 0;
+  const uint8_t* direct = nullptr;
+  for (const auto& copy : copies) {
+    const uint64_t first = uint64_t(copy.address);
+    const uint64_t last = first + copy.size;
+    if (first >= request_end || uint64_t(base) >= last) continue;
+    ++intersecting;
+    if (!copy.data) return false;
+    if (first <= base && last >= request_end)
+      direct = copy.data + (uint64_t(base) - first);
+  }
   // HULK/PM4-DMA-NO-LIVE-FALLBACK: an unsnapshotted DMA draw must not
   // read index bytes from the guest ring AFTER that memory was reused.
-  if (!overlaps) return false;
+  if (!intersecting) return false;
+  if (intersecting == 1 && direct)
+    return processor.ProcessCapturedIndices(result, direct, base, size);
   // HULK/CPU-INDEX-INTERVAL-COVERAGE: Copy count is capped by Command
   // (two owned copies). Verify the union of their byte intervals instead
   // of allocating and filling an extra size-byte coverage mask per draw.
@@ -234,7 +249,6 @@ bool HulkProcessIndexCopies(Processor& processor, Result& result,
   // during destruction; bounds and last-copy-wins logic are unchanged.
   thread_local std::vector<uint8_t> bytes;
   bytes.resize(size);
-  const uint64_t request_end = uint64_t(base) + size;
   for (const auto& copy : copies) {
     const uint64_t first = std::max(uint64_t(base), uint64_t(copy.address));
     const uint64_t last = std::min(request_end, uint64_t(copy.address) + copy.size);
