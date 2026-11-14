@@ -257,3 +257,16 @@ Do not call this visually verified: missing menu text, city flashes,
 signage sharpness, 60+ FPS and correct physics require actual execution
 of the produced binary. No speculative 30 Hz physics detachment or
 arbitrary Xenos memory interpretation was introduced.
+
+## User-authorized Release retry after #109 public preflight fixture (2026-11-14)
+
+Actions #109 failed **before** accessing the private XEX at
+`ci/test_patch_native_x_hulk_pm4_gap.py`: its synthetic fixture did
+not include the new `EMPTY_LEAVE_ANCHOR` required by the actual
+source transform. The existing test fixture and assertions have been
+updated in `main`, with no relaxation of the real PM4 correctness gate.
+
+Run once more with the existing D140 Windows x64 Release workflow;
+restore manual-only dispatch immediately once the run is recorded.
+Previous versioned ZIP releases remain untouched. A passing full
+source gate is not evidence of visually correct graphics.
