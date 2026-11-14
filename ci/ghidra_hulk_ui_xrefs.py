@@ -13,6 +13,8 @@ from __future__ import print_function
 
 import json
 import os
+import struct
+import zlib
 from jarray import array
 
 NAMES = [
@@ -30,11 +32,36 @@ NAMES = [
 MAX_MATCHES = 256
 MAX_REFS = 128
 
+# These names/CRC32(ASCII_UPPER(name)) pairs are verified against the
+# owner's original PC and Xbox 360 index.ind records. The proprietary
+# resources themselves are NEVER exported. See the source-only map.
+# UIPage_* event names below are not assumed to share this hash table.
+VERIFIED_UI_RESOURCE_HASHES = (
+    ("Fonts", "font_clean", 0xA796ECFA),
+    ("Textures", "ui_menuitems_da", 0x2F95A2B1),
+    ("Textures", "ui_menubands_da", 0x20CE9F3C),
+    ("Textures", "ui_key_wasd_da", 0x6274200A),
+    ("Textures", "ui_key_space_da", 0xD813EA9A),
+    ("Textures", "ui_mouse_leftbutton_da", 0x79FFD3E8),
+    ("Textures", "ui_mouse_wheelforward_da", 0x672B004B),
+    ("Textures", "ui_xbox360_a_da", 0x16FEB6A7),
+    ("Textures", "ui_xbox360_b_da", 0x044B1949),
+    ("Textures", "ui_xbox360_x_da", 0x3BEFAEB2),
+    ("Textures", "ui_xbox360_y_da", 0x8353C9D7),
+    ("Textures", "ui_xbox360_rt_da", 0x063884F1),
+    ("Textures", "ui_xbox360_lt_da", 0xD9E8AD12),
+)
 
-def search_exact_ascii(program, needle):
-    """Scan initialized memory (incl. metadata not auto-defined as strings)."""
+
+def search_exact_binary(program, needle, limit=MAX_MATCHES):
+    """Bounded binary pattern scan; works with Ghidra's signed Java bytes.
+
+    A matching 32-bit constant is ONLY an address-level candidate, never
+    proof of a menu dispatcher or of the PPC ABI.
+    """
     memory = program.getMemory()
-    pattern = array([ord(c) for c in needle], "b")
+    pattern = array([ord(c) if ord(c) < 128 else ord(c) - 256
+                     for c in needle], "b")
     found = []
     for block in memory.getBlocks():
         if not block.isInitialized():
@@ -47,10 +74,15 @@ def search_exact_ascii(program, needle):
             if hit is None or hit.compareTo(end) > 0:
                 break
             found.append(hit)
-            if len(found) >= MAX_MATCHES:
+            if len(found) >= limit:
                 return found
             next_address = hit.add(1)
     return found
+
+
+def search_exact_ascii(program, needle):
+    """Scan initialized memory (incl. metadata not auto-defined as strings)."""
+    return search_exact_binary(program, needle)
 
 
 def export_item(name, program):
@@ -84,6 +116,55 @@ def export_item(name, program):
     }
 
 
+def resource_hash_candidates(program):
+    """Find referenced EoR resource IDs in both executable byte orders.
+
+    Validated archive index hashes are distinct from *verified runtime*
+    object owners. Results must be correlated with original guest code.
+    """
+    candidates = []
+    refs = program.getReferenceManager()
+    funcs = program.getFunctionManager()
+    for group, name, expected_crc in VERIFIED_UI_RESOURCE_HASHES:
+        actual = zlib.crc32(name.upper()) & 0xFFFFFFFF
+        if actual != expected_crc:
+            raise ValueError("Original EoR index hash mismatch: " + name)
+        locations = []
+        for endian, order in ((">I", "big"), ("<I", "little")):
+            for addr in search_exact_binary(
+                    program, struct.pack(endian, expected_crc), 96):
+                monitor.checkCancelled()
+                links = []
+                for ref in refs.getReferencesTo(addr):
+                    frm = ref.getFromAddress()
+                    fn = funcs.getFunctionContaining(frm)
+                    links.append({
+                        "from_address": str(frm),
+                        "function_entry": (str(fn.getEntryPoint())
+                                           if fn else None),
+                        "function_name": (str(fn.getName())
+                                          if fn else None),
+                        "reference_type": str(ref.getReferenceType()),
+                    })
+                    if len(links) >= MAX_REFS:
+                        break
+                locations.append({
+                    "constant_address": str(addr),
+                    "constant_byte_order": order,
+                    "references": links,
+                    "refs_truncated": len(links) >= MAX_REFS,
+                })
+        candidates.append({
+            "group": group,
+            "canonical_name": name,
+            "verified_original_index_hash": "%08X" % expected_crc,
+            "occurrences": locations,
+            "candidate_only": True,
+            "proves_menu_callback_or_guest_abi": False,
+        })
+    return candidates
+
+
 def main():
     arguments = getScriptArgs()
     if len(arguments) != 1:
@@ -99,6 +180,8 @@ def main():
         "xrefs_are_abi_proof": False,
         "whitelist_only": True,
         "identifiers": [export_item(name, currentProgram) for name in NAMES],
+        "original_ui_hash_constant_candidates": resource_hash_candidates(currentProgram),
+        "hash_reference_is_not_ui_dispatch_proof": True,
     }
     folder = os.path.dirname(target)
     if not os.path.isdir(folder):
