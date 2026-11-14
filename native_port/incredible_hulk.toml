@@ -74,7 +74,6 @@ native_x_renderer_verify_frames = 1
 native_x_renderer_verify_at = 900
 bind_native_x_renderer_verify = "F11"
 hulk_world_stream_trace = false
-hulk_gpu_hook_probe = false
 hulk_frame_probe = false
 # D140 pipeline storage keeps validated guest shaders, translated programs,
 # graphics PSO records and a driver-compatible Vulkan pipeline cache in the
