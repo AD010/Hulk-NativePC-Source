@@ -1,4 +1,5 @@
 #pragma once
+#include <filesystem>
 #include <functional>
 #include <memory>
 namespace rex::ui { class ImGuiDialog; class ImGuiDrawer; class Window; }
@@ -7,6 +8,7 @@ namespace hulk {
 // Button labels reflect live keyboard bindings, not assumed Xbox glyphs.
 std::unique_ptr<rex::ui::ImGuiDialog> CreatePcMenu(
     rex::ui::ImGuiDrawer* drawer, rex::ui::Window* window,
+    const std::filesystem::path& existing_config,
     std::function<void()> on_exit);
 bool PcMenuIsOpen();
 void PcMenuSetOpen(bool open);
