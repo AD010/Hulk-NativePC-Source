@@ -7,7 +7,7 @@ import subprocess
 import tempfile
 from patch_native_x_hulk_guest_memory_bounds import (
     patch, LOAD_OLD, LOAD_NEW, SHADER_OLD, SHADER_NEW, INLINE_OLD, INLINE_NEW,
-    SHADER_CLASS_OLD, SHADER_CLASS_NEW
+    SHADER_CLASS_OLD, SHADER_CLASS_NEW, SNAPSHOT_OLD, SNAPSHOT_NEW
 )
 
 def safe(address, dwords):
@@ -16,7 +16,7 @@ def safe(address, dwords):
 
 class SourceMemoryBoundsTests(unittest.TestCase):
     def test_atomic_patch_idempotency_and_rejection(self):
-        source = "// HULK/PFP-PREDICATE HULK/PM4-SHADER-BOUNDS\n" + LOAD_OLD + "\n" + INLINE_NEW + "\n" + SHADER_OLD + "\n" + SHADER_CLASS_OLD
+        source = "// HULK/PFP-PREDICATE HULK/PM4-SHADER-BOUNDS\n" + LOAD_OLD + "\n" + INLINE_NEW + "\n" + SHADER_OLD + "\n" + SHADER_CLASS_OLD + "\n" + SNAPSHOT_OLD
         installed, changed = patch(source)
         self.assertTrue(changed)
         self.assertEqual(patch(installed), (installed, False))
@@ -24,6 +24,14 @@ class SourceMemoryBoundsTests(unittest.TestCase):
         self.assertIn("uint64_t(address) + uint64_t(dwords) * 4ull", installed)
         self.assertIn("HULK/PM4-SHADER-BOUNDS", installed)
         self.assertIn("HULK/PM4-SHADER-STAGE-START", installed)
+        self.assertIn("HULK/PM4-SHADER-IMMUTABLE-COPY", installed)
+        self.assertEqual(installed.count(SNAPSHOT_NEW), 1)
+        self.assertIn("std::memcmp(out.shader_ucode.data() + hulk_owned_start", SNAPSHOT_NEW)
+        self.assertLess(SNAPSHOT_NEW.index("out.shader_ucode.insert("),
+                        SNAPSHOT_NEW.index("std::memcmp("))
+        self.assertLess(SNAPSHOT_NEW.index("std::memcmp("),
+                        SNAPSHOT_NEW.index("out.complete = false;"))
+        self.assertNotIn("std::memset(", SNAPSHOT_NEW)
         self.assertIn("immediate ? type > 1u : (type & 3u) > 1u", installed)
         self.assertNotIn(INLINE_OLD, installed)
         self.assertEqual(installed.count(INLINE_NEW), 1)
@@ -36,6 +44,8 @@ class SourceMemoryBoundsTests(unittest.TestCase):
                         LOAD_NEW.index("out.loads.emplace_back("))
         with self.assertRaises(ValueError):
             patch("broken")
+        with self.assertRaises(ValueError):
+            patch(source.replace(SNAPSHOT_OLD, "lost immutable shader copy"))
         with self.assertRaises(ValueError):
             patch(LOAD_NEW + "\n" + INLINE_OLD + "\n" + SHADER_OLD)
     @unittest.skipUnless(shutil.which("clang++") or shutil.which("g++"),
