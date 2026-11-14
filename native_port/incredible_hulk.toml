@@ -30,7 +30,15 @@ fullscreen_exclusive = false
 present_letterbox = true
 present_effect = "bilinear"
 native_x_renderer = true
-native_x_renderer_resolution_scale = 2.0
+# D140 uses the actual Vulkan swapchain size. 0 computes its native scale
+# from the monitor/window instead of fixing all output at 2x of Xbox 720p.
+# The guest front buffer and XDK resource pitches remain 1280x720!
+native_x_renderer_resolution_scale = 0.0
+# No USA Hulk camera/projection hook has yet been validated. Do not
+# request NativeX full-aspect 3D widening without a real game camera fix;
+# native 16:9 raster is fitted correctly into 16:10/21:9 outputs with bars.
+native_x_renderer_fill_screen = false
+native_x_renderer_aspect = 0.0
 # Prefer sharper angled textures when the original asset has usable mips.
 # NativeX honors the shared Xenos AF override only for eligible samplers:
 # 4 = 8x AF, -1 = respect the game, 5 = 16x AF (more bandwidth).
