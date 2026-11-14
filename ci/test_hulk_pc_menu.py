@@ -40,6 +40,13 @@ class TestHulkPcMenu(unittest.TestCase):
         self.assertIn("ImGui::BeginCombo(label, current.c_str())", menu)
         self.assertIn("Change(key, supported)", menu)
         self.assertIn("options::kBindingTokens", menu)
+        # Dragging the startup-only sharpen knob may not rewrite the
+        # same TOML dozens of times per second (I/O-driven microstutter).
+        self.assertIn("HULK/PC-MENU-NO-DISK-DRAG", menu)
+        self.assertIn("ImGui::IsItemDeactivatedAfterEdit()", menu)
+        self.assertIn("sharpness_edit_active_", menu)
+        self.assertIn("MoveFileExW(temporary.c_str(), config_file.c_str()", store)
+        self.assertIn("in.close();", store)
         self.assertNotIn("Full key rebinding from this screen is not implemented yet", menu)
         names = set(re.findall(r'"(hulk_bind_[a-z_]+)"', bindings))
         declared = set(re.findall(r'REXCVAR_DEFINE_STRING\((hulk_bind_[a-z_]+),',
