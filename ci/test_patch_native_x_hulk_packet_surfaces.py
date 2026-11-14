@@ -20,7 +20,11 @@ class SurfaceTests(unittest.TestCase):
  def test_no_changes_to_real_hooked_capture_path(self):
   txt="\n".join(e["new"] for e in EDITS)
   self.assertIn("packet_surfaces ? (*packet_surfaces)[i] : ReadBoundSurface",txt)
-  self.assertIn("if (!packet_surfaces) HulkRememberSurface",txt)
+  self.assertIn("if (!packet_surfaces) HulkRememberSurfaces(c.surfaces);",txt)
+  self.assertNotIn("if (!packet_surfaces) HulkRememberSurface(c.surfaces[i], i);",txt)
+  self.assertIn("HULK/PM4-SURFACE-BATCH",txt)
+  self.assertIn("void HulkRememberSurfaces(const std::array<GuestSurface, 5>& surfaces)",txt)
+  self.assertIn("std::lock_guard<std::mutex> guard(g_hulk_surface_history_mutex);",txt)
  def test_surface_history_key_does_not_alias_distinct_registers(self):
   # Real log176: hundreds of thousands of ambiguous bindings. Never allow
   # another surface to reuse a saved GPU target solely because upper register
