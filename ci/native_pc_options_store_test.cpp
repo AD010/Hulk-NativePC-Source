@@ -6,6 +6,7 @@
 #include <iterator>
 #include <stdexcept>
 #include <string>
+#include <utility>
 
 namespace {
 void Expect(bool yes, const char* error) {
