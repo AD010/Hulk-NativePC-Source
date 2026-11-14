@@ -72,21 +72,64 @@ VERTEX_NEW = """      xenos::xe_gpu_vertex_fetch_t fetch = regs.GetVertexFetch(i
       if (!first_vertex_address) first_vertex_address = fetch.address;
       memory_->RequestRange(uint32_t(vertex_start), uint32_t(vertex_bytes));"""
 
+# Explicitly opt-in, low-frequency RAW fetch/LOD provenance. This records
+# real shader-used texture fetch dwords, never guesses base-mip dimensions,
+# modifies a sampler, or replaces resources.
+PROBE_CVAR_ANCHOR = "REXCVAR_DEFINE_BOOL(native_x_renderer_scale_in_constants, true, \"NativeXRenderer\","
+PROBE_CVAR_NEW = """REXCVAR_DEFINE_BOOL(native_x_renderer_hulk_mip_probe, false, "Hulk/Quality",
+                    "Sample shader-used texture fetch dwords and actual native LOD bias for mip provenance");
+""" + PROBE_CVAR_ANCHOR
+PROBE_OLD = """  const float lod_bias = sized->reduced ? std::log2(sized->scale.x / scale_.x) : 0.0f;
+  const int32_t anisotropic = textures_->AnisotropicOverride();"""
+PROBE_NEW = """  const float lod_bias = sized->reduced ? std::log2(sized->scale.x / scale_.x) : 0.0f;
+  const int32_t anisotropic = textures_->AnisotropicOverride();
+  // HULK/MIP-PROVENANCE: a 2x render cannot invent texels missing from
+  // base textures. Periodically record REAL shader-used fetch words and
+  // sampler inputs so signage can be traced to its source mip range.
+  // This probe never modifies texture fetch state or LOD.
+  if (REXCVAR_GET(native_x_renderer_hulk_mip_probe)) {
+    static std::atomic<uint64_t> hulk_mip_draws{0};
+    const uint64_t n = hulk_mip_draws.fetch_add(1, std::memory_order_relaxed) + 1;
+    if (n == 1 || n % 500000u == 0) {
+      uint32_t reported = 0;
+      for (uint32_t slot = 0; slot < 32u && reported < 8; ++slot) {
+        if ((used_texture_mask & (uint32_t(1) << slot)) == 0u) continue;
+        const auto fetch = regs.GetTextureFetch(slot);
+        if (fetch.type != xenos::FetchConstantType::kTexture) continue;
+        const uint32_t first = rg::XE_GPU_REG_SHADER_CONSTANT_FETCH_00_0 + 6u * slot;
+        REXLOG_INFO("[HULK/MIP-PROVENANCE] draw={} slot={} dimension={} "
+                    "target_scale={:.3f},{:.3f} native_scale={:.3f},{:.3f} "
+                    "lod_bias={:.3f} af_override={} "
+                    "fetch={:#x},{:#x},{:#x},{:#x},{:#x},{:#x}",
+                    n, slot, uint32_t(fetch.dimension),
+                    sized->scale.x, sized->scale.y, scale_.x, scale_.y,
+                    lod_bias, anisotropic,
+                    regs[first], regs[first + 1u], regs[first + 2u],
+                    regs[first + 3u], regs[first + 4u], regs[first + 5u]);
+        ++reported;
+      }
+    }
+  }"""
+
 def patch(src: str) -> tuple[str, bool]:
-    done = TEXTURE_NEW in src and VERTEX_NEW in src
+    done = all(x in src for x in (TEXTURE_NEW, VERTEX_NEW, PROBE_CVAR_NEW, PROBE_NEW))
     if done:
         return src, False
-    if any(token in src for token in (
-            TEXTURE_NEW, VERTEX_NEW, "HULK/NATIVEX-DRAW-FETCH-GUARD",
-            "HULK/NATIVEX-VERTEX-FETCH-GUARD")):
-        raise ValueError("Partial Hulk NativeX draw fetch guard")
-    if src.count(TEXTURE_OLD) != 1 or src.count(VERTEX_OLD) != 1:
-        raise ValueError("NativeX draw fetch register anchors drifted")
-    if src.count("#include <bit>\n") != 1:
+    if any(x in src for x in (TEXTURE_NEW, VERTEX_NEW, PROBE_CVAR_NEW, PROBE_NEW,
+                              "HULK/NATIVEX-DRAW-FETCH-GUARD",
+                              "HULK/NATIVEX-VERTEX-FETCH-GUARD",
+                              "HULK/MIP-PROVENANCE")):
+        raise ValueError("Partial Hulk NativeX draw fetch/mip provenance patch")
+    anchors = (TEXTURE_OLD, VERTEX_OLD, PROBE_CVAR_ANCHOR, PROBE_OLD)
+    if any(src.count(old) != 1 for old in anchors):
+        raise ValueError("NativeX draw fetch/LOD source anchors drifted")
+    if src.count("#include <bit>\\n") != 1:
         raise ValueError("NativeX draw source <bit> include anchor drifted")
-    return (src.replace("#include <bit>\n", "#include <atomic>\n#include <bit>\n", 1)
+    return (src.replace("#include <bit>\\n", "#include <atomic>\\n#include <bit>\\n", 1)
                .replace(TEXTURE_OLD, TEXTURE_NEW, 1)
-               .replace(VERTEX_OLD, VERTEX_NEW, 1)), True
+               .replace(VERTEX_OLD, VERTEX_NEW, 1)
+               .replace(PROBE_CVAR_ANCHOR, PROBE_CVAR_NEW, 1)
+               .replace(PROBE_OLD, PROBE_NEW, 1)), True
 
 def main() -> None:
     if len(sys.argv) != 2:
