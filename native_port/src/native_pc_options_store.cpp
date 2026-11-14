@@ -48,6 +48,12 @@ bool Allowed(std::string_view key, std::string_view value) {
 }
 
 bool IsAssignment(std::string_view line, std::string_view key) {
+  // Accept a UTF-8 BOM on the first line but never create a second key.
+  if (line.size() >= 3 &&
+      static_cast<unsigned char>(line[0]) == 0xef &&
+      static_cast<unsigned char>(line[1]) == 0xbb &&
+      static_cast<unsigned char>(line[2]) == 0xbf)
+    line.remove_prefix(3);
   const auto start = line.find_first_not_of(" \t");
   if (start == std::string_view::npos) return false;
   line.remove_prefix(start);
@@ -72,6 +78,10 @@ bool Save(const std::filesystem::path& config_file,
     const std::string original(
         (std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
     if (in.bad()) return false;
+    // Windows MoveFileExW cannot reliably replace an open destination
+    // when the CRT stream was created without FILE_SHARE_DELETE.
+    in.close();
+    if (!in) return false;
     const bool crlf = original.find("\r\n") != std::string::npos;
     const std::string ending = crlf ? "\r\n" : "\n";
     std::string new_value(value);
@@ -85,6 +95,9 @@ bool Save(const std::filesystem::path& config_file,
     while (std::getline(lines, line)) {
       if (!line.empty() && line.back() == '\r') line.pop_back();
       if (IsAssignment(line, key)) {
+        // Preserve a UTF-8 BOM even if replacing the very first key.
+        if (edited.empty() && original.starts_with("\xEF\xBB\xBF"))
+          edited += "\xEF\xBB\xBF";
         edited += assignment;
         ++matches;
       } else {
