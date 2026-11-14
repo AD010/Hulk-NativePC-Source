@@ -210,6 +210,13 @@ bool NativeXInitialize(
   g_profile = std::move(candidate);
   nx::Install(g_profile.get());
 
+  // HULK/PIPELINE-CACHE-203: report the real startup setting and
+  // availability of a durable cache root without leaking user paths.
+  // Cached shader/PSO records may eliminate repeat-visit compilation,
+  // but an empty cache root deliberately falls back to normal rendering.
+  REXLOG_INFO("[HULK/PIPELINE-CACHE-203] enabled={} cache_root_available={}",
+              rex::cvar::Query<bool>("native_x_renderer_pipeline_storage"),
+              !cache.empty());
   // NativeXRenderer owns Vulkan instance/device/surface
   // initialization through the ReXGlue host window.
   // Do not create a competing VkSurfaceKHR here.
