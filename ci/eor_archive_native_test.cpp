@@ -1,6 +1,7 @@
 // Standalone, native x64 EoR resource tests. NO private game files.
 // Compile via MSVC on the existing Windows workflow before private codegen.
 #include "../native_port/src/eor_archive.h"
+#include "../native_port/src/eor_ui_asset_catalog.h"
 
 #include <array>
 #include <cassert>
@@ -159,6 +160,82 @@ int main() {
   MustThrow([&] { (void)ReadResource(temp, Resource{0, 99999, 8, 0}); });
   MustThrow([&] { (void)ReadResource(temp, Resource{0, 4, 8, 0}, 7); });
   MustThrow([&] { (void)ReadResource(temp, Resource{0, 0, 8, 0}); });
+  // Original UI material/font catalogue: prove both platforms stay
+  // tagged by source, and Xbox-specific bytes are never silently
+  // reinterpreted as PC graphics without a real texture decoder.
+  const auto dir = temp.parent_path();
+  const auto pc_index_file = dir / "hulk-eor-ui-pc-synthetic.ind";
+  const auto xbox_index_file = dir / "hulk-eor-ui-xbox-synthetic.ind";
+  const auto pc_tex = dir / "hulk-eor-ui-pc-synthetic.arc";
+  const auto xbox_tex = dir / "hulk-eor-ui-xbox-synthetic.arc";
+  {
+    const auto pc = MakeIndex(ByteOrder::Little);
+    const auto xbox = MakeIndex(ByteOrder::Big);
+    std::ofstream a(pc_index_file, std::ios::binary);
+    a.write(reinterpret_cast<const char*>(pc.data()),
+            static_cast<std::streamsize>(pc.size()));
+    std::ofstream b(xbox_index_file, std::ios::binary);
+    b.write(reinterpret_cast<const char*>(xbox.data()),
+            static_cast<std::streamsize>(xbox.size()));
+  }
+  {
+    std::ofstream out(pc_tex, std::ios::binary);
+    const std::string src = std::string(12, '0') + "DDS X_" + "abcd";
+    out.write(src.data(), static_cast<std::streamsize>(src.size()));
+  }
+  {
+    std::ofstream out(xbox_tex, std::ios::binary);
+    const std::string src = std::string(12, '0') + "GUEST!" + "ZYXW";
+    out.write(src.data(), static_cast<std::streamsize>(src.size()));
+  }
+  using hulk::eor::OriginalArchiveSet;
+  using hulk::eor::OriginalPlatform;
+  using hulk::eor::OriginalUiAssets;
+  using hulk::eor::KnownImageEncoding;
+  using hulk::eor::ClassifyImage;
+  auto original = OriginalUiAssets::Open(
+      OriginalArchiveSet{pc_index_file, temp, pc_tex},
+      OriginalArchiveSet{xbox_index_file, temp, xbox_tex});
+  Expect(original.HasXboxSource(), "Xbox original source not indexed");
+  auto pc_ui = original.Find(OriginalPlatform::Pc2008, "Textures",
+                             "TXFLui_menuitems_da");
+  auto xbox_ui = original.Find(OriginalPlatform::Xbox360, "Textures",
+                               "LFXTui_menuitems_da");
+  Expect(pc_ui.has_value() && xbox_ui.has_value(),
+         "Original EoR menu material hash not resolved on both platforms");
+  Expect(pc_ui->record.hash == xbox_ui->record.hash,
+         "Original EoR menu material lost identity across platforms");
+  Expect(pc_ui->platform != xbox_ui->platform,
+         "Console and PC provenance incorrectly merged");
+  Expect(ClassifyImage(original.Read(*pc_ui)) == KnownImageEncoding::Dds,
+         "Positive PC DDS magic detection failed");
+  Expect(ClassifyImage(original.Read(*xbox_ui)) == KnownImageEncoding::Unknown,
+         "Unknown Xbox texture was incorrectly claimed to be host DDS");
+  auto spoofed = *pc_ui;
+  spoofed.archive = xbox_tex;
+  MustThrow([&] { (void)original.Read(spoofed); });
+  spoofed = *pc_ui;
+  spoofed.record.size = 10;
+  MustThrow([&] { (void)original.Read(spoofed); });
+  Expect(!original.Find(OriginalPlatform::Pc2008, "Textures",
+                         "not_an_asset").has_value(),
+         "Unknown original UI resource should not resolve");
+  Expect(!original.Find(OriginalPlatform::Pc2008, "Objects",
+                         "ui_menuitems_da").has_value(),
+         "Unbound original resource archive should not be guessed");
+  auto pc_only = OriginalUiAssets::Open(
+      OriginalArchiveSet{pc_index_file, temp, pc_tex});
+  Expect(!pc_only.Find(OriginalPlatform::Xbox360, "Textures",
+                        "ui_menuitems_da").has_value(),
+         "Xbox texture missing should not be transparently replaced by PC");
+  MustThrow([&] {
+    (void)OriginalUiAssets::Open(
+        OriginalArchiveSet{xbox_index_file, temp, pc_tex});
+  });
+  std::filesystem::remove(pc_index_file);
+  std::filesystem::remove(xbox_index_file);
+  std::filesystem::remove(pc_tex);
+  std::filesystem::remove(xbox_tex);
   std::filesystem::remove(temp);
 
   std::cout << "[HULK/EOR-NATIVE] indexed PC+Xbox font and UI assets: PASS\n";
