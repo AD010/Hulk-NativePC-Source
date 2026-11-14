@@ -43,6 +43,10 @@ def check_renderer(path: str) -> Path:
 
 
 def run_patch(script: Path, renderer: Path) -> None:
+    # The source-only preflight invokes this function directly, bypassing
+    # main(). Validate the real checkout here too, before loading any patch.
+    renderer = check_renderer(str(renderer))
+    script = checked_patch_path(str(script))
     spec = importlib.util.spec_from_file_location(
         "hulk_d140_windows_" + script.stem, script)
     if spec is None or spec.loader is None:
