@@ -21,6 +21,11 @@ class TestMissTrace(unittest.TestCase):
         self.assertIn("hulk_packet_draws_mapped", result)
         for s in ("void unrelated() {}", original + "\n" + OLD):
             with self.assertRaises(ValueError): patch_text(s)
+    def test_batched_packet_snapshot_does_not_reenter_mutex(self):
+        self.assertIn("std::lock_guard<std::mutex> guard(g_hulk_surface_history_mutex)", NO_WRITE_OLD)
+        self.assertEqual(NO_WRITE_NEW.count("std::lock_guard<std::mutex> guard(g_hulk_surface_history_mutex)"), 1)
+        self.assertIn("      unresolved = true;\\n    }\\n  }", OLD)
+
     def test_reason_counters_are_mutually_exclusive(self):
         self.assertIn("[HULK/PM4-NO-WRITABLE-RT]", NO_WRITE_NEW)
         self.assertNotIn("[HULK/PM4-NO-WRITABLE-RT]", NEW)

@@ -13,8 +13,8 @@ import subprocess
 import sys
 
 PIN = os.environ.get("HULK_NATIVEX_SOURCE_SHA", "bf965e952c98e050753e91d08f32685a9f754b12")
-OLD = OLD = """      if (bound && HulkSurfaceKey(bound.surface_info, bound.info) == gpu_key) {"""
-NEW = NEW = """      // The packet snapshot already holds g_hulk_surface_history_mutex.
+OLD = """      if (bound && HulkSurfaceKey(bound.surface_info, bound.info) == gpu_key) {"""
+NEW = """      // The packet snapshot already holds g_hulk_surface_history_mutex.
       // Updating history with HulkRememberSurface would re-lock it and deadlock.
       // Keep exact surface keys and the same 256-entry LRU cap.
       const auto hulk_remember_packet_view = [&](const GuestSurface& view) {
