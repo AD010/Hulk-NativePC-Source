@@ -43,7 +43,12 @@ DESCRIPTOR_NEW = """  desc.Width = key.GetWidth();
       // widths 4,186,624 and 5,891,328 in the owner's actual logs. Without
       // explicit bounds these can pass the mip-chain check and reach Vulkan.
       // Reject, never silently clamp original texture addresses or sizes.
-      desc.Width > 32768u || desc.Height > 32768u ||
+      // Use the renderer's *actual* dimension-specific GPU limits.
+      // GetMaxHostTextureWidthHeight: 2D 16384, 3D 2048.
+      // The previous hard-coded 32768 let impossible 2D/3D images
+      // reach vkCreateImage and waste driver work / memory.
+      desc.Width > GetMaxHostTextureWidthHeight(key.dimension) ||
+      desc.Height > GetMaxHostTextureWidthHeight(key.dimension) ||
       depth_or_array_size > 2048u ||
       (key.dimension == xenos::DataDimension::kCube && desc.Width != desc.Height) ||
       !desc.MipLevels || desc.MipLevels > hulk_max_mips;
