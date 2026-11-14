@@ -159,10 +159,17 @@ bool NativeXInitialize(
   // PM4 gap patches capture packets emitted between hooked XDK calls.
   // Keep those boundaries even with trace/observer disabled. Override old
   // user configs too; enabling diagnostics must not change command coverage.
+  // Always override the on-disk value, including old user TOMLs.
+  // This is a correctness requirement, not an optional performance preset.
+  rex::cvar::SetFlagByName("native_x_renderer_lean_setters", "false");
   if (rex::cvar::Query<bool>("native_x_renderer_lean_setters")) {
-    rex::cvar::SetFlagByName("native_x_renderer_lean_setters", "false");
-    REXLOG_INFO("[HULK/PM4] Disabled lean setters to preserve gap capture");
+    // Do not silently display partially captured PM4 commands if a future
+    // cvar/runtime revision rejects the override. Leave Xenos as fallback.
+    REXLOG_ERROR("[HULK/PM4] Unsafe D140 lean setters remain enabled; "
+                 "refusing native renderer initialization");
+    return false;
   }
+  REXLOG_INFO("[HULK/PM4] Full setter PM4 gap capture enforced (lean OFF)");
 
   // The profile and its string storage must remain alive
   // while renderer worker threads are active.
