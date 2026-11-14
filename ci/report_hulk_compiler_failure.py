@@ -64,7 +64,7 @@ ALLOWED_FAILURE_HINTS = {
 # NEVER print full failure lines, assertions or tracebacks.
 UNITTEST_FAILURE = re.compile(
     r"(?m)^(?:FAIL|ERROR): (test_[A-Za-z0-9_]{3,100}) "
-    r"\\([A-Za-z0-9_.]{1,128}\\)\\s*$"
+    r"\([A-Za-z0-9_.]{1,128}\)\s*$"
 )
 
 def failed_source_tests(log: str, cap: int = 8) -> list[str]:
