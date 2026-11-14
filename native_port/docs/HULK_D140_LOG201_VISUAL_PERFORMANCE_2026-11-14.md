@@ -130,3 +130,35 @@ The capture incompatibility is established from source; attribution of all
 missing text or color flicker to it remains unverified without game execution.
 Visual release acceptance, mip/LOD quality, TU1 water behavior and the other
 open port requirements remain outstanding.
+
+## Follow-up: raw log 202 classification and fail-closed D140 startup
+
+The archived `incredible_hulk_202.log` was read directly rather than only
+using the screenshot or build status. In its 3,804 lines (2026-11-14):
+
+- The first 16 printed `HULK/INCOMPLETE-XDK-DRAW` warnings include
+  ordinary-looking XDK draw boundaries followed by unparseable words, such
+  as `0x3f800000` and `0x44800000`. Several follow a valid
+  `0xc0025800` EVENT_WRITE_SHD. The warnings are throttled; 16 is **not**
+  the number of total rejected draws. Do not treat EVENT_WRITE_SHD as an
+  unconditional PM4 end marker or accept partial state on speculation.
+- Three `HULK/INVALID-VERTEX-DRAW` warnings reference slot 95:
+  type 0, base `0x9b8000`, 69,376 words (twice), and type 2,
+  base `0x840`, zero words (once). All were correctly rejected by the
+  existing fetch bounds guard. A shader-used mask or register ownership
+  mismatch remains possible; discarding this guard could expose invalid
+  geometry rather than repair it.
+- The logged scene Resolve samples show a 640x360 4xMSAA guest
+  intermediate represented at 2560x1440 on both source and destination.
+  Therefore those samples do **not** demonstrate an intermediate
+  downscale. The blurred signage still requires texture/mip provenance.
+- Source confirms the #108 D140 lean setter path can skip PM4 gaps.
+  The first correction disabled it before NativeX Initialize. As a
+  further safety refinement, Hulk now unconditionally forces that cvar to
+  false and refuses NativeX startup if the value remains true. The
+  startup invariant is asserted in the existing USA GPU defaults tests.
+
+These changes are source-level safeguards and diagnostic classification.
+They have **not** yet received a later Windows Actions release, game-frame
+comparison or verified restoration of the missing menu text. The existing
+single `workflow_dispatch` Release workflow remains manual-only.
