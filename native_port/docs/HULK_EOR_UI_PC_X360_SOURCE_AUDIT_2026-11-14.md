@@ -636,3 +636,133 @@ path, **not** the unresolved origin of corrupted PM4 fetches.
   original hashes is not equivalent to GPU-ready UI art.
 - No new Windows Release, runtime test or ZIP was created for
   these source changes. The single workflow remains manual-only.
+
+## 2026-11-14 — USA shader, camera, original pause menu and surface-lifetime work
+
+**User's native target is Windows 2560×1600 (16:10), DPI 175 %.**
+This does NOT authorize changing guest XDK `1280×720` framebuffer,
+`640×360` 4× MSAA surface descriptors or original `0x8263BF50`
+Resolve semantics. NativeXRenderer already renders these guest surfaces
+at native host resolutions when the device and swapchain allow it.
+Log203 proves one full frame path was **2560×1440 → 2560×1440**
+with output letterboxing to **2560×1600**. Direct 16:10 view coverage
+requires a verified original camera projection plus separate 2D HUD
+boxing; it is **not** solved by blindly changing EDRAM pitch or scissor.
+
+### 27-word shader source provenance: new fail-closed capture verification
+
+In the original user-owned log203, three failing *vertex* shader
+analysis records (hashes `EC7DD173F4761676`,
+`0F5C6EDD918BC3F8`, `5C56143AEB4D1865`) report
+`IM_LOAD_IMMEDIATE`, exactly 27 dwords. A private-only comparison
+shows **26 of 27 words equal, with the changing dword at offset 23**.
+Their common offset 22 has bits consistent with a Type3 PM4
+`IM_LOAD` header (`opcode 0x27`, two payload dwords).
+This is **evidence suggestive of shader/command-ring overlap**,
+not proof that its bytes are invalid or that the source was recycled.
+No guest microcode was committed publicly.
+
+The original upstream NativeX D140 decoder had an inline shader size
+truncation and no absolute source bounds check. **Those limits had
+already been addressed** in this project's earlier
+`patch_native_x_hulk_bin_predication.py` and
+`patch_native_x_hulk_guest_memory_bounds.py`; they are not newly
+discovered fixes. This iteration additionally gives
+`patch_native_x_hulk_guest_memory_bounds.py` an *immutable copy*
+check: compare each freshly owned IM_LOAD program with source bytes
+before allowing it to enter the shader program cache. A changed source
+within capture now fails the packet scan instead of being silently
+accepted. It cannot detect a corruption that was already stable at
+the instant of the first read.
+
+`tools/audit_hulk_shader_pm4_overlap.py` now classifies candidate
+Type3 shader-load signatures near the end of failed shader dumps and
+reports ONLY hash, word offsets and classification. Its synthetic
+three-program test reproduces a changing word at index 23 and a
+candidate header at index 22. This is a forensic classifier, NOT
+permission to suppress real PM4 draws. Existing manual CI adds
+`python tools/audit_hulk_shader_pm4_overlap.py --test` before the
+private game build.
+
+### RT/depth ownership / CPU contention
+
+The already installed `patch_native_x_hulk_packet_surfaces.py`
+matches packet-specific render targets against the GPU register image
+by the full `RB_SURFACE_INFO/RB_COLOR_INFO/RB_DEPTH_INFO` identity
+and refuses ambiguous synthetic bindings. This iteration changes
+the ordinary **hooked XDK draw's five surface-history updates** from
+up to five separate mutex acquisitions to **one batched history
+update**. It keeps the original full keys, 256-entry per-slot LRU,
+timestamp order, and packet-specific fallback exactly as they were.
+No shader, guest RT size, Clear, Resolve or physical surface was
+invented or discarded. It is a source-level concurrency improvement
+that still needs real frame/CPU profiling to prove FPS benefit.
+
+### Original USA camera ABI: source-only research, no speculative hooks
+
+`ci/ghidra_hulk_camera_projection.py` adds a private headless Ghidra
+collector for the **original USA Xbox 360 XEX** (with XEXLoaderWV),
+and separately the **original retail PC executable**. It finds
+address-level references to observed EoR names such as
+`UIPage_Pause_Settings`, `UI_ActivateOptions`,
+`UI_OptionScreen`, `Options_SetCameraYaw_b` and
+`Options_SetCameraPitch_b`, plus data candidates for
+16:9, 4:3 and inverse-aspect projection floats, and function
+names likely associated with camera and UI. The output explicitly
+states `abi_proven=false`; it cannot establish the PPC calling
+convention or matrix owner without inspecting the actual xrefs and
+their callers. The user need NOT resend the game archives; private
+source access is the remaining practical obstacle to running this
+script here.
+
+The independent `native_port/src/native_camera_projection.h`
+implements vertical-FOV-preserving horizontal projection ratios:
+16:9 1.0, 16:10 **10/9** for horizontal focal coefficient,
+ultrawide less than 1.0, and 4:3 greater than 1.0.
+`ci/native_pc_options_store_test.cpp` checks these numerically,
+including invalid parameters. This code is **not yet connected**
+to the unverified game camera or EDRAM/HUD. No unproven `widescreen`
+flag has been turned on.
+
+### Harry Potter PC menus as an implementable pattern
+
+Reviewed the actual source for
+`Barthes-Recompiled/HP1-Recompiled/port/src/scda/app/menu.cpp`
+and `Barthes-Recompiled/HP3-Recompiled/port/src/scda/app/menu.cpp`.
+Both use ImGui option-page rows, interactive keyboard navigation,
+dedicated per-game TOML and viewport/DPI-dependent window sizing.
+The F10 implementation by itself is **not evidence** of hooking a
+game's original 2008 menu. The architecture works by sharing option
+rows with host-specific title/pause events where those are mapped.
+
+Applied the safe part immediately:
+`native_port/src/pc_menu.cpp` now scales the option window and its
+section/sidebar/footer layout against available logical display size
+using `io.FontGlobalScale`. The old fixed `850×610` first-use
+window could extend beyond a small or scaled client area.
+`ci/test_hulk_pc_menu.py` requires the responsive-size code.
+**Original Hulk EoR skin/assets and USA `UIPage_Pause_Settings`
+entrypoint remain unconnected**, and GPU-ready parsing of EoR UI
+texture data still requires verified format decoding.
+
+### Release validation state
+
+New source and synthetic tests have been committed to the existing
+source repository `main`, all on the single manual-only Windows
+workflow. The current tool environment cannot execute native
+MSVC/Clang or run Ghidra over the user's original binaries.
+**No new Windows build, shader capture, frame benchmark or ZIP was
+created in this iteration.** Previous CI #114 failed in Windows
+compilation and last known assembled release #112 still flickered.
+A source patch or a correctly matched 16:10 pixel calculation MUST
+NOT be represented as official-grade, play-tested Vulkan output.
+
+Remaining blockers for an actual *complete* solution:
+identify where the PM4-like trailer enters 27-word IM_LOAD records
+and recover byte-identical original guest programs; prove texture
+mip-chain source and sampler/LOD state from real captures; validate
+RT/depth per draw with RenderDoc/reference renderer; find genuine
+USA PPC 3D camera and UI pause event ABI; alter only 3D view
+projection and box HUD separately; and match GPU/CPU performance
+with one same-scene baseline capture before changing upload or
+pipeline schedules.
