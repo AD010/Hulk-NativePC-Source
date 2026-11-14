@@ -52,12 +52,12 @@ class HulkLogAuditTests(unittest.TestCase):
         a[23], b[23] = 0x01234567, 0x89ABCDEF
         def failed(shader_hash, payload):
             return ("[native_x_renderer] vertex shader " + shader_hash +
-                    " (27 dwords): analysis failed: access violation\\n" +
+                    " (27 dwords): analysis failed: access violation\n" +
                     "[native_x_renderer] the vertex program came from " +
                     "IM_LOAD_IMMEDIATE at 0xa2001000 (packet 0xa2000ff4) " +
                     "in DrawIndexedVertices: " +
                     " ".join(f"{w:08X}" for w in payload))
-        log = failed("1234567890ABCDEF", a) + "\\n" + failed("FEDCBA0987654321", b)
+        log = failed("1234567890ABCDEF", a) + "\n" + failed("FEDCBA0987654321", b)
         summary = analyze(log)
         family = summary["shader_analysis_families"]
         self.assertEqual(len(family), 1)
@@ -74,7 +74,7 @@ class HulkLogAuditTests(unittest.TestCase):
         self.assertIsNone(shader_static_cf(base[:17]))
 
     def test_log203_resolve_gpu_and_upload_cost_fields(self):
-        log = "\\n".join([
+        log = "\n".join([
             "[native_x_renderer] renderer: frame 15600: 9 clears, 28 resolves (0 skipped)",
             "[native_x_renderer] renderer: frame 15600: 1887 draw calls, 1887 drawn, "
             "0 without targets, 0 failed; GPU 22.36 ms average, 76.72 ms max",
