@@ -134,6 +134,37 @@ def shader_static_cf(words: list[int]) -> tuple[tuple[int, ...], tuple[tuple[int
                 execs.append((start, count))
     return tuple(sorted(used)), tuple(execs), bound
 
+# Existing ReXGlue Xenos fetch instruction decoding permits these codes.
+# A reserved opcode in a directly EXEC-referenced fetch instruction can
+# leave ParsedTextureFetchInstruction uninitialized before disassembly.
+KNOWN_FETCH_OPCODES = frozenset((0, 1, 16, 17, 18, 19, 24, 25, 26))
+
+def shader_unsupported_executed_fetches(words: list[int]) -> list[dict[str, int]]:
+    """Static, immediate EXEC ranges only; never execute/dump guest code."""
+    decoded = shader_static_cf(words)
+    if decoded is None:
+        return []
+    _, _, bound = decoded
+    findings: set[tuple[int, int]] = set()
+    for i in range(bound):
+        a, b, c = words[3 * i:3 * i + 3]
+        packets = ((a, b & 0xFFFF),
+                   (((b >> 16) | ((c & 0xFFFF) << 16)), c >> 16))
+        for w0, w1 in packets:
+            if ((w1 >> 12) & 15) not in EXEC_CF_OPS:
+                continue
+            address = w0 & 0xFFF
+            count = (w0 >> 12) & 7
+            sequence = (w0 >> 16) & 0xFFF
+            for j in range(count):
+                if sequence & (1 << (2 * j)):
+                    instr = address + j
+                    opcode = words[instr * 3] & 31
+                    if opcode not in KNOWN_FETCH_OPCODES:
+                        findings.add((instr, opcode))
+    return [{"instruction": instruction, "opcode": opcode}
+            for instruction, opcode in sorted(findings)]
+
 RESOLVE_STATS = re.compile(r"(\d+) clears, (\d+) resolves \((\d+) skipped\)")
 GPU_COST = re.compile(r"GPU ([\d.]+) ms average, ([\d.]+) ms max")
 BUFFER_COST = re.compile(r"per frame, ([\d.]+) buffer copies average, (\d+) max; guest memory (\d+) KB copied")
@@ -366,6 +397,8 @@ def analyze(text: str) -> dict:
             "shader_hashes": [m[0] for m in members],
             "load_kinds": sorted(set(m[2] for m in members)),
             "source_calls": sorted(set(m[5] for m in members)),
+            "unsupported_exec_fetch_opcodes":
+                shader_unsupported_executed_fetches(members[0][1]),
             "note": "Direct-CF-only classification; not proof of correct translator semantics.",
         })
     shader_families.sort(key=lambda x: (-x["failure_count"], x["word_count"]))
