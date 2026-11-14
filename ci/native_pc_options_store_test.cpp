@@ -2,7 +2,9 @@
 #include "../native_port/src/native_pc_options_store.h"
 #include "../native_port/src/native_pc_bindings.h"
 #include "../native_port/src/native_resolution.h"
+#include "../native_port/src/native_camera_projection.h"
 
+#include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -113,6 +115,34 @@ int main() {
     Expect(!Save(config, key, value), "Unsafe setting should be rejected");
     Expect(Read(config) == changed, "Unsafe setting modified user TOML");
   }
+  // This is the math for the ORIGINAL USA Hulk 3D camera hook, after its
+  // PPC address, matrix layout and view lifetime are verified in Ghidra.
+  // A host aspect is not a license to stretch UI, shadow or XDK surfaces.
+  constexpr double guest_aspect = 16.0 / 9.0;
+  const auto proj_16_9 = hulk::camera::AspectForView(
+      1920.0, 1080.0, guest_aspect, 1.0);
+  const auto proj_16_10 = hulk::camera::AspectForView(
+      2560.0, 1600.0, guest_aspect, 1.0);
+  const auto proj_ultra = hulk::camera::AspectForView(
+      3440.0, 1440.0, guest_aspect, 1.0);
+  const auto proj_4_3 = hulk::camera::AspectForView(
+      1024.0, 768.0, guest_aspect, 1.0);
+  Expect(proj_16_9.has_value() && proj_16_10.has_value() &&
+         proj_ultra.has_value() && proj_4_3.has_value(),
+         "Original 3D camera aspect math rejected legitimate resolutions");
+  Expect(std::abs(proj_16_9->horizontal_focal_multiplier - 1.0) < 1e-8,
+         "Original 16:9 camera must not be modified");
+  Expect(std::abs(proj_16_10->horizontal_focal_multiplier - 10.0/9.0) < 1e-8,
+         "Real 16:10 camera aspect ratio incorrect");
+  Expect(proj_ultra->horizontal_focal_multiplier < 1.0 &&
+         proj_4_3->horizontal_focal_multiplier > 1.0,
+         "Ultrawide camera must widen; 4:3 must narrow horizontally");
+  Expect(proj_ultra->horizontal_fov_radians >
+         proj_16_10->horizontal_fov_radians,
+         "Original vertical-FOV-preserving projection would crop ultrawide");
+  Expect(!hulk::camera::AspectForView(2560.0, 0.0, guest_aspect, 1.0) &&
+         !hulk::camera::AspectForView(2560.0, 1600.0, guest_aspect, 0.0),
+         "Invalid projection FOV/framebuffer must fail closed");
   const auto fit_16_10 = hulk::display::FitOriginalPicture(2560, 1600);
   Expect(fit_16_10.valid && fit_16_10.width == 2560 &&
          fit_16_10.height == 1440 && fit_16_10.y == 80 &&
