@@ -5,6 +5,30 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 class TestHulkPcMenu(unittest.TestCase):
+    def test_nativepc_sections_are_functional_and_no_mock_controls(self):
+        # Present real, owner-controlled PC CVars rather than decorative
+        # sliders disconnected from the XDK guest or audio engine.
+        menu = (ROOT/"native_port/src/pc_menu.cpp").read_text()
+        for section in ("Display", "Graphics", "Post-processing",
+                        "Audio", "Controls", "Accessibility", "Enhancements"):
+            self.assertIn('"' + section + '"', menu)
+        self.assertIn("HULK/PC-MENU-SECTIONS", menu)
+        self.assertIn("ImGui::Selectable(kSections[i], active_section_ == i)", menu)
+        self.assertIn("ImGui::BeginChild(\"##hulk_sections\"", menu)
+        self.assertIn("ImGui::BeginChild(\"##hulk_settings\"", menu)
+        self.assertEqual(menu.count("ImGui::EndChild();"), 2)
+        self.assertIn("ImGui::PopStyleColor(6);", menu)
+        self.assertIn("F4: save changed settings", menu)
+        self.assertIn("No inactive sliders or fake apply buttons", menu)
+        self.assertIn("No unimplemented accessibility toggles", menu)
+        self.assertIn("Native volume controls are not wired", menu)
+        self.assertIn('Query<bool>("native_x_renderer_pipeline_storage")', menu)
+        self.assertIn("GameWindowMenuClosed()", menu)
+        # The preview is a themed host overlay, not a false claim that
+        # the original Hulk EoR pause-menu resources were altered.
+        self.assertIn("not a", menu)
+        self.assertIn("Xbox pause-menu", menu)
+
     def test_overlay_and_close(self):
         app = (ROOT/"native_port/src/incredible_hulk_app.h").read_text()
         menu = (ROOT/"native_port/src/pc_menu.cpp").read_text()
