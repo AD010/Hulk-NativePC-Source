@@ -89,6 +89,10 @@ int main() {
         # The existing exhaustive overlap/hole test below proves that
         # interval union accepts exactly the same complete captured spans.
         self.assertIn("HULK/CPU-INDEX-INTERVAL-COVERAGE", CPU_HELPER)
+        self.assertIn("HULK/CPU-INDEX-SCRATCH-REUSE", CPU_HELPER)
+        self.assertIn("thread_local std::vector<uint8_t> bytes;", CPU_HELPER)
+        self.assertIn("bytes.resize(size);", CPU_HELPER)
+        self.assertNotIn("std::vector<uint8_t> bytes(size);", CPU_HELPER)
         self.assertNotIn("covered(size, 0)", CPU_HELPER)
         self.assertNotIn("std::fill(covered.begin()", CPU_HELPER)
         self.assertIn("if (next == cursor) return false;", CPU_HELPER)
