@@ -38,8 +38,8 @@ with tempfile.TemporaryDirectory() as temp:
     # the original bytes for forensic inspection.
     for damaged in (
         content.replace("std::this_thread::sleep_until(next_submit)", "/* missing pacing */"),
-        content.replace("REXCVAR_DEFINE_INT32(hulk_guest_swap_fps_cap, 0",
-                        "REXCVAR_DEFINE_INT32(hulk_guest_swap_fps_cap_missing, 0"),
+        content.replace('rex::cvar::Query<int32_t>("hulk_guest_swap_fps_cap")',
+                        'rex::cvar::Query<int32_t>("hulk_guest_swap_fps_cap_missing")'),
         content + '\n' + "std::this_thread::sleep_until(next_submit)" + '\n',
     ):
         source.write_text(damaged, encoding="utf-8")
