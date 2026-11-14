@@ -32,6 +32,17 @@ class D140WindowsDispatchTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,"Unexpected source"):
             checked_patch_path(str(ROOT/"ci"/"test_hulk_pc_menu.py"))
 
+    def test_release_workflow_remains_manual_and_main_only(self):
+        # D140 source review must never silently turn a source push or a
+        # migration-branch edit into a private Windows build/release.
+        workflow=(ROOT/".github"/"workflows"/"hulk-free-windows.yml").read_text("utf-8")
+        self.assertRegex(workflow,r"(?m)^  workflow_dispatch:\\s*$")
+        self.assertNotRegex(workflow,r"(?m)^  (?:push|pull_request|schedule|workflow_run):")
+        self.assertIn("github.ref == 'refs/heads/main'",workflow)
+        self.assertIn("github.repository == 'AD010/Hulk-NativePC-Source'",workflow)
+        self.assertIn("HULK_PINNED_XEX_SHA256:",workflow)
+        self.assertIn("346A73690303F6633BFDAF9850E78793FE07CDBFB8F849B89FBEE320630B11F0",workflow)
+
     def test_builder_dispatches_every_reviewed_patch_in_original_order(self):
         builder=(ROOT/"native_port"/"BUILD_WINDOWS.ps1").read_text("utf-8")
         starts=builder.find("if ($NativeXLink) {",builder.find("$NativeXCommit"))
