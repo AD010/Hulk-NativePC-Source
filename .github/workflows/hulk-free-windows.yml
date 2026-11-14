@@ -86,7 +86,9 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Native PC menu regression failed' }
           python ci/test_audit_hulk_pc_x360_ui_assets.py
           if ($LASTEXITCODE -ne 0) { throw 'Original EoR UI archive/index regression failed (no game assets used)' }
-          Write-Host '[HULK/D140] Full source adaptation, UI archive parser and native performance controls verified.'
+          python ci/test_hulk_eor_extract_named_assets.py
+          if ($LASTEXITCODE -ne 0) { throw 'Original EoR CRC32 named asset extractor regression failed (synthetic assets only)' }
+          Write-Host '[HULK/D140] Full source adaptation, verified UI hashing/index extraction and native performance controls verified.'
       - name: Get original input ONLY from private Hulk release
         shell: pwsh
         env:
