@@ -61,6 +61,11 @@ class IncompleteXdkTests(unittest.TestCase):
             self.assertIn("hulk_validated_prefix." + field + " == scan_." + field, guard)
         self.assertIn("hulk_same_shader_loads()", guard)
         self.assertIn("last_hulk_segment_valid_ = false;", guard)
+        # The complete prefix scan has no failure-tail metadata after move.
+        self.assertIn("const auto hulk_recovered_end = scan_.hulk_last_good_end;", guard)
+        self.assertLess(guard.index("const auto hulk_recovered_end"), guard.index("scan_ = std::move(hulk_validated_prefix)"))
+        self.assertIn("last_.end = GpuAddress(hulk_recovered_end);", guard)
+        self.assertNotIn("last_.end = GpuAddress(scan_.hulk_last_good_end);", guard)
         self.assertIn("return &last_;", guard)
         self.assertNotIn("CaptureDraw(", guard)
 
