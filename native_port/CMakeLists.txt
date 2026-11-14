@@ -48,6 +48,9 @@ rexglue_setup_target(incredible_hulk GPU_PLUGINS xenos)
 # dynamic call binding and Initialize() are wired in. The GPU path cannot be
 # enabled until Hulk's actual XDK 6534 layouts and entrypoints are known.
 option(HULK_WITH_NATIVE_X "Compile native Vulkan renderer and runtime XDK hook bridge" ON)
+# Never include the expensive per-XDK-hook PPC ABI profiler in a Release
+# package unless a developer opts into this separate, nondefault build mode.
+option(HULK_NATIVE_GPU_HOOK_PROBE "Compile developer-only Hulk XDK hook profiler" OFF)
 set(HULK_NATIVE_X_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/native_x_renderer" CACHE PATH "Full renderer source")
 if(HULK_WITH_NATIVE_X)
     if(NOT REXSDK_DIR OR NOT EXISTS "${REXSDK_DIR}/RECOMP.md")
@@ -71,7 +74,11 @@ if(HULK_WITH_NATIVE_X)
         VERBATIM COMMENT "Generate guest-function NativeX hook wrappers")
     add_subdirectory("${HULK_NATIVE_X_SOURCE_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/hulk_native_x_renderer")
     target_sources(incredible_hulk PRIVATE src/native_x_renderer_hulk.cpp
-        src/native_x_hulk_profile.cpp src/native_gpu_hook_probe.cpp "${_hulk_hooks}")
+        src/native_x_hulk_profile.cpp "${_hulk_hooks}")
+    if(HULK_NATIVE_GPU_HOOK_PROBE)
+        target_sources(incredible_hulk PRIVATE src/native_gpu_hook_probe.cpp)
+        target_compile_definitions(incredible_hulk PRIVATE HULK_NATIVE_GPU_HOOK_PROBE=1)
+    endif()
     target_link_libraries(incredible_hulk PRIVATE native_x_renderer::native_x_renderer)
     target_include_directories(incredible_hulk PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
     native_x_renderer_copy_runtime(incredible_hulk)
