@@ -20,7 +20,17 @@ with tempfile.TemporaryDirectory() as d:
     cpp = generated.read_text()
     assert "HULK_NATIVE_X_HOOK(8289D730,0)" in cpp
     assert "HULK_NATIVE_X_HOOK(8289D888,1)" in cpp
-    assert "gpu_probe::Hit(index, 0x##addr, ctx)" in cpp
+    # The default release wrapper does not even link the PPC ABI
+    # profiler; the original NativeX Enter/Leave call-through is kept.
+    assert "#if defined(HULK_NATIVE_GPU_HOOK_PROBE)" in cpp
+    assert "#define HULK_GPU_PROBE_HIT(index, addr, ctx) ((void)0)" in cpp
+    assert "HULK_GPU_PROBE_HIT(index, 0x##addr, ctx)" in cpp
+    assert "gpu_probe::Hit(index, addr, ctx)" in cpp
+    cmake = (Path(__file__).resolve().parents[1] / "native_port/CMakeLists.txt").read_text()
+    assert "option(HULK_NATIVE_GPU_HOOK_PROBE" in cmake
+    assert "HULK_NATIVE_GPU_HOOK_PROBE=1" in cmake
+    assert "if(HULK_NATIVE_GPU_HOOK_PROBE)" in cmake
+    assert "src/native_gpu_hook_probe.cpp" in cmake
     assert "ctx.r3.u32, ctx.r4.u32, ctx.r5.u32" not in cpp
     assert "__imp__sub_##addr(ctx,base)" in cpp
     assert "case 0x8289D730u: return true;" in cpp
