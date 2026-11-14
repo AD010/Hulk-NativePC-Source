@@ -9,6 +9,7 @@ import unittest
 from patch_sdk_hulk_cf_bounds import (
     patch_text, ANCHOR, GUARD, INCLUDE_OLD, INCLUDE_NEW, REPLACEMENT,
     CF_SUCCESSOR_OLD, CF_SUCCESSOR_GUARD, CF_NEXT_OLD, CF_NEXT_NEW,
+    FETCH_OLD, FETCH_GUARD,
 )
 
 def fixture():
@@ -19,7 +20,7 @@ def fixture():
             + "if (!cf_memexport_info_.empty()) {\n"
             + CF_SUCCESSOR_OLD + "\n"
             + "    cf_memexport_info_[successor_cf_index];\n}\n"
-            + CF_NEXT_OLD + "\n")
+            + CF_NEXT_OLD + "\n" + FETCH_OLD + "\n")
 
 class HulkCfBoundsTests(unittest.TestCase):
     def test_guard_idempotence_and_negative_source_drift(self):
@@ -92,6 +93,82 @@ int main() {
             compiler = shutil.which("clang++") or shutil.which("g++")
             subprocess.run([compiler, "-std=c++20", "-Wall", "-Wextra",
                             "-Werror", str(path), "-o", str(exe)],
+                           check=True, capture_output=True, text=True)
+            subprocess.run([str(exe)], check=True, capture_output=True, text=True)
+
+    def test_log203_reserved_opcode_three_fails_before_sdk_parser(self):
+        source, changed = patch_text(fixture())
+        self.assertTrue(changed)
+        self.assertEqual(patch_text(source), (source, False))
+        self.assertIn("HULK/EXEC-FETCH-OPCODE-203", source)
+        self.assertIn("std::to_string(instr_offset)", FETCH_GUARD)
+        self.assertLess(source.index("HULK/EXEC-FETCH-OPCODE-203"),
+                        source.index("if (op.opcode() == FetchOpcode::kVertexFetch)"))
+        for code in ("kVertexFetch", "kTextureFetch",
+                     "kGetTextureBorderColorFrac", "kGetTextureComputedLod",
+                     "kGetTextureGradients", "kGetTextureWeights",
+                     "kSetTextureLod", "kSetTextureGradientsHorz",
+                     "kSetTextureGradientsVert"):
+            self.assertIn("case FetchOpcode::" + code + ":", FETCH_GUARD)
+        with self.assertRaises(ValueError):
+            patch_text(fixture().replace(FETCH_OLD, "missing fetch parser"))
+        with self.assertRaises(ValueError):
+            patch_text(source.replace("HULK/EXEC-FETCH-OPCODE-203",
+                                      "corrupted partial patch"))
+
+    @unittest.skipUnless(shutil.which("clang++") or shutil.which("g++"),
+                         "A C++ compiler is required")
+    def test_actual_supported_fetch_table_and_reserved_opcode_3(self):
+        # Compile the precise production switch before the existing
+        # vertex/texture split, rather than a hand-written Python mirror.
+        pre = r"""
+#include <cassert>
+#include <cstdint>
+#include <stdexcept>
+#include <string>
+enum class FetchOpcode : uint32_t {
+  kVertexFetch=0, kTextureFetch=1,
+  kGetTextureBorderColorFrac=16, kGetTextureComputedLod=17,
+  kGetTextureGradients=18, kGetTextureWeights=19,
+  kSetTextureLod=24, kSetTextureGradientsHorz=25,
+  kSetTextureGradientsVert=26
+};
+struct FetchInstruction {
+  FetchOpcode value;
+  FetchOpcode opcode() const { return value; }
+};
+void Check(uint32_t code) {
+  FetchInstruction packet{static_cast<FetchOpcode>(code)};
+  const FetchInstruction* op_ptr = &packet;
+  const uint32_t instr_offset = 4;
+  const uint32_t sequence = 1;
+"""
+        # Use the literal C++ switch only, with its enclosing if and
+        # no production parser body; the replacement leaves that if open.
+        guarded = FETCH_GUARD.split(
+            "      if (op.opcode() == FetchOpcode::kVertexFetch) {")[0]
+        post = r"""
+  }
+}
+int main() {
+  for (uint32_t code=0; code<32; ++code) {
+    bool rejected=false;
+    try { Check(code); }
+    catch (const std::out_of_range&) { rejected=true; }
+    bool supported = code==0 || code==1 ||
+        code==16 || code==17 || code==18 || code==19 ||
+        code==24 || code==25 || code==26;
+    assert(rejected == !supported);
+  }
+}
+"""
+        with tempfile.TemporaryDirectory() as d:
+            cpp = Path(d) / "fetch.cpp"
+            exe = Path(d) / ("fetch.exe" if os.name == "nt" else "fetch")
+            cpp.write_text(pre + guarded + post, encoding="utf-8")
+            compiler = shutil.which("clang++") or shutil.which("g++")
+            subprocess.run([compiler, "-std=c++20", "-Wall", "-Wextra",
+                            "-Werror", str(cpp), "-o", str(exe)],
                            check=True, capture_output=True, text=True)
             subprocess.run([str(exe)], check=True, capture_output=True, text=True)
 
