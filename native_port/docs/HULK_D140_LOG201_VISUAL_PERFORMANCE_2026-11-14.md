@@ -370,3 +370,112 @@ Release acceptance still needs separate evidence for menu text, colored
 flashes, malformed vertex/shader identity, 2x texture mip selection,
 real 60/120 Hz physics, and building-collapse frame-time spikes. No
 visual success should be claimed from a new CI archive alone.
+
+## 203 follow-up: exact VS family, bounded CF repair, fetch ownership and no-loss GPU cost triage
+
+Source of evidence: owner-provided local `incredible_hulk_203.log`
+(7,266 lines), reviewed without uploading any game logs or shader bytes
+to this public source repository.
+
+### Authentic failed shader load provenance
+
+The three failed, 27-dword vertex shaders all say
+`IM_LOAD_IMMEDIATE in DrawIndexedVertices` and have distinct packet/source
+addresses:
+
+| VS hash | IM_LOAD payload | PM4 packet |
+| --- | --- | --- |
+| EC7DD173F4761676 | 0xA28635C8 | 0xA28635BC |
+| 0F5C6EDD918BC3F8 | 0xA284B668 | 0xA284B65C |
+| 5C56143AEB4D1865 | 0xA27A2488 | 0xA27A247C |
+
+The three 27-word copies differ **only at word index 23** (zero based).
+Decoding with the upstream Xenos CF packing in
+`rexglue-sdk/include/rex/graphics/format/ucode.h` gives three initial
+CF pairs. Their direct EXEC ranges are instructions `3..4` and `5`;
+including CF there are 18 directly referenced dwords. The varying word
+at index 23 belongs to instruction 7, outside these direct EXEC ranges.
+This establishes a common *static* failure family, but **does not**
+by itself prove correct shader translation, valid dynamic branches or
+the exact access-violation instruction. Do not rewrite or truncate the
+original guest programs on this evidence.
+
+The SDK `Shader::AnalyzeUcode` memory-export CF traversal also has a
+source-visible one-past-end bug: at the final valid successor index
+`2 * cf_pair_index_bound_ - 1`, it formerly queued `index + 1`,
+then dereferenced it. The existing
+`ci/patch_sdk_hulk_cf_bounds.py` now (1) validates the successor index
+before memory access and (2) stops at the final legal CF instruction,
+recording the existing memexport-end state instead of inventing a branch.
+The exact safety and final-index fragments were compiled and executed in
+standalone C++20 tests (pass). It is **not proven** that the three
+particular 27-word shaders take this memexport path; reproduction with
+the full pinned SDK is still required.
+
+### Vertex-fetch and target state identity
+
+The log contains 20 sampled invalid vertex fetches (not 20 total
+invalid GPU draws), especially slot 95 with type 0, plus types/addresses
+at slots 0, 9 and 48. Eight sampled texture-fetch rejections were also
+reported. These are shader-used invalid descriptors, so silently
+accepting or rebasing them is unsafe.
+
+The existing Hulk NativeX fetch guards now record the **actual owning
+vertex shader hash** (and PS hash for invalid textures) on rejected draws,
+and the existing offline log audit groups these by slot/stage. This is
+read-only failure provenance. It does not alter shader programs, format
+bits, vertex base/size, guest PM4 chronology or render-target bindings.
+
+`HULK/PM4-NO-WRITABLE-RT` reached a cumulative 750,000 in #203,
+but that is not the same as an unresolved *writable* color/depth target.
+No sampled `HULK/PM4-ACTUAL-MISS` was printed. Consequently a proven
+wrong EDRAM object identity or incorrect replacement render target was
+**not** established from this log. Do not force Xenos render-target
+values or synthesize a surface to silence warnings.
+
+### GPU Resolve and copy cost with no quality loss
+
+The frame-15600 statistics window (not a single destruction frame)
+contains 1,887 submitted/drawn host calls per frame,
+28 resolves (0 skipped), 22.36 ms GPU, 11.54 ms render CPU,
+10.33 ms waiting for GPU, 4,524.5 buffer copies/frame with 12,484 KB
+guest data uploaded, interval 23.25 ms average / 122.82 ms max.
+A scene with building collapse may exhibit this backlog, but the log
+does not label the beginning/end of each specific collapse event.
+
+Do not skip 4x-MSAA resolves or force lower host dimensions without a
+proved equivalent source/destination/format/clear sequence. The game's
+postprocessing, shadow maps and front buffer depend on exact copies.
+Instead, the existing release-candidate TOML already requests the
+original-D98 upload batching window of 512 draws (vs 256 in #112);
+this is **unbenchmarked**, not a guaranteed performance improvement.
+In the source patch `ci/patch_native_x_hulk_gap_stream.py`, expensive
+INFO logging of cumulative PM4 draw replays is now throttled at 10,000
+rather than 1,000 draws (~10x fewer INFO lines), without changing draw
+count, GPU state, geometry or shader work. This reduces diagnostic
+CPU/file overhead, **not** 22.36 ms of actual GPU work.
+
+The existing `ci/hulk_render_log_audit.py` now reports per-window
+resolves, GPU/CPU time, uploaded bytes, copying, static VS failure family
+and shader-owned rejected fetches. Only aggregate metadata and hashes,
+never original shader words, are exported.
+
+### Validation and release gate
+
+- Two standalone C++20 safety fragments compiled and passed:
+  successor indices 0..5 and invalid >=6/MAX, plus final CF successor
+  transitioning to end without enqueuing one-past-end
+- Local log203 direct-CF decoding checked all three authentic shader
+  records (27 dwords, static bound 3, execs 3..4 and 5, varying index 23)
+- Source-level regression cases were committed for CF protection,
+  failed-fetch ownership, static VS-family classification, PM4 INFO
+  sampling and Vulkan frame-cost parsing
+- Full Python CI suite, recompilation of the complete pinned SDK, real
+  Vulkan hardware/RenderDoc image comparison and Windows ZIP are **not
+  performed in this follow-up**. These fixes are in `main`, but not in
+  released #112. The manual-only single Release workflow is preserved
+
+Outstanding: a specific reproducer for the 27-word shader analyzer,
+identification of the missing/incorrect fetch and EDRAM states at the
+flashing pixel, GPU-timed per-Resolve costs, and comparable 30/60/120 Hz
+destruction/physics footage. No remaster-quality claim.
