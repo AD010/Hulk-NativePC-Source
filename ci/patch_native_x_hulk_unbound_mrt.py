@@ -12,19 +12,19 @@ import sys
 
 import os
 PIN = os.environ.get("HULK_NATIVEX_SOURCE_SHA", "bf965e952c98e050753e91d08f32685a9f754b12")
-OLD = """    const GuestSurface bound = ReadBoundSurface(base, device, slot);
-    if (bound && HulkSurfaceKey(bound.surface_info, bound.info) == gpu_key) {"""
-NEW = """    const GuestSurface bound = ReadBoundSurface(base, device, slot);
-    // HULK/UNBOUND-MRT: RB_COLOR_MASK enables writes, not RT attachment.
-    // Hulk's XDK binds RT0 (and optionally depth), while inactive MRT 1..3
-    // can retain stale nonzero GPU masks. A slot never bound in the genuine
-    // XDK surface history cannot supply an actual render target.
-    // Do not reject a valid RT0 draw just because such a slot is absent.
-    if (slot > 0 && slot < 4 && !bound) {
-      std::lock_guard<std::mutex> guard(g_hulk_surface_history_mutex);
-      if (g_hulk_surface_history[slot].empty()) continue;
-    }
-    if (bound && HulkSurfaceKey(bound.surface_info, bound.info) == gpu_key) {"""
+OLD = """      const GuestSurface& bound = bound_now[slot];
+      auto& remembered = g_hulk_surface_history[slot];
+      if (bound && HulkSurfaceKey(bound.surface_info, bound.info) == gpu_key) {"""
+NEW = """      const GuestSurface& bound = bound_now[slot];
+      auto& remembered = g_hulk_surface_history[slot];
+      // HULK/UNBOUND-MRT: the original RB_COLOR_MASK can contain stale
+      // write masks for never-bound MRT1..3. Check the *actual* XDK binding
+      // and the already-locked per-slot history before deciding a missing
+      // attachment is fatal. No second mutex, no fabricated GuestSurface.
+      if (slot > 0 && slot < 4 && !bound) {
+        if (remembered.empty()) continue;
+      }
+      if (bound && HulkSurfaceKey(bound.surface_info, bound.info) == gpu_key) {"""
 
 def patch_text(source):
     if NEW in source:
