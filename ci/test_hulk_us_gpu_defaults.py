@@ -15,7 +15,11 @@ class TestHulkUsGpuDefaults(unittest.TestCase):
         self.assertEqual(config["hulk_guest_swap_fps_cap"], 0)
         self.assertNotIn("gpu_guest_fps_limit", config)
         sdk_patch = (ROOT / "ci/patch_sdk_hulk_fps_probe.py").read_text()
-        self.assertIn('REXCVAR_DEFINE_INT32(hulk_guest_swap_fps_cap, 0,', sdk_patch)
+        self.assertNotIn('REXCVAR_DEFINE_INT32(hulk_guest_swap_fps_cap', sdk_patch)
+        self.assertIn('rex::cvar::Query<int32_t>("hulk_guest_swap_fps_cap")', sdk_patch)
+        # Only the native application owns the register call.
+        app = (ROOT / "native_port/src/native_x_renderer_hulk.cpp").read_text()
+        self.assertEqual(app.count('REXCVAR_DEFINE_INT32(hulk_guest_swap_fps_cap,'), 1)
         self.assertEqual(config["vsync"], True)
         for key in ("vulkan_allow_present_mode_immediate",
                     "vulkan_allow_present_mode_mailbox",
