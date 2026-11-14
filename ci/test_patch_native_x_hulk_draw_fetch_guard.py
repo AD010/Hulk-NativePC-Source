@@ -3,12 +3,12 @@
 import unittest
 from patch_native_x_hulk_draw_fetch_guard import (
     patch, TEXTURE_OLD, TEXTURE_NEW, VERTEX_OLD, VERTEX_NEW,
-    PROBE_OLD, PROBE_NEW, PROBE_CVAR_ANCHOR, PROBE_CVAR_NEW)
+    PROBE_NEW, PROBE_CVAR_ANCHOR, PROBE_CVAR_NEW)
 
 class HulkDrawFetchGuardTests(unittest.TestCase):
     def test_atomic_and_idempotent(self):
         original = ("#include <bit>\n" + TEXTURE_OLD + "\n" + VERTEX_OLD +
-                    "\n" + PROBE_CVAR_ANCHOR + "\n" + PROBE_OLD)
+                    "\n" + PROBE_CVAR_ANCHOR)
         patched, changed = patch(original)
         self.assertTrue(changed)
         self.assertEqual(patch(patched), (patched, False))
@@ -22,6 +22,15 @@ class HulkDrawFetchGuardTests(unittest.TestCase):
             patch(TEXTURE_NEW + VERTEX_OLD)
         with self.assertRaises(ValueError):
             patch("unknown upstream source")
+
+    def test_probe_uses_all_pin_compatible_anchors(self):
+        self.assertIn("native_x_renderer_draw_log", PROBE_CVAR_ANCHOR)
+        self.assertNotIn("native_x_renderer_scale_in_constants", PROBE_CVAR_ANCHOR)
+        self.assertIn("guest_textures_->RequestTextures(used_texture_mask);", TEXTURE_NEW)
+        self.assertIn("HULK/MIP-PROVENANCE", TEXTURE_NEW)
+        self.assertIn('rex::cvar::Query<int32_t>("anisotropic_override")', PROBE_NEW)
+        self.assertNotIn("textures_->AnisotropicOverride()", PROBE_NEW)
+        self.assertNotIn("const float lod_bias =", PROBE_NEW)
 
     def test_lod_capture_is_provenance_only_and_rate_limited(self):
         self.assertIn("n % 500000u == 0", PROBE_NEW)
