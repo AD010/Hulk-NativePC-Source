@@ -29,6 +29,8 @@ try {
   # Fail early if a future update reintroduces PAL data acceptance or unbounded GPU.
   Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_hulk_us_gpu_defaults.py')) $Source
   Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_hulk_pc_menu.py')) $Source
+  # Source-only original EoR PC/Xbox index regression (no game archives in Git).
+  Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_audit_hulk_pc_x360_ui_assets.py')) $Source
   Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_hulk_pc_menu_win32.py')) $Source
   # Real compiler-signature check before 1000+ C++ units; #42484697484 regression.
   Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_hulk_win32_cursor_compile.py')) $Source
