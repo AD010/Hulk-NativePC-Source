@@ -5,7 +5,7 @@ import re
 import tempfile
 import unittest
 from unittest.mock import patch
-from native_x_d140_dispatch import D140, D135, checked_patch_path, check_renderer
+from native_x_d140_dispatch import D140, D135, checked_patch_path, check_renderer, run_patch
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
@@ -23,6 +23,21 @@ class D140WindowsDispatchTests(unittest.TestCase):
             (path/"src"/"state.cpp").unlink()
             with self.assertRaisesRegex(ValueError,"Missing NativeX source"):
                 check_renderer(str(path))
+
+    def test_direct_preflight_dispatch_rejects_wrong_checkout_before_import(self):
+        # run_patch() is called directly by test_native_x_patch_chain.py.
+        # An old pin must be rejected before the patch module can mutate it.
+        with tempfile.TemporaryDirectory(prefix="hulk_d140_direct_") as tmp:
+            root=pathlib.Path(tmp)
+            (root/"src").mkdir()
+            (root/"src"/"state.cpp").write_text("// fake fixture",encoding="utf-8")
+            script=ROOT/"ci"/"patch_native_x_hulk_pm4_gap.py"
+            with patch("native_x_d140_dispatch.subprocess.check_output",return_value=D135+"\\n"):
+                with self.assertRaisesRegex(ValueError,"actual NativeX checkout"):
+                    run_patch(script,root)
+            with patch("native_x_d140_dispatch.subprocess.check_output",return_value=D140+"\\n"):
+                with self.assertRaisesRegex(ValueError,"Unexpected source"):
+                    run_patch(ROOT/"native_port"/"BUILD_WINDOWS.ps1",root)
 
     def test_script_path_cannot_escape_ci_or_load_arbitrary_source(self):
         script=ROOT/"ci"/"patch_native_x_hulk_pm4_gap.py"
