@@ -36,9 +36,14 @@ TEXTURE_NEW = """  uint32_t used_texture_mask = vertex_shader->GetUsedTextureMas
       static std::atomic<uint64_t> rejected{0};
       const uint64_t n = rejected.fetch_add(1, std::memory_order_relaxed) + 1;
       if (n <= 20 || (n % 10000) == 0) {
-        REXLOG_WARN("[HULK/INVALID-TEXTURE-DRAW] #{} slot={} type={} dim={} word0={:#x}",
+        // HULK/FETCH-SHADER-OWNER-203: correlate rejected fetch state to
+        // the exact translated VS/PS rather than assuming PM4/XDK origin.
+        REXLOG_WARN("[HULK/INVALID-TEXTURE-DRAW] #{} slot={} type={} dim={} word0={:#x} "
+                    "VS={:016X} PS={:016X}",
                     n, slot, uint32_t(fetch.type),
-                    uint32_t(fetch.dimension), fetch.dword_0);
+                    uint32_t(fetch.dimension), fetch.dword_0,
+                    vertex_shader->ucode_data_hash(),
+                    pixel_shader ? pixel_shader->ucode_data_hash() : 0ull);
       }
       ++stats_.failed;
       return false;
@@ -62,9 +67,13 @@ VERTEX_NEW = """      xenos::xe_gpu_vertex_fetch_t fetch = regs.GetVertexFetch(i
         static std::atomic<uint64_t> rejected{0};
         const uint64_t n = rejected.fetch_add(1, std::memory_order_relaxed) + 1;
         if (n <= 20 || (n % 10000) == 0) {
-          REXLOG_WARN("[HULK/INVALID-VERTEX-DRAW] #{} slot={} type={} base={:#x} words={}",
+          // HULK/FETCH-SHADER-OWNER-203: shader-owned used fetch slot,
+          // recorded only on an actually rejected original draw.
+          REXLOG_WARN("[HULK/INVALID-VERTEX-DRAW] #{} slot={} type={} base={:#x} words={} "
+                      "VS={:016X}",
                       n, i * 32 + bit, uint32_t(fetch.type),
-                      uint32_t(fetch.address), uint32_t(fetch.size));
+                      uint32_t(fetch.address), uint32_t(fetch.size),
+                      vertex_shader->ucode_data_hash());
         }
         ++stats_.failed;
         return false;
