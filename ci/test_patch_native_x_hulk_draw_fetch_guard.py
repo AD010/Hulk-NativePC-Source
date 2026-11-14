@@ -32,6 +32,23 @@ class HulkDrawFetchGuardTests(unittest.TestCase):
         self.assertNotIn("textures_->AnisotropicOverride()", PROBE_NEW)
         self.assertNotIn("const float lod_bias =", PROBE_NEW)
 
+    def test_rejected_shader_used_fetch_has_real_vs_ps_provenance(self):
+        # Read-only sampling: no guessing an XDK shadow slot or changing
+        # original register values to silence colored building flashes.
+        for source in (TEXTURE_NEW, VERTEX_NEW):
+            self.assertIn("HULK/FETCH-SHADER-OWNER-203", source)
+            self.assertIn("vertex_shader->ucode_data_hash()", source)
+            self.assertIn("n <= 20 || (n % 10000) == 0", source)
+            self.assertIn("++stats_.failed;", source)
+            self.assertIn("return false;", source)
+        self.assertIn("pixel_shader ? pixel_shader->ucode_data_hash() : 0ull",
+                      TEXTURE_NEW)
+        self.assertIn("VS={:016X}", TEXTURE_NEW)
+        self.assertIn("PS={:016X}", TEXTURE_NEW)
+        self.assertIn("VS={:016X}", VERTEX_NEW)
+        self.assertNotIn("SetVertexFetch", VERTEX_NEW)
+        self.assertNotIn("SetTextureFetch", TEXTURE_NEW)
+
     def test_lod_capture_is_provenance_only_and_rate_limited(self):
         self.assertIn("n % 500000u == 0", PROBE_NEW)
         self.assertIn("reported < 8", PROBE_NEW)
