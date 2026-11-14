@@ -228,7 +228,12 @@ bool HulkProcessIndexCopies(Processor& processor, Result& result,
   // of allocating and filling an extra size-byte coverage mask per draw.
   // This removes one allocation and one O(index_bytes) pass for every
   // DMA-indexed Draw, while preserving last-copy-wins overlap semantics.
-  std::vector<uint8_t> bytes(size);
+  // HULK/CPU-INDEX-SCRATCH-REUSE: the CPU primitive processor consumes
+  // this index span synchronously before returning. Reuse its per-thread
+  // scratch allocation rather than allocating it for ~1800 draws/frame
+  // during destruction; bounds and last-copy-wins logic are unchanged.
+  thread_local std::vector<uint8_t> bytes;
+  bytes.resize(size);
   const uint64_t request_end = uint64_t(base) + size;
   for (const auto& copy : copies) {
     const uint64_t first = std::max(uint64_t(base), uint64_t(copy.address));
