@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Regression: NativePC F10 overlay offers working PC binds and Exit, not a mock button."""
 from pathlib import Path
+import re
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -29,6 +30,27 @@ class TestHulkPcMenu(unittest.TestCase):
         # the original Hulk EoR pause-menu resources were altered.
         self.assertIn("not a", menu)
         self.assertIn("Xbox pause-menu", menu)
+
+    def test_native_keyboard_mouse_rebind_options_match_real_input(self):
+        menu = (ROOT/"native_port/src/pc_menu.cpp").read_text()
+        bindings = (ROOT/"native_port/src/native_pc_bindings.h").read_text()
+        input_code = (ROOT/"native_port/src/launcher/native_input_win.cpp").read_text()
+        store = (ROOT/"native_port/src/native_pc_options_store.cpp").read_text()
+        self.assertIn("HULK/NATIVE-REMAP", menu)
+        self.assertIn("ImGui::BeginCombo(label, current.c_str())", menu)
+        self.assertIn("Change(key, supported)", menu)
+        self.assertIn("options::kBindingTokens", menu)
+        self.assertNotIn("Full key rebinding from this screen is not implemented yet", menu)
+        names = set(re.findall(r'"(hulk_bind_[a-z_]+)"', bindings))
+        declared = set(re.findall(r'REXCVAR_DEFINE_STRING\\((hulk_bind_[a-z_]+),',
+                                  input_code))
+        self.assertEqual(names, declared)
+        self.assertEqual(len(names), 21)
+        for key in names:
+            self.assertIn('"' + key + '"', menu)
+        self.assertIn("IsBindingOption(key)", store)
+        self.assertIn("IsBindingToken(value)", store)
+        self.assertIn('key == "native_x_renderer_scaling" || IsBindingOption(key)', store)
 
     def test_overlay_and_close(self):
         app = (ROOT/"native_port/src/incredible_hulk_app.h").read_text()
