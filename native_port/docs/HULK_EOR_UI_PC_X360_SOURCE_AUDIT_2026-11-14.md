@@ -766,3 +766,36 @@ USA PPC 3D camera and UI pause event ABI; alter only 3D view
 projection and box HUD separately; and match GPU/CPU performance
 with one same-scene baseline capture before changing upload or
 pipeline schedules.
+
+## 2026-11-15 — source-only refinement, NOT a release
+
+- `ci/patch_native_x_hulk_packet_surfaces.py`: `HulkPacketSurfaces`
+  now snapshots all five actually bound D3D objects before acquiring a
+  single RT/depth history mutex, matches the source-defined full GPU
+  `RB_SURFACE_INFO`/`RB_COLOR_INFO`/`RB_DEPTH_INFO` values, and
+  preserves the full-key LRU semantics. There is no per-slot mutex
+  acquisition and no speculative reconstruction of missing guest
+  surface dimensions. Ordinary hooked draws already use one grouped
+  history update. No real Draw or Resolve is intentionally suppressed.
+- `native_port/src/native_resolution.h`:
+  `FullScreen3DContract` computes the separate host pixel scale of
+  a **true 2560×1600** 3D target, with original guest output
+  `1280×720`: x scale `2.0`, y scale `20/9`, 3D camera horizontal
+  focal compensation `10/9`. 4K 16:9 requires no compensation;
+  ultrawide needs a multiplier smaller than 1.0. Full-screen and safe
+  16:9 letterbox are separate explicit contracts. Invalid sub-native
+  sizes are rejected. Corresponding C++ synthetic tests were added.
+- **Important:** the full-screen raster/projection math is deliberately
+  not enabled in Hulk Vulkan: no independently verified USA 3D camera
+  matrix ownership or pause menu call ABI has been obtained.
+  Activating it without hooking every relevant 3D view and isolating
+  UI/HD shadows would stretch or clip actual geometry.
+- Original GPU metadata remains 640×360/4× MSAA and 1280×720/1×
+  for their respective aliases. D140 already renders native Vulkan
+  host pixels; rewriting these guest dimensions has been explicitly
+  rejected as a way to fix original 16:10 camera FOV.
+- Under the user's release gate, **no new Action build, ZIP, gameplay
+  render or real 60Hz physics acceptance test was run**. Original
+  `UIPage_Pause_Settings` functionality, full 16:10 host frame,
+  correct all-draw shader microcode and low-detail sign textures
+  remain unverified and unresolved.
