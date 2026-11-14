@@ -49,6 +49,8 @@ class IncredibleHulkApp : public rex::ReXApp {
       std::function<void(rex::PathConfig)> resume) override {
     (void)resume;
     auto paths = defaults;
+    // Use the actual resolved config path, not a guessed executable folder.
+    native_pc_config_ = paths.config_path;
     // The SDK has loaded incredible_hulk.toml by this point. If its asset
     // path is absent or stale, Windows opens the native file picker once.
     const auto game = hulk::assets::LocateOrSelectGameData(
@@ -108,7 +110,7 @@ class IncredibleHulkApp : public rex::ReXApp {
     if (window()) window()->RequestPaint();
   }
   void OnCreateDialogs(rex::ui::ImGuiDrawer* drawer) override {
-    pc_menu_ = hulk::CreatePcMenu(drawer, window(), [this] {
+    pc_menu_ = hulk::CreatePcMenu(drawer, window(), native_pc_config_, [this] {
       if (window()) window()->RequestClose();
     });
     REXLOG_INFO("[HULK/PCMENU] NativePC UI registered; F10 opens controls and Exit");
@@ -120,5 +122,6 @@ class IncredibleHulkApp : public rex::ReXApp {
   // void OnShutdown() override {}
   // void OnConfigurePaths(rex::PathConfig& paths) override {}
  private:
+  std::filesystem::path native_pc_config_;
   std::unique_ptr<rex::ui::ImGuiDialog> pc_menu_;
 };
