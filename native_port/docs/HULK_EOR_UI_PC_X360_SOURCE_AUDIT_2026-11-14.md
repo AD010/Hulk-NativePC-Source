@@ -105,11 +105,14 @@ SHA-256 or record-level equality is claimed. The older
 this is not proof that their contents are equal. Compare hashes and
 index-record bounds before treating them as distinct PC/Xbox resources.
 
-**Still not individually supplied among the new PC archives:** PC
-`Textures.arc` (1,365 indexed texture resources). The previously
-available PC `datasets.arc` and `indexPC.ind` should be used
-with these new PC files. Do not assume a missing individual Library
-upload means the original game installation lacks this archive.
+**Source correction: full PC `textures(1).arc` received on
+2026-11-14**, file size **131,721,440 bytes** (attachment metadata).
+This supplies the PC `Textures` category previously listed as missing,
+with **1,365** expected index entries. Use the existing PC
+`datasets.arc` and `indexPC.ind` for the links. **Do not request this
+texture archive again.** Contents have not been byte-verified because
+the local Python/container runtime currently fails even a trivial
+process launch.
 
 **New Xbox 360 UI source archives uploaded in the current conversation
 on 2026-11-14 (do NOT ask for them again):**
@@ -196,3 +199,69 @@ resources. Reconstruct actual Xbox input event dispatch and PC settings
 handlers; no claims are made that a functional console-native menu
 exists merely because the assets are present. All game binaries and
 content stay private; only sanitized metadata may enter public Git.
+
+## 2026-11-14 — PC `textures(1).arc` follow-up and source-level validation kit
+
+The owner sent `textures(1).arc` from the official 2008 PC release,
+confirmed as **131,721,440 bytes** through current-conversation attachment
+metadata. The latest available previously decoded
+`Hulk_index_decoded.json` contains the following *index* ranges:
+
+| Platform/category | Number of indexed records | Last indexed byte (exclusive) | Owner-provided file size | Unindexed trailing bytes |
+| --- | ---: | ---: | ---: | ---: |
+| PC Textures | 1,365 | 131,661,931 | 131,721,440 | 59,509 |
+| Xbox 360 Textures | 6,669 | 351,566,132 | 351,883,360 | 317,228 |
+| PC Fonts | 1 | 152,675 | 152,736 | 61 |
+| Xbox 360 Fonts | 1 | 136,863 | 136,928 | 65 |
+| PC Objects | 2,444 | 7,308,551 | 21,646,272 (claimed PC file) | 14,337,721 |
+| Xbox 360 Objects | 3,938 | 21,451,524 | 21,646,272 (earlier Xbox file) | 194,748 |
+
+These **bounds only** are derived from the source indices and attachment
+sizes. The font record has shared hash `0xA796ECFA` but different
+payload lengths (PC **152,671**, Xbox **136,859** bytes). The
+`OBJECTS(1).ARC` supplied as PC has exactly the same number of bytes
+as the earlier Xbox `OBJECTS.ARC`; its trailing unused space is very
+large under the PC index, but normal under the Xbox index. This is a
+**platform-assignment anomaly**, not proof that the owner's PC archive
+is wrong. The exact hashes and resource record signatures must decide
+whether the files are copies or different game builds.
+
+**No GPU/texture/font extraction is claimed in this follow-up.**
+Attempts to open the private binary directly from the mandated mounted
+sandbox path with the local Python and container tools failed with the
+runtime's `caas.internal.errors.ClientError`. The generic file reader
+also reports no readable text for archive bytes. Size/index agreement
+is not a substitute for actual hashing, byte-order validation,
+overlap checks and decompression.
+
+To make this reproducible rather than another endless request for manual
+tests, added **two source-only files** to the existing `ci/` directory:
+
+- `ci/audit_hulk_pc_x360_ui_assets.py`: strict LE/BE index parsing;
+  per-category offset bounds and overlap validation; streamed SHA-256;
+  per-resource identical/different comparisons by hashed ID; small
+  whitelist-based scans for original UI names and near-name texture/font/
+  object-hash **candidates** (not certified links); safe JSON report
+- `ci/test_audit_hulk_pc_x360_ui_assets.py`: generated PC/Xbox index
+  fixtures, equal/different font records, tail mismatch, original
+  resource containment, byte-order and overlap-failure cases, and
+  synthetic UI-hash candidate tests
+
+**The Python suite has NOT been executed** because the runtime fails.
+Its source is present in main, but no CI green status or real asset
+coverage can be inferred. The scripts are development audits only:
+they are not part of the x64 game EXE and do not expose original game
+bytes in public GitHub.
+
+The near-name 32-bit hash probes are intentionally conservative leads:
+matching an indexed ID in the local neighborhood of a
+`UIPage_Pause_Settings` token **does not establish a valid event
+handler, C++/PowerPC ABI, or texture binding**. Native options should
+only be wired after validating those links with the original EoR UI
+object format and the pinned USA guest PPC code.
+
+**Needed for final asset correlation:** successful execution of this
+audit over the already-uploaded PC and Xbox archives and the full
+Xbox 360 dataset. No additional user file is presently required for
+the PC texture category, and no replacement XEX or new GitHub workflow
+should be created.
