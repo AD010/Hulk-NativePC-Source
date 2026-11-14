@@ -20,7 +20,9 @@ def fixture():
             + "if (!cf_memexport_info_.empty()) {\n"
             + CF_SUCCESSOR_OLD + "\n"
             + "    cf_memexport_info_[successor_cf_index];\n}\n"
-            + CF_NEXT_OLD + "\n" + FETCH_OLD + "\n")
+            + CF_NEXT_OLD + "\n" + FETCH_OLD + "\n"
+            + "void ShaderTranslator::TranslateExecInstructions(\n"
+            + FETCH_OLD + "\n}\n")
 
 class HulkCfBoundsTests(unittest.TestCase):
     def test_guard_idempotence_and_negative_source_drift(self):
@@ -100,7 +102,10 @@ int main() {
         source, changed = patch_text(fixture())
         self.assertTrue(changed)
         self.assertEqual(patch_text(source), (source, False))
-        self.assertIn("HULK/EXEC-FETCH-OPCODE-203", source)
+        self.assertEqual(source.count("HULK/EXEC-FETCH-OPCODE-203"), 2)
+        self.assertEqual(source.count(FETCH_GUARD), 2)
+        self.assertNotIn(FETCH_OLD, source)
+        self.assertIn("void ShaderTranslator::TranslateExecInstructions(", source)
         self.assertIn("std::to_string(instr_offset)", FETCH_GUARD)
         self.assertLess(source.index("HULK/EXEC-FETCH-OPCODE-203"),
                         source.index("if (op.opcode() == FetchOpcode::kVertexFetch)"))

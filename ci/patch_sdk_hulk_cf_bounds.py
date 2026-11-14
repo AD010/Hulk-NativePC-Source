@@ -69,6 +69,10 @@ CF_NEXT_NEW = """          if (next_instr_is_new_successor) {
             }
           }"""
 
+# Both Shader::GatherExecInformation (disassembly) and
+# ShaderTranslator::TranslateExecInstructions (actual translation) parse
+# fetch opcodes independently. Guard both; fixing only one leaves the actual
+# translator able to read an undefined texture-fetch payload.
 # Log203 three 27-dword, IM_LOAD_IMMEDIATE vertex programs share an
 # EXEC fetch with opcode 3, which is not a defined Xenos FetchOpcode.
 # ParseTextureFetchInstruction's default assert+return does not initialize
@@ -105,7 +109,7 @@ FETCH_GUARD = """    if (sequence & 0b01) {
 def patch_text(source: str) -> tuple[str, bool]:
     ready = (INCLUDE_NEW in source and REPLACEMENT in source and
              CF_SUCCESSOR_GUARD in source and CF_NEXT_NEW in source and
-             FETCH_GUARD in source)
+             source.count(FETCH_GUARD) == 2 and FETCH_OLD not in source)
     if ready:
         return source, False
     if ("HULK/CF-BOUNDS" in source or "HULK/CF-SUCCESSOR-BOUNDS" in source or
@@ -117,16 +121,17 @@ def patch_text(source: str) -> tuple[str, bool]:
     if (source.count(INCLUDE_OLD) != 1 or source.count(ANCHOR) != 1 or
             source.count(CF_SUCCESSOR_OLD) != 1 or
             source.count(CF_NEXT_OLD) != 1 or
-            source.count(FETCH_OLD) != 1):
+            source.count(FETCH_OLD) != 2):
         raise ValueError("Xenos shader SDK EXEC/successor analysis anchors changed")
     if ("void Shader::GatherExecInformation(" not in source or
+            "void ShaderTranslator::TranslateExecInstructions(" not in source or
             "if (!cf_memexport_info_.empty()) {" not in source):
         raise ValueError("Guards must be in SDK shader EXEC and CF successor analysis")
     return (source.replace(INCLUDE_OLD, INCLUDE_NEW, 1)
                   .replace(ANCHOR, REPLACEMENT, 1)
                   .replace(CF_SUCCESSOR_OLD, CF_SUCCESSOR_GUARD, 1)
                   .replace(CF_NEXT_OLD, CF_NEXT_NEW, 1)
-                  .replace(FETCH_OLD, FETCH_GUARD, 1)), True
+                  .replace(FETCH_OLD, FETCH_GUARD, 2)), True
 
 def main() -> None:
     if len(sys.argv) != 2:
