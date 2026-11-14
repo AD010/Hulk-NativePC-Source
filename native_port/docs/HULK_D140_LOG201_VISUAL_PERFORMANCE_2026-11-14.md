@@ -196,3 +196,48 @@ or unauthorized private input download was started. The major incomplete
 XDK Draw (mixed PM4/data) problem still requires guest source/owner
 provenance before any partial packet acceptance. Until that is established,
 the existing fail-closed check remains enabled.
+
+## 2026-11-14 PM4 prefix qualification, mip provenance and quality gate
+
+Source-level candidate for the user's explicit next Release:
+- The non-Present incomplete-XDK handler now has a *strict* replay qualifier
+  for a fully parsed real **single** DRAW_INDX / DRAW_INDX_2 immediately
+  preceding the first bad byte. It re-parses only the bounded original prefix,
+  and demands identical register-write sequence, predicated writes, LOAD data,
+  shader microcode, shader-load metadata, register order, and BIN predicate.
+  Only then can it emit the already-complete original draw. Unknown trailing
+  data is never submitted, and the command cursor is invalidated.
+- All other incomplete draws keep the original fail-closed path. This is not
+  a general XDK 6534 boundary reconstruction and not a claimed solution to
+  most missing city geometry.
+- Counts from the original archived logs: #200 had 17/18 sampled incomplete
+  warnings with zero parsed DRAW packets (max cumulative rejection ID 20000);
+  #201 had 28/30 (max 140000); #202 had 15/16 (latest sampled ID 16).
+  Throttled warning counts are not percentages of all attempts. Almost all
+  observed failures happen before a verified draw, so relaxing incomplete
+  scans would be unsafe.
+- The existing source patch that guards shader-used texture and vertex
+  descriptors now includes **opt-in** `native_x_renderer_hulk_mip_probe`.
+  In the candidate TOML it emits at most eight real shader-used texture
+  fetch descriptors per 500000 eligible renderer draws, with raw six-dword
+  fetch constants, target/native scale, actual LOD bias and AF override.
+  This does not alter fetch registers, mip boundaries, texture data or shader
+  sampling. It is designed to identify why a particular billboard stays
+  blurry despite a correctly scaled Vulkan render.
+- The candidate TOML retains `native_x_renderer_resolution_scale = 2.0`
+  and SMAA, and uses `anisotropic_override = 4` (8x) only for samplers
+  eligible under NativeXRenderer D44's normal mip/linear-filter rules.
+  The underlying Xbox source texture may still be low resolution; do not
+  describe AF as a texture upgrade. This increases texture bandwidth and
+  must be measured on the user's scene if GPU-bound.
+- From the logs, late native Vulkan render-thread average intervals:
+  #200 16.67 ms, #201 14.88 ms, #202 33.58 ms. Different scenes and time
+  windows make these **non-comparable** as an FPS regression benchmark.
+  None proves Xbox gameplay logic or physics is decoupled from 30 Hz.
+  Keep `hulk_guest_swap_fps_cap = 0` (no extra Hulk cap) and do not
+  adjust game ticks, vehicle doors or water physics without verified PPC
+  source and repeatable 30/60/120 Hz behavior.
+
+Validation performed so far is source/anchor regression and cross-source
+consistency, **not** a full compiled Vulkan run or visual acceptance.
+The Windows Release action and private ZIP verification are the next gate.
