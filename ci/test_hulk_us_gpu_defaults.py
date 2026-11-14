@@ -32,6 +32,11 @@ class TestHulkUsGpuDefaults(unittest.TestCase):
         # Revert unbenchmarked 512 look-ahead; use D140's pinned 256
         # until a matched-case Vulkan benchmark proves a better window.
         self.assertEqual(config["native_x_renderer_upload_ahead"], 256)
+        # D140 records successful shader and PSO variants for subsequent
+        # launches; do not rebuild this same game's pipelines every session.
+        self.assertTrue(config["native_x_renderer_pipeline_storage"])
+        self.assertTrue(config["native_x_renderer_hulk_wait_scene_pipelines"])
+        self.assertTrue(config["native_x_renderer_wait_offscreen_pipelines"])
         # 2x native geometry and valid Xbox mip chains are separate.
         # Xenos D44 AF override 4 is 8x on eligible samplers, never new
         # texture pixels. The lightweight mip audit is temporary for QA.
