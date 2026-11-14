@@ -125,12 +125,12 @@ def test():
         original[22]=0xC0012700  # 2-payload-word Type3 IM_LOAD
         original[23]=0x022AB000 + (index << 12)
         original[24]=45
-        programs.append('vertex shader %016X (27 dwords): analysis failed: access violation\\n'
+        programs.append('vertex shader %016X (27 dwords): analysis failed: access violation\n'
                         'the vertex program came from IM_LOAD_IMMEDIATE at 0xa200100c '
                         '(packet 0xa2001000) in DrawIndexedVertices: ' %
                         (0xABC0000000000000+index) +
                         ' '.join('%08X' % w for w in original))
-    reports=analyze('\\n'.join(programs))
+    reports=analyze('\n'.join(programs))
     assert len(reports)==3, reports
     assert all(e['embedded_shader_load_offsets']==[22] for e in reports)
     assert all(e['varying_word_offsets']==[23] for e in reports)
