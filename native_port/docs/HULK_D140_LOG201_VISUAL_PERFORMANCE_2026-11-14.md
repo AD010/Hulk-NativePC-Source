@@ -142,6 +142,10 @@ using the screenshot or build status. In its 3,804 lines (2026-11-14):
   `0xc0025800` EVENT_WRITE_SHD. The warnings are throttled; 16 is **not**
   the number of total rejected draws. Do not treat EVENT_WRITE_SHD as an
   unconditional PM4 end marker or accept partial state on speculation.
+- All five startup `NtCreateFile FAILED` paths are the same in archived
+  logs 200, 201 and 202 (UKENGLISH index and four publisher movie files).
+  They precede #108, so the file-not-found messages alone cannot explain
+  the newly missing menu text.
 - Three `HULK/INVALID-VERTEX-DRAW` warnings reference slot 95:
   type 0, base `0x9b8000`, 69,376 words (twice), and type 2,
   base `0x840`, zero words (once). All were correctly rejected by the
