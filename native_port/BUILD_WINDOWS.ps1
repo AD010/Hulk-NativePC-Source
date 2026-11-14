@@ -185,9 +185,10 @@ try {
   # NVIDIA/Vulkan crash while minimized by finishing hidden frames. D126 avoids
   # long pipeline-creation stalls on steady offscreen passes.
   # CI should never silently change native-GPU code mid-rebuild.
-  # NativeX upstream D127-D135: all 43 Hulk integration stages passed on this real SHA.
+  # NativeX D140 integration candidate, fully source-checked on its true SHA.
+  # Do not replace the existing main/Release pin until this compiles and plays.
   # Each patch validates the checkout revision; never fake the pinned git HEAD.
-  $NativeXCommit = '919371b5bdae0c9c4c7120ca321f5a4d72b7e78e'
+  $NativeXCommit = 'fa19ea85fec5c7f7f8a2df82d6c4a86548817b52'
   $env:HULK_NATIVEX_SOURCE_SHA = $NativeXCommit
   # Native profile unit tests include NativeXRenderer public headers.
   # Fetch them BEFORE configuring tests, not after the tests have compiled.
@@ -206,41 +207,41 @@ try {
     if ($LASTEXITCODE -ne 0 -or $ActualNativeX -ne $NativeXCommit) {
       throw "NativeXRenderer checkout not pinned: $ActualNativeX"
     }
-    Write-Host "HULK NATIVE GPU upstream 919371b5 (D127-D135; Hulk's source patch chain validated)"
+    Write-Host "HULK NATIVE GPU upstream fa19ea85 (D140; Hulk source-only patch chain verified)"
     # The crash dump proved a null mapped buffer after dynamic heap exhaustion;
     # fail closed on a changed upstream checkout, do not bump the heap to mask it.
-    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_heap_guard.py')) $Source
-    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_heap_guard.py'), $NxrFull) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--test', (Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_heap_guard.py')) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--patch', (Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_heap_guard.py'), $NxrFull) $Source
     # Log 087: recover frame completion via inner Swap, keep Resolve/front metadata.
-    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_present_semantics.py')) $Source
-    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_present_semantics.py'), $NxrFull) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--test', (Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_present_semantics.py')) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--patch', (Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_present_semantics.py'), $NxrFull) $Source
     # Diagnostic black-frame repair: use actual recent guest color Resolve
     # if the XDK front object's fetch pointer never matches a Resolve.
-    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_front_fallback.py')) $Source
-    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_front_fallback.py'), $NxrFull) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--test', (Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_front_fallback.py')) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--patch', (Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_front_fallback.py'), $NxrFull) $Source
     # Log099 GPU observer: 1035/1397 pixel shader and packet-state mismatches.
     # Scan authentic PM4/IM_LOAD between the ten identified USA XDK hooks (Clear/ClearF included).
-    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_pm4_gap.py')) $Source
-    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_pm4_gap.py'), $NxrFull) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--test', (Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_pm4_gap.py')) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--patch', (Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_pm4_gap.py'), $NxrFull) $Source
     # Hulk log101: direct PM4 draws can still happen outside the ten XDK hooks.
     # Capture complete single unhooked draws through NativeX's Vulkan command queue.
-    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_gap_draw.py')) $Source
-    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_gap_draw.py'), $NxrFull) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--test', (Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_gap_draw.py')) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--patch', (Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_gap_draw.py'), $NxrFull) $Source
     # Replay ordered Xenos PM4 draws, including indirect buffers, into native Vulkan.
     # This augments the earlier single-direct-draw path without another workflow.
-    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_gap_stream.py')) $Source
-    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_gap_stream.py'), $NxrFull) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--test', (Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_gap_stream.py')) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--patch', (Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_gap_stream.py'), $NxrFull) $Source
     # Only complete Xenos DRAW_INDX(_2) packets can reach the native Vulkan callback.
-    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_pm4_draw_payload.py')) $Source
-    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_pm4_draw_payload.py'), $NxrFull) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--test', (Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_pm4_draw_payload.py')) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--patch', (Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_pm4_draw_payload.py'), $NxrFull) $Source
     # Logs 115/116: guest 1280x720 inside 2560x1440 host, screenshot quarter-frame.
     # Audit native viewport, resolve rectangles and final blit without faking scaling.
-    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_frame_path_probe.py')) $Source
-    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_frame_path_probe.py'), $NxrFull) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--test', (Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_frame_path_probe.py')) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--patch', (Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_frame_path_probe.py'), $NxrFull) $Source
     # Hulk log119: guest 640x360 x4 MSAA scene occupies only one quarter of
     # native 1280x720 output. Map its 2x2 sample grid to host pixels, no EDRAM.
-    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_msaa_grid.py')) $Source
-    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_msaa_grid.py'), $NxrFull) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--test', (Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_msaa_grid.py')) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--patch', (Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_msaa_grid.py'), $NxrFull) $Source
     # Scene Resolve must retain the exact 2560x1440 native host image
     # (not just the original 640x360 guest descriptor) before any C++ build.
     foreach ($NxrFile in @('src/renderer.cpp','src/targets.cpp','src/targets.h')) {
@@ -252,62 +253,62 @@ try {
     # Hulk log 124: full-output NativeX draw clipped to 640 guest columns.
     # Scissor repair affects only 1280x720 half-width fullscreen passes.
     # Audit live 640x360 4x-MSAA scene resolves, not just intro boot frames.
-    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_output_scissor.py')) $Source
-    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_output_scissor.py'), $NxrFull) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--test', (Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_output_scissor.py')) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--patch', (Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_output_scissor.py'), $NxrFull) $Source
     # Hulk AA: only on detected 640x360/4x -> 1280x720 scene resolve,
     # never on the finished front buffer with the HUD already attached.
     # GPU geometry: drop invalid PM4 synthetic primitive types 0/48/49.
-    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_scene_aa_geometry.py')) $Source
-    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_scene_aa.py'), $NxrFull) $Source
-    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_geometry_guard.py'), $NxrFull) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--test', (Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_scene_aa_geometry.py')) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--patch', (Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_scene_aa.py'), $NxrFull) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--patch', (Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_geometry_guard.py'), $NxrFull) $Source
     # Non-EDRAM native scene to postprocess: preserve each source and output
     # host pixel scale instead of clipping high-resolution samples to a
     # smaller target. Trace real Resolve callers for later exact profile.
-    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_resolve_scale.py')) $Source
-    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_resolve_scale.py'), $NxrFull) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--test', (Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_resolve_scale.py')) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--patch', (Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_resolve_scale.py'), $NxrFull) $Source
     # Hulk actual Xenos 1280/1x and 640/4x scene surfaces share EDRAM
     # base/pitch layout, but must share the newest native Vulkan pixel data.
     # Resolve the 1x view from the last-written matching 4x native target,
     # without reintroducing EDRAM emulation or guest surface mutations.
-    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_reverse_alias.py')) $Source
-    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_reverse_alias.py'), $NxrFull) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--test', (Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_reverse_alias.py')) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--patch', (Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_reverse_alias.py'), $NxrFull) $Source
     # Pixel-exact 4x EDRAM depth can still require a packed stencil Resolve.
-    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_depth_stencil_grid.py')) $Source
-    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_depth_stencil_grid.py'), $NxrFull) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--test', (Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_depth_stencil_grid.py')) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--patch', (Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_depth_stencil_grid.py'), $NxrFull) $Source
     # Physically identical 1x/4x Xbox sample-grid views must share native Vulkan
     # image storage across Draw/Clear/Resolve, including depth. Fail closed.
-    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_shared_storage.py')) $Source
-    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_shared_storage.py'), $NxrFull) $Source
-    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_shared_write_order.py')) $Source
-    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_shared_write_order.py'), $NxrFull) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--test', (Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_shared_storage.py')) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--patch', (Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_shared_storage.py'), $NxrFull) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--test', (Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_shared_write_order.py')) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--patch', (Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_shared_write_order.py'), $NxrFull) $Source
     # Hulk 137/RenderDoc 3: synthetic PM4 draws must use each packet's GPU RT/depth identity.
-    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_packet_surfaces.py')) $Source
-    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_packet_surfaces.py'), $NxrFull) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--test', (Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_packet_surfaces.py')) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--patch', (Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_packet_surfaces.py'), $NxrFull) $Source
     # Hulk 137: skipped color/depth clears must not advance shared Vulkan image ownership.
-    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_clear_ownership.py')) $Source
-    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_clear_ownership.py'), $NxrFull) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--test', (Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_clear_ownership.py')) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--patch', (Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_clear_ownership.py'), $NxrFull) $Source
     # Log146: recover genuine Vulkan draw packets rejected by unvalidated strict RT identity.
-    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_surface_fallback.py')) $Source
-    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_surface_fallback.py'), $NxrFull) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--test', (Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_surface_fallback.py')) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--patch', (Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_surface_fallback.py'), $NxrFull) $Source
     # Source-only CI preflight has already applied this COMPLETE patch chain
     # to the exact pinned NativeX revision before expensive private codegen.
-    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_packet_first.py')) $Source
-    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_packet_first.py'), $NxrFull) $Source
-    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_draw_write_ownership.py')) $Source
-    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_draw_write_ownership.py'), $NxrFull) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--test', (Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_packet_first.py')) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--patch', (Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_packet_first.py'), $NxrFull) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--test', (Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_draw_write_ownership.py')) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--patch', (Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_draw_write_ownership.py'), $NxrFull) $Source
     # Hulk 158: nonzero color masks on NEVER bound RT1..3 are not MRT attachments.
     # Keep strict matching of RT0, depth and every observed real MRT.
-    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_unbound_mrt.py')) $Source
-    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_unbound_mrt.py'), $NxrFull) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--test', (Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_unbound_mrt.py')) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--patch', (Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_unbound_mrt.py'), $NxrFull) $Source
     # Before the guest command-buffer ring is reused, preserve only actual
     # bounded DMA-index bytes for packet and ordinary XDK indexed captures.
-    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_packet_dma_snapshot.py')) $Source
-    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_packet_dma_snapshot.py'), $NxrFull) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--test', (Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_packet_dma_snapshot.py')) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--patch', (Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_packet_dma_snapshot.py'), $NxrFull) $Source
     # Hulk log 167: actual GPU 640x360/4x view can differ from real XDK
     # 1280x720/1x surface header at the SAME EDRAM base and format.
     # Recover only that exact proven pair; reject all other mismatches.
-    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_sample_grid_packet_binding.py')) $Source
-    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_sample_grid_packet_binding.py'), $NxrFull) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--test', (Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_sample_grid_packet_binding.py')) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--patch', (Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_sample_grid_packet_binding.py'), $NxrFull) $Source
     # Log 173: verify the packet-time RT0 EDRAM base correction actually
     # reached the generated NativeX C++ before the expensive Windows link.
     $HulkNativeRendererSource = Get-Content -LiteralPath (Join-Path $NxrFull 'src/renderer.cpp') -Raw
@@ -330,76 +331,76 @@ try {
     Remove-Variable HulkNativeDrawSource
     # Snapshot the actual missing per-draw RT/depth identities from Hulk 160.
     # Diagnostic-only: no invented surfaces or forced drawing.
-    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_surface_miss_trace.py')) $Source
-    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_surface_miss_trace.py'), $NxrFull) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--test', (Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_surface_miss_trace.py')) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--patch', (Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_surface_miss_trace.py'), $NxrFull) $Source
     # F10 belongs to Hulk's real PC menu, never steal it for the SDK observer.
-    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_verify_key.py')) $Source
-    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_verify_key.py'), $NxrFull) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--test', (Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_verify_key.py')) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--patch', (Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_verify_key.py'), $NxrFull) $Source
     # Reconstruct real Xenos BIN-predicated commands and preserve shader
     # microcode, nested indirect draws and GPU register write boundaries.
     # These are retail renderer corrections, not tests shipped with the game.
-    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_bin_predication.py'), $NxrFull) $Source
-    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_guest_memory_bounds.py')) $Source
-    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_guest_memory_bounds.py'), $NxrFull) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--patch', (Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_bin_predication.py'), $NxrFull) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--test', (Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_guest_memory_bounds.py')) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--patch', (Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_guest_memory_bounds.py'), $NxrFull) $Source
     # Xenos SET_CONSTANT and LOAD_ALU_CONSTANT execute in PM4 packet order:
     # do not overwrite later fetch descriptors with earlier shadow values.
-    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_register_order.py'), $NxrFull) $Source
-    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_gap_shader_snapshot.py')) $Source
-    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_gap_shader_snapshot.py'), $NxrFull) $Source
-    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_gap_register_snapshot.py')) $Source
-    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_gap_register_snapshot.py'), $NxrFull) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--patch', (Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_register_order.py'), $NxrFull) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--test', (Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_gap_shader_snapshot.py')) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--patch', (Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_gap_shader_snapshot.py'), $NxrFull) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--test', (Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_gap_register_snapshot.py')) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--patch', (Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_gap_register_snapshot.py'), $NxrFull) $Source
     # Do not Present pending Vulkan frames while the window has no client area.
-    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_minimized_pending_swap.py'), $NxrFull) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--patch', (Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_minimized_pending_swap.py'), $NxrFull) $Source
     # Reject impossible Vulkan images before allocating GPU memory:
     # log176's 1280x720 cube texture cannot be created by Vulkan.
     # Keep the game data and NativeX missing-texture fallback unchanged.
-    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_texture_resource_guard.py')) $Source
-    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_texture_resource_guard.py'), $NxrFull) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--test', (Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_texture_resource_guard.py')) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--patch', (Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_texture_resource_guard.py'), $NxrFull) $Source
     if (-not (Get-Content -LiteralPath (Join-Path $NxrFull 'src/guest_textures.cpp') -Raw).Contains('HULK/TEXTURE-RESOURCE-GUARD')) {
       throw 'Hulk Vulkan invalid resource descriptor guard missing.'
     }
     # Validate resolved Vulkan textures as well as the distinct guest-texture path.
-    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_resolved_resource_guard.py')) $Source
-    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_resolved_resource_guard.py'), $NxrFull) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--test', (Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_resolved_resource_guard.py')) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--patch', (Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_resolved_resource_guard.py'), $NxrFull) $Source
     if (-not (Get-Content -LiteralPath (Join-Path $NxrFull 'src/targets.cpp') -Raw).Contains('HULK/RESOLVE-RESOURCE-GUARD')) {
       throw 'Hulk resolved Vulkan descriptor guard missing.'
     }
     # Crash #57: validate generated shader bytecode shape before the NVIDIA
     # Vulkan driver and correlate shader/pipeline creation boundaries by hash.
-    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_spirv_compiler_guard.py')) $Source
-    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_spirv_compiler_guard.py'), $NxrFull) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--test', (Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_spirv_compiler_guard.py')) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--patch', (Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_spirv_compiler_guard.py'), $NxrFull) $Source
     if (-not (Get-Content -LiteralPath (Join-Path $NxrFull 'src/shaders.cpp') -Raw).Contains('HULK/NVIDIA-COMPILE-BOUNDARY')) {
       throw 'Hulk shader creation boundary and SPIR-V validator not in compiled NativeX.'
     }
     # Build 67 evidence: scene shaders/pipelines were skipped 1297/1098 times
     # by frame 1200. Reuse D101's bounded wait for the real world pass too.
-    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_scene_pipeline_wait.py')) $Source
-    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_scene_pipeline_wait.py'), $NxrFull) $Source
-    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_scene_wait_budget.py')) $Source
-    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_scene_wait_budget.py'), $NxrFull) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--test', (Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_scene_pipeline_wait.py')) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--patch', (Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_scene_pipeline_wait.py'), $NxrFull) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--test', (Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_scene_wait_budget.py')) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--patch', (Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_scene_wait_budget.py'), $NxrFull) $Source
     # Log 185: no draw with invalid shader-used Xenos texture/vertex fetch.
-    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_draw_fetch_guard.py')) $Source
-    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_draw_fetch_guard.py'), $NxrFull) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--test', (Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_draw_fetch_guard.py')) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--patch', (Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_draw_fetch_guard.py'), $NxrFull) $Source
     # Hulk 185 NVIDIA nvgpucomp64.dll crash containment (optional, one shared host mutex).
-    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_driver_compile_serial.py')) $Source
-    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_driver_compile_serial.py'), $NxrFull) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--test', (Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_driver_compile_serial.py')) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--patch', (Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_driver_compile_serial.py'), $NxrFull) $Source
     # Do not apply incomplete XDK PM4 packet state to a native Draw.
-    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_incomplete_xdk_draw.py')) $Source
-    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_incomplete_xdk_draw.py'), $NxrFull) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--test', (Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_incomplete_xdk_draw.py')) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--patch', (Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_incomplete_xdk_draw.py'), $NxrFull) $Source
     # Capture actual shader origins when GPU verifier reports 49 PS mismatches (log192).
-    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_ps_program_origin.py')) $Source
-    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_ps_program_origin.py'), $NxrFull) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--test', (Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_ps_program_origin.py')) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--patch', (Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_ps_program_origin.py'), $NxrFull) $Source
     # Shader cache stores first origin; capture the latest *executed* PS load separately.
-    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_ps_recent_load.py')) $Source
-    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_ps_recent_load.py'), $NxrFull) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--test', (Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_ps_recent_load.py')) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--patch', (Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_ps_recent_load.py'), $NxrFull) $Source
     # Upstream D139, reviewed for Hulk: memoize only byte-identical
     # owned non-immediate IM_LOAD. Avoid D140 command-queue ABI migration.
-    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_d139_shader_memo.py')) $Source
-    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_d139_shader_memo.py'), $NxrFull) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--test', (Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_d139_shader_memo.py')) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--patch', (Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_d139_shader_memo.py'), $NxrFull) $Source
     # Log194: the XDK Draw ranges are generally valid, but 130k draws were
     # rejected as incomplete; report first exact PM4 failure site and header.
-    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_pm4_first_failure.py')) $Source
-    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_pm4_first_failure.py'), $NxrFull) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--test', (Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_pm4_first_failure.py')) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--patch', (Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_pm4_first_failure.py'), $NxrFull) $Source
     # Preserve known-buildable NativeX pipeline scheduling. The optional
     # wait-all experiment stays source-only until independently proven
     # against this pinned Diligent/Vulkan build and a real Hulk frame.

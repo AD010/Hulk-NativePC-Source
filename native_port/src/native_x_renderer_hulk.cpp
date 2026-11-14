@@ -27,6 +27,11 @@
 REXCVAR_DEFINE_BOOL(hulk_native_x_verify_only, false, "Hulk",
                     "Use NativeX Trace/Observer while Xenos still renders (no NativeX Vulkan display)");
 
+// HULK/GUEST-FPS-CAP: register one unique cvar in the Hulk executable.
+// The SDK kernel VdSwap module must only query its current value.
+REXCVAR_DEFINE_INT32(hulk_guest_swap_fps_cap, 0, "Hulk/Performance",
+                     "Maximum XDK VdSwap rate, 0 means no additional pacing");
+
 namespace hulk {
 namespace {
 

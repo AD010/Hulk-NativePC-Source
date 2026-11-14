@@ -16,19 +16,15 @@ PATCH_MARKER = "HULK_FRAME_PROBE_V1"
 CVAR = '''// HULK_FRAME_PROBE_V1: reads true guest swaps, not driver FPS estimates.
 REXCVAR_DEFINE_BOOL(hulk_frame_probe, false, "Hulk/Diagnostics",
                     "Log one-second XDK VdSwap frequency; no FPS manipulation");
-// HULK/GUEST-FPS-CAP: real runtime variable, not a decorative menu entry.
-// It limits the maximum frequency of guest submissions. It cannot make
-// a 30Hz game submit 60Hz frames or fix game-specific rigid-body updates.
-REXCVAR_DEFINE_INT32(gpu_guest_fps_limit, 0, "Hulk/Performance",
-                     "Maximum XDK VdSwap submits per second; 0 = no cap");
-
+// HULK/GUEST-FPS-CAP: the game executable owns the cvar declaration.
+// The SDK's kernel module only reads the shared registry, never defines it.
 '''
 FPS_PACER = '''  // HULK/GUEST-FPS-CAP: actual guest submission pacing. This does not
   // change the Xbox virtual clock or its physics timestep. If the PPC game
   // submits only at 30Hz, setting 60 or 120 won't synthesize new frames.
   {
     using Clock = std::chrono::steady_clock;
-    const int32_t fps_limit = std::clamp(REXCVAR_GET(gpu_guest_fps_limit), 0, 240);
+    const int32_t fps_limit = std::clamp(rex::cvar::Query<int32_t>("hulk_guest_swap_fps_cap"), 0, 240);
     static std::mutex limiter_mutex;
     static Clock::time_point next_submit{};
     static int32_t previous_limit = -1;
@@ -75,7 +71,17 @@ def patch_sdk(root: pathlib.Path) -> None:
     path = root / "src/kernel/xboxkrnl/xboxkrnl_video.cpp"
     original = path.read_text(encoding="utf-8-sig")
     if PATCH_MARKER in original:
-        print("Hulk guest VdSwap probe already installed")
+        # A partially applied patch must not silently pass source preflight.
+        required = (
+            "REXCVAR_DEFINE_BOOL(hulk_frame_probe",
+            'rex::cvar::Query<int32_t>("hulk_guest_swap_fps_cap")',
+            'std::clamp(rex::cvar::Query<int32_t>("hulk_guest_swap_fps_cap"), 0, 240)',
+            "std::this_thread::sleep_until(next_submit)",
+            'REXKRNL_INFO("[HULK/FPS] VdSwap rate=',
+        )
+        if any(original.count(token) != 1 for token in required):
+            raise ValueError("Partial or duplicated Hulk VdSwap probe patch")
+        print("Hulk guest VdSwap probe already installed and verified")
         return
     if original.count(INCLUDE_ANCHOR) != 1:
         raise ValueError("Unexpected SDK includes; no patch performed")
@@ -89,7 +95,7 @@ def patch_sdk(root: pathlib.Path) -> None:
         raise ValueError("Unexpected VdSwap body; no patch performed")
     updated = updated.replace(marker, FPS_PACER + PRELUDE + marker, 1)
     path.write_text(updated, encoding="utf-8", newline="\n")
-    print("Installed read-only Hulk VdSwap timing probe")
+    print("Installed Hulk VdSwap probe with single app-owned guest FPS cap")
 
 def main() -> int:
     if len(sys.argv) != 2:

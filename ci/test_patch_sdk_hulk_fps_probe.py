@@ -23,15 +23,33 @@ with tempfile.TemporaryDirectory() as temp:
     module.patch_sdk(root)
     content = source.read_text()
     assert 'REXCVAR_DEFINE_BOOL(hulk_frame_probe' in content
-    assert 'REXCVAR_DEFINE_INT32(gpu_guest_fps_limit, 0' in content
+    assert 'REXCVAR_DEFINE_INT32(hulk_guest_swap_fps_cap' not in content
+    assert 'rex::cvar::Query<int32_t>("hulk_guest_swap_fps_cap")' in content
+    assert 'gpu_guest_fps_limit' not in content
     assert 'HULK/GUEST-FPS-CAP' in content
     assert 'std::this_thread::sleep_until(next_submit)' in content
-    assert 'std::clamp(REXCVAR_GET(gpu_guest_fps_limit), 0, 240)' in content
+    assert 'std::clamp(rex::cvar::Query<int32_t>("hulk_guest_swap_fps_cap"), 0, 240)' in content
     assert '#include <thread>' in content
     assert 'REXKRNL_INFO("[HULK/FPS] VdSwap rate=' in content
     assert content.count("HULK_FRAME_PROBE_V1") >= 1
     module.patch_sdk(root)
     assert content == source.read_text()
+    # Fail closed on partially applied or duplicate injected code, preserving
+    # the original bytes for forensic inspection.
+    for damaged in (
+        content.replace("std::this_thread::sleep_until(next_submit)", "/* missing pacing */"),
+        content.replace('rex::cvar::Query<int32_t>("hulk_guest_swap_fps_cap")',
+                        'rex::cvar::Query<int32_t>("hulk_guest_swap_fps_cap_missing")'),
+        content + '\n' + "std::this_thread::sleep_until(next_submit)" + '\n',
+    ):
+        source.write_text(damaged, encoding="utf-8")
+        try:
+            module.patch_sdk(root)
+        except ValueError as exc:
+            assert "Partial or duplicated" in str(exc)
+        else:
+            raise AssertionError("Partial VdSwap injection was silently accepted")
+        assert source.read_text() == damaged
     source.write_text(text.replace("  // All of these parameters are REQUIRED.", "  // different version"), encoding="utf-8")
     try:
         module.patch_sdk(root)

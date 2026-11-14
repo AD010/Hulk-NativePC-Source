@@ -110,6 +110,101 @@ BODY_NEW = """  if (it != targets_.end()) {
     }
   }"""
 
+
+# NativeX D139 introduced a four-slot recent-target memo *before* the
+# targets_ lookup. A Hulk 1x/4x equivalent-view sibling may have changed
+# the image since the cached view last drew. Revalidate its shared write
+# epoch on BOTH D139 recent-cache and map-hit paths, never reuse stale
+# written metadata. Keep D139's actual recent-target lookup optimization.
+BODY_D140_OLD = """  for (const Recent& recent : recent_) {
+    if (recent.target && recent.key == key) {
+      recent.target->last_used = frame_;
+      return recent.target;
+    }
+  }
+  auto remember = [&](HostTarget* found) {
+    recent_[recent_next_] = {key, found};
+    recent_next_ = (recent_next_ + 1) % uint32_t(recent_.size());
+    return found;
+  };
+  uint32_t guest_format = std::get<4>(std::get<0>(key));
+  bool reduced = kind == Kind::kReduced, shadow = kind == Kind::kShadow, native = kind == Kind::kNative;
+  auto it = targets_.find(key);
+  if (it != targets_.end()) {
+    it->second.last_used = frame_;
+    return it->second.texture ? remember(&it->second) : nullptr;
+  }
+  HostTarget& target = targets_[key];
+  target.last_used = frame_;
+
+  TEXTURE_FORMAT format = s.depth ? HostDepthFormat(guest_format, depth_unorm24_) : HostColorFormat(guest_format);"""
+BODY_D140_NEW = """  for (const Recent& recent : recent_) {
+    if (recent.target && recent.key == key) {
+      recent.target->last_used = frame_;
+      // HULK/D139-RECENT-SHARED-EPOCH: one guest EDRAM view's write is
+      // shared by its sibling even on a cached render-target lookup.
+      if (HostTarget* sibling = FindHulkSharedStorage(s, kind)) {
+        const uint64_t newest = std::max(recent.target->written, sibling->written);
+        recent.target->written = sibling->written = newest;
+        sibling->last_used = frame_;
+      }
+      return recent.target;
+    }
+  }
+  auto remember = [&](HostTarget* found) {
+    recent_[recent_next_] = {key, found};
+    recent_next_ = (recent_next_ + 1) % uint32_t(recent_.size());
+    return found;
+  };
+  uint32_t guest_format = std::get<4>(std::get<0>(key));
+  bool reduced = kind == Kind::kReduced, shadow = kind == Kind::kShadow, native = kind == Kind::kNative;
+  auto it = targets_.find(key);
+  if (it != targets_.end()) {
+    it->second.last_used = frame_;
+    if (HostTarget* sibling = FindHulkSharedStorage(s, kind)) {
+      const uint64_t newest = std::max(it->second.written, sibling->written);
+      it->second.written = sibling->written = newest;
+      sibling->last_used = frame_;
+    }
+    return it->second.texture ? remember(&it->second) : nullptr;
+  }
+  HostTarget& target = targets_[key];
+  target.last_used = frame_;
+
+  TEXTURE_FORMAT format = s.depth ? HostDepthFormat(guest_format, depth_unorm24_) : HostColorFormat(guest_format);
+  // Build a sibling guest view over the very SAME underlying pixel grid.
+  // Retain D139's recent-target lookup for its next native draw.
+  if (HostTarget* sibling = FindHulkSharedStorage(s, kind)) {
+    if (format == sibling->format) {
+      RenderScale view_scale = scale_;
+      if (s.msaa() == 2) { view_scale.x *= 2.0f; view_scale.y *= 2.0f; }
+      target.texture = sibling->texture;
+      target.view = sibling->view;
+      target.srv = sibling->srv;
+      target.stencil_srv = sibling->stencil_srv;
+      target.width = sibling->width;
+      target.height = sibling->height;
+      target.guest_width = s.width;
+      target.guest_height = s.height;
+      target.samples = sibling->samples;
+      target.format = sibling->format;
+      target.depth = sibling->depth;
+      target.depth_float24 = sibling->depth_float24;
+      target.reduced = false;
+      target.shadow = false;
+      target.native = false;
+      target.scale = view_scale;
+      target.written = sibling->written;
+      sibling->last_used = frame_;
+      static uint32_t hulk_shared_logged = 0;
+      if (hulk_shared_logged++ < 8)
+        REXLOG_INFO("[HULK/SHARED-STORAGE] {} {}x{} {}x guest view shares ONE {}x{} native image base={} pitch={}",
+                    s.depth ? "depth" : "color", s.width, s.height, s.samples(),
+                    target.width, target.height, s.edram_base(), s.pitch());
+      return remember(&target);
+    }
+  }"""
+
 def once(src, old, new):
     if src.count(new) == 1:
         return src, False
@@ -122,7 +217,12 @@ def patch_header(src):
 
 def patch_cpp(src):
     src, a = once(src, METHOD_ANCHOR, METHOD_NEW)
-    src, b = once(src, BODY_OLD, BODY_NEW)
+    if BODY_D140_NEW in src:
+        b = False
+    elif BODY_D140_OLD in src:
+        src, b = once(src, BODY_D140_OLD, BODY_D140_NEW)
+    else:
+        src, b = once(src, BODY_OLD, BODY_NEW)
     if a != b:
         raise ValueError("Partial shared-image patch; refusing write")
     return src, a

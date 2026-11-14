@@ -26,6 +26,33 @@ class NativeSharedStorageTests(unittest.TestCase):
         self.assertTrue(p.patch_header(p.HEADER_OLD)[1])
         self.assertEqual(p.patch_header(p.HEADER_NEW), (p.HEADER_NEW, False))
 
+    def test_d140_recent_target_memo_cannot_return_stale_sibling(self):
+        # D139's recent_ fast path bypasses the targets_ map entirely.
+        # Shared EDRAM views MUST synchronize write epochs in both paths.
+        source = p.METHOD_ANCHOR + "\n" + p.BODY_D140_OLD
+        patched, changed = p.patch_cpp(source)
+        self.assertTrue(changed)
+        self.assertEqual(p.patch_cpp(patched), (patched, False))
+        self.assertIn("HULK/D139-RECENT-SHARED-EPOCH", patched)
+        self.assertIn("for (const Recent& recent : recent_)", patched)
+        self.assertIn("std::max(recent.target->written, sibling->written)", patched)
+        self.assertIn("std::max(it->second.written, sibling->written)", patched)
+        self.assertIn("return remember(&target);", patched)
+        self.assertIn("target.native = false;", patched)
+        # Returning a cached target is correct AFTER its shared-write
+        # epoch was refreshed; it is precisely the D139 optimization.
+        self.assertLess(patched.index("std::max(recent.target->written, sibling->written)"),
+                        patched.index("return recent.target;"))
+        # The synthetic descriptor's alias identity is unchanged:
+        # neither a reduced/shadow/native view nor a different EDRAM base
+        # may be linked only because its host dimensions match.
+        self.assertIn("kind != Kind::kRender", patched)
+        self.assertIn("s.edram_base()", patched)
+        with self.assertRaises(ValueError):
+            p.patch_cpp(p.METHOD_ANCHOR + "\n" +
+                        p.BODY_D140_NEW.replace(
+                            "HULK/D139-RECENT-SHARED-EPOCH", "bad-marker"))
+
     def test_compiled_cpp_identity_color_and_depth(self):
         compiler = next((x for x in ("clang++","g++","c++") if shutil.which(x)), None)
         if not compiler:

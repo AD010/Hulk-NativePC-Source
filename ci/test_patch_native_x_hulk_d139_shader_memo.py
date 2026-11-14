@@ -36,11 +36,34 @@ class D139ShaderMemoTests(unittest.TestCase):
             self.assertIn(piece, converted["src/state.cpp"])
         self.assertIn("!std::memcmp(", converted["src/state.cpp"])
         self.assertIn("load.immediate ? nullptr", converted["src/state.cpp"])
+        # The Hulk-specific memo must never be confused with upstream's
+        # pre-existing D139 LoadedAt fast path on the D140 candidate.
+        self.assertIn("HULK/D139-OWNED-SHADER-MEMO", converted["src/state.cpp"])
+        self.assertNotIn("struct LoadedAt {", converted["src/state.h"])
         self.assertIn("program->ucode.size() == load.dwords", converted["src/state.cpp"])
         self.assertIn("hulk_loaded_at_ = {}", converted["src/state.cpp"])
         self.assertLess(
             converted["src/state.cpp"].index("HULK/PS-RECENT-LOAD"),
             converted["src/state.cpp"].index("HULK/D139-OWNED-SHADER-MEMO"))
+
+    def test_latest_native_x_uses_existing_d139_memo_without_double_insertion(self):
+        src=synthetic_source()
+        src["src/state.h"] += """
+struct LoadedAt {uint32_t address=0, dwords=0; const Program* program=nullptr;};
+std::array<LoadedAt, 256> loaded_at_{};"""
+        src["src/state.cpp"] += """
+  loaded_at_ = {};
+if (at && !std::memcmp(at->program->ucode.data(), ucode, 1)) {}
+if (at) *at = {load.address, load.dwords, recent};"""
+        result, changed=patch(src)
+        self.assertFalse(changed)
+        self.assertEqual(result,src)
+        self.assertNotIn("HulkLoadedAt",result["src/state.h"])
+        with self.assertRaisesRegex(ValueError,"Incomplete upstream"):
+            patch({**src,"src/state.cpp":src["src/state.cpp"].replace("loaded_at_ = {};","")})
+        with self.assertRaisesRegex(ValueError,"validated IM_LOAD"):
+            patch({**src,"src/state.cpp":src["src/state.cpp"].replace(
+                "HULK/XDK-OWNED-IM-LOAD","none")})
 
     def test_rejects_partial_or_unreviewed_patched_state(self):
         original = synthetic_source()

@@ -17,6 +17,7 @@ PIN = os.environ.get("HULK_NATIVEX_SOURCE_SHA",
 SUPPORTED = {
     "bf965e952c98e050753e91d08f32685a9f754b12",
     "919371b5bdae0c9c4c7120ca321f5a4d72b7e78e",
+    "fa19ea85fec5c7f7f8a2df82d6c4a86548817b52",  # audited D140 candidate
 }
 MARKER = "HULK/SCENE-WAIT-BUDGET"
 INC_OLD = "#include <atomic>\n#include <cstdint>"
@@ -54,6 +55,36 @@ DRAW_NEW = """  const auto wait_start = std::chrono::steady_clock::now();
   bool waited = false;"""
 LOOP_OLD = "std::chrono::steady_clock::now() - wait_start < kPipelineWaitLimit"
 LOOP_NEW = "std::chrono::steady_clock::now() < hulk_wait_deadline"
+# NativeX D139/D140 reads the clock only when a shader/pipeline waits.
+# Do not revert the optimization to a clock read for EVERY scene Draw.
+DRAW_D140_OLD = """  std::chrono::steady_clock::time_point wait_start{};
+  auto waited_for = [&wait_start] {
+    auto now = std::chrono::steady_clock::now();
+    if (wait_start == std::chrono::steady_clock::time_point{}) wait_start = now;
+    return now - wait_start;
+  };
+  bool waited = false;"""
+DRAW_D140_NEW = """  std::chrono::steady_clock::time_point wait_start{};
+  auto waited_for = [&wait_start] {
+    auto now = std::chrono::steady_clock::now();
+    if (wait_start == std::chrono::steady_clock::time_point{}) wait_start = now;
+    return now - wait_start;
+  };
+  // HULK/SCENE-WAIT-BUDGET: keep D139's lazy clock. The 200 ms
+  // budget is SHARED by all Hulk scene Draws of one presentation frame.
+  auto hulk_within_scene_budget = [&]() {
+    if (!hulk_scene_wait_) return true;
+    const auto now = std::chrono::steady_clock::now();
+    const uint64_t frame = device_->frames_presented();
+    if (hulk_scene_wait_frame_ != frame) {
+      hulk_scene_wait_frame_ = frame;
+      hulk_scene_wait_start_ = now;
+    }
+    return now - hulk_scene_wait_start_ < std::chrono::milliseconds(200);
+  };
+  bool waited = false;"""
+LOOP_D140_OLD = "waited_for() < kPipelineWaitLimit"
+LOOP_D140_NEW = "waited_for() < kPipelineWaitLimit && hulk_within_scene_budget()"
 RENDER_OLD = "      steady && !hulk_wait_scene);"
 RENDER_NEW = "      steady && !hulk_wait_scene, hulk_wait_scene);"
 
@@ -69,21 +100,30 @@ def patch(files: dict[str, str]) -> tuple[dict[str, str], bool]:
     renderer, hdr, cpp = (files[key] for key in
         ("src/renderer.cpp", "src/draw.h", "src/draw.cpp"))
     complete = (RENDER_NEW in renderer, HEADER_NEW in hdr,
-                FIELDS_NEW in hdr, DRAW_NEW in cpp,
-                cpp.count(LOOP_NEW) == 2)
+                FIELDS_NEW in hdr,
+                (DRAW_NEW in cpp and cpp.count(LOOP_NEW) == 2) or
+                (DRAW_D140_NEW in cpp and cpp.count(LOOP_D140_NEW) == 2))
     if all(complete):
         return files, False
     if any(complete):
         raise ValueError("Partially installed Hulk shared scene wait budget")
     if "HULK/SCENE-PIPELINE-WAIT" not in renderer:
         raise ValueError("Install Hulk scene pipeline wait first")
-    if cpp.count(LOOP_OLD) != 2:
+    d140 = DRAW_D140_OLD in cpp
+    if d140:
+        if cpp.count(LOOP_D140_OLD) != 2:
+            raise ValueError("NativeX D139/D140 changed two lazy wait loops")
+    elif cpp.count(LOOP_OLD) != 2:
         raise ValueError("Upstream D101 changed two shader/pipeline wait loops")
     hdr = once(hdr, INC_OLD, INC_NEW, "chrono header")
     hdr = once(hdr, HEADER_OLD, HEADER_NEW, "SetWaitForPipelines API")
     hdr = once(hdr, FIELDS_OLD, FIELDS_NEW, "scene wait fields")
-    cpp = once(cpp, DRAW_OLD, DRAW_NEW, "per-draw deadline")
-    cpp = cpp.replace(LOOP_OLD, LOOP_NEW)
+    if d140:
+        cpp = once(cpp, DRAW_D140_OLD, DRAW_D140_NEW, "D140 lazy shared deadline")
+        cpp = cpp.replace(LOOP_D140_OLD, LOOP_D140_NEW)
+    else:
+        cpp = once(cpp, DRAW_OLD, DRAW_NEW, "per-draw deadline")
+        cpp = cpp.replace(LOOP_OLD, LOOP_NEW)
     renderer = once(renderer, RENDER_OLD, RENDER_NEW, "scene wait caller")
     return {"src/renderer.cpp": renderer, "src/draw.h": hdr,
             "src/draw.cpp": cpp}, True

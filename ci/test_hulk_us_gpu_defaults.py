@@ -12,9 +12,14 @@ class TestHulkUsGpuDefaults(unittest.TestCase):
         self.assertEqual(config["user_country"], 103)
         self.assertEqual(config["user_language"], 1)
         # Zero leaves the original game pacing intact; it is not a physics unlock.
-        self.assertEqual(config["gpu_guest_fps_limit"], 0)
+        self.assertEqual(config["hulk_guest_swap_fps_cap"], 0)
+        self.assertNotIn("gpu_guest_fps_limit", config)
         sdk_patch = (ROOT / "ci/patch_sdk_hulk_fps_probe.py").read_text()
-        self.assertIn('REXCVAR_DEFINE_INT32(gpu_guest_fps_limit, 0,', sdk_patch)
+        self.assertNotIn('REXCVAR_DEFINE_INT32(hulk_guest_swap_fps_cap', sdk_patch)
+        self.assertIn('rex::cvar::Query<int32_t>("hulk_guest_swap_fps_cap")', sdk_patch)
+        # Only the native application owns the register call.
+        app = (ROOT / "native_port/src/native_x_renderer_hulk.cpp").read_text()
+        self.assertEqual(app.count('REXCVAR_DEFINE_INT32(hulk_guest_swap_fps_cap,'), 1)
         self.assertEqual(config["vsync"], True)
         for key in ("vulkan_allow_present_mode_immediate",
                     "vulkan_allow_present_mode_mailbox",
@@ -34,8 +39,10 @@ class TestHulkUsGpuDefaults(unittest.TestCase):
         self.assertIn("v!=0x8263BF50u", source)
         self.assertFalse(config["hulk_world_stream_trace"])
         self.assertFalse(config["hulk_native_x_verify_only"])
-        self.assertTrue(config["native_x_renderer_verify"])
-        self.assertTrue(config["native_x_renderer_trace"])
+        # Source verification and trace are developer-only: they execute
+        # extra per-frame GPU/CPU observer work in the user's retail build.
+        self.assertFalse(config["native_x_renderer_verify"])
+        self.assertFalse(config["native_x_renderer_trace"])
         self.assertEqual(config["native_x_renderer_verify_at"], 900)
         self.assertEqual(config["native_x_renderer_trace_dump_at"], 900)
         self.assertEqual(config["bind_native_x_renderer_verify"], "F11")

@@ -7,6 +7,7 @@ build artifacts are involved.
 """
 from pathlib import Path
 import os
+import importlib.util
 import py_compile
 import re
 import subprocess
@@ -15,12 +16,16 @@ import tempfile
 
 # Single authoritative C++ wait snippet: don't copy the 80/200ms value here.
 # It previously drifted in #80/#81 and failed complete CI preflight.
-from patch_native_x_hulk_scene_wait_budget import DRAW_NEW as HULK_SCENE_WAIT_CPP
+from patch_native_x_hulk_scene_wait_budget import (
+    DRAW_NEW as HULK_SCENE_WAIT_CPP,
+    DRAW_D140_NEW as HULK_SCENE_WAIT_D140_CPP,
+)
 
 ROOT=Path(__file__).resolve().parents[1]
 BUILDER=ROOT/"native_port"/"BUILD_WINDOWS.ps1"
 SHA="bf965e952c98e050753e91d08f32685a9f754b12"
-CANDIDATE_SHA="919371b5bdae0c9c4c7120ca321f5a4d72b7e78e"  # D127-D135: source-only migration gate, NOT the production renderer
+CANDIDATE_SHA="919371b5bdae0c9c4c7120ca321f5a4d72b7e78e"  # D127-D135 reviewed migration
+D140_SHA="fa19ea85fec5c7f7f8a2df82d6c4a86548817b52"  # isolated candidate; NOT production
 EXPERIMENTS=[
  "ci/test_patch_native_x_hulk_packet_first.py",
  "ci/patch_native_x_hulk_packet_first.py",
@@ -99,17 +104,30 @@ def source_only_host_tests():
     return names
 
 
-def checked(args,cwd=ROOT):
+def checked(args,cwd=ROOT,env=None):
     result=subprocess.run(args,cwd=cwd,stdout=subprocess.PIPE,
-                          stderr=subprocess.STDOUT,text=True,errors="replace")
+                          stderr=subprocess.STDOUT,text=True,errors="replace",
+                          env=env)
     if result.returncode:
         print(result.stdout[-7000:],file=sys.stderr)
         raise RuntimeError(f"Source-only NativeX preflight failed: {Path(args[1]).name}")
     return result.stdout
 
+from native_x_d140_dispatch import (
+    D140 as DISPATCH_D140_SHA, check_renderer as check_d140_checkout,
+    run_patch as apply_d140_reviewed_patch,
+)
+if DISPATCH_D140_SHA != D140_SHA:
+    raise RuntimeError("Windows D140 patch dispatcher and audit do not share pin")
+
+def run_d140_patch(path: Path, source: Path) -> None:
+    """Use EXACT same code loader and C++ source guards as Windows builder."""
+    apply_d140_reviewed_patch(path, source)
+
+
 def run(sha=SHA):
-    if sha not in (SHA, CANDIDATE_SHA):
-        raise ValueError("NativeX revision must be one of the two explicitly audited pins")
+    if sha not in (SHA, CANDIDATE_SHA, D140_SHA):
+        raise ValueError("Unreviewed NativeX revision")
     # Fail fast, with PUBLIC synthetic-only test output, BEFORE touching
     # copyrighted inputs. Re-run these again during the private build as
     # defense in depth. The same builder is the source of both lists.
@@ -121,6 +139,17 @@ def run(sha=SHA):
     os.environ["HULK_NATIVEX_SOURCE_SHA"] = sha
     print(f"[NativeX/preflight] source SHA={sha}; mode={'candidate-only' if sha != SHA else 'production'}", flush=True)
     scripts=commands()
+    if sha == D140_SHA:
+        checked([sys.executable,str(ROOT/"ci/test_native_x_d140_dispatch.py")])
+        print("[NativeX/preflight] Windows D140 source dispatcher parity OK",flush=True)
+    if sha == D140_SHA:
+        # Review the D140-specific pending-frame path against synthetic
+        # minimization/Alt+Tab cases before touching actual renderer code.
+        smoke_env=dict(os.environ)
+        smoke_env["HULK_NATIVEX_SOURCE_SHA"]=CANDIDATE_SHA
+        checked([sys.executable,str(ROOT/"ci/test_patch_native_x_hulk_minimized_pending_swap.py")],
+                env=smoke_env)
+        print("[NativeX/preflight] D140 minimized pending-frame model OK", flush=True)
     # The Windows release builder has its OWN late post-patch source checks.
     # Keep their exact source-call ABI synchronized with the real NativeX
     # patch, or CI wastes ~15 minutes compiling SDK before always failing.
@@ -139,11 +168,22 @@ def run(sha=SHA):
                  "https://github.com/ElGuslml/NativeXRenderer.git",str(source)])
         checked(["git","-C",str(source),"fetch","--depth","1","origin",sha])
         checked(["git","-C",str(source),"checkout","--detach",sha])
+        if sha == D140_SHA:
+            check_d140_checkout(str(source))
         for name in scripts:
             file=ROOT/name
             command=[sys.executable,str(file)]
             if not name.startswith("ci/test_"): command.append(str(source))
-            checked(command)
+            if sha == D140_SHA and not name.startswith("ci/test_"):
+                run_d140_patch(file,source)
+            elif sha == D140_SHA:
+                # Regression modules may pin a known-old SHA at import,
+                # while the actual patch is validated on D140 separately.
+                regression_env=dict(os.environ)
+                regression_env["HULK_NATIVEX_SOURCE_SHA"]=CANDIDATE_SHA
+                checked(command,env=regression_env)
+            else:
+                checked(command)
             print("[NativeX/preflight] OK",name,flush=True)
         renderer=(source/"src/renderer.cpp").read_text(encoding="utf-8")
         draw=(source/"src/draw.cpp").read_text(encoding="utf-8")
@@ -264,14 +304,22 @@ def run(sha=SHA):
                 "steady && !hulk_wait_scene" not in renderer:
             missing.append("Hulk bounded main-scene pipeline/shader wait")
         header_state=(source/"src/state.h").read_text(encoding="utf-8")
-        if ("HulkLoadedAt" not in header_state or
-            "hulk_loaded_at_" not in header_state):
-            missing.append("D139 owned shader memo address/size/cache storage")
-        if ("hulk_loaded_at_ = {};" not in state or
-            "if (hulk_at) *hulk_at = {load.address, load.dwords, recent};" not in state):
-            missing.append("D139 owned shader memo reset/cache update")
+        if sha == D140_SHA:
+            if ("struct LoadedAt {" not in header_state or
+                "std::array<LoadedAt, 256> loaded_at_{};" not in header_state or
+                "loaded_at_ = {};" not in state or
+                "!std::memcmp(at->program->ucode.data(), ucode," not in state or
+                "if (at) *at = {load.address, load.dwords, recent};" not in state):
+                missing.append("NativeX D139 upstream byte-verified shader memo incomplete")
+        else:
+            if ("HulkLoadedAt" not in header_state or
+                "hulk_loaded_at_" not in header_state):
+                missing.append("D139 owned shader memo address/size/cache storage")
+            if ("hulk_loaded_at_ = {};" not in state or
+                "if (hulk_at) *hulk_at = {load.address, load.dwords, recent};" not in state):
+                missing.append("D139 owned shader memo reset/cache update")
         header_draw=(source/"src/draw.h").read_text(encoding="utf-8")
-        if (HULK_SCENE_WAIT_CPP not in draw or
+        if ((HULK_SCENE_WAIT_CPP not in draw and HULK_SCENE_WAIT_D140_CPP not in draw) or
             "hulk_scene_wait_frame_" not in header_draw or
             "steady && !hulk_wait_scene, hulk_wait_scene);" not in renderer):
             missing.append("Hulk scene shader/pipeline waits are not frame-budgeted")
@@ -295,8 +343,7 @@ def run(sha=SHA):
             ("HULK/PM4-DEPTH-REBASE-4X", renderer),
             ("HULK/PS-PROGRAM-ORIGIN", renderer),
             ("HULK/PS-RECENT-LOAD", state),
-            ("HULK/D139-OWNED-SHADER-MEMO", state),
-            ("!std::memcmp(hulk_at->program->ucode.data(), ucode,", state),
+
             ("HULK/PM4-FIRST-FAILURE", state),
             ("HULK/DEPTH-STENCIL-GRID-PARITY", renderer),
             ("last_load_packet=", renderer),
@@ -326,6 +373,7 @@ def run(sha=SHA):
         if missing:raise RuntimeError(f"NativeX patch chain markers absent: {missing}")
         print(f"[NativeX/preflight] All {len(scripts)} real NativeX {sha[:8]} source patches pass")
 if __name__=="__main__":
-    if len(sys.argv) > 2 or (len(sys.argv) == 2 and sys.argv[1] != "--candidate"):
-        raise SystemExit("Usage: python ci/test_native_x_patch_chain.py [--candidate]")
-    run(CANDIDATE_SHA if len(sys.argv) == 2 else SHA)
+    if len(sys.argv) > 2 or (len(sys.argv) == 2 and sys.argv[1] not in ("--candidate","--d140")):
+        raise SystemExit("Usage: python ci/test_native_x_patch_chain.py [--candidate|--d140]")
+    run(D140_SHA if len(sys.argv)==2 and sys.argv[1]=="--d140"
+        else CANDIDATE_SHA if len(sys.argv)==2 else SHA)

@@ -48,6 +48,17 @@ RESET_NEW = """  programs_ = {};
   hulk_ps_recent_call_ = 0;
   hulk_ps_recent_serial_ = 0;
   record_.Clear();"""
+# NativeX D139/D140 already resets its upstream loaded_at_ memo.
+# Keep that reset in the Hulk PS provenance patch, not replace/erase it.
+RESET_D140_OLD = """  programs_ = {};
+  loaded_at_ = {};
+  record_.Clear();"""
+RESET_D140_NEW = """  programs_ = {};
+  loaded_at_ = {};
+  hulk_ps_recent_packet_ = 0;
+  hulk_ps_recent_call_ = 0;
+  hulk_ps_recent_serial_ = 0;
+  record_.Clear();"""
 LOG_OLD = """                "ps={:016x} vs={:016x} load_call={} packet={:#x} "
                 "address={:#x} words={} immediate={}","""
 LOG_NEW = """                "ps={:016x} vs={:016x} cache_first_call={} cache_first_packet={:#x} "
@@ -72,7 +83,8 @@ def patch(files: dict[str, str]) -> tuple[dict[str, str], bool]:
     cpp, header, renderer = (files[k] for k in
                              ("src/state.cpp", "src/state.h", "src/renderer.cpp"))
     done = (HEADER_GETTER_NEW in header, HEADER_FIELD_NEW in header,
-            LOAD_NEW in cpp, RESET_NEW in cpp,
+            LOAD_NEW in cpp,
+            (RESET_NEW in cpp or RESET_D140_NEW in cpp),
             LOG_NEW in renderer, ARGS_NEW in renderer)
     if all(done):
         return files, False
@@ -83,7 +95,10 @@ def patch(files: dict[str, str]) -> tuple[dict[str, str], bool]:
     header = once(header, HEADER_GETTER_OLD, HEADER_GETTER_NEW, "getter")
     header = once(header, HEADER_FIELD_OLD, HEADER_FIELD_NEW, "storage")
     cpp = once(cpp, LOAD_OLD, LOAD_NEW, "Gather load")
-    cpp = once(cpp, RESET_OLD, RESET_NEW, "Reset")
+    if RESET_D140_OLD in cpp:
+        cpp = once(cpp, RESET_D140_OLD, RESET_D140_NEW, "D140 memo Reset")
+    else:
+        cpp = once(cpp, RESET_OLD, RESET_NEW, "D135 Reset")
     renderer = once(renderer, LOG_OLD, LOG_NEW, "log fields")
     renderer = once(renderer, ARGS_OLD, ARGS_NEW, "log values")
     return {"src/state.cpp": cpp, "src/state.h": header,

@@ -124,7 +124,13 @@ def patch(files: dict[str, str]) -> tuple[dict[str, str], bool]:
         raise ValueError("Install existing safe incomplete XDK draw guard first")
     header = exactly_once(header, HEADER_OLD, HEADER_NEW, "header fields")
     start = cpp.find(SCAN_START)
-    end = cpp.find(SCAN_END, start)
+    # D139 removed FetchSlotDirty after replacing its fetch handling with
+    # DirtySlots/BitReverse. Use an EXPLICIT alternate, reviewed top-level
+    # function sentinel, never a guessed address in guest PM4 data.
+    candidates = [cpp.find(marker, start) for marker in
+                  (SCAN_END, "uint64_t BitReverse(")]
+    candidates = [p for p in candidates if p > start]
+    end = min(candidates) if candidates else -1
     if start < 0 or end <= start or cpp.find(SCAN_START, start + len(SCAN_START)) >= 0:
         raise ValueError("NativeX ScanPackets function bounds ambiguous")
     section = cpp[start:end]

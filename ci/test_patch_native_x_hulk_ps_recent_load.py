@@ -4,7 +4,7 @@ import unittest
 from patch_native_x_hulk_ps_recent_load import (
     patch, HEADER_GETTER_OLD, HEADER_GETTER_NEW,
     HEADER_FIELD_OLD, HEADER_FIELD_NEW, LOAD_OLD, LOAD_NEW,
-    RESET_OLD, RESET_NEW, LOG_OLD, LOG_NEW, ARGS_OLD, ARGS_NEW)
+    RESET_OLD, RESET_NEW, RESET_D140_OLD, RESET_D140_NEW, LOG_OLD, LOG_NEW, ARGS_OLD, ARGS_NEW)
 
 
 def fixture():
@@ -34,6 +34,19 @@ class RecentPixelLoadTests(unittest.TestCase):
         self.assertNotIn("c.programs[1] =", renderer)
         self.assertIn("cache_first_packet", renderer)
         self.assertIn("last_load_packet", renderer)
+
+    def test_d140_reset_keeps_upstream_shader_address_memo(self):
+        data=fixture()
+        data["src/state.cpp"]=data["src/state.cpp"].replace(
+            RESET_OLD,RESET_D140_OLD)
+        patched,changed=patch(data)
+        self.assertTrue(changed)
+        self.assertEqual(patch(patched),(patched,False))
+        self.assertIn(RESET_D140_NEW,patched["src/state.cpp"])
+        self.assertIn("loaded_at_ = {};",patched["src/state.cpp"])
+        self.assertIn("hulk_ps_recent_serial_ = 0;",patched["src/state.cpp"])
+        self.assertEqual(patched["src/state.cpp"].count("loaded_at_ = {};"),1)
+        self.assertEqual(patched["src/state.cpp"].count("record_.Clear();"),1)
 
     def test_partial_install_rejected_and_no_implicit_gpu_edit(self):
         d = fixture()
