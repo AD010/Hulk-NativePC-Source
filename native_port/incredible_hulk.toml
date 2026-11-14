@@ -44,11 +44,16 @@ native_x_renderer_antialiasing = "smaa"
 native_x_renderer_present_with_swaps = true
 native_x_renderer_thread = true
 hulk_native_x_verify_only = false
-native_x_renderer_trace = true
+# HULK/RETAIL-CPU-BUDGET: the NativeX trace path captures per-frame D3D
+# state. It is a diagnostic, not required for the native Vulkan render.
+# Switch on explicitly for source-provenance investigations only.
+native_x_renderer_trace = false
 native_x_renderer_trace_interval = 300
 native_x_renderer_trace_dump_frames = 1
 native_x_renderer_trace_dump_at = 900
-native_x_renderer_verify = true
+# Observer compares GPU packets and CPU shadow state; off for retail
+# performance while capture/verification remains opt-in.
+native_x_renderer_verify = false
 native_x_renderer_verify_frames = 1
 native_x_renderer_verify_at = 900
 bind_native_x_renderer_verify = "F11"
