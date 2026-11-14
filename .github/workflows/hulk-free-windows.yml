@@ -1,8 +1,11 @@
 name: Hulk NativePC - Free Public Windows Builder
 on:
-  # User-requested release gate: do not start more experimental Windows
-  # builds on source edits. Keep this single Release-only workflow available
-  # for an explicit final validation through GitHub Actions.
+  # One-shot USER-AUTHORIZED D140 integration build. Only a change to this
+  # audit document on main can trigger; restore manual-only after dispatch.
+  push:
+    branches: [main]
+    paths:
+      - native_port/docs/HULK_D140_LOG201_VISUAL_PERFORMANCE_2026-11-14.md
   workflow_dispatch:
 permissions:
   contents: write
