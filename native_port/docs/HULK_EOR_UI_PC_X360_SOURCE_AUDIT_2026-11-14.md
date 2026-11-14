@@ -92,12 +92,31 @@ by the indexes:** `Fonts.arc` from PC and Xbox (both indexes each
 declare one Font resource); `Textures.arc` for PC and Xbox
 (index entries: 1,365 vs 6,669); PC `Objects.arc` (the uploaded
 `OBJECTS.ARC` length corresponds to the Xbox index, not the PC
-index); full Xbox `Datasets.arc` beyond the three extracted
-resources; possible Xbox `TexStreams.arc` for texture payloads.
+index); **The complete Xbox `DATASETS.ARC` was already uploaded in split form**
+(`DATASETS.7z(1).001` and `DATASETS.7z.002`). The earlier integrity
+audit `hulk_x360_datasets_audit.json` independently confirms successful
+reassembly of a 325,534,892-byte 7z archive (SHA-256
+`d5f02054c34e564ce54a9f13f35441292c368711fff547e55ce23f3293372912`)
+and extraction of the **582,239,200-byte Xbox DATASETS.ARC** (SHA-256
+`4ee64338b1623a5011791573ebab119238517f117c5be86136369a7257dfcede`).
+It validated all 1,114 dataset index entries against
+`indexXBOX360.ind`, with no overlapping resources or out-of-bounds
+entries. That archive is **available from the owner's existing Library
+parts**, and must NOT be requested again. Any full-archive UI mapping
+should use those two parts, not merely the three pre-extracted records.
+Possible Xbox `TexStreams.arc` for texture payloads still needs
+inventory verification.
 The original user-owned installed games/discs may already contain
 all these. DO NOT request duplicate archives before checking existing
 project inputs. Lack of the files in Library is **not** proof they are
 missing from the owner's own game installations.
+
+**Source correction (2026-11-14):** The previous `full Xbox
+`Datasets.arc` beyond the three extracted resources` shortage claim was
+incorrect. The two multipart `DATASETS.7z` files and a verified complete
+reconstruction already existed before this audit. They were omitted from
+the initial Library-name search because their filenames were split
+archive pieces. No re-upload is required.
 
 ## Actual implementation plan (not completed)
 
