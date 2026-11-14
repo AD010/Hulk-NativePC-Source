@@ -205,6 +205,20 @@ bool NativeXInitialize(
                 effective_sharpness);
   }
 
+  // HULK/WIDESCREEN-GUARD: NativeX can draw a different host aspect,
+  // but only a verified guest camera/projection hook may widen the 3D
+  // view. Hulk has no such PPC camera hook yet. Never stretch the 16:9
+  // HUD, and never rewrite the game's 1280x720 output descriptors.
+  if (!candidate->profile.widens_cameras &&
+      rex::cvar::Query<bool>("native_x_renderer_fill_screen")) {
+    rex::cvar::SetFlagByName("native_x_renderer_fill_screen", "false");
+    REXLOG_WARN("[HULK/WIDESCREEN-GUARD] fill_screen disabled: Hulk USA "
+                "camera/projection hook not validated; safe 16:9 fit");
+  }
+  REXLOG_INFO("[HULK/HOST-PIXELS] NativeX physical output render scale={} "
+              "(0=auto from Vulkan swapchain); widescreen_camera_hook={}",
+              rex::cvar::Query<double>("native_x_renderer_resolution_scale"),
+              candidate->profile.widens_cameras);
   // The profile and its string storage must remain alive
   // while renderer worker threads are active.
   g_profile = std::move(candidate);
