@@ -1,6 +1,7 @@
 // Synthetic-only NativePC options write regression; no user TOML touched.
 #include "../native_port/src/native_pc_options_store.h"
 #include "../native_port/src/native_pc_bindings.h"
+#include "../native_port/src/native_resolution.h"
 
 #include <filesystem>
 #include <fstream>
@@ -34,6 +35,10 @@ int main() {
       "native_x_renderer_resolution_scale = 2.0\r\n"
       "vsync = true\r\n"
       "hulk_guest_swap_fps_cap = 0\r\n"
+      "window_width = 1280\r\n"
+      "window_height = 800\r\n"
+      "video_mode_width = 1280\r\n"
+      "video_mode_height = 720\r\n"
       "native_x_renderer_scaling = \"bilinear\"\r\n"
       "native_x_renderer_sharpness = 0.0\r\n"
       "native_x_renderer_trace = false\r\n";
@@ -57,11 +62,25 @@ int main() {
   Expect(hulk::options::IsBindingToken("MouseRight") &&
          !hulk::options::IsBindingToken("MouseWheelDown"),
          "Keyboard/mouse selector accepted an unsupported token");
+  // Host-only W/H: change both TOML keys together, never overwrite
+  // guest video_mode_width/height or xenos render-target descriptors.
+  Expect(hulk::options::SaveWindowSize(config, 2560, 1600),
+         "Native 16:10 window preset save failed");
+  Expect(!hulk::options::SaveWindowSize(config, 1234, 999),
+         "Unverified window resolution must be refused");
+  Expect(!Save(config, "window_width", "1024"),
+         "A single window-width update would split the W/H transaction");
   const auto changed = Read(config);
   Expect(changed.find("game_data_root = \"C:/Private/USA\"\r\n") != std::string::npos,
          "User data path was lost");
   Expect(changed.find("native_x_renderer_trace = false\r\n") != std::string::npos,
          "Untouched options were changed");
+  Expect(changed.find("window_width = 2560\r\n") != std::string::npos &&
+         changed.find("window_height = 1600\r\n") != std::string::npos,
+         "The original host window dimensions were not updated together");
+  Expect(changed.find("video_mode_width = 1280\r\n") != std::string::npos &&
+         changed.find("video_mode_height = 720\r\n") != std::string::npos,
+         "Saving host resolution damaged Xbox guest video-mode dimensions");
   Expect(changed.find("native_x_renderer_scaling = \"nis\"\r\n") != std::string::npos,
          "Filter TOML string was not quoted");
   Expect(changed.find("native_x_renderer_sharpness = 0.250000\r\n") != std::string::npos,
@@ -94,6 +113,28 @@ int main() {
     Expect(!Save(config, key, value), "Unsafe setting should be rejected");
     Expect(Read(config) == changed, "Unsafe setting modified user TOML");
   }
+  const auto fit_16_10 = hulk::display::FitOriginalPicture(2560, 1600);
+  Expect(fit_16_10.valid && fit_16_10.width == 2560 &&
+         fit_16_10.height == 1440 && fit_16_10.y == 80 &&
+         fit_16_10.scale == 2.0 && fit_16_10.has_bars,
+         "16:10 native 2560x1440 render/letterbox contract changed");
+  const auto fit_16_9 = hulk::display::FitOriginalPicture(3840, 2160);
+  Expect(fit_16_9.valid && fit_16_9.width == 3840 &&
+         fit_16_9.height == 2160 && fit_16_9.scale == 3.0 &&
+         !fit_16_9.has_bars,
+         "4K native 3840x2160 render-size calculation changed");
+  const auto fit_ultra = hulk::display::FitOriginalPicture(3440, 1440);
+  Expect(fit_ultra.valid && fit_ultra.width == 2560 &&
+         fit_ultra.height == 1440 && fit_ultra.x == 440 &&
+         fit_ultra.scale == 2.0 && fit_ultra.has_bars,
+         "Ultrawide should preserve safe game camera aspect until hook");
+  const auto fit_small = hulk::display::FitOriginalPicture(1024, 768);
+  Expect(fit_small.valid && fit_small.width == 1024 &&
+         fit_small.height == 576 && fit_small.y == 96 &&
+         fit_small.scale == 1.0,
+         "Below-720p NativeX must not create sub-1x guest draw targets");
+  Expect(!hulk::display::FitOriginalPicture(0, 720).valid,
+         "Zero-resolution framebuffer must fail closed");
   Write(config, "vsync = true\nvsync = false\n");
   Expect(!Save(config, "vsync", "true"), "Duplicate TOML keys must be refused");
   Expect(Read(config) == "vsync = true\nvsync = false\n",
