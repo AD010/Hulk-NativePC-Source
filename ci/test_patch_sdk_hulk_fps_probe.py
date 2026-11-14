@@ -34,6 +34,22 @@ with tempfile.TemporaryDirectory() as temp:
     assert content.count("HULK_FRAME_PROBE_V1") >= 1
     module.patch_sdk(root)
     assert content == source.read_text()
+    # Fail closed on partially applied or duplicate injected code, preserving
+    # the original bytes for forensic inspection.
+    for damaged in (
+        content.replace("std::this_thread::sleep_until(next_submit)", "/* missing pacing */"),
+        content.replace("REXCVAR_DEFINE_INT32(hulk_guest_swap_fps_cap, 0",
+                        "REXCVAR_DEFINE_INT32(hulk_guest_swap_fps_cap_missing, 0"),
+        content + '\n' + "std::this_thread::sleep_until(next_submit)" + '\n',
+    ):
+        source.write_text(damaged, encoding="utf-8")
+        try:
+            module.patch_sdk(root)
+        except ValueError as exc:
+            assert "Partial or duplicated" in str(exc)
+        else:
+            raise AssertionError("Partial VdSwap injection was silently accepted")
+        assert source.read_text() == damaged
     source.write_text(text.replace("  // All of these parameters are REQUIRED.", "  // different version"), encoding="utf-8")
     try:
         module.patch_sdk(root)
