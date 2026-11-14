@@ -36,6 +36,52 @@ class IncompleteXdkTests(unittest.TestCase):
                         out.index("if (!scan_.complete)"))
 
 
+    def test_only_revalidated_complete_draw_prefix_can_survive_bad_tail(self):
+        # This must remain a NARROW recovery. Logs 200-202 mostly fail
+        # before a GPU DRAW packet, which must continue to be discarded.
+        cpp, changed = patch(
+            "const TrackedCall* StateTracker::Leave(Call call, const uint8_t* base, bool nested) {\\n"
+            + ANCHOR)
+        self.assertTrue(changed)
+        start = cpp.index("HULK/XDK-VALIDATED-PREFIX-DRAW")
+        finish = cpp.index("if (!scan_.complete && call == Call::kPresent)")
+        guard = cpp[start:finish]
+        self.assertIn("scan_.draws == 1", guard)
+        self.assertIn("scan_.indirect == 0", guard)
+        self.assertIn("scan_.hulk_fail_depth == 0", guard)
+        self.assertIn("scan_.hulk_fail_packet == scan_.hulk_last_good_end", guard)
+        self.assertIn("(scan_.hulk_last_good_header >> 30) == 3", guard)
+        self.assertIn("hulk_last_opcode == 0x22u || hulk_last_opcode == 0x36u", guard)
+        self.assertIn("ScanPackets(base, p.scan_from, scan_.hulk_last_good_end", guard)
+        self.assertIn("hulk_validated_prefix.complete", guard)
+        self.assertIn("hulk_validated_prefix.draws == 1", guard)
+        self.assertIn("!hulk_validated_prefix.shader_loads.empty()", guard)
+        for field in ("writes", "predicated_writes", "loads",
+                      "shader_ucode", "register_order", "bin_mask", "bin_select"):
+            self.assertIn("hulk_validated_prefix." + field + " == scan_." + field, guard)
+        self.assertIn("hulk_same_shader_loads()", guard)
+        self.assertIn("last_hulk_segment_valid_ = false;", guard)
+        self.assertIn("return &last_;", guard)
+        self.assertNotIn("CaptureDraw(", guard)
+
+        def valid(draws, indirect, depth, first, last, bad, header,
+                  complete, reread_draws, has_shader, same):
+            return (draws == 1 and indirect == 0 and depth == 0 and
+                    first < last and last == bad and
+                    header >> 30 == 3 and ((header >> 8) & 0x7f) in (0x22, 0x36)
+                    and complete and reread_draws == 1 and has_shader and same)
+        packet = 0xC0003600
+        self.assertTrue(valid(1, 0, 0, 0x100, 0x120, 0x120, packet,
+                              True, 1, True, True))
+        self.assertFalse(valid(0, 0, 0, 0x100, 0x120, 0x120, packet,
+                               True, 1, True, True))
+        self.assertFalse(valid(1, 0, 0, 0x100, 0x120, 0x120, 0xC0025800,
+                               True, 1, True, True))
+        self.assertFalse(valid(1, 0, 0, 0x100, 0x120, 0x120, packet,
+                               True, 1, True, False))
+        self.assertFalse(valid(1, 0, 0, 0x100, 0x120, 0x120, packet,
+                               False, 1, True, True))
+
     def test_rejected_draw_and_present_rollback_all_bin_state(self):
         cpp = ("void StateTracker::Enter(Call call, uint32_t device, const uint8_t* base, bool nested) {\n"
                + ENTER_OLD
