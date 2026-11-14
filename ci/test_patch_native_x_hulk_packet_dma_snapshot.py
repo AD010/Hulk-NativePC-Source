@@ -90,6 +90,10 @@ int main() {
         # interval union accepts exactly the same complete captured spans.
         self.assertIn("HULK/CPU-INDEX-INTERVAL-COVERAGE", CPU_HELPER)
         self.assertIn("HULK/CPU-INDEX-SCRATCH-REUSE", CPU_HELPER)
+        self.assertIn("HULK/CPU-INDEX-DIRECT-SPAN", CPU_HELPER)
+        self.assertIn("if (intersecting == 1 && direct)", CPU_HELPER)
+        self.assertIn("processor.ProcessCapturedIndices(result, direct, base, size)", CPU_HELPER)
+        self.assertIn("if (!intersecting) return false;", CPU_HELPER)
         self.assertIn("thread_local std::vector<uint8_t> bytes;", CPU_HELPER)
         self.assertIn("bytes.resize(size);", CPU_HELPER)
         self.assertNotIn("std::vector<uint8_t> bytes(size);", CPU_HELPER)
@@ -111,9 +115,10 @@ struct Copy { uint32_t address; const uint8_t* data; uint32_t size; };
 struct Processor {
   unsigned live_reads=0, snapshot_reads=0;
   std::vector<uint8_t> consumed;
+  const uint8_t* last_input=nullptr;
   bool Process(int&) { ++live_reads; return true; }
   bool ProcessCapturedIndices(int&, const uint8_t* p, uint32_t, uint32_t n) {
-    ++snapshot_reads; consumed.assign(p,p+n); return true;
+    ++snapshot_reads; last_input=p; consumed.assign(p,p+n); return true;
   }
 };
 ''' + CPU_HELPER + r'''
@@ -154,6 +159,22 @@ int main() {
       assert(p.live_reads==old_live);
       if(full) assert(p.consumed==expected);
     }
+  // Direct owned DMA memory must bypass reconstruction without using LIVE
+  // guest bytes; disjoint extra copies cannot disable the fast path.
+  copies={{32,a,8}};
+  assert(HulkProcessIndexCopies(p,result,32,8,copies));
+  assert(p.last_input==a && p.consumed[0]==a[0]);
+  copies={{30,a,8}};
+  assert(HulkProcessIndexCopies(p,result,32,6,copies));
+  assert(p.last_input==a+2 && p.consumed[0]==a[2]);
+  copies={{32,a,8},{48,b,4}};
+  assert(HulkProcessIndexCopies(p,result,32,8,copies));
+  assert(p.last_input==a);
+  // When copies overlap, even a full span cannot bypass last-writer-wins.
+  copies={{32,a,8},{34,b,4}};
+  assert(HulkProcessIndexCopies(p,result,32,8,copies));
+  assert(p.last_input!=a);
+  assert((p.consumed==std::vector<uint8_t>{99,2,9,10,11,12,7,8}));
 }
 '''
         compiler = shutil.which('clang++') or shutil.which('g++')
