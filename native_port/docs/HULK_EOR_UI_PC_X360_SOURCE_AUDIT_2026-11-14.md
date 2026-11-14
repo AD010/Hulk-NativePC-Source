@@ -433,3 +433,101 @@ The practical lesson for Hulk is to map and patch its authentic
 `UIPage_Pause_Settings` event owners. Do not confuse an ImGui
 backend with a non-native presentation. No Xbox menu ABI has yet been
 verified by the Ghidra source script, so no game-state hook is claimed.
+
+## 2026-11-14 continued: original UI asset provenance, native rebind and mod-port parity
+
+### What the three PC restoration projects actually demonstrate
+
+The Xbox 360 Stuff Pack for **NFS Most Wanted 2005** uses a host PC
+game that already executes its engine logic. Console visual restoration
+combines converted/material-compatible artwork, shader and effect
+changes, shadows, reflections and UI fixes rather than wrapping the
+Xbox GPU. Source overview:
+https://www.pcgamingwiki.com/wiki/Need_for_Speed:_Most_Wanted
+
+**Saints Row 2 Juiced** changes the running PC game's renderer, shaders,
+camera, gamma, physics and native UI/menu behavior. Its source proves
+that in-engine mouse support, console gamma, animation fixes and native
+option pages are separate patch categories; a texture file by itself
+does not implement engine code:
+https://github.com/kobraworksmodding/Saints-Row-2-Juiced-Patch
+
+**Tony Hawk's American Wasteland ReTHAWed** shows a mod platform can
+port content and console-era graphics while retaining a functional PC
+game host. It is not a generic Xbox runtime replacement:
+https://www.pcgamingwiki.com/wiki/Tony_Hawk%27s_American_Wasteland
+
+**Action for Hulk:** maintain two technical paths without mixing formats:
+(A) complete the existing USA Xbox 360 recomp's faithful Vulkan draw
+and gameplay state; (B) use the original retail PC HULK.EXE / EoR
+engine as a candidate future platform for ports of **verified, converted**
+Xbox material/shader/texture content. Path B needs a separate actual
+PC engine executable hook/loader analysis. Merely copying Xbox
+`Textures.arc` over the PC one would misinterpret platform-specific
+data and can break textures. It is NOT currently an installed mod.
+
+### Native original UI asset reader (source committed)
+
+`native_port/src/eor_ui_asset_catalog.h/.cpp` builds on the earlier
+standalone `eor_archive` index and byte-reading API. It opens PC
+little-endian and optional Xbox big-endian indices as separately tagged
+sources; resolves original `font_clean`,
+`TXFLui_menuitems_da`, `LFXTui_*` and keyboard/mouse glyph names
+using the EoR CRC32 naming rules; checks the actual archive file,
+record size and bounds; and rechecks source/provenance when reading.
+An unknown Xbox proprietary format is **not** silently interpreted as
+DDS; DDS/PNG/BMP signatures are only reported if they occur at byte 0.
+There is still no claimed valid EoR texture deswizzler, material
+converter, GPU font painter or original pause UI widget renderer.
+
+`ci/eor_archive_native_test.cpp` now covers this source isolation,
+wrong endian pairing, genuine UI name lookups, missing resources,
+spoofed archive paths, and unknown guest texture format. The original
+20 verified cross-platform UI asset records remain listed in
+`native_port/analysis/eor_ui_original_resource_map.csv`.
+The new catalog code is linked into the CURRENT game target and
+gated by the pre-existing single manual-only MSVC Release workflow.
+
+### Native PC menu: actual keyboard and mouse settings
+
+`native_port/src/native_pc_bindings.h` cross-checks **21 actual
+`hulk_bind_*` CVar actions** with the NativePC Win32 input bridge
+and offers **50 real supported key/mouse tokens**. F10 Controls
+now contains functional dropdowns for all actions and commits changes
+directly through `rex::cvar::SetFlagByName` and the existing
+single `incredible_hulk.toml`. The independent TOML writer
+validates action and token, writes quoted strings, keeps unrelated
+settings intact, closes the config input file before Windows atomic
+replacement, and preserves UTF-8 BOM when editing the first line.
+Unknown key names, injected TOML contents and duplicate setting keys
+are rejected. The sharpen slider no longer writes to disk with every
+mouse-movement event; it saves once on release.
+
+C++ tests include single-TOML binding persistence and BOM, and
+Python source-level regression checks that the dropdown's 21 actions
+EXACTLY match the real Win32 input CVar definitions. These changes
+have **not been MSVC-built or run in a new game release**; the new
+Release gate is pending manual dispatch. F10 remains a **host ImGui
+overlay** at this point. These controls are real; their graphics
+alone are NOT the EoR original pause-menu system.
+
+### Next source-native integration blocker
+
+The original `_app_` assets already identify the
+`UIPage_Pause_Settings` / `UIPage_Pause_CameraSettings` commands,
+keyboard/mouse images and `font_clean`. To open our PC options
+from the game's original title and pause flows, first validate the
+USA guest's `UI_ActivateOptions` / `UI_OptionScreen` dispatch
+entrypoint and widget lifetime via the private Ghidra XEX analysis.
+The valid hook must preserve the original guest ABI and menu state,
+not guess a PPC target from the PC EXE's string names. Then replace
+the interim independent overlay with an adapted, original EoR
+visual renderer, adding PC actions and persistence to the same
+menu state. Continue Vulkan shader/RT repair in parallel; neither
+asset lookup nor custom menu styling fixes the existing color flashes.
+
+**Current limits:** private original resource image decoding remains
+unverified; no full Windows Release run, no screenshots, and no claim
+of restored Xbox 360 shaders, 60Hz game physics or official-quality
+native engine yet. Do not ask the user for reuploads of existing
+PC/Xbox `Datasets`, `Textures`, `Fonts`, `Objects` archives.
