@@ -3,6 +3,7 @@
 // No modifications to gameplay input maps, GPU render hooks or guest assets.
 #include "pc_menu.h"
 #include "native_pc_options_store.h"
+#include "native_pc_bindings.h"
 #include <rex/cvar.h>
 #include <rex/ui/imgui_dialog.h>
 #include <rex/ui/imgui_drawer.h>
@@ -209,9 +210,54 @@ class PcMenu final : public rex::ui::ImGuiDialog {
       ImGui::Text("Pause / Start: %s", Bind("hulk_bind_start").c_str());
       ImGui::Text("Walk: %s", Bind("hulk_bind_walk").c_str());
           ImGui::Separator();
-          ImGui::TextWrapped(
-              "Bindings shown are the active PC CVar values. Full key "
-              "rebinding from this screen is not implemented yet.");
+          ImGui::TextUnformatted("Keyboard / Mouse bindings");
+          ImGui::TextWrapped("Choose a supported key for each action."
+                             " Changes apply immediately and are saved.");
+          // HULK/NATIVE-REMAP: source-supported actions only. The token
+          // list is shared with the independent native TOML writer,
+          // so the UI cannot claim to bind unsupported virtual keys.
+          static constexpr std::pair<const char*, const char*>
+              kRebindActions[] = {
+              {"Move forward", "hulk_bind_forward"},
+              {"Move backward", "hulk_bind_backward"},
+              {"Move left", "hulk_bind_left"},
+              {"Move right", "hulk_bind_right"},
+              {"Jump / Confirm", "hulk_bind_confirm"},
+              {"Attack", "hulk_bind_primary"},
+              {"Secondary attack", "hulk_bind_secondary"},
+              {"Back / Cancel", "hulk_bind_back"},
+              {"Alternate back", "hulk_bind_alt_back"},
+              {"Left ability", "hulk_bind_lb"},
+              {"Right ability", "hulk_bind_rb"},
+              {"Left trigger", "hulk_bind_lt"},
+              {"Right trigger", "hulk_bind_rt"},
+              {"Pause", "hulk_bind_start"},
+              {"Walk", "hulk_bind_walk"},
+              {"Menu up", "hulk_bind_menu_up"},
+              {"Menu down", "hulk_bind_menu_down"},
+              {"Menu left", "hulk_bind_menu_left"},
+              {"Menu right", "hulk_bind_menu_right"},
+              {"Select / Back button", "hulk_bind_select"},
+              {"Right stick click", "hulk_bind_rstick_click"},
+          };
+          for (const auto& [label, key] : kRebindActions) {
+            ImGui::PushID(key);
+            const std::string current = Bind(key);
+            if (ImGui::BeginCombo(label, current.c_str())) {
+              for (auto token : options::kBindingTokens) {
+                const bool chosen = token == current;
+                const std::string supported(token);
+                if (ImGui::Selectable(supported.c_str(), chosen)) {
+                  Change(key, supported);
+                }
+                if (chosen) ImGui::SetItemDefaultFocus();
+              }
+              ImGui::EndCombo();
+            }
+            ImGui::PopID();
+          }
+          ImGui::TextDisabled("Mouse camera and movement simulation are"
+                              " still being verified separately.");
           break;
         }
         case 5: {
