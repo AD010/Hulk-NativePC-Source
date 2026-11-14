@@ -118,6 +118,16 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Original EoR font profile reader failed MSVC compile' }
           & $fontTest
           if ($LASTEXITCODE -ne 0) { throw 'Original EoR PC/Xbox font profile validation failed' }
+          # Host-native EoR draw contract, strictly independent of PM4 and
+          # the 720p guest surface layout. Synthetic, no copyrighted payload.
+          $frameTest = Join-Path $env:RUNNER_TEMP 'hulk-eor-native-frame-test.exe'
+          $frameArgs = @('/nologo', '/std:c++20', '/EHsc', '/W4', '/WX', '/utf-8',
+                         "/Fe:$frameTest", 'native_port/src/eor_native_frame.cpp',
+                         'ci/eor_native_frame_test.cpp')
+          & cl.exe @frameArgs
+          if ($LASTEXITCODE -ne 0) { throw 'EoR host-native frame contract failed MSVC compilation' }
+          & $frameTest
+          if ($LASTEXITCODE -ne 0) { throw 'EoR native 2560x1600 / 16:9 fallback frame test failed' }
           # Verify user settings can be saved in the ONE existing TOML,
           # with no fake F4 Save, duplicate keys or unwanted developer files.
           $optionTest = Join-Path $env:RUNNER_TEMP 'hulk-native-settings-test.exe'
