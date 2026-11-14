@@ -84,6 +84,57 @@ def reserved_pm4_header(word: int) -> str | None:
     return None
 
 
+# HULK/VS-FAMILY-203: correlate a failed vertex analysis with the next
+# authentic IM_LOAD source log. Raw game microcode is never returned or
+# written to JSON; only opcode-based structure and hash identifiers remain.
+VERTEX_FAILURE = re.compile(
+    r"vertex shader ([0-9A-Fa-f]{16}) \((\d+) dwords\): analysis failed: (.+)$")
+VERTEX_IMMEDIATE = re.compile(
+    r"the vertex program came from (IM_LOAD(?:_IMMEDIATE)?) at "
+    r"(0x[0-9A-Fa-f]+) \(packet (0x[0-9A-Fa-f]+)\) in "
+    r"(\w+): ((?:[0-9A-Fa-f]{8}(?:\s+|$))+)")
+EXEC_CF_OPS = {1, 2, 3, 4, 5, 6}
+# Loops, calls, jumps and unrecognized CF must be inspected manually.
+STATIC_CF_OPS = {0, 12}
+
+def shader_static_cf(words: list[int]) -> tuple[tuple[int, ...], tuple[tuple[int, int], ...], int] | None:
+    """Trusted direct EXEC word indices only; return None for dynamic CF."""
+    if not words or len(words) % 3 or len(words) > 65536:
+        return None
+    pairs = len(words) // 3
+    bound = pairs
+    def decode(i: int) -> tuple[tuple[int, int], tuple[int, int]]:
+        a, b, d = words[3*i:3*i+3]
+        return ((a, b & 0xFFFF),
+                (((b >> 16) | ((d & 0xFFFF) << 16)), d >> 16))
+    i = 0
+    while i < bound:
+        for word0, word1 in decode(i):
+            opcode = (word1 >> 12) & 15
+            if opcode in EXEC_CF_OPS:
+                bound = min(bound, word0 & 0xFFF)
+            elif opcode not in STATIC_CF_OPS:
+                return None
+        i += 1
+    if bound <= 0:
+        return None
+    used = set(range(bound * 3))
+    execs = []
+    for i in range(bound):
+        for word0, word1 in decode(i):
+            if ((word1 >> 12) & 15) in EXEC_CF_OPS:
+                start, count = word0 & 0xFFF, (word0 >> 12) & 7
+                if start > pairs or count > pairs - start:
+                    return None
+                used.update(range(start * 3, (start + count) * 3))
+                execs.append((start, count))
+    return tuple(sorted(used)), tuple(execs), bound
+
+RESOLVE_STATS = re.compile(r"(\d+) clears, (\d+) resolves \((\d+) skipped\)")
+GPU_COST = re.compile(r"GPU ([\d.]+) ms average, ([\d.]+) ms max")
+BUFFER_COST = re.compile(r"per frame, ([\d.]+) buffer copies average, (\d+) max; guest memory (\d+) KB copied")
+CPU_COST = re.compile(r"renderer CPU ([\d.]+) ms per frame; waiting for the GPU ([\d.]+) ms per frame")
+
 FRAME_STATS = re.compile(r"\[native_x_renderer\] renderer: frame (\d+):\s*(.*)")
 DRAWS = re.compile(r"(\d+) draw calls, (\d+) drawn, (\d+) without targets, (\d+) failed")
 FPS = re.compile(r"frame interval\s+([\d.]+) ms average,\s+([\d.]+) ms max")
@@ -111,7 +162,21 @@ def analyze(text: str) -> dict:
     frames_seen: set[int] = set()
     scene_resolves: Counter[tuple[int, ...]] = Counter()
     detail_block = None
+    shader_failure_pending = None
+    shader_family_inputs = []
     for line in text.splitlines():
+        failure = VERTEX_FAILURE.search(line)
+        if failure:
+            shader_failure_pending = (failure[1].lower(), int(failure[2]), failure[3])
+        elif shader_failure_pending is not None:
+            origin = VERTEX_IMMEDIATE.search(line)
+            if origin:
+                words = [int(w, 16) for w in origin[5].split()]
+                if len(words) == shader_failure_pending[1]:
+                    shader_family_inputs.append((
+                        shader_failure_pending[0], words, origin[1],
+                        origin[2], origin[3], origin[4]))
+            shader_failure_pending = None
         if line.lstrip().startswith("[") or "verify:" in line:
             detail_block = None
         scene = SCENE_RESOLVE.search(line)
@@ -229,6 +294,25 @@ def analyze(text: str) -> dict:
             continue
         latest_frame["frame"] = frame
         rest = match[2]
+        resolves = RESOLVE_STATS.search(rest)
+        if resolves:
+            latest_frame["resolve_stats"] = {
+                "clears": int(resolves[1]), "resolves": int(resolves[2]),
+                "skipped": int(resolves[3]),
+            }
+        gpu = GPU_COST.search(rest)
+        if gpu:
+            latest_frame["gpu_ms"] = {"average": float(gpu[1]), "max": float(gpu[2])}
+        copies = BUFFER_COST.search(rest)
+        if copies:
+            latest_frame["buffer_copies_per_frame"] = {
+                "average": float(copies[1]), "max": int(copies[2]),
+                "guest_kb_copied": int(copies[3]),
+            }
+        cpu = CPU_COST.search(rest)
+        if cpu:
+            latest_frame["render_cpu_ms"] = float(cpu[1])
+            latest_frame["gpu_wait_ms"] = float(cpu[2])
         draws = DRAWS.search(rest)
         if draws:
             latest_frame["draws"] = {
@@ -242,7 +326,41 @@ def analyze(text: str) -> dict:
         if pipelines:
             latest_frame["skipped_shader_translation"] = int(pipelines[1])
             latest_frame["skipped_pipeline_compile"] = int(pipelines[2])
+    # Group shader failures by static, decoded CF and directly executed
+    # instruction words. Never publish or persist the shader bytes themselves.
+    groups: dict[tuple, list[tuple[str, list[int], str, str, str, str]]] = {}
+    unclassified = 0
+    for item in shader_family_inputs:
+        shader_hash, words, origin_kind, address, packet, call = item
+        decoded = shader_static_cf(words)
+        if decoded is None:
+            unclassified += 1
+            continue
+        used, execs, bound = decoded
+        key = (len(words), bound, execs, used, tuple(words[i] for i in used))
+        groups.setdefault(key, []).append(item)
+    shader_families = []
+    for key, members in groups.items():
+        size, bound, execs, used, _ = key
+        differing = [i for i in range(size)
+                     if any(m[1][i] != members[0][1][i] for m in members[1:])]
+        shader_families.append({
+            "word_count": size,
+            "failure_count": len(members),
+            "cf_pair_count": bound,
+            "direct_exec_ranges": [list(r) for r in execs],
+            "executed_word_count_including_cf": len(used),
+            "varying_word_indices": differing,
+            "varying_words_outside_direct_exec": all(i not in used for i in differing),
+            "shader_hashes": [m[0] for m in members],
+            "load_kinds": sorted(set(m[2] for m in members)),
+            "source_calls": sorted(set(m[5] for m in members)),
+            "note": "Direct-CF-only classification; not proof of correct translator semantics.",
+        })
+    shader_families.sort(key=lambda x: (-x["failure_count"], x["word_count"]))
     return {
+        "shader_analysis_families": shader_families,
+        "shader_failures_without_static_cf": unclassified,
         "issue_messages_observed": {key: counts[key] for key in ISSUES},
         "pm4_miss_samples": dict(sorted(rt_misses.items())),
         "fetch_writer_samples": dict(sorted(writers.items())),
@@ -282,6 +400,9 @@ def analyze(text: str) -> dict:
             "GPU verifier compares selected state only; a 100% match does not prove shader semantics or absence of flicker.",
             "Malformed last-good header counts are sampled warning evidence, not complete rejected-packet totals.",
             "EVENT_WRITE_SHD before rejected XDK tail is provenance only: it is not a verified end-of-call marker, recovery delimiter, or permission to replay partial draws.",
+            "A common static shader CF prefix does not identify the access-violation instruction or prove shader correctness.",
+            "GPU/Resolve/copy timings and draws are frame-window samples, not the cost of a single building collapse.",
+            "Skipping resolves just because their counts are high can break the game's original post-processing.",
             "CI build success and log improvements cannot establish pixel-perfect GPU output.",
         ],
     }
