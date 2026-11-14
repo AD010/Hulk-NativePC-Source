@@ -32,6 +32,10 @@ class HulkStreamPatchTests(unittest.TestCase):
         self.assertIn("const bool single_direct_draw = scan_.complete &&", cpp)
         self.assertIn("if (scan_.complete) {", cpp)
         self.assertIn("rejected incomplete PM4 state before Draw/Gather", cpp)
+        # No GPU behavior change: only reduce excessive INFO lines in log203.
+        self.assertIn("HULK/GAP-STREAM-LOG-BUDGET-203", cpp)
+        self.assertIn("before / 10000 != (before + emitted) / 10000", cpp)
+        self.assertIn("++emitted;", cpp)
         self.assertIn("if (single_direct_draw && keep_record_", cpp)
 
 
