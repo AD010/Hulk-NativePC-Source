@@ -82,3 +82,14 @@ Date: 2026-11-14, observations at 11:11–11:15 local Ukraine.
 - Do not trigger more Windows/Actions builds without the user's command;
   do not ask for repetitive manual tests or claim an official-quality port
   from a compiler-success status.
+
+## Main D140 integration build (user-authorized, 2026-11-14)
+
+Merged migration branch via PR #1, squash main `c811a20d72bd5d1c526df1fc40bdb6cb9991f783`.
+The existing single Windows x64 Release workflow now gates NativeX D140 source
+adaptation and FPS/UI tests before private original XEX download. This audit
+entry is the one-shot user-authorized trigger for a new versioned ZIP;
+previous #95/#106 private assets are preserved. A successful CI does NOT
+prove the observed color flicker, sign textures, 60+ FPS physics or TU1
+water behavior correct. It proves only the named compilation, package,
+and staged source tests.
