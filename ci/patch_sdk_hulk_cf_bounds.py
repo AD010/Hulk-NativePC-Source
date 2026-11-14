@@ -27,18 +27,45 @@ GUARD = """  // HULK/CF-BOUNDS: Xenos EXEC addresses index 3-dword instructions.
 """
 REPLACEMENT = GUARD + ANCHOR
 
+# The optional CF memory-export successor traversal previously indexed an
+# arbitrary guest control-flow address before checking whether its target was
+# one of the shader's decoded CF instructions. Never dereference a bogus
+# successor or wrap its index. Valid original CF control flow is unchanged.
+CF_SUCCESSOR_OLD = """          uint32_t successor_cf_index = successor_stack.back();
+          successor_stack.pop_back();
+
+          ControlFlowMemExportInfo& successor_memexport_info ="""
+CF_SUCCESSOR_GUARD = """          uint32_t successor_cf_index = successor_stack.back();
+          successor_stack.pop_back();
+          // HULK/CF-SUCCESSOR-BOUNDS: guest shader CF jump targets may be
+          // invalid. The old walker dereferenced this index before checking.
+          // Reject unknown targets; never fabricate a replacement branch.
+          if (successor_cf_index >= cf_memexport_info_.size() ||
+              (successor_cf_index >> 1) >= cf_pair_index_bound_) {
+            throw std::out_of_range(
+                "Xenos shader CF successor outside decoded control flow");
+          }
+
+          ControlFlowMemExportInfo& successor_memexport_info ="""
+
 def patch_text(source: str) -> tuple[str, bool]:
-    ready = INCLUDE_NEW in source and REPLACEMENT in source
+    ready = (INCLUDE_NEW in source and REPLACEMENT in source and
+             CF_SUCCESSOR_GUARD in source)
     if ready:
         return source, False
-    if "HULK/CF-BOUNDS" in source or REPLACEMENT in source or INCLUDE_NEW in source:
+    if ("HULK/CF-BOUNDS" in source or "HULK/CF-SUCCESSOR-BOUNDS" in source or
+            REPLACEMENT in source or CF_SUCCESSOR_GUARD in source or
+            INCLUDE_NEW in source):
         raise ValueError("Partial Hulk Xenos CF bounds guard")
-    if source.count(INCLUDE_OLD) != 1 or source.count(ANCHOR) != 1:
-        raise ValueError("Xenos shader SDK translator EXEC anchors changed")
-    if "void Shader::GatherExecInformation(" not in source:
-        raise ValueError("Guard must be in SDK shader EXEC instruction analysis")
+    if (source.count(INCLUDE_OLD) != 1 or source.count(ANCHOR) != 1 or
+            source.count(CF_SUCCESSOR_OLD) != 1):
+        raise ValueError("Xenos shader SDK EXEC/successor analysis anchors changed")
+    if ("void Shader::GatherExecInformation(" not in source or
+            "if (!cf_memexport_info_.empty()) {" not in source):
+        raise ValueError("Guards must be in SDK shader EXEC and CF successor analysis")
     return (source.replace(INCLUDE_OLD, INCLUDE_NEW, 1)
-                  .replace(ANCHOR, REPLACEMENT, 1), True)
+                  .replace(ANCHOR, REPLACEMENT, 1)
+                  .replace(CF_SUCCESSOR_OLD, CF_SUCCESSOR_GUARD, 1)), True
 
 def main() -> None:
     if len(sys.argv) != 2:
