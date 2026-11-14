@@ -71,14 +71,20 @@ jobs:
         run: |
           python ci/test_native_x_patch_chain.py
           if ($LASTEXITCODE -ne 0) { throw 'NativeX full patch chain preflight FAILED. No private game data used.' }
-      - name: Verify production NativeX D127-D135 complete source adaptation
+      - name: Verify NativeX D140 complete source adaptation and regression safety
         shell: pwsh
         run: |
-          python ci/test_native_x_patch_chain.py --candidate
+          python ci/test_native_x_patch_chain.py --d140
           if ($LASTEXITCODE -ne 0) {
-            throw 'Pinned NativeX 919371b5 source patch integration FAILED; refusing private Windows build.'
+            throw 'NativeX D140 fa19ea85 full source patch integration FAILED; refusing private Windows build.'
           }
-          Write-Host '[HULK/UPGRADE] 43 real source adaptation steps passed on production NativeX 919371b5.'
+          python ci/test_patch_sdk_hulk_fps_probe.py
+          if ($LASTEXITCODE -ne 0) { throw 'Hulk VdSwap cvar test failed' }
+          python ci/test_hulk_us_gpu_defaults.py
+          if ($LASTEXITCODE -ne 0) { throw 'USA game configuration test failed' }
+          python ci/test_hulk_pc_menu.py
+          if ($LASTEXITCODE -ne 0) { throw 'Native PC menu regression failed' }
+          Write-Host '[HULK/D140] Full source adaptation and native performance controls verified.'
       - name: Get original input ONLY from private Hulk release
         shell: pwsh
         env:
