@@ -171,6 +171,40 @@ bool NativeXInitialize(
   }
   REXLOG_INFO("[HULK/PM4] Full setter PM4 gap capture enforced (lean OFF)");
 
+  // HULK/EFFECTIVE-QUALITY-203: the owner log203 ran with scaling="smaa",
+  // 16x AF and full CAS despite the shipped TOML asking for bilinear, 8x
+  // and no CAS. A pre-existing user settings override may be active.
+  // Only repair a renderer-invalid filter; preserve valid user choices.
+  const std::string requested_scaling =
+      rex::cvar::Query<std::string>("native_x_renderer_scaling");
+  if (requested_scaling != "bilinear" && requested_scaling != "fsr" &&
+      requested_scaling != "nis") {
+    REXLOG_WARN("[HULK/QUALITY-203] Unsupported presentation scaling '{}' "
+                "(SMAA is antialiasing, not a scaling filter); using bilinear",
+                requested_scaling);
+    rex::cvar::SetFlagByName("native_x_renderer_scaling", "bilinear");
+  }
+  const auto effective_scaling =
+      rex::cvar::Query<std::string>("native_x_renderer_scaling");
+  const double effective_sharpness =
+      rex::cvar::Query<double>("native_x_renderer_sharpness");
+  const int32_t effective_af =
+      rex::cvar::Query<int32_t>("anisotropic_override");
+  const int32_t effective_upload_ahead =
+      rex::cvar::Query<int32_t>("native_x_renderer_upload_ahead");
+  REXLOG_INFO("[HULK/QUALITY-203] effective scaling={} sharpness={:.2f} "
+              "AF_override={} upload_ahead={} scene_pipeline_wait={} "
+              "mip_probe={}",
+              effective_scaling, effective_sharpness, effective_af,
+              effective_upload_ahead,
+              rex::cvar::Query<bool>("native_x_renderer_hulk_wait_scene_pipelines"),
+              rex::cvar::Query<bool>("native_x_renderer_hulk_mip_probe"));
+  if (effective_scaling == "bilinear" && effective_sharpness > 0.5) {
+    REXLOG_WARN("[HULK/QUALITY-203] Strong full-screen CAS sharpening={} "
+                "can amplify edge ringing; the packaged default is 0.0",
+                effective_sharpness);
+  }
+
   // The profile and its string storage must remain alive
   // while renderer worker threads are active.
   g_profile = std::move(candidate);
