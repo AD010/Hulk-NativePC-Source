@@ -55,10 +55,33 @@ PATCH = """  // HULK/INCOMPLETE-XDK-DRAW-GUARD: a truncated or malformed PM4 cal
       // Do not inspect, synthesize or replay any word after last_good_end.
       ScanPackets(base, p.scan_from, scan_.hulk_last_good_end,
                   hulk_validated_prefix, 0, false, true);
+      // The ring may be recycled between first scan and re-scan. Accept
+      // only byte-for-byte equivalent decoded register and shader data.
+      const auto hulk_same_shader_loads = [&]() -> bool {
+        if (scan_.shader_loads.size() != hulk_validated_prefix.shader_loads.size())
+          return false;
+        for (size_t i = 0; i < scan_.shader_loads.size(); ++i) {
+          const auto& a = scan_.shader_loads[i];
+          const auto& b = hulk_validated_prefix.shader_loads[i];
+          if (a.type != b.type || a.address != b.address ||
+              a.dwords != b.dwords || a.packet != b.packet ||
+              a.immediate != b.immediate || a.ucode_offset != b.ucode_offset)
+            return false;
+        }
+        return true;
+      };
       if (hulk_validated_prefix.complete &&
           hulk_validated_prefix.draws == 1 &&
           hulk_validated_prefix.indirect == 0 &&
-          !hulk_validated_prefix.shader_loads.empty()) {
+          !hulk_validated_prefix.shader_loads.empty() &&
+          hulk_validated_prefix.writes == scan_.writes &&
+          hulk_validated_prefix.predicated_writes == scan_.predicated_writes &&
+          hulk_validated_prefix.loads == scan_.loads &&
+          hulk_validated_prefix.shader_ucode == scan_.shader_ucode &&
+          hulk_validated_prefix.register_order == scan_.register_order &&
+          hulk_validated_prefix.bin_mask == scan_.bin_mask &&
+          hulk_validated_prefix.bin_select == scan_.bin_select &&
+          hulk_same_shader_loads()) {
         scan_ = std::move(hulk_validated_prefix);
         Gather(p, call, draw, base);
         last_hulk_segment_valid_ = false;
