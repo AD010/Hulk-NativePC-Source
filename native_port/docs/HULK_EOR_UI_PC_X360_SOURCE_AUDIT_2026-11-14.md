@@ -531,3 +531,108 @@ unverified; no full Windows Release run, no screenshots, and no claim
 of restored Xbox 360 shaders, 60Hz game physics or official-quality
 native engine yet. Do not ask the user for reuploads of existing
 PC/Xbox `Datasets`, `Textures`, `Fonts`, `Objects` archives.
+
+## 2026-11-14 — native physical-resolution, aspect and GPU-surface safety pass
+
+### Resolved source-level behavior
+
+The D140 NativeXRenderer source (`ElGuslml/NativeXRenderer` SHA
+`fa19ea85fec5c7f7f8a2df82d6c4a86548817b52`) calculates its
+scale from the *actual Vulkan swapchain dimensions* when the CVar
+`native_x_renderer_resolution_scale` is **0.0**. Hulk previously
+fixed the scale at 2.0; its shipped TOML now defaults to **0.0**.
+This is host rasterization at computed real pixels, **not** Xenia's
+after-the-fact guest 720p upscale. The existing guest profile
+`output_width=1280` / `output_height=720` and
+`video_mode_width=1280` / `video_mode_height=720` remain untouched
+to protect guest XDK surface/PM4 storage calculations.
+
+The original retail Hulk 2008 PC executable is documented as
+**Vert-** at wider aspect ratios; another widescreen image or a
+different Vulkan output is not a reliable camera/FOV fix:
+https://www.pcgamingwiki.com/wiki/The_Incredible_Hulk_%282008%29
+
+NativeX supports `Profile::widens_cameras` and per-axis host scaling
+only **after the game hooks its actual camera/projection and HUD
+lifetime**. No verified Hulk USA hook exists. The shipped config sets
+`native_x_renderer_fill_screen=false`,
+`native_x_renderer_aspect=0.0`, and the host startup rejects any
+unverified widescreen fill request, preserving 16:9 composition
+within 4:3, 16:10 and ultrawide physical swapchains.
+
+`native_port/src/native_resolution.h` is a standalone native C++20
+screen-fit / host-raster helper, not an Xbox emulation upscaler. F10
+Display now reports the physical framebuffer dimensions available to
+ImGui, actual 16:9 fit rectangle and bar thickness; it includes
+11 host-window presets (4:3, 16:9, 16:10, 21:9-like, 32:9), plus a
+deferred fullscreen preference. Window-size presets are **windowed
+logical dimensions**, which can differ from physical pixels on
+a 175%-DPI Windows desktop. Fullscreen uses the desktop output.
+
+`native_pc_options_store::SaveWindowSize` saves the **two host-only**
+`window_width` / `window_height` values as a single atomic edit
+of the one original `incredible_hulk.toml`, not through the SDK's
+`resolution` CVar, which would also modify guest video-mode fields.
+The F10 Graphics page can choose Vulkan physical-pixel Auto, 1x or
+2x at next launch, without destructive runtime swapchain resets.
+The existing C++20 settings test covers sample outputs:
+
+| Host output | Physical scene FIT | Safe presentation |
+|---|---|---|
+| 2560x1600 16:10 | 2560x1440 | 80px top/bottom |
+| 1920x1200 16:10 | 1920x1080 | 60px top/bottom |
+| 3840x2160 16:9 | 3840x2160 | no bars |
+| 3440x1440 ultrawide | 2560x1440 | 440px left/right |
+| 1024x768 4:3 | render at >=1280x720 | 1024x576 with 96px top/bottom |
+
+### What log203 ACTUALLY establishes about pixel loss
+
+The original user-supplied `incredible_hulk_203.log` contains:
+
+- `[HULK/SCENE-RESOLVE] #1` guest 640x360, 4xMSAA,
+  **host source 2560x1440 / destination 2560x1440**;
+- `[HULK/RESOLVE-CALLER] kind=output #1` 1280x720
+  guest to 1280x720 guest, **host 2560x1440 to 2560x1440**;
+- `[HULK/FRAMEPATH] present` **2560x1440**
+  picture to 2560x1600 swapchain, rectangle
+  **(0,80 2560x1440)**.
+
+These observations **do not support** a categorical claim that this
+particular main 3D scene resolve is being reduced to 720p. They are
+consistent with native host pixels already working in one frame path.
+They do NOT prove all intermediate effects/mip levels/textures retain
+native resolution, or that signs, color flashes, shader translation,
+geometry, 4x-MSAA artifacts or 60Hz physics are fixed. A fixed Auto
+scale merely adapts to other host resolutions; at the owner's
+2560x1600 display the original forced 2x already generated a
+2560x1440 host scene, as the log establishes.
+
+### Concrete invalid Vulkan texture safety repair
+
+The original `GuestTextures::GetMaxHostTextureWidthHeight`
+(D140 `src/guest_textures.cpp`) returns **16384** for host 2D
+and **2048** for 3D. Our previous Hulk descriptor guard allowed
+32768 regardless of texture dimension: impossible 2D and 3D
+dimensions could reach `IRenderDevice::CreateTexture`. The patch
+`ci/patch_native_x_hulk_texture_resource_guard.py` now uses the
+renderer class's **actual source-defined dimension-specific limit**
+and rejects impossible guest texture fetches before Vulkan
+allocation. It preserves existing mip, depth, cube aspect and
+format guards. The corresponding source-only tests now require 2D
+32768 rejection, 2D 16384 acceptance, 3D 2048 acceptance and
+3D 4096 rejection. This prevents one proven invalid allocation
+path, **not** the unresolved origin of corrupted PM4 fetches.
+
+### Remaining runtime proof gates
+
+- Color flashes, stale/ambiguous RT/depth bindings, malformed 27-dword
+  EXEC shaders, texturing/LOD quality and GPU time must be diagnosed
+  using real frame captures; do not skip original Resolve or draw
+  commands on speculative grounds.
+- Hulk USA `UI_ActivateOptions` / `UI_OptionScreen` and
+  `UIPage_Pause_Settings` callback addresses/ABIs remain to
+  be confirmed on the actual AOT PPC/XEX before replacing F10.
+- Original EoR Fonts/Textures need real payload decoding; mapping
+  original hashes is not equivalent to GPU-ready UI art.
+- No new Windows Release, runtime test or ZIP was created for
+  these source changes. The single workflow remains manual-only.
