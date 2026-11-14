@@ -87,12 +87,29 @@ private USA original input in CI; Xbox `_app_`, `_engine_`,
 `OBJECTS.ARC`, `QUICKDAT.ARC`, `QDMETADA.ARC`,
 `PCLEFFEC.ARC`, `SHADEREF.ARC` plus earlier PPC diagnostics.
 
-**Not individually present in the Library inventory, though referenced
-by the indexes:** `Fonts.arc` from PC and Xbox (both indexes each
-declare one Font resource); `Textures.arc` for PC and Xbox
-(index entries: 1,365 vs 6,669); PC `Objects.arc` (the uploaded
-`OBJECTS.ARC` length corresponds to the Xbox index, not the PC
-index); **The complete Xbox `DATASETS.ARC` was already uploaded in split form**
+**Still not individually supplied for the PC build:** PC
+`Fonts.arc` and PC `Textures.arc` (the PC index declares one font
+and 1,365 textures), and PC `Objects.arc`. The Xbox
+`OBJECTS.ARC` already provided matches the Xbox archive inventory.
+
+**New Xbox 360 UI source archives uploaded in the current conversation
+on 2026-11-14 (do NOT ask for them again):**
+- `FONTS.ARC`, 136,928 bytes; Xbox index: 1 font resource.
+- `TEXTURES.ARC`, 351,883,360 bytes; Xbox index: 6,669 textures.
+- `TEXSTREA.7z.001`, 471,859,200 bytes and `TEXSTREA.7z.002`,
+  252,506,863 bytes; Xbox index: 5,836 TexStreams resource entries.
+
+The above file lengths are confirmed conversation attachment metadata.
+**Their raw archive bytes, integrity, 7z unpacking and 6,669+5,836
+resource payloads have not yet been verified programmatically.** At
+the time of this update the local binary-inspection runtime returned
+a tool error; binary text extraction also cannot validate the format.
+Do not fabricate SHA-256, read results or claim all glyphs were
+extracted. Work from the uploaded files when the runtime is available.
+The large TexStreams upload must be checked as a two-part archive
+without uploading copyrighted resource bytes to public GitHub.
+
+**The complete Xbox `DATASETS.ARC` was already uploaded in split form**
 (`DATASETS.7z(1).001` and `DATASETS.7z.002`). The earlier integrity
 audit `hulk_x360_datasets_audit.json` independently confirms successful
 reassembly of a 325,534,892-byte 7z archive (SHA-256
@@ -104,12 +121,14 @@ It validated all 1,114 dataset index entries against
 entries. That archive is **available from the owner's existing Library
 parts**, and must NOT be requested again. Any full-archive UI mapping
 should use those two parts, not merely the three pre-extracted records.
-Possible Xbox `TexStreams.arc` for texture payloads still needs
-inventory verification.
-The original user-owned installed games/discs may already contain
-all these. DO NOT request duplicate archives before checking existing
-project inputs. Lack of the files in Library is **not** proof they are
-missing from the owner's own game installations.
+The uploaded Xbox font, texture and texture-stream archives now
+cover the archive *categories* needed for reconstructing authentic
+pause-menu typography, artwork and prompt glyphs. The resource bindings
+from the original UI pages still need to be reconstructed and verified
+against actual Xbox index offsets and decoded bytes. Do not conflate a
+file being supplied with its contents being fully inspected.
+The owner's original installed games may also contain additional data;
+do not ask again for these exact uploaded Xbox files.
 
 **Source correction (2026-11-14):** The previous `full Xbox
 `Datasets.arc` beyond the three extracted resources` shortage claim was
