@@ -59,11 +59,13 @@ inline FitResult FitOriginalPicture(uint32_t output_w, uint32_t output_h,
   // dimensions remain fixed to keep render-target/XDK descriptors valid.
   const double horizontal = static_cast<double>(output_w) / guest_w;
   const double vertical = static_cast<double>(output_h) / guest_h;
-  r.scale = std::min(horizontal, vertical);
-  r.width = std::min(output_w,
-                     static_cast<uint32_t>(guest_w * r.scale));
-  r.height = std::min(output_h,
-                      static_cast<uint32_t>(guest_h * r.scale));
+  // NativeX does not render at less than 1 guest pixel per host pixel.
+  // The presentation blit may downscale onto a *smaller* monitor, but
+  // the actual 3D draw-target scale remains >= 1.
+  const double fit = std::min(horizontal, vertical);
+  r.scale = std::max(1.0, fit);
+  r.width = std::min(output_w, static_cast<uint32_t>(guest_w * fit));
+  r.height = std::min(output_h, static_cast<uint32_t>(guest_h * fit));
   r.x = (output_w - r.width) / 2;
   r.y = (output_h - r.height) / 2;
   r.has_bars = r.width != output_w || r.height != output_h;
