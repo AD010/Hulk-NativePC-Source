@@ -2,6 +2,7 @@
 // The original 360 menu UI is still console art; this PC menu is independent.
 // No modifications to gameplay input maps, GPU render hooks or guest assets.
 #include "pc_menu.h"
+#include "native_pc_options_store.h"
 #include <rex/cvar.h>
 #include <rex/ui/imgui_dialog.h>
 #include <rex/ui/imgui_drawer.h>
@@ -9,7 +10,9 @@
 #include <rex/logging.h>
 #include <imgui.h>
 #include <atomic>
+#include <filesystem>
 #include <functional>
+#include <optional>
 #include <string>
 #include <utility>
 
@@ -28,8 +31,10 @@ std::string Bind(const char* name) {
 class PcMenu final : public rex::ui::ImGuiDialog {
  public:
   PcMenu(rex::ui::ImGuiDrawer* drawer, rex::ui::Window* window,
+         const std::filesystem::path& existing_config,
          std::function<void()> exit)
-      : ImGuiDialog(drawer), on_exit_(std::move(exit)) {
+      : ImGuiDialog(drawer), config_(existing_config),
+        on_exit_(std::move(exit)) {
     game_window = window;
   }
   ~PcMenu() override {
@@ -84,40 +89,40 @@ class PcMenu final : public rex::ui::ImGuiDialog {
         ImGui::Text("Guest FPS limit: %d", guest_fps_limit);
       }
       if (ImGui::Button("30 FPS (console physics)")) {
-        (void)rex::cvar::SetFlagByName("hulk_guest_swap_fps_cap", "30");
+        Change("hulk_guest_swap_fps_cap", "30");
       }
       ImGui::SameLine();
       if (ImGui::Button("60 FPS (experimental)")) {
-        (void)rex::cvar::SetFlagByName("hulk_guest_swap_fps_cap", "60");
+        Change("hulk_guest_swap_fps_cap", "60");
       }
       // HULK/FPS-CHOICES: the guest frame limiter is separate from Vulkan
       // presentation. Do NOT alter guest clock / physics timestep here:
       // the game's PPC simulation still needs a verified 30Hz decoupling fix.
       ImGui::TextUnformatted("Higher frame rates (experimental physics)");
       if (ImGui::Button("90 FPS")) {
-        (void)rex::cvar::SetFlagByName("hulk_guest_swap_fps_cap", "90");
+        Change("hulk_guest_swap_fps_cap", "90");
       }
       ImGui::SameLine();
       if (ImGui::Button("120 FPS")) {
-        (void)rex::cvar::SetFlagByName("hulk_guest_swap_fps_cap", "120");
+        Change("hulk_guest_swap_fps_cap", "120");
       }
       ImGui::SameLine();
       if (ImGui::Button("144 FPS")) {
-        (void)rex::cvar::SetFlagByName("hulk_guest_swap_fps_cap", "144");
+        Change("hulk_guest_swap_fps_cap", "144");
       }
       ImGui::SameLine();
       if (ImGui::Button("Unlimited FPS")) {
-        (void)rex::cvar::SetFlagByName("hulk_guest_swap_fps_cap", "0");
+        Change("hulk_guest_swap_fps_cap", "0");
       }
       bool vsync = rex::cvar::Query<bool>("vsync");
       if (ImGui::Checkbox("Vertical synchronization", &vsync)) {
-        (void)rex::cvar::SetFlagByName("vsync", vsync ? "true" : "false");
+        Change("vsync", vsync ? "true" : "false");
       }
       ImGui::TextWrapped(
           "30 FPS matches the console update cadence. At 60+ FPS some "
           "animations and rigid-body interactions can still run incorrectly. "
           "Selecting a higher FPS does not change the physics timestep.");
-      ImGui::TextUnformatted("Use F4 Settings > Save to persist changed FPS.");
+      ImGui::TextUnformatted("Changes are saved to the existing TOML automatically.");
           break;
         }
         case 1: {
@@ -132,11 +137,11 @@ class PcMenu final : public rex::ui::ImGuiDialog {
           rex::cvar::Query<double>("native_x_renderer_resolution_scale");
       ImGui::Text("Native rendering scale: %.2fx", native_scale);
       if (ImGui::Button("Rendering x1")) {
-        (void)rex::cvar::SetFlagByName("native_x_renderer_resolution_scale", "1.0");
+        Change("native_x_renderer_resolution_scale", "1.0");
       }
       ImGui::SameLine();
       if (ImGui::Button("Rendering x2")) {
-        (void)rex::cvar::SetFlagByName("native_x_renderer_resolution_scale", "2.0");
+        Change("native_x_renderer_resolution_scale", "2.0");
       }
           break;
         }
@@ -146,27 +151,27 @@ class PcMenu final : public rex::ui::ImGuiDialog {
       const std::string scaling = Bind("native_x_renderer_scaling");
       ImGui::Text("Presentation filter: %s", scaling.c_str());
       if (ImGui::Button("Bilinear + CAS")) {
-        (void)rex::cvar::SetFlagByName("native_x_renderer_scaling", "bilinear");
+        Change("native_x_renderer_scaling", "bilinear");
       }
       ImGui::SameLine();
       if (ImGui::Button("FSR 1")) {
-        (void)rex::cvar::SetFlagByName("native_x_renderer_scaling", "fsr");
+        Change("native_x_renderer_scaling", "fsr");
       }
       ImGui::SameLine();
       if (ImGui::Button("NIS")) {
-        (void)rex::cvar::SetFlagByName("native_x_renderer_scaling", "nis");
+        Change("native_x_renderer_scaling", "nis");
       }
       float sharpness = static_cast<float>(
           rex::cvar::Query<double>("native_x_renderer_sharpness"));
       if (sharpness < 0.0f) sharpness = 0.0f;
       if (sharpness > 1.0f) sharpness = 1.0f;
       if (ImGui::SliderFloat("Sharpening", &sharpness, 0.0f, 0.5f, "%.2f")) {
-        (void)rex::cvar::SetFlagByName("native_x_renderer_sharpness",
+        Change("native_x_renderer_sharpness",
                                        std::to_string(sharpness));
       }
       ImGui::TextUnformatted("Note: sharpen cannot repair missing shader samples.");
       ImGui::TextUnformatted("DLSS/DLAA requires verified scene and motion vectors.");
-      ImGui::TextUnformatted("Save in F4 Settings, then restart for graphics changes.");
+      ImGui::TextUnformatted("Graphics changes are saved; restart game to apply.");
           break;
         }
         case 3: {
@@ -238,8 +243,16 @@ class PcMenu final : public rex::ui::ImGuiDialog {
       }
       ImGui::EndChild();
       ImGui::Separator();
-      ImGui::TextDisabled("F4: save changed settings  |  F8: recapture mouse"
-                          "  |  F10: close settings");
+      ImGui::TextDisabled("Changes saved to incredible_hulk.toml"
+                          "  |  F8: recapture mouse  |  F10: close settings");
+      if (last_save_ok_.has_value()) {
+        if (*last_save_ok_) {
+          ImGui::TextUnformatted("Settings saved successfully.");
+        } else {
+          ImGui::TextColored(ImVec4(1.0f, 0.52f, 0.30f, 1.0f),
+                             "Could not save TOML; current value is temporary.");
+        }
+      }
       if (ImGui::Button("Resume game", ImVec2(210, 36))) {
         PcMenuSetOpen(false);
       }
@@ -255,6 +268,16 @@ class PcMenu final : public rex::ui::ImGuiDialog {
     if (!open) PcMenuSetOpen(false);
   }
  private:
+  // No F4 detour: save the same resolved game TOML that ReXGlue loaded.
+  // Preserve all unrelated renderer/input options and the user's data root.
+  void Change(const char* key, const std::string& value) {
+    last_save_ok_ = hulk::options::Save(config_, key, value);
+    (void)rex::cvar::SetFlagByName(key, value);
+    if (!*last_save_ok_)
+      REXLOG_WARN("[HULK/PCMENU] Existing TOML settings could not be saved");
+  }
+  std::filesystem::path config_;
+  std::optional<bool> last_save_ok_;
   int active_section_ = 0;
   std::function<void()> on_exit_;
 };
@@ -262,8 +285,10 @@ class PcMenu final : public rex::ui::ImGuiDialog {
 
 std::unique_ptr<rex::ui::ImGuiDialog> CreatePcMenu(
     rex::ui::ImGuiDrawer* drawer, rex::ui::Window* window,
+    const std::filesystem::path& existing_config,
     std::function<void()> on_exit) {
-  return std::make_unique<PcMenu>(drawer, window, std::move(on_exit));
+  return std::make_unique<PcMenu>(drawer, window, existing_config,
+                                  std::move(on_exit));
 }
 bool PcMenuIsOpen() {
   return visible.load(std::memory_order_acquire);
