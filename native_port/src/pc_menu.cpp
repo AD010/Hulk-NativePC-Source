@@ -109,7 +109,7 @@ class PcMenu final : public rex::ui::ImGuiDialog {
                 static_cast<uint32_t>(pixel_h));
             if (fit.valid) {
               ImGui::Text("Host framebuffer: %.0f x %.0f", pixel_w, pixel_h);
-              ImGui::Text("16:9 fit: %u x %u; native scale %.3fx",
+              ImGui::Text("Host 16:9 fit: %u x %u; guest-to-host pixel ratio %.3fx",
                           fit.width, fit.height, fit.scale);
               if (fit.has_bars)
                 ImGui::TextDisabled("Bars: x=%u y=%u (camera hook pending)",
@@ -210,17 +210,19 @@ class PcMenu final : public rex::ui::ImGuiDialog {
       // before a verified main-scene view and motion vectors are available.
       ImGui::Separator();
       ImGui::TextUnformatted("PC graphics (restart game to apply)");
+      ImGui::TextWrapped("Current NativeX Vulkan: host-scaled XDK/PM4 compatibility rendering. Full Edge of Reality native passes and 16:10 camera are not active yet.");
       const double native_scale =
           rex::cvar::Query<double>("native_x_renderer_resolution_scale");
       ImGui::TextUnformatted(native_scale <= 0.0
-          ? "Render resolution: Auto (actual host framebuffer)"
-          : "Render resolution: fixed scale");
+          ? "NativeX host raster scale: Auto (game targets remain Xbox-sized)"
+          : "NativeX host raster scale: fixed multiplier");
       if (native_scale > 0.0)
-        ImGui::Text("Native rendering scale: %.2fx", native_scale);
-      // HULK/NATIVE-AUTO-PIXELS: D140 derives the actual 3D render scale
-      // from the host swapchain instead of reproducing an emulator's 720p
-      // output upscale. The game-owned 1280x720 descriptors never change.
-      if (ImGui::Button("Native / Auto")) {
+        ImGui::Text("NativeX physical target multiplier: %.2fx", native_scale);
+      // HULK/NATIVE-AUTO-PIXELS: this controls physical NativeX targets,
+      // not independent EoR render passes, all shader mips or the USA camera.
+      // Do not label it as a complete native 16:10 renderer. Guest 1280x720
+      // descriptors remain in this compatibility backend.
+      if (ImGui::Button("Host raster / Auto")) {
         Change("native_x_renderer_resolution_scale", "0.0");
       }
       ImGui::SameLine();
