@@ -4,13 +4,6 @@ on:
   # builds on source edits. Keep this single Release-only workflow available
   # for an explicit final validation through GitHub Actions.
   workflow_dispatch:
-  # One-shot owner-authorized Release build. Only the audited TOML edit
-  # starts this run; this push trigger is removed once Actions registers it.
-  push:
-    branches:
-      - main
-    paths:
-      - 'native_port/incredible_hulk.toml'
 permissions:
   contents: write
 concurrency:
