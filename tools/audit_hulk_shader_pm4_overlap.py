@@ -46,6 +46,7 @@ def headers(words):
 def analyze(text):
     lines=text.splitlines()
     events=[]
+    private_words=[]
     for line_number,line in enumerate(lines):
         m=SHADER_LINE.search(line)
         if not m:
@@ -56,10 +57,35 @@ def analyze(text):
                 continue
             words=[int(s,16) for s in d.group(4).split()]
             chains,candidates=headers(words)
+            # This is a clue, NOT a command decoder or permission to
+            # discard a shader. Guest shader bytes may coincidentally
+            # resemble Type3 PM4 headers.
+            embedded_im_load = [i for i,(op,count) in candidates.items()
+                                if op in (0x27,0x2B) and i >= len(words)//2]
             events.append(dict(shader=m.group(1),size=len(words),declared=int(m.group(2)),
                                method=d.group(1),packet=d.group(3),chains=chains,
-                               candidates=sorted(candidates)))
+                               candidates=sorted(candidates),
+                               embedded_shader_load_offsets=embedded_im_load,
+                               varying_word_offsets=[],
+                               classification="candidate_only_not_verified"))
+            private_words.append(words)
             break
+    # HULK/SHADER-TAIL-203: detect a family of supposedly different 27-word
+    # microcodes that differs only at a plausible embedded PM4 data word.
+    # No literal shader words are returned or written to public source.
+    for i, words in enumerate(private_words):
+        if len(words) < 3: continue
+        siblings=[other for j,other in enumerate(private_words)
+                  if j != i and len(other)==len(words)]
+        if not siblings: continue
+        diffs=sorted(set(k for other in siblings
+                         for k,(a,b) in enumerate(zip(words,other)) if a!=b))
+        if diffs and len(diffs) <= 4:
+            events[i]["varying_word_offsets"]=diffs
+            if events[i]["embedded_shader_load_offsets"] and (
+                    set(diffs).issubset(set(k+1 for k in
+                          events[i]["embedded_shader_load_offsets"]))):
+                events[i]["classification"]="candidate_pm4_in_shader_tail"
     return events
 
 def summarize(events):
@@ -71,7 +97,10 @@ def summarize(events):
                    for a,b,op,op2 in e['chains']]
         print(f'{e["shader"]}: {e["size"]}/{e["declared"]} words; '
               f'{len(e["candidates"])} plausible headers; '
-              f'chains={sequences or "none"}; packet={e["packet"]}')
+              f'chains={sequences or "none"}; packet={e["packet"]}; '
+              f'tail_loads={e["embedded_shader_load_offsets"]}; '
+              f'varying_offsets={e["varying_word_offsets"]}; '
+              f'classification={e["classification"]}')
 
 def test():
     words=[0]*27
@@ -87,6 +116,26 @@ def test():
                + ' '.join(f'{x:08X}' for x in words))
     assert len(analyze(synthetic))==1
     assert len(analyze(synthetic)[0]['chains'])==1
+    # Three *synthetic* distinct guest programs with a Type3 IM_LOAD
+    # header at index 22 and a changing word at 23, like log203.
+    # They must be classified, never discarded or rewritten.
+    programs=[]
+    for index in range(3):
+        original=[0]*27
+        original[22]=0xC0012700  # 2-payload-word Type3 IM_LOAD
+        original[23]=0x022AB000 + (index << 12)
+        original[24]=45
+        programs.append('vertex shader %016X (27 dwords): analysis failed: access violation\\n'
+                        'the vertex program came from IM_LOAD_IMMEDIATE at 0xa200100c '
+                        '(packet 0xa2001000) in DrawIndexedVertices: ' %
+                        (0xABC0000000000000+index) +
+                        ' '.join('%08X' % w for w in original))
+    reports=analyze('\\n'.join(programs))
+    assert len(reports)==3, reports
+    assert all(e['embedded_shader_load_offsets']==[22] for e in reports)
+    assert all(e['varying_word_offsets']==[23] for e in reports)
+    assert all(e['classification']=='candidate_pm4_in_shader_tail' for e in reports)
+    assert not any('words' in event for event in reports)
     print('Self-test: PASS')
 
 if __name__=='__main__':
