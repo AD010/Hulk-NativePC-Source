@@ -36,6 +36,39 @@ inline bool IsWindowPreset(uint32_t width, uint32_t height) noexcept {
   return false;
 }
 
+// HULK/NATIVE-3D-PIXELS: a REAL nonuniform host raster target for
+// a future validated USA camera-projection hook. Guest EDRAM layout,
+// surfaces, memory addresses, tile pitch and physical dimensions are
+// never rewritten. The viewport fills all swapchain pixels ONLY when
+// the game's 3D camera matrix compensates horizontal focal length.
+// Drawing with this raster contract before fixing the camera stretches
+// character geometry and is intentionally NOT enabled yet.
+struct FullViewResult {
+  double scale_x = 0.0, scale_y = 0.0;
+  double projection_x_multiplier = 0.0;
+  uint32_t host_width = 0, host_height = 0;
+  bool valid = false;
+};
+
+inline FullViewResult FullScreen3DContract(
+    uint32_t output_w, uint32_t output_h,
+    uint32_t guest_w = 1280, uint32_t guest_h = 720) noexcept {
+  FullViewResult result;
+  // NativeXRenderer cannot render a guest output below 1x without
+  // an additional downscale stage; reject unsupported raster sizes.
+  if (!output_w || !output_h || !guest_w || !guest_h ||
+      output_w > 16384 || output_h > 16384 ||
+      output_w < guest_w || output_h < guest_h)
+    return result;
+  result.scale_x = static_cast<double>(output_w) / guest_w;
+  result.scale_y = static_cast<double>(output_h) / guest_h;
+  result.projection_x_multiplier = result.scale_y / result.scale_x;
+  result.host_width = output_w;
+  result.host_height = output_h;
+  result.valid = true;
+  return result;
+}
+
 struct FitResult {
   uint32_t x = 0, y = 0;
   uint32_t width = 0, height = 0;
