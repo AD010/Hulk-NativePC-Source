@@ -479,3 +479,103 @@ Outstanding: a specific reproducer for the 27-word shader analyzer,
 identification of the missing/incorrect fetch and EDRAM states at the
 flashing pixel, GPU-timed per-Resolve costs, and comparable 30/60/120 Hz
 destruction/physics footage. No remaster-quality claim.
+
+## 2026-11-14 follow-up: reducing user beta-test burden; shader opcode and owned-index CPU cost
+
+**Owner goal:** do not ship another Windows ZIP with uncertain flicker or demand
+repetitive manual game tests for compiler/runtime issues. Continue in the single
+`main` branch and existing manual-only `hulk-free-windows.yml`. No new
+workflow/branch/repo or game release was made in this follow-up.
+
+### Evidence: actual three 27-dword vertex programs and unsupported EXEC fetch
+
+Re-read the three failed original `IM_LOAD_IMMEDIATE` captures in log203,
+origin addresses/hash documented above. All three have the same static Xenos
+CF program: direct `EXEC` covers instructions 3 and 4, followed by 5.
+The instruction at **index 4** contains fetch opcode **3** in all three.
+The upstream `rexglue-sdk` `FetchOpcode` type defines only 0, 1,
+16–19 and 24–26. In `ParseTextureFetchInstruction`, the default branch
+asserts then returns **without initializing the parsed texture-fetch output**,
+which is subsequently passed to disassembly. That is a concrete unsafe
+path and plausible cause of the logged access violation; it still does NOT
+prove where the original invalid words entered the guest PM4 stream.
+
+Extended existing `ci/patch_sdk_hulk_cf_bounds.py` with an exact,
+fail-closed check inside `Shader::GatherExecInformation` BEFORE
+`ParseTextureFetchInstruction`: allow only the nine defined opcodes;
+otherwise raise a controlled `std::out_of_range` with opcode and instruction
+index. The original microcode, shader cache entries and all valid Xenos
+instructions remain unchanged. This avoids dereferencing an uninitialized
+parsed fetch; it does **not** make invalid shader 3 a valid new shader.
+Added source and compiled C++20 tests and independent offline CF decoding.
+
+The invalid samples also contain some dwords that *resemble* PM4 headers
+(e.g. `C0012700`). This suggests a possible command/data boundary issue,
+but a numerical match to a Type3 header is insufficient to establish
+whether an IM_LOAD was spurious or its true immediate payload extent.
+There is **no** new permissive resynchronization, guessed shader
+replacement, or invalid draw submission.
+
+### CPU optimization without weakening index lifetime or GPU mirror ordering
+
+Log203 at frame15600: 1887 host draw calls/frame, 1828 inline/captured
+draw data restores in the last frame, ~4524.5 buffer copies/frame,
+~12484 KB guest bytes copied/frame. Existing captured-DMA code already
+prevents Vulkan from reading guest indices after the game reuses the
+command ring; removing that snapshot or its GPU restore would reintroduce
+incorrect triangles. We did NOT remove that protection.
+
+- `HulkProcessIndexCopies` now supplies a full **single, owned,
+  non-overlapping** captured DMA interval straight to the synchronous
+  `PrimitiveProcessor::ProcessCapturedIndices`. If more than one copy
+  intersects, the existing ordered, last-write-wins interval merge is kept.
+  If the union has a hole or a null source, it still rejects the draw.
+- The overlapping-copy merge uses a `thread_local std::vector<uint8_t>`
+  scratch buffer, not a new heap allocation on every indexed draw.
+- The SDK's `ProcessCapturedIndices` similarly reuses a
+  `thread_local std::vector<uint32_t>` naturally aligned buffer, and
+  still copies the exact saved bytes to that buffer synchronously and
+  invalidates converted-index cache entries on entry/exit. No conversion
+  reads live guest memory for snapshot-backed draws.
+- Standalone compiled C++20 tests passed **51,840** overlap/hole/order
+  scenarios across two threads, plus full/direct/bounded-alignment tests.
+  These establish logical data fidelity for the tested intervals; they
+  are NOT complete Vulkan workload tests.
+
+### Repeated shader/pipeline compilation
+
+The distributed Hulk TOML explicitly disabled
+`native_x_renderer_pipeline_storage`, although D140's pinned implementation
+supports persistent, versioned shader/PSO records and a driver-compatible
+Vulkan cache under its owner-specific local cache root. At frame15600,
+14 offscreen draws waited **129.4ms in aggregate, 96ms maximum**, for
+pipeline readiness. First-visit waits can still occur in uncached areas.
+
+The source TOML now enables the existing D140 pipeline storage. At startup
+the port logs whether the storage cvar is enabled and a nonempty cache
+root was supplied without exposing personal filesystem paths.
+Invalid shader analyses are not added as successful programs; pipeline
+storage does not bypass failures. It is separate from Vulkan pipeline
+library D132. The expected improvement is on **repeat** scenes/launches,
+not the first launch, not the guaranteed elimination of GPU spikes.
+
+The previous unbenchmarked `native_x_renderer_upload_ahead = 512`
+candidate has been **reverted to D140's pinned 256** for deterministic
+scheduling. No resolution, SMAA, native Vulkan, vertex/texture fetch,
+4x-MSAA Resolve, physics or game tick rate was reduced to chase FPS.
+
+### Status and limits
+
+- New patches are committed to the EXISTING `main`, no ZIP after #112
+- Relevant source-only regression tests are committed; the complete
+  Windows SDK compile, full Python CI suite and real GPU frame-trace
+  have NOT run in this follow-up
+- The shader parser crash *path* is guarded, not the root cause of
+  spurious shader bytes fixed or flicker disproved
+- A single full 2560x1440 4x-MSAA resolve is more expensive than its
+  count suggests; **28 resolves/frame were kept** to avoid losing
+  effects, depth, or shadow maps
+- These CPU changes cannot directly reduce the ~22.36ms GPU work/window
+  or prove a smooth building collapse. Any GPU optimization needs
+  per-pass timings and capture-time EDRAM/PM4 identity, not a claim based
+  only on utilization percent
