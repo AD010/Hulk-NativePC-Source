@@ -73,6 +73,21 @@ class HulkLogAuditTests(unittest.TestCase):
         self.assertIsNone(shader_static_cf([0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF]))
         self.assertIsNone(shader_static_cf(base[:17]))
 
+    def test_invalid_fetch_rejects_correlate_to_real_shader_owner(self):
+        log = ("[HULK/INVALID-TEXTURE-DRAW] #1 slot=0 type=3 dim=0 "
+               "word0=0x8 VS=ABCDEF0123456789 PS=1234567890ABCDEF\n"
+               "[HULK/INVALID-VERTEX-DRAW] #2 slot=95 type=0 base=0x99 "
+               "words=256 VS=00000000DEADBEEF")
+        report = analyze(log)
+        self.assertEqual(report["invalid_fetch_shader_owner_samples"], {
+            "texture/slot=0/vs=abcdef0123456789/ps=1234567890abcdef": 1,
+            "vertex/slot=95/vs=00000000deadbeef/ps=n/a": 1,
+        })
+        # Older logs lack the new attribution; don't guess owners.
+        self.assertEqual(
+            analyze("[HULK/INVALID-VERTEX-DRAW] #1 slot=95 type=0")
+            ["invalid_fetch_shader_owner_samples"], {})
+
     def test_log203_resolve_gpu_and_upload_cost_fields(self):
         log = "\n".join([
             "[native_x_renderer] renderer: frame 15600: 9 clears, 28 resolves (0 skipped)",
