@@ -37,6 +37,11 @@ class IndexCacheTests(unittest.TestCase):
         # Compile the actual production entry points and exercise every exit.
         # The backend conversion and cache are test doubles; full SDK/GPU validation
         # remains required in Windows. All four real CPU reads are transformed above.
+        self.assertIn("HULK/CPU-INDEX-ALIGNED-SCRATCH", PROCESS_NEW)
+        self.assertIn("thread_local std::vector<uint32_t> aligned;", PROCESS_NEW)
+        self.assertIn("aligned.resize((size + 3u) / 4u);", PROCESS_NEW)
+        self.assertNotIn("std::vector<uint32_t> aligned((size + 3u) / 4u);",
+                         PROCESS_NEW)
         methods = PROCESS_NEW[:PROCESS_NEW.index('bool PrimitiveProcessor::ProcessInternal')]
         code = r'''#include <cstdint>
 #include <cstring>
