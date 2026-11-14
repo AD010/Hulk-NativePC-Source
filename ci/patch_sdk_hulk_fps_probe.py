@@ -76,7 +76,17 @@ def patch_sdk(root: pathlib.Path) -> None:
     path = root / "src/kernel/xboxkrnl/xboxkrnl_video.cpp"
     original = path.read_text(encoding="utf-8-sig")
     if PATCH_MARKER in original:
-        print("Hulk guest VdSwap probe already installed")
+        # A partially applied patch must not silently pass source preflight.
+        required = (
+            "REXCVAR_DEFINE_BOOL(hulk_frame_probe",
+            "REXCVAR_DEFINE_INT32(hulk_guest_swap_fps_cap, 0",
+            "std::clamp(REXCVAR_GET(hulk_guest_swap_fps_cap), 0, 240)",
+            "std::this_thread::sleep_until(next_submit)",
+            'REXKRNL_INFO("[HULK/FPS] VdSwap rate=',
+        )
+        if any(original.count(token) != 1 for token in required):
+            raise ValueError("Partial or duplicated Hulk VdSwap probe patch")
+        print("Hulk guest VdSwap probe already installed and verified")
         return
     if original.count(INCLUDE_ANCHOR) != 1:
         raise ValueError("Unexpected SDK includes; no patch performed")
