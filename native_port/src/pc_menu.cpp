@@ -71,37 +71,37 @@ class PcMenu final : public rex::ui::ImGuiDialog {
       ImGui::Text("Pause / Start: %s", Bind("hulk_bind_start").c_str());
       ImGui::Text("Walk: %s", Bind("hulk_bind_walk").c_str());
       ImGui::Separator();
-      const int32_t guest_fps_limit = rex::cvar::Query<int32_t>("gpu_guest_fps_limit");
+      const int32_t guest_fps_limit = rex::cvar::Query<int32_t>("hulk_guest_swap_fps_cap");
       if (guest_fps_limit == 0) {
         ImGui::TextUnformatted("Guest FPS limit: Unlimited (game may still run 30)");
       } else {
         ImGui::Text("Guest FPS limit: %d", guest_fps_limit);
       }
       if (ImGui::Button("30 FPS (console physics)")) {
-        (void)rex::cvar::SetFlagByName("gpu_guest_fps_limit", "30");
+        (void)rex::cvar::SetFlagByName("hulk_guest_swap_fps_cap", "30");
       }
       ImGui::SameLine();
       if (ImGui::Button("60 FPS (experimental)")) {
-        (void)rex::cvar::SetFlagByName("gpu_guest_fps_limit", "60");
+        (void)rex::cvar::SetFlagByName("hulk_guest_swap_fps_cap", "60");
       }
       // HULK/FPS-CHOICES: the guest frame limiter is separate from Vulkan
       // presentation. Do NOT alter guest clock / physics timestep here:
       // the game's PPC simulation still needs a verified 30Hz decoupling fix.
       ImGui::TextUnformatted("Higher frame rates (experimental physics)");
       if (ImGui::Button("90 FPS")) {
-        (void)rex::cvar::SetFlagByName("gpu_guest_fps_limit", "90");
+        (void)rex::cvar::SetFlagByName("hulk_guest_swap_fps_cap", "90");
       }
       ImGui::SameLine();
       if (ImGui::Button("120 FPS")) {
-        (void)rex::cvar::SetFlagByName("gpu_guest_fps_limit", "120");
+        (void)rex::cvar::SetFlagByName("hulk_guest_swap_fps_cap", "120");
       }
       ImGui::SameLine();
       if (ImGui::Button("144 FPS")) {
-        (void)rex::cvar::SetFlagByName("gpu_guest_fps_limit", "144");
+        (void)rex::cvar::SetFlagByName("hulk_guest_swap_fps_cap", "144");
       }
       ImGui::SameLine();
       if (ImGui::Button("Unlimited FPS")) {
-        (void)rex::cvar::SetFlagByName("gpu_guest_fps_limit", "0");
+        (void)rex::cvar::SetFlagByName("hulk_guest_swap_fps_cap", "0");
       }
       bool vsync = rex::cvar::Query<bool>("vsync");
       if (ImGui::Checkbox("Vertical synchronization", &vsync)) {
