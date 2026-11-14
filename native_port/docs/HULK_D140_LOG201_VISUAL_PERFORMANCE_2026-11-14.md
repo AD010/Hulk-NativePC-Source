@@ -166,3 +166,33 @@ These changes are source-level safeguards and diagnostic classification.
 They have **not** yet received a later Windows Actions release, game-frame
 comparison or verified restoration of the missing menu text. The existing
 single `workflow_dispatch` Release workflow remains manual-only.
+
+## Fix: consume PM4 gap exactly once across empty XDK setters
+
+After the D140 lean-setter disable, source review found a separate missing
+cursor advance in the existing upstream `StateTracker::Leave` early-return:
+
+`skip_empty_calls_ && !draw && end == p.begin && p.scan_from == p.begin && initialized_`
+
+Hulk's patched `Enter` has already examined an unhooked PM4 gap before
+the setter's `Leave`. Before this fix the early return left
+`last_hulk_segment_end_` at its former value, so another empty setter
+could scan and capture the **same** valid GPU commands again. This can
+duplicate draws and wasted renderer work; whether it caused any particular
+user-visible colored flash remains unverified.
+
+The existing `ci/patch_native_x_hulk_pm4_gap.py` now consumes the attempted
+same-device, monotonic gap up to `p.begin` on the empty-Leave branch.
+A range larger than 0x40000 invalidates the cursor (fail closed), without
+inventing GPU packets or changing the XDK draw payload. The existing
+PM4 patch-chain test checks the integrated marker, and the existing
+PM4 stream unit tests cover repeated empty setters, backward/device
+changes and oversized gaps. A standalone compilation and execution of
+the exact C++ branch passed locally.
+
+This is a **source correction, not a released or visually tested Vulkan
+fix**. No Windows runner, new workflow, branch, public game artifact,
+or unauthorized private input download was started. The major incomplete
+XDK Draw (mixed PM4/data) problem still requires guest source/owner
+provenance before any partial packet acceptance. Until that is established,
+the existing fail-closed check remains enabled.
