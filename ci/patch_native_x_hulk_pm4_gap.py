@@ -76,6 +76,28 @@ ENTER_NEW = """  p.begin = Load32(base, p.device + d.command_buffer_write) + 4;
   }
   p.vs_dirty = vs_dirty;"""
 
+# D140/older NativeX returns early for empty setters. Enter already
+# scanned the gap up to p.begin, but the old early return did not advance
+# last_hulk_segment_end_. That replayed the same PM4 draws on every following
+# setter. Consume the attempted gap once, never forge a packet or a draw.
+EMPTY_LEAVE_ANCHOR = """  if (skip_empty_calls_ && !draw && end == p.begin && p.scan_from == p.begin && initialized_) return nullptr;"""
+EMPTY_LEAVE_NEW = """  if (skip_empty_calls_ && !draw && end == p.begin && p.scan_from == p.begin && initialized_) {
+    // HULK/PM4-GAP-CONSUME-EMPTY: Enter has already processed (or safely
+    // rejected) the gap before this empty XDK setter. A later setter must
+    // not render the same unhooked GPU draws a second time.
+    if (last_hulk_segment_valid_ && last_hulk_segment_device_ == p.device &&
+        p.begin >= last_hulk_segment_end_) {
+      if (p.begin - last_hulk_segment_end_ <= 0x40000u) {
+        last_hulk_segment_end_ = p.begin;
+      } else {
+        // No bounded scan of this interval was possible. Fail closed rather
+        // than repeatedly retrying an unowned or discontinuous command ring.
+        last_hulk_segment_valid_ = false;
+      }
+    }
+    return nullptr;
+  }"""
+
 LEAVE_ANCHOR = """  Gather(p, call, draw, base);
 
   last_.call = call;"""
@@ -98,7 +120,8 @@ def patch_header(src: str) -> tuple[str,bool]:
 
 def patch_cpp(src: str) -> tuple[str,bool]:
     changes=[]
-    for old,new in ((RESET_ANCHOR,RESET_NEW),(ENTER_ANCHOR,ENTER_NEW),(LEAVE_ANCHOR,LEAVE_NEW)):
+    for old,new in ((RESET_ANCHOR,RESET_NEW),(ENTER_ANCHOR,ENTER_NEW),
+                    (LEAVE_ANCHOR,LEAVE_NEW),(EMPTY_LEAVE_ANCHOR,EMPTY_LEAVE_NEW)):
         src,changed=once(src,old,new)
         changes.append(changed)
     if any(changes) and not all(changes):
