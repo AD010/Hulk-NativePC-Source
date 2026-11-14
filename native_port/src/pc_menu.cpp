@@ -11,6 +11,7 @@
 #include <rex/ui/window.h>
 #include <rex/logging.h>
 #include <imgui.h>
+#include <algorithm>
 #include <atomic>
 #include <filesystem>
 #include <functional>
@@ -52,10 +53,17 @@ class PcMenu final : public rex::ui::ImGuiDialog {
     // HULK/PC-MENU-SECTIONS: accessible in-game host overlay, not a
     // counterfeit edit of the Xbox pause-menu or an asset replacement.
     // Do not advertise controls until real CVars or game APIs are wired.
-    ImGui::SetNextWindowSize(ImVec2(850.0f, 610.0f), ImGuiCond_FirstUseEver);
+    // HULK/PC-MENU-DPI-RESPONSIVE: fit the options to the client
+    // on the owner's 2560x1600 / Windows 175%-DPI screen and on 4:3.
+    const float menu_scale = std::clamp(io.FontGlobalScale, 0.75f, 2.5f);
+    const float menu_width = std::min(
+        850.0f * menu_scale, std::max(240.0f, io.DisplaySize.x - 24.0f));
+    const float menu_height = std::min(
+        610.0f * menu_scale, std::max(200.0f, io.DisplaySize.y - 24.0f));
+    ImGui::SetNextWindowSize(ImVec2(menu_width, menu_height), ImGuiCond_Always);
     ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f,
                                    io.DisplaySize.y * 0.5f),
-                            ImGuiCond_FirstUseEver, ImVec2(0.5f, 0.5f));
+                            ImGuiCond_Always, ImVec2(0.5f, 0.5f));
     ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.065f, 0.082f, 0.061f, 0.96f));
     ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.095f, 0.125f, 0.087f, 0.95f));
     ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.19f, 0.28f, 0.13f, 1.0f));
@@ -69,7 +77,12 @@ class PcMenu final : public rex::ui::ImGuiDialog {
       ImGui::SameLine();
       ImGui::TextDisabled("  /  PC SETTINGS");
       ImGui::Separator();
-      ImGui::BeginChild("##hulk_sections", ImVec2(176.0f, -66.0f), true);
+      const float section_width =
+           std::min(176.0f * menu_scale, menu_width * 0.32f);
+       const float footer_height = std::clamp(
+           66.0f * menu_scale, 54.0f, menu_height * 0.18f);
+       ImGui::BeginChild("##hulk_sections",
+                         ImVec2(section_width, -footer_height), true);
       static constexpr const char* kSections[] = {
           "Display", "Graphics", "Post-processing", "Audio",
           "Controls", "Accessibility", "Enhancements"};
@@ -79,7 +92,8 @@ class PcMenu final : public rex::ui::ImGuiDialog {
       }
       ImGui::EndChild();
       ImGui::SameLine();
-      ImGui::BeginChild("##hulk_settings", ImVec2(0.0f, -66.0f), true);
+      ImGui::BeginChild("##hulk_settings",
+                         ImVec2(0.0f, -footer_height), true);
       switch (active_section_) {
         case 0: {
           ImGui::TextUnformatted("Display");
