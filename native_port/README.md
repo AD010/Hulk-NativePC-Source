@@ -39,3 +39,15 @@ The European Title Update is not directly compatible with the pinned USA
 XEX; never replace a full original game archive with a TU differential.
 The older technical reports under `docs/` are retained as audit history,
 not extra build configurations.
+
+## Current continuation (2026-11-15)
+
+Latest recorded source updates: per-axis mouse controls and F10 bindings,
+EoR original UI CRC32/xref evidence collection, and one-workflow source tests.
+For authenticated detail and unpassed release gates see
+`docs/HULK_EOR_UI_PC_X360_SOURCE_AUDIT_2026-11-14.md` (2026-11-15 addendum).
+**The real `UIPage_Pause_Settings` host/guest integration has NOT been
+completed.** Xbox USA camera and native 16:10, corrupted PM4 shaders,
+GPU flashes/low-clarity signs, 60+FPS physics, Alt+Tab, and Windows game
+compilation beyond the unsuccessful #114 are not validated. Never call
+source-only tests or a successfully produced ZIP a fully fixed game.

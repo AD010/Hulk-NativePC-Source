@@ -799,3 +799,63 @@ pipeline schedules.
   `UIPage_Pause_Settings` functionality, full 16:10 host frame,
   correct all-draw shader microcode and low-detail sign textures
   remain unverified and unresolved.
+
+## 2026-11-15 — BLACK V3 / Toy Story 3 comparison and actual menu integration status
+
+The reference BLACK-XBERecomp **V3**, tagged `72830d4`, has TWO complementary
+interfaces: F10 host settings (`src/common/menu.cpp`) and **real in-game
+options/pause-page integration** (`src/game/options_menu.cpp`). The latter
+identifies its game Flash UI root, holder and button instances; it creates
+and populates rows, tracks the page/input/focus lifecycle, and returns to
+the actual game option page. Its quit control (`src/game/exit_menu.cpp`)
+also preserves the original game's title-menu navigation. V2 specifically
+made all added options pages available from the paused game. **Do not
+misrepresent Hulk's existing independent F10 ImGui overlay as equivalent.**
+
+References (source):
+- https://github.com/TGP482/BLACK-XBERecomp/blob/V3/src/game/options_menu.cpp
+- https://github.com/TGP482/BLACK-XBERecomp/blob/V3/src/game/exit_menu.cpp
+- https://github.com/TGP482/BLACK-XBERecomp/releases/tag/V3
+
+The official **Toy Story 3 Complete Edition** (Digital Eclipse, October 2026)
+was rebuilt from the game's **original source repository**. Its modern
+native port is NOT evidence that Xbox 360 proprietary game code can be
+recreated merely from assets or replaced by an arbitrary D3D wrapper.
+The independent 2026 Toy Story BTB Patch illustrates per-object LOD,
+streaming memory budgets and shadow cascade adjustments, including reported
+120/unlimited-FPS experiments; Hulk must verify its own EoR equivalents
+and physical simulation timing before applying any multipliers.
+- https://reverbgame.com/toy-story-3-complete-edition-interview-on-performance-restored-content-and-platform-details
+- https://www.nexusmods.com/toystory3completeedition/mods/10?tab=description
+
+**Concrete source changes in Hulk main, not a finished native EoR menu:**
+1. `8147130e9c7fd97d106507f6629dac9e3fbc966e` implements independent
+   X/Y mouse sensitivity and inversion with independent fallback/direct-camera
+   paths, actual F10 Controls sliders, single native TOML persistence, and
+   C++/Python regression coverage. The direct camera remains inoperative
+   without a verified original USA XEX guest-camera memory layout.
+2. `ac20381a93b9923a68485ca5774054e6905ad8e2` extends the existing
+   Ghidra EoR UI identifier scanner with both BE/LE references to 13
+   **independently index-verified original Fonts/Textures CRC32 resource
+   hashes**. In contrast to ungrounded PPC guesses, every hit is explicitly
+   a candidate requiring original event/lifetime verification. The added
+   source-only hash-correlation test is in `ci/test_ghidra_hulk_ui_hash_xrefs.py`.
+   `563de24e6b8d01eb8541c1899aa5a98149ff705a` wires that test into
+   the one pre-existing manual-only Windows Release workflow.
+
+**Still required to complete the user-requested original menu:** resolve
+`UI_ActivateOptions` / `UI_OptionScreen` / `UIPage_Pause_Settings` event
+owners, PPC ABI, font/texture decoding, menu input focus and scene lifecycle;
+then integrate Display, Graphics, Controls, Audio and Exit with the original
+EoR pause/title UI. No F10 dependency should remain for normal operation.
+The current source-only Ghidra candidate scanner is not such an integration.
+
+**Other unpassed release gates:** Windows compile after #114 compiler failure;
+27-dword IM_LOAD VS provenance; full RT/depth/Resolve and GPU flash fixes;
+correctly sampled full-size signs and original material/mip behavior;
+verified 16:10 USA camera projection + separately proportioned HUD;
+60+ Hz simulation without car-door/water/animation bugs; native mouse yaw/pitch
+without XInput simulation; audio, Alt+Tab, saves and final standalone ZIP.
+The user’s 2560×1600 display / 175%-DPI and 16:9 guest framebuffer dimensions
+are deliberately kept separate. No new Windows game CI, executable or ZIP
+was built for these changes. Do NOT mark them as validated runtime fixes.
