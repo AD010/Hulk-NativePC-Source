@@ -61,7 +61,11 @@ bool PrimitiveProcessor::ProcessCapturedIndices(ProcessingResult& result_out,
       size != expected_size || base >= SharedMemory::kBufferSize ||
       size > SharedMemory::kBufferSize - base) return false;
   // Command storage is byte-packed. Typed CPU reads require natural alignment.
-  std::vector<uint32_t> aligned((size + 3u) / 4u);
+  // HULK/CPU-INDEX-ALIGNED-SCRATCH: ProcessInternal consumes the
+  // aligned snapshot synchronously. Avoid an additional allocation on
+  // every indexed draw while retaining exact owned command bytes.
+  thread_local std::vector<uint32_t> aligned;
+  aligned.resize((size + 3u) / 4u);
   std::memcpy(aligned.data(), data, size);
   // The existing cache key names live physical memory, not a captured version.
   // Invalidate this range on entry AND exit, including every early return.
