@@ -84,6 +84,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'USA game configuration test failed' }
           python ci/test_hulk_pc_menu.py
           if ($LASTEXITCODE -ne 0) { throw 'Native PC menu regression failed' }
+          # Synthetic-only PM4/header/shader-family test: no private XEX
+          # and no game shader bytes are loaded into the source workspace.
+          python tools/audit_hulk_shader_pm4_overlap.py --test
+          if ($LASTEXITCODE -ne 0) { throw '27-word shader/PM4 provenance classifier regression failed' }
           python ci/test_audit_hulk_pc_x360_ui_assets.py
           if ($LASTEXITCODE -ne 0) { throw 'Original EoR UI archive/index regression failed (no game assets used)' }
           python ci/test_hulk_eor_extract_named_assets.py
