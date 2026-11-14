@@ -83,8 +83,9 @@ class TestHulkOriginalUiArchives(unittest.TestCase):
             audit_archive(path, parse_index(bad)["groups"]["Fonts"])
         overlaps = [{"hash":"11111111","offset":4,"size":10},
                     {"hash":"22222222","offset":9,"size":10}]
-        with self.assertRaises(ValueError):
-            audit_archive(path, overlaps)
+        enough_room = self.write("overlaps.arc", make_data(b"x" * 30))
+        with self.assertRaisesRegex(ValueError, "overlapping"):
+            audit_archive(enough_room, overlaps)
 
     def test_archive_sampled_ui_names_only_and_no_content_leak(self):
         data = make_data(b"TXFLui_menuitems_da\0 SECRET_API_TOKEN\0")
