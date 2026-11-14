@@ -25,7 +25,7 @@ class HulkPacketSampleViewTests(unittest.TestCase):
             "packet_view = bound",
             "packet_view.width = bound.width / 2",
             "packet_view.height = bound.height / 2",
-            "HulkRememberSurface(packet_view, slot);",
+            "hulk_remember_packet_view(packet_view);",
             "[HULK/PM4-HISTORY-ALIAS]",
             "2u * (gpu_surface & 0x3FFFu)",
             "const GuestSurface live = known ? ReadSurface(base, known.object",
@@ -37,6 +37,18 @@ class HulkPacketSampleViewTests(unittest.TestCase):
             self.assertIn(expected, NEW)
         self.assertIn("[HULK/PM4-SAMPLE-VIEW]", NEW)
         self.assertIn("continue;", NEW)
+
+    def test_packet_aliasing_does_not_deadlock_mutex(self):
+        # HulkPacketSurfaces already owns one lock for all five attachments.
+        # A nested lock (or HulkRememberSurface) deadlocks on the first
+        # valid sample-grid alias, exactly where the color flashes occur.
+        self.assertNotIn("std::lock_guard<std::mutex>", NEW)
+        self.assertNotIn("std::lock_guard<std::mutex>", HISTORY_NEW)
+        self.assertNotIn("HulkRememberSurface(", NEW)
+        self.assertIn("hulk_remember_packet_view(packet_view);", NEW)
+        self.assertIn("remembered[HulkSurfaceKey(view.surface_info, view.info)]", NEW)
+        self.assertIn("remembered.size() > 256", NEW)
+        self.assertIn("if (bound && HulkSurfaceKey(bound.surface_info, bound.info) == gpu_key)", NEW)
 
     def test_general_paired_pitch_and_format(self):
         # The two *real* pairs from user logs; these do NOT invent GPU surfaces.
@@ -92,7 +104,7 @@ class HulkPacketSampleViewTests(unittest.TestCase):
         self.assertIn("bound.surface_info == 0x14000500u && bound.info == 0x400u", NEW)
         self.assertIn("bound.pitch() == 1280u && bound.msaa() == 0u", NEW)
         self.assertIn("packet_view.info = gpu_info", NEW)
-        self.assertIn("HulkRememberSurface(packet_view, slot);", NEW)
+        self.assertIn("hulk_remember_packet_view(packet_view);", NEW)
         def accepts(slot, depth, gpu_surface, gpu_info, xdk_surface, xdk_info,
                     width, height, pitch, msaa):
             return (slot == 0 and not depth and gpu_surface == 0x14000500 and
@@ -121,7 +133,7 @@ class HulkPacketSampleViewTests(unittest.TestCase):
         self.assertIn("known.msaa() == 2", NEW)
         self.assertIn("live.pitch() == 1280 && live.msaa() == 0", NEW)
         self.assertIn("packet_view.info = gpu_info", NEW)
-        self.assertIn("HulkRememberSurface(packet_view, slot);", NEW)
+        self.assertIn("hulk_remember_packet_view(packet_view);", NEW)
         def supported(slot, bound, gpu_surface, gpu_info, known_surface, known_info,
                       known_width, known_height, known_pitch, known_msaa,
                       known_depth, live_surface, live_info, live_width,
@@ -156,10 +168,11 @@ class HulkPacketSampleViewTests(unittest.TestCase):
         self.assertIn("(live.info & 0xFFFFF000u) == (known.info & 0xFFFFF000u)", HISTORY_NEW)
         self.assertIn("live.width == known.width && live.height == known.height", HISTORY_NEW)
         self.assertIn("known.msaa() == 2u && live.msaa() == 0u", HISTORY_NEW)
-        self.assertIn("history.erase(it);", HISTORY_NEW)
+        self.assertIn("remembered.erase(it);", HISTORY_NEW)
         self.assertIn("it->second.second = ++g_hulk_surface_stamp;", HISTORY_NEW)
         self.assertIn("const GuestSurface& known = it->second.first;", HISTORY_NEW)
         self.assertIn("out[slot] = it->second.first;", HISTORY_OLD)
+        self.assertIn("remembered.find(gpu_key)", HISTORY_NEW)
         self.assertIn("std::find_if(xdk_history.begin(), xdk_history.end()", NEW)
         self.assertIn("const GuestSurface& known = entry.second.first;", NEW)
         self.assertNotIn("g_hulk_surface_history[slot].find(xdk_key)", NEW)
