@@ -32,10 +32,10 @@ class D140WindowsDispatchTests(unittest.TestCase):
             (root/"src").mkdir()
             (root/"src"/"state.cpp").write_text("// fake fixture",encoding="utf-8")
             script=ROOT/"ci"/"patch_native_x_hulk_pm4_gap.py"
-            with patch("native_x_d140_dispatch.subprocess.check_output",return_value=D135+"\\n"):
+            with patch("native_x_d140_dispatch.subprocess.check_output",return_value=D135+"\n"):
                 with self.assertRaisesRegex(ValueError,"actual NativeX checkout"):
                     run_patch(script,root)
-            with patch("native_x_d140_dispatch.subprocess.check_output",return_value=D140+"\\n"):
+            with patch("native_x_d140_dispatch.subprocess.check_output",return_value=D140+"\n"):
                 with self.assertRaisesRegex(ValueError,"Unexpected source"):
                     run_patch(ROOT/"native_port"/"BUILD_WINDOWS.ps1",root)
 
@@ -51,7 +51,7 @@ class D140WindowsDispatchTests(unittest.TestCase):
         # D140 source review must never silently turn a source push or a
         # migration-branch edit into a private Windows build/release.
         workflow=(ROOT/".github"/"workflows"/"hulk-free-windows.yml").read_text("utf-8")
-        self.assertRegex(workflow,r"(?m)^  workflow_dispatch:\\s*$")
+        self.assertRegex(workflow,r"(?m)^  workflow_dispatch:\s*$")
         self.assertNotRegex(workflow,r"(?m)^  (?:push|pull_request|schedule|workflow_run):")
         self.assertIn("github.ref == 'refs/heads/main'",workflow)
         self.assertIn("github.repository == 'AD010/Hulk-NativePC-Source'",workflow)
