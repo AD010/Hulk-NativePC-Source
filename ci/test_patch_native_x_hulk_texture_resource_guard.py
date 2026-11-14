@@ -8,7 +8,9 @@ from patch_native_x_hulk_texture_resource_guard import (
 def valid(width, height, depth, mips, cube=False, is_3d=False):
     extent = max(width, height, depth if is_3d else 1)
     max_mips = extent.bit_length()
-    return (0 < width <= 32768 and 0 < height <= 32768 and
+    maximum_width_height = 2048 if is_3d else 16384
+    return (0 < width <= maximum_width_height and
+            0 < height <= maximum_width_height and
             0 < depth <= 2048 and
             not(cube and width != height) and
             0 < mips <= max_mips)
@@ -44,8 +46,14 @@ class ResourceGuardTests(unittest.TestCase):
         self.assertFalse(valid(5891328, 1, 1, 1))
         self.assertFalse(valid(4186624, 1, 1, 1))
         self.assertFalse(valid(1, 1, 2049, 1))
-        self.assertTrue(valid(32768, 512, 1, 1))
+        self.assertTrue(valid(16384, 512, 1, 1))
+        self.assertFalse(valid(32768, 512, 1, 1))
+        self.assertTrue(valid(2048, 2048, 1, 1, is_3d=True))
+        self.assertFalse(valid(4096, 4096, 1, 1, is_3d=True))
+        self.assertFalse(valid(32768, 720, 1, 1))
         self.assertIn("HULK/FETCH-EXTENT-LIMIT", DESCRIPTOR_NEW)
+        self.assertIn("GetMaxHostTextureWidthHeight(key.dimension)", DESCRIPTOR_NEW)
+        self.assertNotIn("32768u", DESCRIPTOR_NEW)
         self.assertFalse(valid(1, 1, 0, 1))
         self.assertFalse(valid(512, 512, 0, 4, is_3d=True))
         self.assertTrue(valid(64, 32, 16, 7, is_3d=True))
