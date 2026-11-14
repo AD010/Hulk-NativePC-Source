@@ -1,4 +1,4 @@
-#include "eor_native_frame.h"
+#include "../native_port/src/eor_native_frame.h"
 #include <cassert>
 #include <stdexcept>
 #include <vector>
