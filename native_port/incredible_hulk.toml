@@ -12,7 +12,7 @@ vsync = true
 vblank_follows_display = false
 # Preserve current game pacing until a 60Hz physics simulation is validated.
 # 0 = no additional XDK submission cap; engine may still choose 30 FPS.
-gpu_guest_fps_limit = 0
+hulk_guest_swap_fps_cap = 0
 user_country = 103
 user_language = 1
 render_target_path_vulkan = "fsi"
