@@ -16,8 +16,9 @@ class HulkUnboundMRTTest(unittest.TestCase):
         self.assertIn("if (remembered.empty()) continue;", result)
         self.assertNotIn("std::lock_guard<std::mutex> guard(g_hulk_surface_history_mutex);\n      if (g_hulk_surface_history[slot].empty())", result)
         # The snapshot already holds the mutex: never re-lock inside the loop.
-        self.assertEqual(result.count("std::lock_guard<std::mutex> guard(g_hulk_surface_history_mutex)"), 2)
-        # One lock belongs to the packet lookup, one to the separate XDK batch helper.
+        packet = result[result.index("bool HulkPacketSurfaces("):result.index("void HulkRememberSurfaces(")]
+        self.assertEqual(packet.count("std::lock_guard<std::mutex> guard(g_hulk_surface_history_mutex)"), 1)
+        self.assertIn("if (remembered.empty()) continue;", packet)
         # RT0 and depth must still reject missing surface identity.
         self.assertIn("if (slot > 0 && slot < 4 && !bound)", result)
         self.assertIn("if (!has_target || unresolved)", result)
