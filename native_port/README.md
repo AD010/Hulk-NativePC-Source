@@ -1,31 +1,41 @@
-# Hulk Native PC — active Windows source tree
+# Hulk NativePC — Windows source tree
 
-This source is based on the community head-start project by TekRantGaming.
-Retain the accompanying LICENSE and upstream copyright notices.
+This directory contains the native Windows x64 build integration for the
+Xbox 360 USA version of The Incredible Hulk (2008). It is a **source-only**
+tree: proprietary Xbox game data is not stored in this public repository.
+The port is derived from the TekRantGaming community project. Preserve the
+MIT copyright notices in the repository root and this directory.
 
-The current build is a standalone incredible_hulk.exe with its runtime DLLs
-and one incredible_hulk.toml. No separate TRG launcher is built or required.
+## Canonical build and delivery
 
-Canonical build:
-- In GitHub: .github/workflows/hulk-vulkan-build.yml (from repository root).
-- Locally on a Windows development machine: BUILD_WINDOWS.cmd with a valid
-  -GameRoot argument pointing to a locally owned extracted game folder.
-- For the NativeXRenderer library bridge: BUILD_WINDOWS.cmd -NativeXLink,
-  which does not imply working native GPU rendering by itself.
+- **Single GitHub Actions workflow:** `.github/workflows/hulk-free-windows.yml`
+  (relative to the repository root). Runs only on manual dispatch in its
+  normal state; the one-off, owner-authorized release triggers are removed
+  after each run is registered. Windows x64 Release only.
+- **Build on Windows:** `BUILD_WINDOWS.cmd -GameRoot "X:\\path\\to\\owned\\game"`
+  from this directory. Visual Studio C++/LLVM, CMake, Ninja, Python and
+  the original USA game inputs are required. Add `-NativeXLink` to build
+  the native Vulkan renderer integration; it does not prove correct GPU output.
+- **Private outputs:** CI consumes owner-only inputs from `AD010/hulk-cloud`.
+  Tested-for-packaging, versioned ZIP assets are delivered back to its
+  private release; this public repository contains no game executable.
+  Previous versioned ZIP releases are retained.
 
-Successful CI: 42388026994 (2026-11-07) compiled and packaged a Windows
-game. Do not confuse compilation with validation of scene rendering.
+## Confirmed and unconfirmed status
 
-Important unresolved requirements:
-- XDK 2.0.6534 GPU function signatures and true DeviceLayout/ObjectLayout;
-  Xenos remains the currently verified rendering fallback.
-- Official Xbox 360 TU1: original user update verified, but its runtime/
-  codegen application and differential ARC/IND overlay are not integrated.
-- Direct camera input: pointer and yaw/pitch offsets not yet verified.
-- Water behavior, 2x/3x resolution, color parity, FPS/physics and controls
-  still require testing in a Windows gameplay run.
+As of 2026-11-14, GitHub Actions **#112** completed source validation,
+Windows compilation, archive verification and versioned private delivery.
+The binary's scene rendering, missing menu text, colored flashes, texture
+clarity at 2x, native mouse behavior and physics above 30 FPS are **not**
+proven correct by CI. No general claim of a finished remaster is implied.
 
-Read native_port/docs/HULK_TU1_XDK_AUDIT_2026-11-07.md,
-native_port/docs/HULK_XDK_GATE_2026-11-07.md and
-native_port/docs/HULK_NATIVE_GPU.md for the technical status.
-Do not overwrite full original game archives with TU1 differential files.
+Relevant current notes:
+- `docs/NATIVEX_D140_MIGRATION_2026-11-13.md`
+- `docs/HULK_D140_LOG201_VISUAL_PERFORMANCE_2026-11-14.md`
+- `docs/HULK_FULL_NATIVE_PORT_SYSTEM_CONTRACT_2026-11-11.md`
+- `docs/HULK_EU_TU1_VERIFIED_STFS_2026-11-08.md`
+
+The European Title Update is not directly compatible with the pinned USA
+XEX; never replace a full original game archive with a TU differential.
+The older technical reports under `docs/` are retained as audit history,
+not extra build configurations.
