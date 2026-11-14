@@ -69,19 +69,55 @@ CF_NEXT_NEW = """          if (next_instr_is_new_successor) {
             }
           }"""
 
+# Log203 three 27-dword, IM_LOAD_IMMEDIATE vertex programs share an
+# EXEC fetch with opcode 3, which is not a defined Xenos FetchOpcode.
+# ParseTextureFetchInstruction's default assert+return does not initialize
+# the output, so its caller may disassemble a null opcode_name. Reject only
+# unsupported fetch opcodes with a controlled exception, never synthesize
+# microcode or substitute a shader.
+FETCH_OLD = """    if (sequence & 0b01) {
+      auto& op = *reinterpret_cast<const FetchInstruction*>(op_ptr);
+      if (op.opcode() == FetchOpcode::kVertexFetch) {"""
+FETCH_GUARD = """    if (sequence & 0b01) {
+      auto& op = *reinterpret_cast<const FetchInstruction*>(op_ptr);
+      // HULK/EXEC-FETCH-OPCODE-203: validate before parsing/disassembly.
+      // Log203 opcode 3 is reserved and must never enter the texture
+      // parser's uninitialized default branch.
+      switch (op.opcode()) {
+        case FetchOpcode::kVertexFetch:
+        case FetchOpcode::kTextureFetch:
+        case FetchOpcode::kGetTextureBorderColorFrac:
+        case FetchOpcode::kGetTextureComputedLod:
+        case FetchOpcode::kGetTextureGradients:
+        case FetchOpcode::kGetTextureWeights:
+        case FetchOpcode::kSetTextureLod:
+        case FetchOpcode::kSetTextureGradientsHorz:
+        case FetchOpcode::kSetTextureGradientsVert:
+          break;
+        default:
+          throw std::out_of_range(
+              "Xenos EXEC unsupported fetch opcode " +
+              std::to_string(uint32_t(op.opcode())) +
+              " at instruction " + std::to_string(instr_offset));
+      }
+      if (op.opcode() == FetchOpcode::kVertexFetch) {"""
+
 def patch_text(source: str) -> tuple[str, bool]:
     ready = (INCLUDE_NEW in source and REPLACEMENT in source and
-             CF_SUCCESSOR_GUARD in source and CF_NEXT_NEW in source)
+             CF_SUCCESSOR_GUARD in source and CF_NEXT_NEW in source and
+             FETCH_GUARD in source)
     if ready:
         return source, False
     if ("HULK/CF-BOUNDS" in source or "HULK/CF-SUCCESSOR-BOUNDS" in source or
+            "HULK/EXEC-FETCH-OPCODE-203" in source or FETCH_GUARD in source or
             "HULK/CF-LAST-SUCCESSOR" in source or CF_NEXT_NEW in source or
             REPLACEMENT in source or CF_SUCCESSOR_GUARD in source or
             INCLUDE_NEW in source):
         raise ValueError("Partial Hulk Xenos CF bounds guard")
     if (source.count(INCLUDE_OLD) != 1 or source.count(ANCHOR) != 1 or
             source.count(CF_SUCCESSOR_OLD) != 1 or
-            source.count(CF_NEXT_OLD) != 1):
+            source.count(CF_NEXT_OLD) != 1 or
+            source.count(FETCH_OLD) != 1):
         raise ValueError("Xenos shader SDK EXEC/successor analysis anchors changed")
     if ("void Shader::GatherExecInformation(" not in source or
             "if (!cf_memexport_info_.empty()) {" not in source):
@@ -89,7 +125,8 @@ def patch_text(source: str) -> tuple[str, bool]:
     return (source.replace(INCLUDE_OLD, INCLUDE_NEW, 1)
                   .replace(ANCHOR, REPLACEMENT, 1)
                   .replace(CF_SUCCESSOR_OLD, CF_SUCCESSOR_GUARD, 1)
-                  .replace(CF_NEXT_OLD, CF_NEXT_NEW, 1)), True
+                  .replace(CF_NEXT_OLD, CF_NEXT_NEW, 1)
+                  .replace(FETCH_OLD, FETCH_GUARD, 1)), True
 
 def main() -> None:
     if len(sys.argv) != 2:
