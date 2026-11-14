@@ -33,6 +33,51 @@ PATCH = """  // HULK/INCOMPLETE-XDK-DRAW-GUARD: a truncated or malformed PM4 cal
   // call, silently dropping Present and leaving Vulkan's dynamic heap
   // without swap/fence reclamation. Preserve the real frame boundary
   // without replaying a single untrusted register or shader write.
+  // HULK/XDK-VALIDATED-PREFIX-DRAW: there is a narrow, provable case
+  // where a single real DRAW_INDX(_2) packet is fully parsed before an
+  // unrelated corrupt/trailing ring word. NEVER admit a partial packet.
+  // Re-scan exactly the trusted prefix and compare the decoded draw count,
+  // leaving every uncertain tail byte rejected and invalidating the cursor.
+  // The scan provenance fields are installed by the LAST source patch.
+  if (!scan_.complete && draw && call != Call::kPresent &&
+      scan_.draws == 1 && scan_.indirect == 0 &&
+      scan_.hulk_fail_depth == 0 &&
+      scan_.hulk_last_good_end > p.scan_from &&
+      scan_.hulk_last_good_end <= end &&
+      scan_.hulk_fail_packet == scan_.hulk_last_good_end &&
+      (scan_.hulk_last_good_header >> 30) == 3) {
+    const uint32_t hulk_last_opcode =
+        (scan_.hulk_last_good_header >> 8) & 0x7fu;
+    if (hulk_last_opcode == 0x22u || hulk_last_opcode == 0x36u) {
+      PacketScan hulk_validated_prefix;
+      hulk_validated_prefix.bin_mask = p.hulk_bin_mask_at_enter;
+      hulk_validated_prefix.bin_select = p.hulk_bin_select_at_enter;
+      // Do not inspect, synthesize or replay any word after last_good_end.
+      ScanPackets(base, p.scan_from, scan_.hulk_last_good_end,
+                  hulk_validated_prefix, 0, false, true);
+      if (hulk_validated_prefix.complete &&
+          hulk_validated_prefix.draws == 1 &&
+          hulk_validated_prefix.indirect == 0 &&
+          !hulk_validated_prefix.shader_loads.empty()) {
+        scan_ = std::move(hulk_validated_prefix);
+        Gather(p, call, draw, base);
+        last_hulk_segment_valid_ = false;
+        last_.call = call;
+        last_.draw = draw;
+        last_.device = p.device;
+        last_.begin = GpuAddress(p.begin);
+        last_.end = GpuAddress(scan_.hulk_last_good_end);
+        last_.scan = &scan_;
+        static std::atomic<uint32_t> hulk_prefix_recovered{0};
+        const uint32_t n = ++hulk_prefix_recovered;
+        if (n <= 12 || n % 1000 == 0)
+          REXLOG_INFO("[HULK/XDK-VALIDATED-PREFIX-DRAW] #{} one original "
+                      "complete GPU draw packet recovered; uncertain tail "
+                      "discarded", n);
+        return &last_;
+      }
+    }
+  }
   if (!scan_.complete && call == Call::kPresent) {
     static std::atomic<uint64_t> hulk_present_recovered{0};
     const uint64_t n = hulk_present_recovered.fetch_add(
