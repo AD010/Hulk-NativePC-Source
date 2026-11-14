@@ -4,6 +4,7 @@
 #include "pc_menu.h"
 #include "native_pc_options_store.h"
 #include "native_pc_bindings.h"
+#include "native_resolution.h"
 #include <rex/cvar.h>
 #include <rex/ui/imgui_dialog.h>
 #include <rex/ui/imgui_drawer.h>
@@ -82,6 +83,67 @@ class PcMenu final : public rex::ui::ImGuiDialog {
       switch (active_section_) {
         case 0: {
           ImGui::TextUnformatted("Display");
+          ImGui::Separator();
+          // HULK/HOST-PIXELS: ImGui logical size times framebuffer DPI,
+          // not the Xbox guest's fixed 1280x720 render-target dimensions.
+          const float pixel_w = io.DisplaySize.x * io.DisplayFramebufferScale.x;
+          const float pixel_h = io.DisplaySize.y * io.DisplayFramebufferScale.y;
+          if (pixel_w >= 1.0f && pixel_h >= 1.0f &&
+              pixel_w <= 16384.0f && pixel_h <= 16384.0f) {
+            const auto fit = display::FitOriginalPicture(
+                static_cast<uint32_t>(pixel_w),
+                static_cast<uint32_t>(pixel_h));
+            if (fit.valid) {
+              ImGui::Text("Host framebuffer: %.0f x %.0f", pixel_w, pixel_h);
+              ImGui::Text("16:9 fit: %u x %u; native scale %.3fx",
+                          fit.width, fit.height, fit.scale);
+              if (fit.has_bars)
+                ImGui::TextDisabled("Bars: x=%u y=%u (camera hook pending)",
+                                    fit.x, fit.y);
+            }
+          }
+          bool fullscreen = pending_fullscreen_.value_or(
+              rex::cvar::Query<bool>("fullscreen"));
+          if (ImGui::Checkbox("Fullscreen (restart to apply)", &fullscreen)) {
+            const bool saved = options::Save(
+                config_, "fullscreen", fullscreen ? "true" : "false");
+            last_save_ok_ = saved;
+            if (saved) pending_fullscreen_ = fullscreen;
+          }
+          int current_w = rex::cvar::Query<int32_t>("window_width");
+          int current_h = rex::cvar::Query<int32_t>("window_height");
+          if (pending_window_width_ && pending_window_height_) {
+            current_w = static_cast<int>(*pending_window_width_);
+            current_h = static_cast<int>(*pending_window_height_);
+          }
+          const std::string current_size =
+              current_w > 0 && current_h > 0
+                  ? std::to_string(current_w) + "x" +
+                    std::to_string(current_h) : "App default";
+          if (ImGui::BeginCombo("Window size (restart)",
+                                current_size.c_str())) {
+            for (const auto& mode : display::kWindowPresets) {
+              const bool selected =
+                  current_w == static_cast<int>(mode.width) &&
+                  current_h == static_cast<int>(mode.height);
+              const std::string label(mode.label);
+              if (ImGui::Selectable(label.c_str(), selected)) {
+                const bool saved = options::SaveWindowSize(
+                    config_, mode.width, mode.height);
+                last_save_ok_ = saved;
+                if (saved) {
+                  pending_window_width_ = mode.width;
+                  pending_window_height_ = mode.height;
+                }
+              }
+              if (selected) ImGui::SetItemDefaultFocus();
+            }
+            ImGui::EndCombo();
+          }
+          ImGui::TextWrapped(
+              "Fullscreen uses desktop pixels. Windowed sizes are host-only. "
+              "True 16:10/21:9 camera widening needs a verified USA Hulk "
+              "projection hook; the original HUD is not stretched.");
           ImGui::Separator();
       const int32_t guest_fps_limit = rex::cvar::Query<int32_t>("hulk_guest_swap_fps_cap");
       if (guest_fps_limit == 0) {
@@ -334,6 +396,9 @@ class PcMenu final : public rex::ui::ImGuiDialog {
       REXLOG_WARN("[HULK/PCMENU] Existing TOML settings could not be saved");
   }
   std::filesystem::path config_;
+  std::optional<bool> pending_fullscreen_;
+  std::optional<uint32_t> pending_window_width_;
+  std::optional<uint32_t> pending_window_height_;
   float sharpness_edit_value_ = 0.0f;
   bool sharpness_edit_active_ = false;
   std::optional<bool> last_save_ok_;
