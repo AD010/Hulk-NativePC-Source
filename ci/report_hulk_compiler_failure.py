@@ -59,6 +59,22 @@ ALLOWED_FAILURE_HINTS = {
 }
 
 
+# Unittest case names are from source-only test_*.py and are safe to
+# expose. The private compiler log may contain game paths and PPC code:
+# NEVER print full failure lines, assertions or tracebacks.
+UNITTEST_FAILURE = re.compile(
+    r"(?m)^(?:FAIL|ERROR): (test_[A-Za-z0-9_]{3,100}) "
+    r"\\([A-Za-z0-9_.]{1,128}\\)\\s*$"
+)
+
+def failed_source_tests(log: str, cap: int = 8) -> list[str]:
+    names = Counter(UNITTEST_FAILURE.findall(log))
+    if not names:
+        return ["failing_source_tests=none-identified"]
+    return ["failing_source_tests=" + ", ".join(
+        f"{name}:{count}" for name, count in names.most_common(cap))]
+
+
 def stage_report(log: str, cap: int = 8) -> list[str]:
     stages = []
     for line in log.splitlines():
@@ -132,7 +148,8 @@ def main() -> int:
     args = parser.parse_args()
     # Large build logs are fine; output is capped. Not a log redistributor.
     log = args.log.read_text(encoding="utf-8-sig", errors="replace")
-    for item in summarize(log) + stage_report(log) + hint_report(log):
+    for item in (summarize(log) + stage_report(log) + hint_report(log) +
+                 failed_source_tests(log)):
         print("[HULK/PRIVATE-COMPILER/REDACTED]", item)
     return 0
 
