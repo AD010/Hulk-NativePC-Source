@@ -672,3 +672,7 @@ defects: F10 state reversion, PC F grab/RMB heavy bindings, comment-free
 shipped TOML, and in-process shader/PM4/Resolve GPU fault summaries.
 The source still uses NativeX and is NOT a direct EoR Vulkan render
 pipeline. Do not claim native 16:10, fixed physics or original EoR menu.
+
+2026-11-15: User-approved Win64 source and Release validation retry for
+F10 persisted settings, PC keyboard/mouse, stripped TOML, in-game GPU
+fault log collector. Previous source test cosmetic match corrected.
