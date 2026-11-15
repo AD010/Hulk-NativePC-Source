@@ -87,6 +87,8 @@ jobs:
           python ci/test_audit_hulk_sdk_services.py
           if ($LASTEXITCODE -ne 0) { throw 'ReXGlue XMA/XAM/VFS/thread source services audit regression failed' }
           python ci/test_audit_hulk_pc_middleware.py
+          python ci/test_audit_hulk_fmod_owner_pair.py
+          if ($LASTEXITCODE -ne 0) { throw 'Original FMOD 32bit DLL and USA event index comparison regression failed' }
           if ($LASTEXITCODE -ne 0) { throw 'Original Windows 2008 FMOD/Havok pure-PE audit regression failed' }
           python ci/test_audit_hulk_gpu_load.py
           if ($LASTEXITCODE -ne 0) { throw 'NativeX real GPU interval statistics parser regression failed' }
