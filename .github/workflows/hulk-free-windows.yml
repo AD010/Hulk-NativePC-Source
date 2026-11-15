@@ -279,6 +279,30 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Native original material texture reader failed MSVC compile' }
           & $modelMaterialTest
           if ($LASTEXITCODE -ne 0) { throw 'Native original Xbox/PC texture candidate binding test failed' }
+          # Full original EoR surface directory, not just the first name.
+          $surfaceTest = Join-Path $env:RUNNER_TEMP 'hulk-eor-all-surfaces-test.exe'
+          $surfaceArgs = @('/nologo','/std:c++20','/EHsc','/W4','/WX','/utf-8',
+                           "/Fe:$surfaceTest",
+                           'native_port/src/eor_model_resource.cpp',
+                           'native_port/src/eor_model_surfaces.cpp',
+                           'ci/eor_model_surfaces_test.cpp')
+          & cl.exe @surfaceArgs
+          if ($LASTEXITCODE -ne 0) { throw 'Full original Xbox/PC surface directory compile failed' }
+          & $surfaceTest
+          if ($LASTEXITCODE -ne 0) { throw 'Original EoR surface directory test failed' }
+          $allSurfaceTest = Join-Path $env:RUNNER_TEMP 'hulk-eor-all-surface-materials-test.exe'
+          $allSurfaceArgs = @('/nologo','/std:c++20','/EHsc','/W4','/WX','/utf-8',
+                              "/Fe:$allSurfaceTest",
+                              'native_port/src/eor_archive.cpp',
+                              'native_port/src/eor_model_resource.cpp',
+                              'native_port/src/eor_model_material_refs.cpp',
+                              'native_port/src/eor_model_surfaces.cpp',
+                              'native_port/src/eor_model_surface_materials.cpp',
+                              'ci/eor_model_surface_materials_test.cpp')
+          & cl.exe @allSurfaceArgs
+          if ($LASTEXITCODE -ne 0) { throw 'Full original EoR surface materials compile failed' }
+          & $allSurfaceTest
+          if ($LASTEXITCODE -ne 0) { throw 'Full EoR original indexed texture references test failed' }
           # Endian-proven original EoR Models IND/ARC model retrieval,
           # real surface names and frontend alias hash checks.
           $modelAssetsTest = Join-Path $env:RUNNER_TEMP 'hulk-eor-model-assets-test.exe'
