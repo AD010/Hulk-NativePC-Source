@@ -150,6 +150,12 @@ class TestHulkPcMenu(unittest.TestCase):
         self.assertIn("src/native_pc_options_store.cpp", cmake)
         self.assertIn("native_pc_config_ = paths.config_path;", app)
         self.assertIn("native_pc_config_, [this]", app)
+        # #211: OnCreateDialogs registered the F10 menu before path finalization.
+        # It must keep a live reference, never a copy of an empty config path.
+        self.assertIn("HULK/PCMENU-CONFIG-LATE", menu)
+        self.assertIn("const std::filesystem::path& config_;", menu)
+        self.assertNotIn("std::filesystem::path config_;", menu)
+        self.assertIn("native_pc_config_ = paths.config_path;", app)
         self.assertIn("hulk::options::Save(config_, key, value)", menu)
         self.assertIn("rex::cvar::SetFlagByName(key,value)", menu)
         self.assertIn("HULK/PCMENU-PERSISTED-PREVIEW", menu)

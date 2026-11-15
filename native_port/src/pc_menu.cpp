@@ -440,6 +440,10 @@ class PcMenu final : public rex::ui::ImGuiDialog {
   }
  private:
   // No F4 detour: save the same resolved game TOML that ReXGlue loaded.
+   // HULK/PCMENU-CONFIG-LATE: OnCreateDialogs can precede OnFinalizePaths.
+   // Hold a REFERENCE to IncredibleHulkApp::native_pc_config_ instead of
+   // freezing the initially empty path when the ImGui window is created.
+   // The owning app outlives this dialog and destroys it in OnShutdown.
   // Preserve all unrelated renderer/input options and the user's data root.
   // HULK/PCMENU-PERSISTED-PREVIEW: the on-disk user choice is authoritative.
   // Startup-only CVars MUST NOT snap the visible setting back next frame.
@@ -498,7 +502,7 @@ class PcMenu final : public rex::ui::ImGuiDialog {
       editing = false;
     }
   }
-  std::filesystem::path config_;
+  const std::filesystem::path& config_;
   std::unordered_map<std::string,std::string> saved_preview_;
   std::optional<bool> pending_fullscreen_;
   std::optional<uint32_t> pending_window_width_;
