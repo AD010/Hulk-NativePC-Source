@@ -7,11 +7,18 @@
 using namespace hulk::eor;
 using namespace hulk::eor::aot;
 struct Backend final:ShaderBindingBackend {
-  unsigned begin=0,bind=0,effect=0,draw=0,resolve=0,composite=0,abort=0;
+  unsigned begin=0,bind=0,effect=0,constants=0,draw=0,resolve=0,composite=0,abort=0;
   bool BeginScene(native::Size size,uint32_t) override {
     assert(size.width==2560 && size.height==1600); ++begin;return true;}
   bool BindOriginalEffect(uint32_t hash, uint32_t pass) override {
     assert(hash == 0x123u && pass == 0u); ++effect; return true;
+  }
+  bool BindOriginalConstants(const ReflectedShader& vs,
+                             const ReflectedShader& ps) override {
+    assert(vs.stage==Stage::Vertex && ps.stage==Stage::Pixel);
+    assert(vs.view_projection.index==11 && vs.view_projection.count==4);
+    assert(!ps.view_projection.Present());
+    ++constants;return true;
   }
   bool BindOfflineShaders(std::span<const uint32_t> vs,
                           std::span<const uint32_t> ps) override {
@@ -48,6 +55,20 @@ int main(){
   {std::ofstream out(effect_file,std::ios::binary);
    out.write(reinterpret_cast<const char*>(catalog.data()),catalog.size());}
   EffectCatalog effects;effects.Load(effect_file);std::filesystem::remove(effect_file);
+  auto reflection_file=std::filesystem::temp_directory_path()/"hulk_aot_reflection_test.bin";
+  std::vector<uint8_t> reflected{'H','E','O','R','R','E','F','1'};
+  I32(reflected,2);I32(reflected,1);
+  for(uint8_t id:{uint8_t(0x11),uint8_t(0x22)}) {
+    for(unsigned i=0;i<32;++i)reflected.push_back(id);
+    I32(reflected,id==0x11?1:2);
+    I32(reflected,id==0x11?11:UINT32_MAX);
+    I32(reflected,id==0x11?4:0);
+    for(unsigned j=0;j<3;++j){I32(reflected,UINT32_MAX);I32(reflected,0);}
+  }
+  {std::ofstream out(reflection_file,std::ios::binary);
+   out.write(reinterpret_cast<const char*>(reflected.data()),reflected.size());}
+  ReflectionBank reflection;reflection.Load(reflection_file);
+  std::filesystem::remove(reflection_file);
   native::FrameGeometry geometry=native::PlanFrame({{2560,1600},{1280,720},true,true,true,4});
   BoundIndexedDraw entry{{1,2,3,4,12,0},{},{}};
   entry.vertex_source_sha256.fill(0x11);entry.pixel_source_sha256.fill(0x22);
@@ -55,27 +76,28 @@ int main(){
   entry.pass_index=0;
   Backend target;
   std::vector<BoundIndexedDraw> draws{entry};
-  ReplayAotScene(geometry,draws,shaders,effects,target);
-  assert(target.begin==1 && target.bind==1 && target.effect==1 && target.draw==1 &&
+  ReplayAotScene(geometry,draws,shaders,effects,reflection,target);
+  assert(target.begin==1 && target.bind==1 && target.effect==1 &&
+         target.constants==1 && target.draw==1 &&
          target.resolve==1 && target.composite==1);
   entry.effect_hash=0x456; // Shader pair exists but belongs to ANOTHER effect.
   draws={entry};
   bool effect_rejected=false;
-  try {ReplayAotScene(geometry,draws,shaders,effects,target);}
+  try {ReplayAotScene(geometry,draws,shaders,effects,reflection,target);}
   catch(const std::logic_error&){effect_rejected=true;}
   assert(effect_rejected && target.begin==1);
   entry.effect_hash=0x123;
   entry.pass_index=1; // Same shader bytes, wrong technique ordinal.
   draws={entry};
   bool pass_rejected=false;
-  try {ReplayAotScene(geometry,draws,shaders,effects,target);}
+  try {ReplayAotScene(geometry,draws,shaders,effects,reflection,target);}
   catch(const std::logic_error&){pass_rejected=true;}
   assert(pass_rejected && target.begin==1);
   entry.pass_index=0;
   entry.pixel_source_sha256.fill(0x33);
   draws={entry};
   bool rejected=false;
-  try {ReplayAotScene(geometry,draws,shaders,effects,target);}
+  try {ReplayAotScene(geometry,draws,shaders,effects,reflection,target);}
   catch(const std::logic_error&){rejected=true;}
   assert(rejected && target.begin==1); // Must reject before opening GPU RT.
   // Both shader records exist, but a malformed second draw must be rejected
@@ -86,7 +108,7 @@ int main(){
   Backend fresh;
   draws={entry,later};
   rejected=false;
-  try {ReplayAotScene(geometry,draws,shaders,effects,fresh);}
+  try {ReplayAotScene(geometry,draws,shaders,effects,reflection,fresh);}
   catch(const std::invalid_argument&){rejected=true;}
   assert(rejected && fresh.begin==0 && fresh.bind==0 && fresh.draw==0);
 }

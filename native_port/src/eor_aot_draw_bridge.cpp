@@ -7,8 +7,9 @@ namespace {
 class ForwardingBackend final : public native::Backend {
  public:
   ForwardingBackend(std::span<const BoundIndexedDraw> draws,
-                    const ShaderBank& bank, ShaderBindingBackend& target)
-      : draws_(draws), bank_(bank), target_(target) {}
+                    const ShaderBank& bank, const ReflectionBank& reflection,
+                    ShaderBindingBackend& target)
+      : draws_(draws), bank_(bank), reflection_(reflection), target_(target) {}
   bool BeginScene(native::Size size, uint32_t samples) override {
     return target_.BeginScene(size,samples);
   }
@@ -27,9 +28,12 @@ class ForwardingBackend final : public native::Backend {
       throw std::invalid_argument("EoR command/shader sequence mismatch");
     const auto* vs = bank_.Find(pair.vertex_source_sha256, Stage::Vertex);
     const auto* ps = bank_.Find(pair.pixel_source_sha256, Stage::Pixel);
-    if (!vs || !ps)
-      throw std::logic_error("Unknown original Xenos shader in AOT Vulkan bank");
+    const auto* vr = reflection_.Find(pair.vertex_source_sha256, Stage::Vertex);
+    const auto* pr = reflection_.Find(pair.pixel_source_sha256, Stage::Pixel);
+    if (!vs || !ps || !vr || !pr)
+      throw std::logic_error("Unknown original Xenos shader or constant layout");
     return target_.BindOriginalEffect(pair.effect_hash, pair.pass_index) &&
+           target_.BindOriginalConstants(*vr, *pr) &&
            target_.BindOfflineShaders(vs->spirv, ps->spirv) &&
            target_.DrawIndexed(draw);
   }
@@ -46,6 +50,7 @@ class ForwardingBackend final : public native::Backend {
  private:
   std::span<const BoundIndexedDraw> draws_;
   const ShaderBank& bank_;
+  const ReflectionBank& reflection_;
   ShaderBindingBackend& target_;
   size_t position_ = 0;
 };
@@ -54,10 +59,13 @@ class ForwardingBackend final : public native::Backend {
 void ReplayAotScene(const native::FrameGeometry& frame,
                     std::span<const BoundIndexedDraw> draws,
                     const ShaderBank& bank, const EffectCatalog& effects,
+                    const ReflectionBank& reflection,
                     ShaderBindingBackend& backend) {
   if (effects.EffectCount() == 0 ||
       effects.ShaderCount() != bank.expected())
     throw std::logic_error("Original EoR effect catalog/shader bank mismatch");
+  if (reflection.size() != bank.expected())
+    throw std::logic_error("Original EoR VS/PS constant reflection is incomplete");
   if (!bank.HasFullArchiveCoverage())
     throw std::logic_error("Incomplete original shader archive AOT coverage");
   if (draws.empty())
@@ -71,12 +79,15 @@ void ReplayAotScene(const native::FrameGeometry& frame,
         !effects.HasPair(value.effect_hash, value.pass_index,
                          value.vertex_source_sha256, value.pixel_source_sha256))
       throw std::logic_error("Shader programs do not belong to EoR material effect");
+    if (!reflection.Find(value.vertex_source_sha256, Stage::Vertex) ||
+        !reflection.Find(value.pixel_source_sha256, Stage::Pixel))
+      throw std::logic_error("Original shader constant register layout unavailable");
     if (!bank.Find(value.vertex_source_sha256, Stage::Vertex) ||
         !bank.Find(value.pixel_source_sha256, Stage::Pixel))
       throw std::logic_error("Uncompiled Xenos shader pair in native EoR draw");
     commands.push_back(value.draw);
   }
-  ForwardingBackend forward(draws,bank,backend);
+  ForwardingBackend forward(draws,bank,reflection,backend);
   native::ReplayNativeScene(frame,commands,forward);
 }
 }  // namespace hulk::eor::aot

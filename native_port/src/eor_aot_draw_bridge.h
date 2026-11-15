@@ -5,6 +5,7 @@
 #include "eor_native_frame.h"
 #include "eor_spirv_bank.h"
 #include "eor_effect_catalog.h"
+#include "eor_shader_reflection.h"
 #include <span>
 
 namespace hulk::eor::aot {
@@ -21,6 +22,10 @@ class ShaderBindingBackend : public native::Backend {
   // An effect hash alone is not proof of descriptor/vertex layout correctness.
   virtual bool BindOriginalEffect(uint32_t original_effect_hash,
                                   uint32_t pass_index) = 0;
+  // The original float4 constant-register layouts, not Sonic's hardcoded
+  // shader assumptions. Backend must bind actual game VS/PS constants.
+  virtual bool BindOriginalConstants(const ReflectedShader& vertex,
+                                     const ReflectedShader& pixel) = 0;
   // Called before each DrawIndexed. Returns false if the Vulkan/Diligent
   // program cannot be created/selected for the real resource/vertex layout.
   virtual bool BindOfflineShaders(std::span<const uint32_t> vertex_spirv,
@@ -29,5 +34,5 @@ class ShaderBindingBackend : public native::Backend {
 void ReplayAotScene(const native::FrameGeometry& frame,
                     std::span<const BoundIndexedDraw> draws,
                     const ShaderBank& bank, const EffectCatalog& effects,
-                    ShaderBindingBackend& backend);
+                    const ReflectionBank& reflection, ShaderBindingBackend& backend);
 }  // namespace hulk::eor::aot
