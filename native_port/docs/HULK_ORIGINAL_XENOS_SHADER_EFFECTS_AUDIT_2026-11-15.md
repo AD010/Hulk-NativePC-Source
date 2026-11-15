@@ -64,3 +64,39 @@ NOT a count of compiled shaders or proof of parity: XenosRecomp may reject
 other opcodes/control flow; layouts, texture formats, material semantics
 and real runtime PM4-origin shader programs remain unverified. The script
 reports `candidate_is_compiled=false` explicitly to avoid false positives.
+
+## Original technique/constant binding correction — 2026-11-15
+
+Original HEORMAT1 allowed ANY VS+PS inside an effect, incorrectly treating
+distinct technique variants as interchangeable. All 231 private original
+Xbox ShaderEffects were checked: their VS/PS counts are identical and
+the source containers occur as ordered VS and PS groups. **HEORMAT2**
+now stores 2,597 **ordinal pair candidates**, not arbitrary cross-products;
+the source-only Draw API requires an explicit effect hash AND technique
+slot and rejects cross-slot combinations before beginning the GPU pass.
+Ordinal pair association is not proof of the actual material pass ABI;
+a genuine in-game callsite must supply the validated pass index.
+
+Real Xbox shader constant reflection:
+- ViewProj: 2,549 original VS, register c11, four float4 registers
+- World: 2,023 original VS, register c7, four float4 registers; two
+  other World references contain only three registers and cannot be
+  silently interpreted as a four-register matrix
+- PrevWorld: 19 original VS, register c21, four float4 registers
+- SkyViewProj: 2 original VS, register c22, four float4 registers
+- Eight additional pixel shaders include a ViewProj constant. Total
+  named ViewProj occurrences: 2,557, but **vertex shader count: 2,549**.
+
+The new HEORREF1 catalog stores verified register metadata for all
+5,194 original shaders (353,208 private bytes). The native
+eor_shader_reflection.h reader and ReplayAotScene now require each
+original shader to have its genuine constant binding layout.
+A locally compiled C++20 catalog cross-check confirmed every
+HEORMAT2 shader SHA exists in HEORREF1 and matches its original stage.
+No original shader code or proprietary assets are published in Git.
+
+These registers DO NOT establish final view-projection matrix orientation,
+USA camera hook ABI, Vulkan pixel/vertex pipeline coverage, complete
+16:10 projection, Havok simulation, or real motion-vector history.
+Camera and GPU completeness gates MUST NOT be set merely because the
+original shader reflection was recovered. No new game build was launched.
