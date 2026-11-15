@@ -130,8 +130,11 @@ def make_bank(index: Path, archive: Path, destination: Path, *,
                         temp_path.unlink(missing_ok=True)
     result = {'bank_version': 1, 'platform': 'Xbox360',
               'format': 'raw Edge of Reality ShaderEffect records',
-              'ready_for_xenosrecomp': False,
-              'reason': 'EoR effect record is not a verified standalone Xenos shader container',
+              'ready_for_xenosrecomp': bool(containers),
+              'reason': ('Standalone Xenos ShaderContainer inputs verified; '
+                         'actual conversion and driver pipeline binding NOT verified'
+                         if containers else
+                         'EoR effect records contain no verified standalone Xenos containers'),
               'original_effects': len(meta), 'xenos_containers': len(containers),
               'xenos_vertex_shaders': sum(1 for row in containers if row['stage'] == 'VS'),
               'xenos_pixel_shaders': sum(1 for row in containers if row['stage'] == 'PS'),
