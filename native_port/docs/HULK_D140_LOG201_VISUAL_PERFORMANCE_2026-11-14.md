@@ -645,3 +645,7 @@ from SHA-256-pinned USA default.xex, then publish the compiled ZIP only to
 the existing private AD010/hulk-cloud release. This run is not a statement
 that the unfinished native GPU pipeline, fixed Havok timestep, original
 in-game EoR pause settings or PC-format saves have passed gameplay acceptance.
+
+2026-11-15: User-authorized build validation retry #124 after correcting the
+legitimate native antialiasing TOML string allowlist regression expectation.
+Only one source SHA is built, original USA title remains private.
