@@ -1,0 +1,52 @@
+#include "eor_havok_packfile.h"
+#include <array>
+#include <stdexcept>
+#include <string_view>
+namespace hulk::eor::havok {
+namespace {
+constexpr std::array<uint8_t,8> kMagic{0x57,0xe0,0xe0,0x57,0x10,0xc0,0xc0,0x10};
+constexpr std::string_view kVersion{"Havok-5.1.0-r1"};
+uint8_t U8(std::span<const std::byte> bytes,size_t p) {
+  return std::to_integer<uint8_t>(bytes[p]);
+}
+uint32_t U32(std::span<const std::byte> bytes,size_t p,Platform plat) {
+  uint32_t a=U8(bytes,p), b=U8(bytes,p+1), c=U8(bytes,p+2), d=U8(bytes,p+3);
+  return plat==Platform::PC ? a|(b<<8)|(c<<16)|(d<<24) : (a<<24)|(b<<16)|(c<<8)|d;
+}
+} // namespace
+Packfile Inspect(std::span<const std::byte> bytes,uint32_t key,Platform plat) {
+  if(bytes.size()<96) throw std::invalid_argument("Havok envelope too short");
+  size_t marker=bytes.size();
+  for(size_t i=0;i+96<=bytes.size()&&i<256;++i) {
+    bool match=true;
+    for(size_t j=0;j<kMagic.size();++j)
+      if(U8(bytes,i+j)!=kMagic[j]) {match=false;break;}
+    if(match) {marker=i;break;}
+  }
+  if(marker==bytes.size()) throw std::invalid_argument("Havok magic absent in EoR resource");
+  if(U32(bytes,marker+8,plat)!=key || U32(bytes,marker+12,plat)!=5 ||
+     U8(bytes,marker+16)!=4 || U8(bytes,marker+17)!=(plat==Platform::PC?1:0) ||
+     U8(bytes,marker+18)!=0 || U8(bytes,marker+19)!=1 ||
+     U32(bytes,marker+20,plat)!=3)
+    throw std::invalid_argument("Havok endian/layout/userTag/sections mismatch");
+  bool version=false;
+  for(size_t pos=marker+36;pos+kVersion.size()<bytes.size()&&pos<marker+80;++pos) {
+    bool matches=true;
+    for(size_t i=0;i<kVersion.size();++i)
+      if(U8(bytes,pos+i)!=static_cast<uint8_t>(kVersion[i])) {matches=false;break;}
+    if(matches && U8(bytes,pos+kVersion.size())==0) {version=true;break;}
+  }
+  if(!version) throw std::invalid_argument("Unsupported Havok packfile version");
+  return {key,5,3,marker,bytes.size(),plat};
+}
+Packfile ReadIndexed(const Index& index,const std::filesystem::path& archive,
+                     std::string_view category,uint32_t hash,size_t maximum_size) {
+  if(category!="Havoks"&&category!="HavokMopps")
+    throw std::invalid_argument("Unknown original EoR Havok resource group");
+  const auto record=index.FindHash(category,hash);
+  if(!record || record->reserved || !record->size)
+    throw std::invalid_argument("Original EoR Havok resource not indexed");
+  const Platform plat=index.byte_order()==ByteOrder::Big?Platform::Xbox360:Platform::PC;
+  return Inspect(ReadResource(archive,*record,maximum_size),hash,plat);
+}
+} // namespace hulk::eor::havok
