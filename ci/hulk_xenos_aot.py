@@ -7,6 +7,7 @@ XenosRecomp is game-specific: conversion success alone is not render parity.
 """
 from __future__ import annotations
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import json
 import os
@@ -74,25 +75,36 @@ def _entries(bank: Path) -> tuple[dict, list[dict]]:
 
 
 def compile_bank(bank: Path, out: Path, xenos: Path, dxc: Path, common: Path,
-                 repository: Path, limit: int = 0) -> dict:
+                 repository: Path, limit: int = 0, workers: int = 0) -> dict:
     bank = _private(bank, repository)
     out = _private(out, repository)
     if not xenos.is_file() or not dxc.is_file() or not common.is_file():
         raise FileNotFoundError("XenosRecomp, DXC or shader_common.h not available")
     if limit < 0:
         raise ValueError("Negative shader count limit")
+    if not isinstance(workers, int) or not 0 <= workers <= 16:
+        raise ValueError("Shader compilation workers must be 0..16")
+    # AOT jobs are independent external XenosRecomp/DXC processes. Reserve
+    # host cores for Windows, I/O and other tasks, and limit memory pressure.
+    # This does NOT modify guest/Havok physics threads or game FPS.
+    logical = os.cpu_count() or 1
+    active_workers = max(1, min(workers or max(1, logical - 2), 8))
     manifest, entries = _entries(bank)
     if limit:
         entries = entries[:limit]
     out.mkdir(parents=True, exist_ok=True)
     success, errors = [], []
-    for row in entries:
+
+    def compile_one(row: dict) -> tuple[dict | None, dict | None]:
         sha, stage = row["sha256"], row["stage"]
         hlsl = out / f"{sha}.{stage.lower()}.hlsl"
         spv = out / f"{sha}.{stage.lower()}.spv"
         source = bank / row["private_file"]
-        # XenosRecomp's single-container CLI writes HLSL, not SPIR-V.
-        # DXC is the actual AOT compiler (same vs_6_0/ps_6_0 as upstream).
+        # The input bank is validated before workers start. Each digest owns
+        # its own two output files; no shared temporary source or DXC state.
+        # On retry, never accept stale output left by a previous invocation.
+        hlsl.unlink(missing_ok=True)
+        spv.unlink(missing_ok=True)
         try:
             translate = subprocess.run(
                 [str(xenos), str(source), str(hlsl), str(common)],
@@ -109,15 +121,24 @@ def compile_bank(bank: Path, out: Path, xenos: Path, dxc: Path, common: Path,
                 raise RuntimeError(f"DXC SPIR-V exit={result.returncode}")
             code = spv.read_bytes()
             _check_spirv(code)
-            success.append({"source_sha256": sha, "stage": stage,
-                            "source_effect": row["effect"],
-                            "spirv_sha256": hashlib.sha256(code).hexdigest(),
-                            "spirv_bytes": len(code),
-                            "private_spirv": spv.name})
+            return ({"source_sha256": sha, "stage": stage,
+                     "source_effect": row["effect"],
+                     "spirv_sha256": hashlib.sha256(code).hexdigest(),
+                     "spirv_bytes": len(code), "private_spirv": spv.name}, None)
         except (OSError, RuntimeError, ValueError, subprocess.TimeoutExpired) as error:
             spv.unlink(missing_ok=True)
-            errors.append({"source_sha256": sha, "stage": stage,
+            return (None, {"source_sha256": sha, "stage": stage,
                            "error": str(error)[:180]})
+
+    # executor.map returns results in input order, even when subprocesses
+    # finish out of order. Manifest and binary bank are reproducible.
+    with ThreadPoolExecutor(max_workers=active_workers,
+                            thread_name_prefix="hulk-xenos-aot") as executor:
+        for good, error in executor.map(compile_one, entries):
+            if good is not None:
+                success.append(good)
+            if error is not None:
+                errors.append(error)
     # NativePC binary SPIR-V bank: no JSON parser or runtime DXC required.
     # The expected count is the FULL original source bank, not the --limit
     # smoke-test count; partial precompilation cannot become "ready".
@@ -141,7 +162,8 @@ def compile_bank(bank: Path, out: Path, xenos: Path, dxc: Path, common: Path,
     finally:
         pack_temp.unlink(missing_ok=True)
     report = {"version": 1, "source_bank_sha256": manifest["archive_sha256"],
-              "input_count": len(entries), "compiled_count": len(success),
+              "input_count": len(entries), "workers_used": active_workers,
+              "compiled_count": len(success),
               "failed_count": len(errors), "compiled": success, "failed": errors,
               "driver_pipeline_created": False,
               "game_draw_shader_mapping_verified": False,
@@ -168,10 +190,14 @@ def main() -> int:
     p.add_argument("--dxc", type=Path, required=True)
     p.add_argument("--common", type=Path, required=True)
     p.add_argument("--limit", type=int, default=0, help="0 = all; try 1 for first real shader")
+    p.add_argument("--workers", type=int, default=0,
+                   help="AOT subprocess concurrency: auto (0) reserves two logical CPUs, max 8; explicit 1..16")
     args = p.parse_args()
     report = compile_bank(args.bank, args.out, args.xenosrecomp, args.dxc,
-                          args.common, Path(__file__).resolve().parents[1], args.limit)
+                          args.common, Path(__file__).resolve().parents[1], args.limit,
+                          args.workers)
     print(json.dumps({"attempted": report["input_count"],
+                      "workers": report["workers_used"],
                       "compiled": report["compiled_count"],
                       "failed": report["failed_count"],
                       "native_renderer_ready": False}))

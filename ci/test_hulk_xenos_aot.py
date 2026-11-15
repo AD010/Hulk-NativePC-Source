@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Deterministic synthetic test for executable XenosRecomp->DXC AOT pipeline."""
 import hashlib
+import threading
+import time
 import json
 from pathlib import Path
 import struct
@@ -61,6 +63,61 @@ class AotTests(unittest.TestCase):
             (b / "Xenos" / (sha+".xenos.bin")).write_bytes(b"corrupt")
             with self.assertRaises(ValueError):
                 _entries(b)
+    def test_parallel_cpu_processes_still_emit_deterministic_bank(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            b, first_sha = bank(root)
+            payload = bytes([0x11]) * 80
+            second_sha = hashlib.sha256(payload).hexdigest()
+            (b / "Xenos" / (second_sha + ".xenos.bin")).write_bytes(payload)
+            manifest_path = b / "manifest.json"
+            manifest = json.loads(manifest_path.read_text())
+            manifest["shader_containers"].append({
+                "sha256": second_sha, "stage": "PS",
+                "bytes": len(payload), "private_file": f"Xenos/{second_sha}.xenos.bin",
+                "effect": "BB112233"})
+            manifest_path.write_text(json.dumps(manifest))
+            repo = root / "public"
+            repo.mkdir()
+            for item in ("x.exe", "d.exe", "common.h"):
+                (root / item).write_bytes(b"fixture")
+            lock = threading.Lock()
+            state = {"live": 0, "peak": 0}
+            def worker(args, **kwargs):
+                with lock:
+                    state["live"] += 1
+                    state["peak"] = max(state["peak"], state["live"])
+                try:
+                    time.sleep(0.03)
+                    if "-Fo" in args:
+                        Path(args[args.index("-Fo")+1]).write_bytes(
+                            struct.pack("<5I",0x07230203,0x10500,1,42,0)+b"\0"*4)
+                    else:
+                        Path(args[2]).write_text("void main() {}\n")
+                    return type("Result",(),{"returncode":0})()
+                finally:
+                    with lock:
+                        state["live"] -= 1
+            with patch("hulk_xenos_aot.subprocess.run", side_effect=worker):
+                first = compile_bank(b, root/"out", root/"x.exe", root/"d.exe",
+                                     root/"common.h",repo,workers=2)
+                bank_first = (root/"out"/"hulk_shader_bank.bin").read_bytes()
+                second = compile_bank(b, root/"out", root/"x.exe",root/"d.exe",
+                                      root/"common.h",repo,workers=2)
+                bank_second = (root/"out"/"hulk_shader_bank.bin").read_bytes()
+            self.assertEqual(state["peak"],2)
+            self.assertEqual(first["workers_used"],2)
+            self.assertEqual(first["compiled_count"],2)
+            self.assertEqual(first["failed_count"],0)
+            self.assertEqual(first["compiled"],second["compiled"])
+            self.assertEqual(bank_first,bank_second)
+            self.assertEqual(struct.unpack_from("<II",bank_first,8),(2,2))
+            self.assertEqual(set(e["source_sha256"] for e in first["compiled"]),
+                             {first_sha,second_sha})
+            with self.assertRaises(ValueError):
+                compile_bank(b,root/"out",root/"x.exe",root/"d.exe",
+                             root/"common.h",repo,workers=17)
+
     def test_fail_closed_on_compiler_and_spirv(self):
         with tempfile.TemporaryDirectory() as temp:
             root=Path(temp)
