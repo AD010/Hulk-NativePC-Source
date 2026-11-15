@@ -75,3 +75,43 @@ Xbox graphics port.
 Until a Windows game test proves shader RT parity, camera state, Havok
 call ABI, and PC save integration, *do not publish a complete remaster*
 or change the project's x64 ReXGlue Vulkan release workflow to this mode.
+
+
+## November 15, 2026: actual freestanding Win32 ASI plugin artifacts
+
+A private **x86** cross-compiled package was produced independently from
+the ReXGlue/NativeX Windows x64 CI and made available in the conversation:
+
+- `bin/dinput8.dll` SHA-256
+  `faa0745c01a85e3f225a457a9c4288b527f8e86f80e57665c90d50dcf2e22897`
+  (exports `DirectInput8Create`, forwards it to system32).
+- `bin/HulkPCProbe.asi` SHA-256
+  `73136b9fe8ffbc6247c644d3fbb19bf5b7290dcf0adfa97b62ade90b776d680c`
+  (read-only D3D9 CreateDevice/Present diagnostic).
+- `bin/HulkPC.asi` SHA-256
+  `ad269c413f04df7b62c2ad83d46291f2dbe37d7c4d9eef864a46fc68a639f2a7`
+  (optional native D3D9 shader CTAB/constant sampler interceptor).
+- ZIP `Hulk_2008_PC_ASI_Probe_x86.zip` SHA-256
+  `82a0b9dcd2efb7289c456e4d32c9268c50fdb91862181136f4f3b38f8f43af8b`.
+
+The ZIP contains the extra freestanding `source/HulkPC.c`,
+`source/build_x86_smoke.py`, `source/win32_min.h` and installer
+scripts. The default `Install.cmd` installs ONLY the read-only probe.
+The separate `Install-Enhanced.cmd` installs the optional D3D9
+extension with all graphics-changing options OFF; the
+`Install-Enhanced-2560x1600.cmd` variant requests physical
+2560x1600 fullscreen output and 16x anisotropic filtering. The ASI
+loader prioritizes the diagnostic probe over the optional extension,
+and the enhanced installer refuses to run while a probe is present.
+
+All executables are PE32/i386, statically linked and depend only on
+real Windows kernel32, not on additional VC++ redistributables. Both
+the PE metadata and import/export names were statically audited, but
+**no live original Hulk PC gameplay was run**. The 16:10
+ViewProj rewrite is separately opt-in and deliberately disabled
+because shader matrix storage/camera ownership remain unverified.
+No original game EXE, saves or textures are bundled.
+
+Do not claim the optional Win32 program has imported Xbox geometry,
+textures, Havok or shaders, or that it implements DLSS/FSR Frame
+Generation. Those are independent and substantially incomplete tasks.
