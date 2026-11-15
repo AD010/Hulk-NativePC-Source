@@ -43,4 +43,16 @@ int main(){
   try {ReplayAotScene(geometry,draws,shaders,target);}
   catch(const std::logic_error&){rejected=true;}
   assert(rejected && target.begin==1); // Must reject before opening GPU RT.
+  // Both shader records exist, but a malformed second draw must be rejected
+  // before BeginScene, not after binding or submitting the first draw.
+  entry.pixel_source_sha256.fill(0x22);
+  auto later=entry;
+  later.draw.index_buffer=0;
+  Backend fresh;
+  draws={entry,later};
+  rejected=false;
+  try {ReplayAotScene(geometry,draws,shaders,fresh);}
+  catch(const std::invalid_argument&){rejected=true;}
+  assert(rejected && fresh.begin==0 && fresh.bind==0 && fresh.draw==0);
 }
+

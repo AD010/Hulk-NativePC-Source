@@ -53,6 +53,9 @@ void ReplayNativeScene(const FrameGeometry& frame,
     throw std::logic_error("Native EoR draw, shader and camera path not verified");
   if (draws.empty())
     throw std::logic_error("No real EoR draw calls captured");
+  if (frame.samples != 1 && frame.samples != 2 &&
+      frame.samples != 4 && frame.samples != 8)
+    throw std::invalid_argument("Unsupported native MSAA sample count");
   if (frame.composite.left > frame.backbuffer.width ||
       frame.composite.top > frame.backbuffer.height ||
       frame.composite.width != frame.world.width ||
@@ -60,13 +63,19 @@ void ReplayNativeScene(const FrameGeometry& frame,
       uint64_t(frame.composite.left) + frame.composite.width > frame.backbuffer.width ||
       uint64_t(frame.composite.top) + frame.composite.height > frame.backbuffer.height)
     throw std::invalid_argument("Invalid host-native composite bounds");
-  if (!backend.BeginScene(frame.world, frame.samples))
-    throw std::runtime_error("Cannot allocate native scene attachments");
+  // HULK/EOR-PREFLIGHT: validate the ENTIRE command batch before beginning
+  // a host GPU scene. Previously, a bad draw late in a frame threw AFTER
+  // BeginScene and earlier draws, leaving a partially submitted render pass
+  // that could appear as flicker or poison the following frame.
   for (const auto& draw : draws) {
     if (!draw.vertex_buffer || !draw.index_buffer || !draw.vertex_shader ||
         !draw.pixel_shader || !draw.index_count ||
         uint64_t(draw.first_index) + draw.index_count > UINT32_MAX)
       throw std::invalid_argument("Incomplete actual EoR geometry/shader submission");
+  }
+  if (!backend.BeginScene(frame.world, frame.samples))
+    throw std::runtime_error("Cannot allocate native scene attachments");
+  for (const auto& draw : draws) {
     if (!backend.DrawIndexed(draw))
       throw std::runtime_error("Native indexed draw submission failed");
   }

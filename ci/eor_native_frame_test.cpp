@@ -72,6 +72,20 @@ int main() {
   MustThrow([&] { FakeBackend d; ReplayNativeScene(PlanFrame(s), {}, d); });
   std::vector<IndexedDraw> bad{{0, 2, 3, 4, 6, 0}};
   MustThrow([&] { FakeBackend d; ReplayNativeScene(PlanFrame(s), bad, d); });
+  // An invalid *later* draw must not leave half a GPU frame submitted.
+  std::vector<IndexedDraw> late_bad = real;
+  late_bad[1].index_buffer = 0;
+  FakeBackend untouched;
+  MustThrow([&] { ReplayNativeScene(PlanFrame(s), late_bad, untouched); });
+  assert(untouched.order.empty());
+  late_bad[1] = {5, 6, 7, 8, 2, UINT32_MAX};
+  MustThrow([&] { ReplayNativeScene(PlanFrame(s), late_bad, untouched); });
+  assert(untouched.order.empty());
+  // Public callers may supply a FrameGeometry instead of PlanFrame: fail closed.
+  auto bad_samples = PlanFrame(s);
+  bad_samples.samples = 3;
+  MustThrow([&] { ReplayNativeScene(bad_samples, real, untouched); });
+  assert(untouched.order.empty());
   s.backbuffer = {3440, 1440};
   s.projection_hook_verified = false;
   const auto ultrawide = PlanFrame(s);
