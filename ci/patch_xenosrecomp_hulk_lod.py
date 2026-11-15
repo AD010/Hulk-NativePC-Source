@@ -30,6 +30,9 @@ SWITCH_NEW = SWITCH + '''
         out += "getCompTexLod";
         break;
     }'''
+MARKER = 'HULK_EOR_XENOSRECOMP_STRICT_LOD2D_V1'
+EMIT_OLD = '    out += include;'
+EMIT_NEW = '    out += include;\n    out += "// ' + MARKER + '\\n";'
 HELPER_ANCHOR = 'float w0(float a)'
 HELPER = '''// HULK/XENOS-COMP-LOD-PS2D: use the UNCLAMPED pixel-stage sampler LOD.
 // Xenia's SPIR-V translator selects OpImageQueryLod's 2nd component.
@@ -48,17 +51,18 @@ float4 getCompTexLod2D(uint resourceDescriptorIndex,
 
 
 def patch_sources(cpp: str, hdr: str):
-    if LODGATE in cpp and SWITCH_NEW in cpp and HELPER in hdr:
+    if LODGATE in cpp and SWITCH_NEW in cpp and HELPER in hdr and EMIT_NEW in cpp:
         return cpp, hdr, False
-    if 'HULK/XENOS-COMP-LOD-PS2D' in cpp + hdr:
+    if 'HULK/XENOS-COMP-LOD-PS2D' in cpp + hdr or MARKER in cpp:
         raise ValueError('Partial Hulk computed pixel LOD patch')
     if 'HULK/XENOSRECOMP-FETCH-STRICT' not in cpp:
         raise ValueError('Apply strict missing-fetch guard first')
-    if cpp.count(STRICT) != 1 or cpp.count(SWITCH) != 1:
+    if cpp.count(STRICT) != 1 or cpp.count(SWITCH) != 1 or cpp.count(EMIT_OLD) != 1:
         raise ValueError('XenosRecomp fetch emitter ABI drift')
     if hdr.count(HELPER_ANCHOR) != 1:
         raise ValueError('XenosRecomp shader_common helper anchor drift')
-    cpp = cpp.replace(STRICT, LODGATE, 1).replace(SWITCH, SWITCH_NEW, 1)
+    cpp = cpp.replace(STRICT, LODGATE, 1).replace(SWITCH, SWITCH_NEW, 1)\
+             .replace(EMIT_OLD, EMIT_NEW, 1)
     hdr = hdr.replace(HELPER_ANCHOR, HELPER + HELPER_ANCHOR, 1)
     return cpp, hdr, True
 

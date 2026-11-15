@@ -21,6 +21,7 @@ MAX_SHADERS = 16384
 MAX_CONTAINER = 8 << 20
 MAX_SPV = 8 << 20
 MAGIC = b'HEORSPV1'
+ADAPTER_MARKER = 'HULK_EOR_XENOSRECOMP_STRICT_LOD2D_V1'
 HEX_SHA = re.compile(r'^[a-f0-9]{64}$')
 
 
@@ -146,8 +147,11 @@ def compile_private_bank(manifest_path: Path, output_path: Path, *,
             hlsl = temp / f'{index}.hlsl'
             spv = temp / f'{index}.spv'
             checked([str(xenosrecomp), str(original), str(hlsl), str(shader_common)])
-            if not hlsl.is_file() or 'void main(' not in hlsl.read_text(encoding='utf-8'):
-                raise RuntimeError('XenosRecomp did not generate a native shader entry point')
+            if not hlsl.is_file():
+                raise RuntimeError('XenosRecomp did not generate HLSL')
+            generated = hlsl.read_text(encoding='utf-8')
+            if 'void main(' not in generated or ADAPTER_MARKER not in generated:
+                raise RuntimeError('Missing Hulk-patched XenosRecomp shader entry/adapter identity')
             args = [str(dxc), '-T', 'vs_6_0' if stage == 'VS' else 'ps_6_0',
                     '-E', 'main', '-HV', '2021', '-all-resources-bound',
                     '-spirv', '-fvk-use-dx-layout']
