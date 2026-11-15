@@ -5,6 +5,7 @@
 #include "native_pc_options_store.h"
 #include "native_pc_bindings.h"
 #include "native_resolution.h"
+#include "native_gpu_autodiag.h"
 #include <rex/cvar.h>
 #include <rex/ui/imgui_dialog.h>
 #include <rex/ui/imgui_drawer.h>
@@ -429,7 +430,10 @@ class PcMenu final : public rex::ui::ImGuiDialog {
       }
       ImGui::SameLine();
       if (ImGui::Button("Exit to Windows", ImVec2(210, 36))) {
-        // Window closes by ReXApp::OnClosing: TerminateTitle + flush.
+        // HULK/AUTO-GPU-213-EXIT: guest termination can hard-exit without
+        // WM_DESTROY or ReXApp::OnShutdown; report while logger is alive.
+        // Atomic once-guard avoids duplicate summaries.
+        ReportAutomaticGpuDiagnostics();
         PcMenuSetOpen(false);
         if (on_exit_) on_exit_();
       }

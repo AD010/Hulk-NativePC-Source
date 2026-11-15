@@ -67,6 +67,10 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
       NativeInputSetCapture(true);
     }
   }
+  if (msg == WM_CLOSE) {
+    // HULK/AUTO-GPU-213-EXIT: include Alt+F4 and normal window closes.
+    ReportAutomaticGpuDiagnostics();
+  }
   if (msg == WM_DESTROY) {
     // HULK/AUTO-GPU-211: the Xbox guest can hard-exit without calling
     // IncredibleHulkApp::OnShutdown. Emit once while Win32/logging is live.
