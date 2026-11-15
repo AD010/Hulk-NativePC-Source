@@ -80,6 +80,11 @@ def audit(manifest_path: Path) -> dict:
         raise ValueError('Invalid original shader count')
     stages, fetches, flows, effects, seen = Counter(), Counter(), Counter(), set(), set()
     dynamic = 0
+    static_fetch_candidates = 0
+    static_unimplemented = 0
+    effects_with_unimplemented = set()
+    # Direct EXEC fetch opcode screen only, not compilation or shader parity.
+    supported_direct_fetches = frozenset((0, 1, 19))
     for record in records:
         stage, digest = record['stage'], record['sha256']
         if (not isinstance(digest, str) or len(digest) != 64 or
@@ -97,6 +102,12 @@ def audit(manifest_path: Path) -> dict:
         fetches.update(result['direct_fetches'])
         flows.update(result['control_flow_types'])
         dynamic += result['dynamic_control_flow_present']
+        unsupported = set(result['direct_fetches']) - supported_direct_fetches
+        if unsupported:
+            static_unimplemented += 1
+            effects_with_unimplemented.add(record['effect'])
+        if not unsupported and not result['dynamic_control_flow_present']:
+            static_fetch_candidates += 1
     return {'original_shader_containers': len(records),
             'effects_with_shaders': len(effects),
             'stages': dict(stages),
@@ -104,6 +115,10 @@ def audit(manifest_path: Path) -> dict:
             'opcode_names': FETCH_TYPES,
             'control_flow_opcode_counts': dict(flows),
             'shaders_with_dynamic_control_flow': dynamic,
+            'static_direct_exec_fetch_candidate_shaders': static_fetch_candidates,
+            'shaders_with_unimplemented_direct_fetch': static_unimplemented,
+            'effects_with_unimplemented_direct_fetch': len(effects_with_unimplemented),
+            'candidate_is_compiled': False,
             'scope': 'direct static EXEC paths only; no native Draw ABI or pixel correctness proof'}
 
 
