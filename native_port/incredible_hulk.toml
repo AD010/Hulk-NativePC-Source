@@ -25,6 +25,9 @@ hulk_guest_swap_fps_cap = 0
 # and physics timestep are separate, unverified engine-specific problems.
 ignore_thread_affinities = true
 ignore_thread_priorities = true
+# Disabled in retail. When enabled, log exact guest-created thread entries
+# and requested Xbox affinity without changing any host affinity/physics.
+hulk_guest_thread_probe = false
 user_country = 103
 user_language = 1
 render_target_path_vulkan = "fsi"

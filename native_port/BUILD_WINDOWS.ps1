@@ -82,6 +82,10 @@ try {
   # HULK USA DIAGNOSTIC: guard an observed potential MnK shutdown race.
   $InputPatch = Join-Path (Split-Path $Source -Parent) 'ci/patch_sdk_input_lifetime.py'
   Invoke-Checked 'python' @($InputPatch, $Sdk) $Source
+  # Read-only guest XThread creation/affinity evidence, OFF unless requested.
+  # This neither schedules Havok jobs nor changes 30/60 Hz simulation.
+  Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_sdk_hulk_thread_probe.py')) $Source
+  Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_sdk_hulk_thread_probe.py'), $Sdk) $Source
   # Protect save package names before any host filesystem operation.
   Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_sdk_hulk_save_names.py'), $Sdk) $Source
   Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_sdk_hulk_save_names.py'), $Sdk) $Source
