@@ -15,6 +15,8 @@
 #include <atomic>
 #include <filesystem>
 #include <functional>
+#include <unordered_map>
+#include <string_view>
 #include <optional>
 #include <string>
 #include <utility>
@@ -26,10 +28,6 @@ void GameWindowMenuClosed();
 namespace {
 std::atomic<bool> visible{false};
 rex::ui::Window* game_window = nullptr; // accessed only on host UI thread
-
-std::string Bind(const char* name) {
-  return rex::cvar::Query<std::string>(name);
-}
 
 class PcMenu final : public rex::ui::ImGuiDialog {
  public:
@@ -117,7 +115,7 @@ class PcMenu final : public rex::ui::ImGuiDialog {
             }
           }
           bool fullscreen = pending_fullscreen_.value_or(
-              rex::cvar::Query<bool>("fullscreen"));
+              PendingBool("fullscreen"));
           if (ImGui::Checkbox("Fullscreen (restart to apply)", &fullscreen)) {
             const bool saved = options::Save(
                 config_, "fullscreen", fullscreen ? "true" : "false");
@@ -159,7 +157,7 @@ class PcMenu final : public rex::ui::ImGuiDialog {
               "True 16:10/21:9 camera widening needs a verified USA Hulk "
               "projection hook; the original HUD is not stretched.");
           ImGui::Separator();
-      const int32_t guest_fps_limit = rex::cvar::Query<int32_t>("hulk_guest_swap_fps_cap");
+      const int32_t guest_fps_limit = PendingInt("hulk_guest_swap_fps_cap");
       if (guest_fps_limit == 0) {
         ImGui::TextUnformatted("Guest FPS limit: Unlimited (game may still run 30)");
       } else {
@@ -191,7 +189,7 @@ class PcMenu final : public rex::ui::ImGuiDialog {
       if (ImGui::Button("Unlimited FPS")) {
         Change("hulk_guest_swap_fps_cap", "0");
       }
-      bool vsync = rex::cvar::Query<bool>("vsync");
+      bool vsync = PendingBool("vsync");
       if (ImGui::Checkbox("Vertical synchronization", &vsync)) {
         Change("vsync", vsync ? "true" : "false");
       }
@@ -212,7 +210,7 @@ class PcMenu final : public rex::ui::ImGuiDialog {
       ImGui::TextUnformatted("PC graphics (restart game to apply)");
       ImGui::TextWrapped("Current NativeX Vulkan: host-scaled XDK/PM4 compatibility rendering. Full Edge of Reality native passes and 16:10 camera are not active yet.");
       const double native_scale =
-          rex::cvar::Query<double>("native_x_renderer_resolution_scale");
+          PendingDouble("native_x_renderer_resolution_scale");
       ImGui::TextUnformatted(native_scale <= 0.0
           ? "NativeX host raster scale: Auto (game targets remain Xbox-sized)"
           : "NativeX host raster scale: fixed multiplier");
@@ -271,7 +269,7 @@ class PcMenu final : public rex::ui::ImGuiDialog {
       float sharpness = sharpness_edit_active_
           ? sharpness_edit_value_
           : static_cast<float>(
-                rex::cvar::Query<double>("native_x_renderer_sharpness"));
+                PendingDouble("native_x_renderer_sharpness"));
       if (sharpness < 0.0f) sharpness = 0.0f;
       if (sharpness > 0.5f) sharpness = 0.5f;
       const bool sharpness_changed =
@@ -308,10 +306,10 @@ class PcMenu final : public rex::ui::ImGuiDialog {
       ImGui::Text("Move: %s / %s / %s / %s", w.c_str(), a.c_str(), s.c_str(), d.c_str());
       ImGui::TextUnformatted("Look: mouse");
       // Black V3-style separate axis controls; both routes use live CVars.
-      bool invert_x = rex::cvar::Query<bool>("hulk_mouse_invert_x");
+      bool invert_x = PendingBool("hulk_mouse_invert_x");
       if (ImGui::Checkbox("Invert mouse X", &invert_x))
         Change("hulk_mouse_invert_x", invert_x ? "true" : "false");
-      bool invert_y = rex::cvar::Query<bool>("hulk_mouse_invert_y");
+      bool invert_y = PendingBool("hulk_mouse_invert_y");
       if (ImGui::Checkbox("Invert mouse Y", &invert_y))
         Change("hulk_mouse_invert_y", invert_y ? "true" : "false");
       DrawMouseMultiplier("Mouse horizontal speed",
@@ -326,8 +324,8 @@ class PcMenu final : public rex::ui::ImGuiDialog {
       const std::string back = Bind("hulk_bind_back");
       ImGui::Text("Jump / Confirm: %s", jump.c_str());
       ImGui::Text("Primary attack: %s", action.c_str());
-      ImGui::Text("Secondary attack: %s", secondary.c_str());
-      ImGui::Text("Back / Cancel: %s", back.c_str());
+      ImGui::Text("Heavy attack (right mouse): %s", secondary.c_str());
+      ImGui::Text("Grab / Interact (F): %s", back.c_str());
       const std::string lb = Bind("hulk_bind_lb");
       const std::string rb = Bind("hulk_bind_rb");
       const std::string lt = Bind("hulk_bind_lt");
@@ -443,17 +441,53 @@ class PcMenu final : public rex::ui::ImGuiDialog {
  private:
   // No F4 detour: save the same resolved game TOML that ReXGlue loaded.
   // Preserve all unrelated renderer/input options and the user's data root.
+  // HULK/PCMENU-PERSISTED-PREVIEW: the on-disk user choice is authoritative.
+  // Startup-only CVars MUST NOT snap the visible setting back next frame.
+  std::string Bind(const char* key) const {
+    const auto found=saved_preview_.find(key);
+    return found!=saved_preview_.end() ? found->second
+        : rex::cvar::Query<std::string>(key);
+  }
+  bool PendingBool(const char* key) const {
+    const auto found=saved_preview_.find(key);
+    return found!=saved_preview_.end() ? found->second=="true"
+        : rex::cvar::Query<bool>(key);
+  }
+  int32_t PendingInt(const char* key) const {
+    const auto found=saved_preview_.find(key);
+    return found!=saved_preview_.end() ? std::stoi(found->second)
+        : rex::cvar::Query<int32_t>(key);
+  }
+  double PendingDouble(const char* key) const {
+    const auto found=saved_preview_.find(key);
+    return found!=saved_preview_.end() ? std::stod(found->second)
+        : rex::cvar::Query<double>(key);
+  }
   void Change(const char* key, const std::string& value) {
-    last_save_ok_ = hulk::options::Save(config_, key, value);
-    if (*last_save_ok_)
-      (void)rex::cvar::SetFlagByName(key, value);
-    else
-      REXLOG_WARN("[HULK/PCMENU] Existing TOML settings could not be saved");
+    const bool saved=hulk::options::Save(config_,key,value);
+    last_save_ok_=saved;
+    if (!saved) {
+      std::error_code ec;
+      REXLOG_ERROR("[HULK/PCMENU-SAVE] REJECTED key={} exists={} "
+                   "regular={} (unwritable, duplicate or invalid value)",
+                   key,std::filesystem::exists(config_,ec),
+                   std::filesystem::is_regular_file(config_,ec));
+      return;
+    }
+    saved_preview_[key]=value;
+    const std::string_view name(key);
+    const bool hot=name.starts_with("hulk_bind_") ||
+                   name.starts_with("hulk_mouse_") ||
+                   name=="vsync" || name=="hulk_guest_swap_fps_cap";
+    const bool applied=hot && rex::cvar::SetFlagByName(key,value);
+    REXLOG_INFO("[HULK/PCMENU-SAVE] key={} persisted=true "
+                "live_applied={} restart_required={} value={}",
+                key,applied,!applied,value);
   }
   void DrawMouseMultiplier(const char* label, const char* key,
                            float& pending, bool& editing) {
     // Commit once when releasing the slider; no repeated disk writes.
-    float value = editing ? pending : static_cast<float>(rex::cvar::Query<double>(key));
+    float value = editing ? pending : static_cast<float>(PendingDouble(key));
     value = std::clamp(value, 0.25f, 4.0f);
     const bool changed = ImGui::SliderFloat(label, &value, 0.25f, 4.0f, "%.2fx");
     if (changed) pending = value;
@@ -465,6 +499,7 @@ class PcMenu final : public rex::ui::ImGuiDialog {
     }
   }
   std::filesystem::path config_;
+  std::unordered_map<std::string,std::string> saved_preview_;
   std::optional<bool> pending_fullscreen_;
   std::optional<uint32_t> pending_window_width_;
   std::optional<uint32_t> pending_window_height_;

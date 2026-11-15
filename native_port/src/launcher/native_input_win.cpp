@@ -54,10 +54,10 @@ REXCVAR_DEFINE_STRING(hulk_bind_menu_down, "Down", "Hulk/PC Controls/Keys", "Men
 REXCVAR_DEFINE_STRING(hulk_bind_menu_left, "Left", "Hulk/PC Controls/Keys", "Menu left");
 REXCVAR_DEFINE_STRING(hulk_bind_menu_right, "Right", "Hulk/PC Controls/Keys", "Menu right");
 REXCVAR_DEFINE_STRING(hulk_bind_confirm, "Space", "Hulk/PC Controls/Keys", "Xbox A (confirm)");
-REXCVAR_DEFINE_STRING(hulk_bind_back, "E", "Hulk/PC Controls/Keys", "Xbox B (back)");
+REXCVAR_DEFINE_STRING(hulk_bind_back, "F", "Hulk/PC Controls/Keys", "Xbox B (back)");
 REXCVAR_DEFINE_STRING(hulk_bind_primary, "MouseLeft", "Hulk/PC Controls/Keys", "Xbox X");
-REXCVAR_DEFINE_STRING(hulk_bind_secondary, "F", "Hulk/PC Controls/Keys", "Xbox Y");
-REXCVAR_DEFINE_STRING(hulk_bind_alt_back, "MouseRight", "Hulk/PC Controls/Keys", "Xbox B alternate");
+REXCVAR_DEFINE_STRING(hulk_bind_secondary, "MouseRight", "Hulk/PC Controls/Keys", "Xbox Y");
+REXCVAR_DEFINE_STRING(hulk_bind_alt_back, "E", "Hulk/PC Controls/Keys", "Xbox B alternate");
 REXCVAR_DEFINE_STRING(hulk_bind_lb, "Q", "Hulk/PC Controls/Keys", "Xbox LB");
 REXCVAR_DEFINE_STRING(hulk_bind_rb, "R", "Hulk/PC Controls/Keys", "Xbox RB");
 REXCVAR_DEFINE_STRING(hulk_bind_lt, "Shift", "Hulk/PC Controls/Keys", "Left trigger");

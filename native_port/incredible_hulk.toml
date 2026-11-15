@@ -2,12 +2,8 @@ game_data_root = ""
 hulk_native_mnk = true
 hulk_native_mnk_force = true
 mnk_mode = false
-# Windows x64 Release: no per-hook PPC ABI profiler is compiled; all
-# optional render/input trace modes below stay disabled by default.
 hulk_mouse_sensitivity = 4.0
 hulk_mouse_invert_y = false
-# NativePC per-axis sensitivity relative to existing mouse sensitivity.
-# Exposed in F10 controls until the original EoR pause UI is wired.
 hulk_mouse_invert_x = false
 hulk_mouse_horizontal_multiplier = 1.0
 hulk_mouse_vertical_multiplier = 1.0
@@ -17,16 +13,9 @@ vulkan_allow_present_mode_mailbox = false
 vulkan_allow_present_mode_fifo_relaxed = false
 vsync = true
 vblank_follows_display = false
-# Preserve current game pacing until a 60Hz physics simulation is validated.
-# 0 = no additional XDK submission cap; engine may still choose 30 FPS.
 hulk_guest_swap_fps_cap = 0
-# Leave independent recompiled Xbox threads schedulable across Windows
-# cores; do not force affinities to 3 Xenon CPUs. Real Havok job dispatch
-# and physics timestep are separate, unverified engine-specific problems.
 ignore_thread_affinities = true
 ignore_thread_priorities = true
-# Disabled in retail. When enabled, log exact guest-created thread entries
-# and requested Xbox affinity without changing any host affinity/physics.
 hulk_guest_thread_probe = false
 user_country = 103
 user_language = 1
@@ -43,28 +32,11 @@ fullscreen_exclusive = false
 present_letterbox = true
 present_effect = "bilinear"
 native_x_renderer = true
-# D140 uses the actual Vulkan swapchain size. 0 computes its native scale
-# from the monitor/window instead of fixing all output at 2x of Xbox 720p.
-# The guest front buffer and XDK resource pitches remain 1280x720!
 native_x_renderer_resolution_scale = 0.0
-# No USA Hulk camera/projection hook has yet been validated. Do not
-# request NativeX full-aspect 3D widening without a real game camera fix;
-# native 16:9 raster is fitted correctly into 16:10/21:9 outputs with bars.
 native_x_renderer_fill_screen = false
 native_x_renderer_aspect = 0.0
-# Prefer sharper angled textures when the original asset has usable mips.
-# NativeX honors the shared Xenos AF override only for eligible samplers:
-# 4 = 8x AF, -1 = respect the game, 5 = 16x AF (more bandwidth).
-# This cannot recover missing high-resolution source texels.
 anisotropic_override = 4
-# Log203 already captured raw texture-fetch/mip/LOD provenance; disable
-# this per-draw diagnostic for normal gameplay. Re-enable only for a new
-# targeted texture audit (it never changes texture or sampler values).
 native_x_renderer_hulk_mip_probe = false
-# Image presentation options; native resolution is NOT a texture upscaler.
-# Sharpness 0 preserves the last known-good output. Try 0.10-0.20 via
-# the F10 menu if desired. FSR 1/NIS are optional, DLSS view hooks are not
-# yet validated in this game. These CVARs are startup-only.
 native_x_renderer_scaling = "bilinear"
 native_x_renderer_sharpness = 0.0
 native_x_renderer_hulk_front_fallback = true
@@ -72,61 +44,32 @@ native_x_renderer_hulk_gap_single_draw = true
 native_x_renderer_hulk_expand_msaa_sample_grid = true
 native_x_renderer_hulk_full_output_scissor = true
 native_x_renderer_hulk_auto_scene_aa = true
-# NativeX guest main scene keeps authentic 4x MSAA. Skip a SECOND,
-# full-resolution SMAA/FXAA pass by default to reduce Vulkan frame cost.
-# Post AA remains selectable in the existing F10 settings.
 native_x_renderer_antialiasing = "off"
 native_x_renderer_present_with_swaps = true
 native_x_renderer_thread = true
-# Keep the upstream D140 upload-ahead window until a matched-scene
-# benchmark proves a different size actually reduces GPU/CPU time.
-# Enlarging it speculatively to 512 may increase speculative work during
-# destruction and cannot by itself reduce required Vulkan Resolve work.
 native_x_renderer_upload_ahead = 256
 hulk_native_x_verify_only = false
-# Diagnostic only. When native_x_renderer=false this records the genuine USA
-# XDK Draw/Present calls while Xenos continues rendering (no GPU takeover).
-# In regular releases keep this disabled to avoid frame-copy overhead.
 hulk_eor_xdk_capture = false
-# HULK/RETAIL-CPU-BUDGET: the NativeX trace path captures per-frame D3D
-# state. It is a diagnostic, not required for the native Vulkan render.
-# Switch on explicitly for source-provenance investigations only.
 native_x_renderer_trace = false
-# Hulk gap replay requires the normal StateTracker::Enter boundaries.
 native_x_renderer_lean_setters = false
 native_x_renderer_trace_interval = 300
 native_x_renderer_trace_dump_frames = 1
 native_x_renderer_trace_dump_at = 900
-# Observer compares GPU packets and CPU shadow state; off for retail
-# performance while capture/verification remains opt-in.
 native_x_renderer_verify = false
 native_x_renderer_verify_frames = 1
 native_x_renderer_verify_at = 900
 bind_native_x_renderer_verify = "F11"
 hulk_world_stream_trace = false
 hulk_frame_probe = false
-# D140 pipeline storage keeps validated guest shaders, translated programs,
-# graphics PSO records and a driver-compatible Vulkan pipeline cache in the
-# user's local renderer cache. This reuses compilation across game launches,
-# avoiding repetitive first-visit stalls, not extra on-screen effects.
-# Invalid shaders that failed analysis are not recorded as valid programs.
-# Do not confuse this with native_x_renderer_pipeline_library (D132).
 native_x_renderer_pipeline_storage = true
-# Serialize NVIDIA Vulkan shader/PSO creation to reduce simultaneous driver compiler work.
-# Experimental crash containment; does not fix invalid Xenos PM4 state.
 native_x_renderer_hulk_serial_driver_creation = true
 native_x_renderer_hulk_surface_fallback = false
-# The original renderer silently skipped 1297 shader and 1098 pipeline
-# draws by frame 1200 of build 67. Bounded D101 waits preserve scene draws.
-# New shaders may briefly stall rather than leaving missing world pixels.
 native_x_renderer_hulk_wait_scene_pipelines = true
 native_x_renderer_wait_offscreen_pipelines = true
-# Diagnostic only: true waits for EVERY shader/pipeline draw; can stall the GPU.
-# Compare identical scenes to test if skipped compiling pipelines cause flicker.
 native_x_renderer_skip_steady_passes = false
 native_x_renderer_dynamic_rendering = true
 native_x_renderer_pipeline_library = "auto"
-
-# Windows-native saved-game package root, separated from original retail PC HULK.sav.
-# OFF until migration from the previous Xbox XUID layout is verified.
 hulk_native_pc_saves = false
+hulk_bind_back = "F"
+hulk_bind_secondary = "MouseRight"
+hulk_bind_alt_back = "E"
