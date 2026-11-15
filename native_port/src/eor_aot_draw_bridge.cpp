@@ -29,7 +29,8 @@ class ForwardingBackend final : public native::Backend {
     const auto* ps = bank_.Find(pair.pixel_source_sha256, Stage::Pixel);
     if (!vs || !ps)
       throw std::logic_error("Unknown original Xenos shader in AOT Vulkan bank");
-    return target_.BindOfflineShaders(vs->spirv, ps->spirv) &&
+    return target_.BindOriginalEffect(pair.effect_hash) &&
+           target_.BindOfflineShaders(vs->spirv, ps->spirv) &&
            target_.DrawIndexed(draw);
   }
   bool ResolveScene(native::Size size) override {
@@ -52,7 +53,11 @@ class ForwardingBackend final : public native::Backend {
 
 void ReplayAotScene(const native::FrameGeometry& frame,
                     std::span<const BoundIndexedDraw> draws,
-                    const ShaderBank& bank, ShaderBindingBackend& backend) {
+                    const ShaderBank& bank, const EffectCatalog& effects,
+                    ShaderBindingBackend& backend) {
+  if (effects.EffectCount() == 0 ||
+      effects.ShaderCount() != bank.expected())
+    throw std::logic_error("Original EoR effect catalog/shader bank mismatch");
   if (!bank.HasFullArchiveCoverage())
     throw std::logic_error("Incomplete original shader archive AOT coverage");
   if (draws.empty())
@@ -62,6 +67,10 @@ void ReplayAotScene(const native::FrameGeometry& frame,
   std::vector<native::IndexedDraw> commands;
   commands.reserve(draws.size());
   for (const auto& value : draws) {
+    if (!value.effect_hash ||
+        !effects.HasPair(value.effect_hash, value.vertex_source_sha256,
+                         value.pixel_source_sha256))
+      throw std::logic_error("Shader programs do not belong to EoR material effect");
     if (!bank.Find(value.vertex_source_sha256, Stage::Vertex) ||
         !bank.Find(value.pixel_source_sha256, Stage::Pixel))
       throw std::logic_error("Uncompiled Xenos shader pair in native EoR draw");
