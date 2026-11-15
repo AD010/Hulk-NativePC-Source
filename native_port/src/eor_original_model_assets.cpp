@@ -32,6 +32,19 @@ std::optional<LoadedModel> OriginalModelAssets::LoadName(std::string_view name) 
   // Special non-CRC frontend alias remains accessible through LoadHash.
   return LoadHash(ResourceHash(name));
 }
+std::optional<LoadedModelWithMaterials>
+OriginalModelAssets::LoadWithMaterialsHash(uint32_t hash) const {
+  auto model=LoadHash(hash);
+  if(!model)return std::nullopt;
+  // Identity was already checked against original IND/ARC platform and
+  // filename hash by LoadHash; do not accept any arbitrary texture archive.
+  auto surfaces=AllSurfaceMaterialCandidates(model->bytes,index_);
+  return LoadedModelWithMaterials{std::move(*model),std::move(surfaces)};
+}
+std::optional<LoadedModelWithMaterials>
+OriginalModelAssets::LoadWithMaterialsName(std::string_view name) const {
+  return LoadWithMaterialsHash(ResourceHash(name));
+}
 size_t OriginalModelAssets::IndexedModelCount() const noexcept {
   const auto it=index_.groups().find("Models");
   return it==index_.groups().end()?0:it->second.size();
