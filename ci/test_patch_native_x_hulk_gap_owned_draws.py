@@ -25,8 +25,8 @@ class OwnedReplayTests(unittest.TestCase):
         self.assertIn("128u", updated)
         self.assertLess(updated.index("hulk_owned_draws.emplace_back(scan_);"),
                         updated.index("hulk_gap_packet_callback_(*this"))
-        self.assertNotIn(PRE_OLD, updated)
-        self.assertNotIn(START_OLD + "\n", updated)
+        self.assertEqual(updated.count("HULK/PM4-FIRST-PASS-OWNED-DRAWS-211"), 1)
+        self.assertEqual(updated.count("hulk_gap_packet_callback_(*this"), 1)
         self.assertIn("else {\n            // Uncommon over-budget", updated)
 
     def test_fails_closed_on_drift_or_partial_install(self):
