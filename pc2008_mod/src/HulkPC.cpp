@@ -51,7 +51,7 @@ std::once_flag configOnce;
 wchar_t ini[MAX_PATH]{}, logFile[MAX_PATH]{};
 bool fixAspect = false;
 uint32_t width = 0, height = 0, anisotropy = 0, maxAnisotropy = 1;
-double sourceAspect = 16.0 / 9.0;
+double sourceAspect = 4.0 / 3.0;
 
 bool OriginalHulk() noexcept {
   auto* dos=reinterpret_cast<const IMAGE_DOS_HEADER*>(GetModuleHandleW(nullptr));
@@ -82,11 +82,20 @@ void LoadConfig() {
     if(!width||!height||width>16384||height>16384)width=height=0;
     wchar_t value[64]{};
     GetPrivateProfileStringW(L"Graphics",L"SourceAspect",
-                             L"1.777777777777778",value,64,ini);
+                             L"1.333333333333333",value,64,ini);
     wchar_t* end=nullptr;
     const double aspect=wcstod(value,&end);
     if(end!=value&&std::isfinite(aspect)&&aspect>=1.0&&aspect<=3.0)
       sourceAspect=aspect;
+    // Keep Visual Studio Win32 ASI consistent with the freestanding x86
+    // HulkPC.asi distributed in the DXVK 16:10 source package.
+    const UINT baseNumerator=GetPrivateProfileIntW(
+        L"Graphics",L"BaseAspectNumerator",4,ini);
+    const UINT baseDenominator=GetPrivateProfileIntW(
+        L"Graphics",L"BaseAspectDenominator",3,ini);
+    if(baseNumerator>=3 && baseNumerator<=64 &&
+       baseDenominator>=3 && baseDenominator<=64)
+      sourceAspect=double(baseNumerator)/double(baseDenominator);
   });
 }
 void Log(const char* fmt,...) {
@@ -228,6 +237,7 @@ HRESULT STDMETHODCALLTYPE OnCreateDevice(IDirect3D9* api,UINT adapter,
     ReplaceVtable(*result,94,&OnVSConstants,realVSConst);
     ReplaceVtable(*result,106,&OnCreatePS,realCreatePS);
     ReplaceVtable(*result,69,&OnSampler,realSampler);
+    Log("[HulkPC] DXVK-compatible D3D9 x86 Hor+ experimental; only ViewProj/World VS constants\r\n");
     Log("[D3D9] Device %ux%u fullscreen=%u, FOV experimental=%u, AF=%u\r\n",
         pp->BackBufferWidth,pp->BackBufferHeight,(unsigned)!pp->Windowed,
         (unsigned)fixAspect,anisotropy);
