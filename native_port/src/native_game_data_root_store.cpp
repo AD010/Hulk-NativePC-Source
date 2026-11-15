@@ -1,5 +1,7 @@
 #include "native_game_data_root_store.h"
 #include <fstream>
+#include <cstdint>
+#include <stdexcept>
 #include <iterator>
 #include <sstream>
 #include <string>
@@ -94,8 +96,9 @@ bool SaveGameDataRoot(const std::filesystem::path& config,
       if (!out) return false;
       out.write(written.data(), static_cast<std::streamsize>(written.size()));
       out.flush();
-      if (!out.good()) {
-        out.close();
+      const bool written = out.good();
+      out.close();
+      if (!written || !out.good()) {
         std::filesystem::remove(temporary, ec);
         return false;
       }
