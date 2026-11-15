@@ -37,7 +37,39 @@ Packfile Inspect(std::span<const std::byte> bytes,uint32_t key,Platform plat) {
     if(matches && U8(bytes,pos+kVersion.size())==0) {version=true;break;}
   }
   if(!version) throw std::invalid_argument("Unsupported Havok packfile version");
-  return {key,5,3,marker,bytes.size(),plat};
+  // Havok 5.1 packfiles have three native sections. Their fixup arrays
+  // cannot be treated as PC pointers or MOPP programs without conversion.
+  const std::string_view names[]{"__classnames__", "__data__", "__types__"};
+  std::array<Section,3> table{};
+  for(size_t j=0;j<3;++j) {
+    const size_t p=marker+64+48*j;
+    if(p+48>bytes.size()) throw std::invalid_argument("Truncated Havok section table");
+    for(size_t k=0;k<20;++k) {
+      const uint8_t expected=k<names[j].size()?static_cast<uint8_t>(names[j][k]):0;
+      if(U8(bytes,p+k)!=expected)
+        throw std::invalid_argument("Unexpected Havok section name");
+    }
+    auto& section=table[j];
+    section.absolute_start=U32(bytes,p+20,plat);
+    section.local_fixups=U32(bytes,p+24,plat);
+    section.global_fixups=U32(bytes,p+28,plat);
+    section.virtual_fixups=U32(bytes,p+32,plat);
+    section.exports=U32(bytes,p+36,plat);
+    section.imports=U32(bytes,p+40,plat);
+    section.end=U32(bytes,p+44,plat);
+    if(section.absolute_start<208 ||
+       section.absolute_start>bytes.size()-marker ||
+       section.end>bytes.size()-marker-section.absolute_start ||
+       section.local_fixups>section.global_fixups ||
+       section.global_fixups>section.virtual_fixups ||
+       section.virtual_fixups>section.exports ||
+       section.exports>section.imports ||
+       section.imports>section.end)
+      throw std::invalid_argument("Invalid Havok fixup/section offsets");
+    if(j && table[j-1].absolute_start+table[j-1].end>section.absolute_start)
+      throw std::invalid_argument("Overlapping Havok sections");
+  }
+  return {key,5,3,marker,bytes.size(),plat,table};
 }
 Packfile ReadIndexed(const Index& index,const std::filesystem::path& archive,
                      std::string_view category,uint32_t hash,size_t maximum_size) {
