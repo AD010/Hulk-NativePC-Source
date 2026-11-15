@@ -47,6 +47,9 @@ class Backend {
  public:
   virtual ~Backend() = default;
   virtual bool BeginScene(Size physical, uint32_t samples) = 0;
+  // Revert pending GPU writes and transient attachments on any pass failure;
+  // must be safe after a failed BeginScene and must never throw.
+  virtual void AbortScene() noexcept = 0;
   virtual bool DrawIndexed(const IndexedDraw& draw) = 0;
   virtual bool ResolveScene(Size physical) = 0;
   virtual bool Composite(Rect destination, Size backbuffer) = 0;

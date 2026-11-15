@@ -12,6 +12,7 @@ class ForwardingBackend final : public native::Backend {
   bool BeginScene(native::Size size, uint32_t samples) override {
     return target_.BeginScene(size,samples);
   }
+  void AbortScene() noexcept override { target_.AbortScene(); }
   bool DrawIndexed(const native::IndexedDraw& draw) override {
     if (position_ >= draws_.size())
       throw std::logic_error("EoR draw/compiled shader pairing overflow");

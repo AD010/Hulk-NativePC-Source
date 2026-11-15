@@ -7,12 +7,13 @@
 using namespace hulk::eor;
 using namespace hulk::eor::aot;
 struct Backend final:ShaderBindingBackend {
-  unsigned begin=0,bind=0,draw=0,resolve=0,composite=0;
+  unsigned begin=0,bind=0,draw=0,resolve=0,composite=0,abort=0;
   bool BeginScene(native::Size size,uint32_t) override {
     assert(size.width==2560 && size.height==1600); ++begin;return true;}
   bool BindOfflineShaders(std::span<const uint32_t> vs,
                           std::span<const uint32_t> ps) override {
     assert(vs[0]==0x07230203 && ps[0]==0x07230203);++bind;return true;}
+  void AbortScene() noexcept override {++abort;}
   bool DrawIndexed(const native::IndexedDraw&) override {++draw;return true;}
   bool ResolveScene(native::Size size) override {assert(size.width==2560);++resolve;return true;}
   bool Composite(native::Rect r,native::Size) override {assert(r.height==1600);++composite;return true;}

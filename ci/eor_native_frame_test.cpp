@@ -9,17 +9,20 @@ struct FakeBackend final : Backend {
   Size scene{}, resolved{};
   uint32_t samples = 0;
   Rect rectangle{};
+  unsigned aborts = 0, draw_number = 0, fail_draw_at = 0;
+  bool fail_begin = false, fail_resolve = false, fail_composite = false;
   bool BeginScene(Size s, uint32_t n) override {
-    order.push_back("BeginScene"); scene = s; samples = n; return true;
+    order.push_back("BeginScene"); scene = s; samples = n; return !fail_begin;
   }
+  void AbortScene() noexcept override { ++aborts; }
   bool DrawIndexed(const IndexedDraw&) override {
-    order.push_back("DrawIndexed"); return true;
+    order.push_back("DrawIndexed"); return ++draw_number != fail_draw_at;
   }
   bool ResolveScene(Size s) override {
-    order.push_back("ResolveScene"); resolved = s; return true;
+    order.push_back("ResolveScene"); resolved = s; return !fail_resolve;
   }
   bool Composite(Rect r, Size) override {
-    order.push_back("Composite"); rectangle = r; return true;
+    order.push_back("Composite"); rectangle = r; return !fail_composite;
   }
 };
 template<class F> void MustThrow(F f) {
@@ -50,6 +53,19 @@ int main() {
   assert(b.scene.width == 2560 && b.scene.height == 1600);
   assert(b.resolved.width == 2560 && b.resolved.height == 1600);
   assert(b.samples == 4 && b.rectangle.width == 2560);
+  assert(b.aborts == 0);
+  FakeBackend failed_draw; failed_draw.fail_draw_at = 2;
+  MustThrow([&] { ReplayNativeScene(native, real, failed_draw); });
+  assert(failed_draw.aborts == 1 && failed_draw.draw_number == 2);
+  FakeBackend failed_begin; failed_begin.fail_begin = true;
+  MustThrow([&] { ReplayNativeScene(native, real, failed_begin); });
+  assert(failed_begin.aborts == 1 && failed_begin.draw_number == 0);
+  FakeBackend failed_resolve; failed_resolve.fail_resolve = true;
+  MustThrow([&] { ReplayNativeScene(native, real, failed_resolve); });
+  assert(failed_resolve.aborts == 1);
+  FakeBackend failed_composite; failed_composite.fail_composite = true;
+  MustThrow([&] { ReplayNativeScene(native, real, failed_composite); });
+  assert(failed_composite.aborts == 1);
   // 2560x1600 stays PHYSICAL 2560x1600, while 4x->2x MSAA
   // reduces color samples from 16,384,000 to 8,192,000.
   s.max_scene_color_samples = 8u << 20;

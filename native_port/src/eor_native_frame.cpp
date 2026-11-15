@@ -73,6 +73,13 @@ void ReplayNativeScene(const FrameGeometry& frame,
         uint64_t(draw.first_index) + draw.index_count > UINT32_MAX)
       throw std::invalid_argument("Incomplete actual EoR geometry/shader submission");
   }
+  // Guarantee all-or-fail host pass semantics even if shader binding,
+  // Draw, same-size MSAA Resolve or output Composite fails or throws.
+  struct FrameRollback {
+    Backend& gpu;
+    bool committed = false;
+    ~FrameRollback() noexcept { if (!committed) gpu.AbortScene(); }
+  } rollback{backend};
   if (!backend.BeginScene(frame.world, frame.samples))
     throw std::runtime_error("Cannot allocate native scene attachments");
   for (const auto& draw : draws) {
@@ -85,5 +92,6 @@ void ReplayNativeScene(const FrameGeometry& frame,
     throw std::runtime_error("Native same-extent MSAA resolve failed");
   if (!backend.Composite(frame.composite, frame.backbuffer))
     throw std::runtime_error("Native scene composite failed");
+  rollback.committed = true;
 }
 } // namespace hulk::eor::native
