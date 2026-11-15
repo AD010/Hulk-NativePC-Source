@@ -10,6 +10,7 @@
 #include <memory>
 
 #include "assets_locator.h"
+#include "eor_spirv_bank.h"
 #include "pc_menu.h"
 
 #include <rex/rex_app.h>
@@ -81,6 +82,28 @@ class IncredibleHulkApp : public rex::ReXApp {
   // After the runtime's own exception handlers are in place (crash_report.cpp).
   void OnPostSetup() override {
     hulk::InstallCrashReport();
+    // Load a PRIVATE owner-generated XenosRecomp+DXC bank, if it exists.
+    // This validates bytecode and archive coverage but does not enable any
+    // native EoR Vulkan pipelines until real shader/resource bindings exist.
+    if (runtime()) {
+      const auto private_bank = runtime()->cache_root() / "eor_offline" /
+                                "hulk_shader_bank.bin";
+      std::error_code error;
+      if (std::filesystem::is_regular_file(private_bank, error) && !error) {
+        try {
+          eor_aot_ = std::make_unique<hulk::eor::aot::ShaderBank>();
+          eor_aot_->Load(private_bank);
+          REXLOG_INFO("[HULK/EOR-AOT] validated private SPIR-V blobs={}/{} "
+                      "archive_coverage={} driver_PSO=false",
+                      eor_aot_->size(), eor_aot_->expected(),
+                      eor_aot_->HasFullArchiveCoverage());
+        } catch (const std::exception& e) {
+          eor_aot_.reset();
+          REXLOG_WARN("[HULK/EOR-AOT] rejected corrupt/incompatible private "
+                      "shader bank: {}", e.what());
+        }
+      }
+    }
 #if defined(HULK_NATIVE_X_LINKED)
     const bool vulkan_active = hulk::NativeXInitialize(
         runtime() ? runtime()->graphics_system() : nullptr,
@@ -115,13 +138,14 @@ class IncredibleHulkApp : public rex::ReXApp {
     });
     REXLOG_INFO("[HULK/PCMENU] NativePC UI registered; F10 opens controls and Exit");
   }
-  void OnShutdown() override { pc_menu_.reset(); }
+  void OnShutdown() override { eor_aot_.reset(); pc_menu_.reset(); }
   // std::unique_ptr<rex::ui::ImGuiDialog> CreateAchievementsOverlay() override;
   // std::unique_ptr<rex::ui::AchievementNotificationDialog>
   // CreateAchievementNotificationDialog() override;
   // void OnShutdown() override {}
   // void OnConfigurePaths(rex::PathConfig& paths) override {}
  private:
+  std::unique_ptr<hulk::eor::aot::ShaderBank> eor_aot_;
   std::filesystem::path native_pc_config_;
   std::unique_ptr<rex::ui::ImGuiDialog> pc_menu_;
 };
