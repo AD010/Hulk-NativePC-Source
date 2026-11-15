@@ -146,6 +146,16 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Original EoR FMOD Event parser failed MSVC compilation' }
           & $fmodTest
           if ($LASTEXITCODE -ne 0) { throw 'EoR FMOD FEV1/CRC event identity regression failed' }
+          # Real 2008 retail PC / Xbox CRC32+hash-table envelope reader.
+          # Synthetic-only tests, no original user save bytes uploaded.
+          $saveFmtTest = Join-Path $env:RUNNER_TEMP 'hulk-save-pc-format-test.exe'
+          $saveFmtArgs = @('/nologo','/std:c++20','/EHsc','/W4','/WX','/utf-8',
+                           "/Fe:$saveFmtTest",'native_port/src/native_pc_save_format.cpp',
+                           'ci/native_pc_save_format_test.cpp')
+          & cl.exe @saveFmtArgs
+          if ($LASTEXITCODE -ne 0) { throw 'Retail PC/Xbox Hulk native save reader failed MSVC compile' }
+          & $saveFmtTest
+          if ($LASTEXITCODE -ne 0) { throw 'Retail PC/Xbox Hulk save CRC/field-table regression failed' }
           # Havok 5.1 standalone PC/Xbox endian/index tests (synthetic only).
           $havokTest = Join-Path $env:RUNNER_TEMP 'hulk-eor-havok-packfile-test.exe'
           $havokArgs = @('/nologo', '/std:c++20', '/EHsc', '/W4', '/WX', '/utf-8',

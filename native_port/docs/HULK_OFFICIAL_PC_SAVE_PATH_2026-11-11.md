@@ -257,3 +257,19 @@ The change does not enable native saves, migrate, delete or overwrite files.
 Validation: two native-root tests pass against the actual SDK source, including
 compiled C++ path/title/metadata-name checks; three import tests also pass.
 Windows in-game save/reload and atomic payload writes remain unverified.
+
+## 2026-11-15 read-only source-verified retail PC save envelope
+Compared owner-original recomp Xbox HULK.SAV (24,544 bytes, big-endian
+CRC32 from offset 12) and original retail PC HULK.sav (10,176 bytes,
+little-endian CRC32 from offset 12). Both have exactly 242 common
+increasing 32-bit hashed field IDs at offsets 20 (Xbox) and 16 (PC).
+Xbox has 59 zero field values; PC has 51. Platform-dependent values
+include 0x00AEAB30 (Xbox) vs 0x1FF86200 (retail PC) and should NOT
+be endian-swapped as if they were portable progress fields.
+New native_pc_save_format.cpp validates CRC32, length and sorted field
+envelopes in C++20; its MSVC source-only regression uses synthetic saves.
+In the Windows app OnPostSetup, if a retail HULK.sav already exists
+under the real Documents/SEGA/The Incredible Hulk, validate it
+read-only and log the result. The original file is NEVER opened for
+writing, overwriting or copied into the guest XAM store.
+Full retail PC-serializer and Xbox-to-PC conversion are NOT implemented.

@@ -35,6 +35,7 @@ set(INCREDIBLEHULK_SOURCES
     src/eor_ui_asset_catalog.cpp
     src/native_pc_options_store.cpp
     src/native_pc_save_path.cpp
+    src/native_pc_save_format.cpp
     src/pc_menu.cpp
     # Existing game-side input/window hooks; no separate launcher is built.
     src/launcher/input_hook.cpp

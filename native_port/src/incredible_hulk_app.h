@@ -11,6 +11,8 @@
 
 #include "assets_locator.h"
 #include "eor_spirv_bank.h"
+#include "native_pc_save_path.h"
+#include "native_pc_save_format.h"
 #include "pc_menu.h"
 
 #include <rex/rex_app.h>
@@ -82,6 +84,26 @@ class IncredibleHulkApp : public rex::ReXApp {
   // After the runtime's own exception handlers are in place (crash_report.cpp).
   void OnPostSetup() override {
     hulk::InstallCrashReport();
+    // Read-only verification of a real 2008 PC save file, if it exists.
+    // Never overwrite it or reinterpret PC pointer-valued fields as Xbox.
+    // This is not a guest save-load hook or PC-format conversion.
+    if (auto root=hulk::save::WindowsSaveFolder(); root) {
+      std::error_code ec;
+      const auto retail=*root / "HULK.sav";
+      if (std::filesystem::is_regular_file(retail,ec) && !ec) {
+        try {
+          const auto check=hulk::save::format::Read(
+              retail,hulk::save::format::Kind::RetailPcLittleEndian);
+          REXLOG_INFO("[HULK/RETAIL-PC-SAVE] valid original PC CRC32 "
+                      "and {} indexed fields; inspection only, "
+                      "guest save serializer unchanged",
+                      check.sorted_field_count);
+        } catch (const std::exception& error) {
+          REXLOG_WARN("[HULK/RETAIL-PC-SAVE] existing PC save not imported "
+                      "or modified: {}",error.what());
+        }
+      }
+    }
     // Load a PRIVATE owner-generated XenosRecomp+DXC bank, if it exists.
     // This validates bytecode and archive coverage but does not enable any
     // native EoR Vulkan pipelines until real shader/resource bindings exist.
