@@ -681,3 +681,75 @@ fault log collector. Previous source test cosmetic match corrected.
 single-document push gate required by ci/test_native_x_d140_dispatch.py.
 Fixes include real F10 persistent previews and automatic in-game Vulkan
 GPU health summaries. Source compiles only after Windows MSVC checks.
+
+
+## #211 owner gameplay log and F10 settings screenshot — 2026-11-15
+
+Input reviewed in the owner's current conversation: `incredible_hulk_211.log`,
+7,899 lines, 2026-11-15 14:25:57–14:28:37 Ukraine local.
+The owner's screenshot shows a 2560x1600 output with the native 2560x1440
+letterboxed scene and F10 option save failure. Do NOT commit the private log
+or game data.
+
+### Source-backed observations
+- GPU: Vulkan on RTX 5070 Ti Laptop, 2560x1600 swapchain, actual
+  1280x720 guest -> 2560x1440 host renderer. The USA 16:10 camera hook
+  remains **false**. Black bars are deliberate, not true 2560x1600 game 3D.
+- F10 emitted `[HULK/PCMENU-SAVE] REJECTED` for
+  `hulk_guest_swap_fps_cap` and `native_x_renderer_resolution_scale`;
+  in both cases `exists=false regular=false`. Source review showed
+  `PcMenu` COPY-constructed `config_` on `OnCreateDialogs`, potentially
+  before `OnFinalizePaths` populated the source app member.
+  Corrected to a lifetime-safe `const std::filesystem::path&`; existing
+  `native_pc_config_` is an app member created before the dialog and destroyed
+  after it. Added a source regression gate and resolved-path readiness log.
+  This is a SOURCE fix; the owner's installed ZIP has not been replaced.
+- `native_x_renderer_sharpness` effective 0.90 (strong CAS) even though
+  shipped default is 0.0 and F10 accepts 0.0..0.5. Added guarded runtime
+  clamping to 0.5 for this stale value before NativeX initializes, and an
+  explicit rejection if effective value remains outside range; no disk
+  mutation. This mitigates potential ringing, NOT absent mip texels.
+- Five `getCompTexLOD requires pixel shader implicit derivatives` shader
+  translation errors. They are from the existing vertex-stage safe-fallback
+  branch and remain **unsupported Xenos semantics**, not a proven GPU crash.
+  Never silently replace the missing computed LOD by an arbitrary gradient.
+- `[HULK/INCOMPLETE-XDK-DRAW]` counter reached at least 60,000,
+  several with `fail_header=0xffcccccc`, `0xff666666` or float-shaped
+  words following real PM4 commands. This supports suspected mixed ring
+  command/payload ownership, not authorization to consider EVENT_WRITE_SHD
+  a universal terminator or replay unknown tails.
+- 20 printed `[HULK/INVALID-VERTEX-DRAW]` events, mostly slot 95
+  (type 0, base 0x9b8000, 69376 words), and 7 printed
+  `[HULK/INVALID-TEXTURE-DRAW]` events. Do not bypass safety guards
+  to make these numbers look better.
+- `[HULK/PRESENT-FRAME-RECOVERY]` reached #17400; these are actual
+  Present boundaries preserved while incomplete PM4 tails are rejected.
+  A completed swap is **not** proof of complete scene Draw coverage.
+- Example sustained 600-frame GPU samples: frame 13800: 18.21 ms average,
+  frame 14400: 19.87 ms average / 68.84 ms max; frame 17400:
+  11.92 ms average / 26.23 ms max, 1,284 MB device memory.
+  Thus the 16.67 ms 60-FPS GPU budget was exceeded in some gameplay windows.
+  These metrics cannot be converted into GPU utilization percentage.
+  Post-AA was already **off**, and game MSAA 4x was still enabled.
+- The original retail PC save was inspected read-only: valid CRC32 and
+  242 indexed fields; no guest-to-PC serializer has been implemented.
+- Log ends with orderly window close and hard exit, **not** a GPU crash.
+  The one-shot automatic GPU summary on `OnShutdown` did not appear; do not
+  infer all diagnostics succeeded from its absence.
+
+### Required next correctness gates
+1. Identify PM4 command vs shader/data payload owner using exact US XDK 6534
+   call boundaries; correlate failing XDK Draw with the original packet bytes.
+2. Match invalid vertex/fetch slots and original PS texture identities to
+   the real per-draw instruction used-mask and shaders; preserve fail-closed
+   bounds validation. Fix missing shader semantics rather than masking errors.
+3. Prove original 3D projection ABI and camera owner before widening
+   native scene from safe 16:9 fit to genuine 2560x1600 16:10.
+4. Verify F10 live path and CAS effective values on a later explicitly
+   authorized build. This report does not claim these runtime tests passed.
+5. Keep 60/120 FPS Havok separation, real EoR Vulkan geometry/materials,
+   original UI integration, official Windows save conversion and DLSS/FG
+   gated behind authentic engine call ownership and independent tests.
+
+The single Release workflow remains manual-only. No additional Actions
+run is implied by this source-only investigation.
