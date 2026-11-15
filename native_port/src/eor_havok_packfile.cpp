@@ -45,7 +45,10 @@ Packfile Inspect(std::span<const std::byte> bytes,uint32_t key,Platform plat) {
     const size_t p=marker+64+48*j;
     if(p+48>bytes.size()) throw std::invalid_argument("Truncated Havok section table");
     for(size_t k=0;k<20;++k) {
-      const uint8_t expected=k<names[j].size()?static_cast<uint8_t>(names[j][k]):0;
+      // Havok 5.1 section tags occupy 20 bytes: byte 19 is 0xFF,
+      // not zero padding (verified in all 3425 original packfiles).
+      const uint8_t expected=k==19?0xff:
+          (k<names[j].size()?static_cast<uint8_t>(names[j][k]):0);
       if(U8(bytes,p+k)!=expected)
         throw std::invalid_argument("Unexpected Havok section name");
     }

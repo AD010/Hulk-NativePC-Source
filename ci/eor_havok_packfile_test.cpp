@@ -25,6 +25,7 @@ std::vector<std::byte> Fixture(bool xbox,uint32_t hash=0xAABBAA11u) {
   constexpr std::string_view names[]{"__classnames__","__data__","__types__"};
   for(size_t j=0;j<3;++j) {
     const size_t at=m+64+j*48;
+    b[at+19]=std::byte{0xff};
     for(size_t i=0;i<names[j].size();++i)
       b[at+i]=std::byte{static_cast<unsigned char>(names[j][i])};
     const uint32_t start=static_cast<uint32_t>(208+j*16);

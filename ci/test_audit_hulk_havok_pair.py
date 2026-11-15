@@ -9,14 +9,27 @@ from test_audit_hulk_pc_x360_ui_assets import make_index
 from audit_hulk_havok_pair import audit, audit_archive, MAGIC, VERSION
 
 def pack(key,order):
-    b=bytearray(320);m=24;b[m:m+8]=MAGIC
+    b=bytearray(400);m=24;b[m:m+8]=MAGIC
     struct.pack_into(order+'II',b,m+8,key,5)
     b[m+16:m+20]=(b'\x04\x01\x00\x01' if order=='<' else b'\x04\x00\x00\x01')
     struct.pack_into(order+'I',b,m+20,3)
     b[m+40:m+40+len(VERSION)]=VERSION
     for i,name in enumerate((b'__classnames__',b'__data__',b'__types__')):
-        p=m+64+i*48;b[p:p+len(name)]=name
-        struct.pack_into(order+'7I',b,p+20,208+i*16,*([16]*6 if i<2 else [0]*6))
+        p=m+64+i*48;b[p:p+len(name)]=name;b[p+19]=0xff
+        if i==0:
+            section=(208,16,16,16,16,16,16)
+        elif i==1:
+            section=(224,16,32,48,64,64,64)
+        else:
+            section=(288,0,0,0,0,0,0)
+        struct.pack_into(order+'7I',b,p+20,*section)
+    data=m+224
+    struct.pack_into(order+'II',b,data+16,0,8)
+    struct.pack_into(order+'II',b,data+24,0xffffffff,0xffffffff)
+    struct.pack_into(order+'III',b,data+32,4,1,8)
+    struct.pack_into(order+'I',b,data+44,0xffffffff)
+    struct.pack_into(order+'III',b,data+48,8,0,0)
+    struct.pack_into(order+'I',b,data+60,0xffffffff)
     return bytes(b)
 
 def archive(key,order):
@@ -29,7 +42,7 @@ class Tests(unittest.TestCase):
             root=Path(temp);data={}
             keys={'Havoks':0x12345678,'HavokMopps':0x9A001234}
             for platform,order in (('pc','<'),('xbox','>')):
-                index=make_index([(name,[(key,4,320,0)])
+                index=make_index([(name,[(key,4,400,0)])
                                   for name,key in keys.items()],order)
                 (root/(platform+'.ind')).write_bytes(index)
                 for name,key in keys.items():
@@ -45,14 +58,17 @@ class Tests(unittest.TestCase):
             self.assertEqual(result['original_havok_assets']['Havoks']['shared_ids'],1)
             self.assertFalse(result['hkpWorld_timestep_address_verified'])
             self.assertFalse(result['native_havok_deserialization_implemented'])
+            self.assertEqual(result['original_havok_assets']['Havoks']
+                             ['pc']['validated_fixup_edges'],
+                             {'local':1,'global':1,'virtual':1})
             with self.assertRaises(ValueError):
                 audit(*args,xbox_index_sha='0'*64)
             with self.assertRaises(ValueError):
                 audit_archive(data[('pc','Havoks')],
-                              [{'hash':'12345677','offset':4,'size':320,'reserved':0}],'PC')
+                              [{'hash':'12345677','offset':4,'size':400,'reserved':0}],'PC')
             with self.assertRaises(ValueError):
                 audit_archive(data[('pc','Havoks')],
-                              [{'hash':'12345678','offset':4,'size':320,'reserved':0}],'Xbox360')
+                              [{'hash':'12345678','offset':4,'size':400,'reserved':0}],'Xbox360')
             corrupt=bytearray(data[('xbox','Havoks')].read_bytes())
             corrupt[4+24+40]=0
             data[('xbox','Havoks')].write_bytes(corrupt)

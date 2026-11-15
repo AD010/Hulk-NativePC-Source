@@ -27,6 +27,7 @@ def audit_archive(path: Path, rows: list[dict], platform: str) -> tuple[dict, se
     previous=4
     hashes=set()
     total=0
+    fixup_totals={'local':0,'global':0,'virtual':0}
     for item in sorted(rows,key=lambda r:r['offset']):
         key = item['hash']
         off,size,reserved=item['offset'],item['size'],item['reserved']
@@ -47,17 +48,47 @@ def audit_archive(path: Path, rows: list[dict], platform: str) -> tuple[dict, se
         # Validate physical byte bounds and fixup offsets, not just magic.
         names=(b'__classnames__',b'__data__',b'__types__')
         prev_end=0
+        sections=[]
         for j,name in enumerate(names):
             p=64+48*j
             tag=header[p:p+20]
-            if tag!=name+b'\x00'*(20-len(name)):
-                raise ValueError('Wrong original Havok section kind')
+            # All original section tags end with the 0xFF marker byte.
+            if tag!=name+b'\x00'*(19-len(name))+b'\xff':
+                raise ValueError('Wrong original Havok section tag or sentinel')
             start,loc,glob,virt,exp,imp,end=struct.unpack_from(order+'7I',header,p+20)
             if (start<208 or start<prev_end or
                     start>len(header) or end>len(header)-start or
                     not (loc<=glob<=virt<=exp<=imp<=end)):
                 raise ValueError('Invalid original Havok native fixup section bounds')
             prev_end=start+end
+            sections.append((start,loc,glob,virt,exp,imp,end))
+        # Validate each original 32-bit relocation edge, not merely the
+        # host-visible section offsets. Do not turn guest offsets into x64
+        # host pointers until class/shape layout conversion is implemented.
+        for section,s in enumerate(sections):
+            start,local,glob,virt,exp,_,_=s
+            for kind,begin,finish,step in (
+                    ('local',local,glob,8),
+                    ('global',glob,virt,12),
+                    ('virtual',virt,exp,12)):
+                for i in range(begin,finish,step):
+                    remaining=finish-i
+                    if remaining<step:
+                        if header[start+i:start+finish]!=b'\xff'*remaining:
+                            raise ValueError('Invalid original Havok fixup padding')
+                        continue
+                    words=struct.unpack_from(order+('II' if step==8 else 'III'),header,start+i)
+                    if words[0]==0xffffffff:
+                        if any(x!=0xffffffff for x in words):
+                            raise ValueError('Broken Havok fixup sentinel')
+                        continue
+                    source_offset=words[0]
+                    dst_section=section if step==8 else words[1]
+                    dst_offset=words[1] if step==8 else words[2]
+                    if (source_offset+4>local or dst_section>=3 or
+                            dst_offset>=sections[dst_section][1]):
+                        raise ValueError('Original Havok fixup out of bounds')
+                    fixup_totals[kind]+=1
         previous=off+size
         total+=size
         hashes.add(key)
@@ -71,6 +102,7 @@ def audit_archive(path: Path, rows: list[dict], platform: str) -> tuple[dict, se
              'havok_version':'Havok-5.1.0-r1',
              'layout_rules':layout.hex(),
              'all_indexed_havok_sections_and_tags_valid':True,
+             'validated_fixup_edges':fixup_totals,
              'native_havok_geometry_deserialized':False},hashes)
 
 def audit(pc_index:Path,xbox_index:Path,pc_havoks:Path,pc_mopps:Path,
