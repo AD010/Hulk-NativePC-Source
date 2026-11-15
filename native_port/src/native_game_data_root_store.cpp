@@ -96,9 +96,9 @@ bool SaveGameDataRoot(const std::filesystem::path& config,
       if (!out) return false;
       out.write(written.data(), static_cast<std::streamsize>(written.size()));
       out.flush();
-      const bool written = out.good();
+      const bool flushed_ok = out.good();
       out.close();
-      if (!written || !out.good()) {
+      if (!flushed_ok || !out.good()) {
         std::filesystem::remove(temporary, ec);
         return false;
       }

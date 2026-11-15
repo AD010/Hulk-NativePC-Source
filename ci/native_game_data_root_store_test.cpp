@@ -36,7 +36,7 @@ int main() {
   assert(!fs::exists(fs::path(file.string()+".nativepc-root-writing")));
   assert(SaveGameDataRoot(file,fs::path("E:/Games/The Incredible Hulk")));
   assert(Read(file)==result);
-  const fs::path cyrillic = fs::u8path(u8"C:/Игры/Халк USA");
+  const fs::path cyrillic = fs::path(u8"C:/Игры/Халк USA");
   assert(SaveGameDataRoot(file,cyrillic));
   assert(Read(file).find("Халк USA")!=std::string::npos);
   assert(!SaveGameDataRoot(file,fs::path{}));
