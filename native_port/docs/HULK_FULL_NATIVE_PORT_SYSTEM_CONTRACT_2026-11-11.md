@@ -98,3 +98,46 @@ The earlier HULK_NATIVE_D3D_LAYER_STRATEGY_2026-11-11.md remains the
 graphics-focused technical plan. This contract expands the definition
 of **native** to the whole product and overrides any interpretation that
 a Vulkan-only graphics migration meets the final user requirement.
+
+## 2026-11-15: verified SDK services and Hulk-specific gaps
+
+The user's Gemini discussion correctly emphasizes that graphics alone cannot
+deliver a native Windows port. Do NOT create a second kernel/XAM/audio
+implementation blindly: the pinned ElGuslml/rexglue-sdk recomp branch
+already has relevant host-source implementations. This is SOURCE evidence,
+not validation of actual Hulk gameplay.
+
+- XMA: src/audio/xma_context.cpp uses FFmpeg XMAFRAMES; xma_decoder.cpp
+  implements the guest XMA worker/MMIO. The SDL3 host audio device driver
+  and optional Windows WASAPI exclusive backend exist. Their full Hulk USA
+  voice/effects/music and device-change behavior has NOT been tested.
+- XAM: XamContentCreate/Close/Delete/Enumerate have source implementations
+  in src/kernel/xam/xam_content.cpp; many other exports are explicit STUBS.
+  XamContentResolve is exported but emits 'unimplemented!' in its body.
+  Call reachability from exact USA Hulk XEX remains to be established.
+- Save compatibility: title-scoped Windows package root hook is opt-in
+  and disabled by default; source and tests already exist. Xbox/retail PC
+  save payload layout and endianness differ. Never rename an opaque Xbox
+  save to HULK.sav or claim native PC save compatibility.
+- VFS: the SDK virtual_file_system.cpp supports mounted devices/symlinks;
+  the Hulk original EoR archive backend and game-data path selection are
+  separate. NativePC now saves selected UTF-8 root to the ONE TOML via
+  native_game_data_root_store.cpp with atomic same-volume replacement.
+- Kernel: ExCreateThread_entry and KeSetAffinityThread_entry are implemented
+  in xboxkrnl_threading.cpp, but this does not verify Havok concurrency.
+- Physics: independent game catalogues list Havok middleware in The
+  Incredible Hulk (2008). Exact USA XEX static linkage and correct VMX128
+  translation, collision behavior, timestep, and 60/90/120Hz are NOT proven.
+  hulk_guest_swap_fps_cap only limits submission rate; it does not
+  independently fix Havok simulation timestep or gameplay clock.
+- Input: Win32 Raw Input is live, but normal mapping still synthesizes
+  XInput state; native direct EoR yaw/pitch is profile-gated and unproven.
+- GPU: current installed NativeX/Xenos path cannot be called an independent
+  native EoR renderer until actual per-draw resource ownership and PSOs
+  replace the PM4/Xenos dependency and full 16:10 camera is verified.
+
+BUILD_WINDOWS.ps1 now calls ci/audit_hulk_sdk_services.py on the actual
+checked-out SDK, recording source-backed implementations, explicit XAM
+stubs and incomplete exported methods in a private build report. Existing
+manual-only workflow tests this source-only auditor; running CI is a
+separate validation step, not implied by this source commit.
