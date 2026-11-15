@@ -28,6 +28,10 @@ class OwnedReplayTests(unittest.TestCase):
         self.assertEqual(updated.count("HULK/PM4-FIRST-PASS-OWNED-DRAWS-211"), 1)
         self.assertEqual(updated.count("hulk_gap_packet_callback_(*this"), 1)
         self.assertIn("else {\n            // Uncommon over-budget", updated)
+        # Each new branch must be closed exactly once; preserve the
+        # enclosing StreamGap/legacy-bridge control flow in generated C++.
+        self.assertEqual(updated.count("{") - source.count("{"),
+                         updated.count("}") - source.count("}"))
 
     def test_fails_closed_on_drift_or_partial_install(self):
         source = self.source()
