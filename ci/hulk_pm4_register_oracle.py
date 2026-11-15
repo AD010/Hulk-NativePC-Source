@@ -172,6 +172,15 @@ def replay(words: list[int], watch=WATCH, max_draws=MAX_DRAWS) -> dict:
         elif op in (0x37, 0x3f):
             counters['indirect_packets'] += 1
             warnings.append(f'indirect command buffer {op:02x} not followed')
+            # The unobserved nested stream can replace any watched register
+            # or shader. Never attribute pre-IB state to later GPU draws.
+            for reg in tuple(known):
+                mark_unknown(reg, 1)
+            for stage in ('vs', 'ps'):
+                programs[stage] = {
+                    'source': 'indirect_unresolved', 'dwords': None,
+                    'sha256': None, 'external_guest_address': None,
+                }
         elif op in (0x22, 0x36):
             at = 1 if op == 0x22 else 0
             if n <= at:
