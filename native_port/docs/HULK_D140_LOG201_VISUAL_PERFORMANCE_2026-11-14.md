@@ -659,3 +659,10 @@ C4456 local shadowing and C4996 removed u8path in Unicode save/asset-root test.
 2026-11-15: User-authorized integration release #127 covering the newly
 compiled original FMOD FEV1 event catalog loader (b87dacb276dd) in addition
 to successful Windows Release #126. Do not overwrite prior known-good ZIP.
+
+## 2026-11-15 user-authorized Win64 Release validation #128
+Source-only Python and MSVC regressions cover owner-pinned FMOD event ABI
+and 373-entry trailing catalog plus retail PC save CRC32 and field table.
+Private original assets remain outside public Git; existing good ZIP #127
+is preserved. Native EoR shader/Draw GPU hooks, Havok timestep and original
+in-game EoR menu are still unverified and MUST NOT be claimed as fixed.

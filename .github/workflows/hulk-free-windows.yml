@@ -4,6 +4,12 @@ on:
   # builds on source edits. Keep this single Release-only workflow available
   # for an explicit final validation through GitHub Actions.
   workflow_dispatch:
+  # One-shot USER-AUTHORIZED D140 integration build of owner FMOD catalog
+  # and retail PC save envelope, then restore manual-only release workflow.
+  push:
+    branches: [main]
+    paths:
+      - native_port/docs/HULK_D140_LOG201_VISUAL_PERFORMANCE_2026-11-14.md
 permissions:
   contents: write
 concurrency:
