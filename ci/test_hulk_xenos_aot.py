@@ -52,6 +52,10 @@ class AotTests(unittest.TestCase):
             self.assertIn("-fvk-invert-y",calls[1])
             self.assertEqual(json.loads((out/"aot_manifest.json").read_text()),report)
             self.assertTrue((out / (sha+".vs.spv")).is_file())
+            raw = (out / "hulk_shader_bank.bin").read_bytes()
+            self.assertEqual(raw[:8], b"HEORSPV1")
+            self.assertEqual(struct.unpack_from("<II", raw, 8), (1, 1))
+            self.assertEqual(raw[16:48], bytes.fromhex(sha))
             with self.assertRaises(ValueError):
                 compile_bank(b,repo/"cache",xenos,dxc,common,repo)
             (b / "Xenos" / (sha+".xenos.bin")).write_bytes(b"corrupt")

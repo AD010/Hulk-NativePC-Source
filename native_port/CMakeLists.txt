@@ -25,6 +25,7 @@ set(INCREDIBLEHULK_SOURCES
     src/eor_archive.cpp
     src/eor_font_pack.cpp
     src/eor_native_frame.cpp
+    src/eor_spirv_bank.cpp
     src/eor_xdk_draw_capture.cpp
     src/eor_ui_asset_catalog.cpp
     src/native_pc_options_store.cpp

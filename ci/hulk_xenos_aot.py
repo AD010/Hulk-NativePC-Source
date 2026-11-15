@@ -118,6 +118,28 @@ def compile_bank(bank: Path, out: Path, xenos: Path, dxc: Path, common: Path,
             spv.unlink(missing_ok=True)
             errors.append({"source_sha256": sha, "stage": stage,
                            "error": str(error)[:180]})
+    # NativePC binary SPIR-V bank: no JSON parser or runtime DXC required.
+    # The expected count is the FULL original source bank, not the --limit
+    # smoke-test count; partial precompilation cannot become "ready".
+    full_count = len(_entries(bank)[1])
+    pack_target = out / "hulk_shader_bank.bin"
+    with tempfile.NamedTemporaryFile("wb", dir=out, prefix=".hulk_spv_",
+                                     delete=False) as tmp:
+        pack_temp = Path(tmp.name)
+        tmp.write(b"HEORSPV1")
+        tmp.write(struct.pack("<II", full_count, len(success)))
+        for item in sorted(success, key=lambda entry: entry["source_sha256"]):
+            source_sha = bytes.fromhex(item["source_sha256"])
+            shader = (out / item["private_spirv"]).read_bytes()
+            _check_spirv(shader)
+            tmp.write(source_sha)
+            tmp.write(struct.pack("<II", 1 if item["stage"] == "VS" else 2,
+                                  len(shader) // 4))
+            tmp.write(shader)
+    try:
+        os.replace(pack_temp, pack_target)
+    finally:
+        pack_temp.unlink(missing_ok=True)
     report = {"version": 1, "source_bank_sha256": manifest["archive_sha256"],
               "input_count": len(entries), "compiled_count": len(success),
               "failed_count": len(errors), "compiled": success, "failed": errors,

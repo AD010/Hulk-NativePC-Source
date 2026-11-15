@@ -143,6 +143,16 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Native EoR verified XDK capture test failed MSVC compile' }
           & $xdkTest
           if ($LASTEXITCODE -ne 0) { throw 'Original XDK Draw capture regression failed' }
+          # Verify runtime indexing of real AOT Vulkan modules by SHA-256;
+          # no generated copyrighted shader contents in public source tests.
+          $bankTest = Join-Path $env:RUNNER_TEMP 'hulk-eor-spv-bank-test.exe'
+          $bankArgs = @('/nologo', '/std:c++20', '/EHsc', '/W4', '/WX', '/utf-8',
+                        "/Fe:$bankTest", 'native_port/src/eor_spirv_bank.cpp',
+                        'ci/eor_spirv_bank_test.cpp')
+          & cl.exe @bankArgs
+          if ($LASTEXITCODE -ne 0) { throw 'Private AOT SPIR-V bank reader failed MSVC compile' }
+          & $bankTest
+          if ($LASTEXITCODE -ne 0) { throw 'AOT Vulkan shader SHA index/bounds check failed' }
           # Verify user settings can be saved in the ONE existing TOML,
           # with no fake F4 Save, duplicate keys or unwanted developer files.
           $optionTest = Join-Path $env:RUNNER_TEMP 'hulk-native-settings-test.exe'
