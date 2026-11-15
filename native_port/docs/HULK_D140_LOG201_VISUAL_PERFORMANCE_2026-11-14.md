@@ -772,3 +772,14 @@ Source changes committed after the first #211 report:
   printed warning-line counts were not the true number of rejected draws.
 - **All runtime outcomes remain unverified** until the next expressly
   authorized Windows build and gameplay log; no CI was initiated here.
+
+## 2026-11-15 #211 follow-up validation request
+User explicitly requested immediate source work and validation of the outstanding Hulk port.
+One-shot CI validation gate at the current public main source SHA: includes
+#211 F10 config path and CAS guard, GPU exit telemetry, native EoR preflight
+and rollback, and private Windows x64 Release-only packaging.
+This CI *cannot prove* true EoR Vulkan without PM4, Havok 60-120Hz,
+native USA 16:10 camera, original pause options, PC save conversion, or
+DLSS/FSR frame generation. Those gates remain unsatisfied. Preserve existing
+private input and old Releases. Restore the single workflow to manual-only
+as soon as this job is queued; do not create another workflow or repository.
