@@ -16,6 +16,7 @@ class TestHulkLod(unittest.TestCase):
         self.assertEqual(patch_sources(c, h), (c, h, False))
         self.assertIn('CalculateLevelOfDetailUnclamped', h)
         self.assertIn('isPixelShader && instr.dimension == TextureDimension::Texture2D', c)
+        self.assertIn('instr.useCompLod && !instr.useRegLod && !instr.useRegGradients', c)
         self.assertIn('case FetchOpcode::GetTextureComputedLod:', c)
         self.assertIn('throw std::runtime_error', c)
         self.assertIn(MARKER, c)

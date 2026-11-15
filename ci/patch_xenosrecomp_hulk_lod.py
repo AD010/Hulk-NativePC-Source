@@ -15,10 +15,13 @@ STRICT = '''    if (instr.opcode != FetchOpcode::TextureFetch &&
         instr.opcode != FetchOpcode::GetTextureWeights) {'''
 LODGATE = '''    // HULK/XENOS-COMP-LOD-PS2D: preserve original Xenos opcode 17.
     // Only fragment-stage 2D implicit gradients are legal here.
+    // Xenia translation rejects GetTextureComputedLod when implicit LOD is
+    // disabled or the instruction requests explicit LOD/register gradients.
     if (instr.opcode != FetchOpcode::TextureFetch &&
         instr.opcode != FetchOpcode::GetTextureWeights &&
         !(instr.opcode == FetchOpcode::GetTextureComputedLod &&
-          isPixelShader && instr.dimension == TextureDimension::Texture2D)) {'''
+          isPixelShader && instr.dimension == TextureDimension::Texture2D &&
+          instr.useCompLod && !instr.useRegLod && !instr.useRegGradients)) {'''
 SWITCH = '''    case FetchOpcode::GetTextureWeights:
     {
         out += "getWeights";
