@@ -229,10 +229,11 @@ bool NativeXInitialize(
       rex::cvar::Query<double>("native_x_renderer_sharpness");
   if (!std::isfinite(effective_sharpness) ||
       effective_sharpness < 0.0 || effective_sharpness > 0.5) {
-    REXLOG_ERROR("[HULK/QUALITY-211-CAS] invalid effective CAS value {}; "
-                 "refusing NativeX startup instead of silently using it",
-                 effective_sharpness);
-    return false;
+    // CAS is only a presentation filter. An unmodifiable legacy CVar must
+    // NEVER disable the working Vulkan renderer or force an Xenos fallback.
+    REXLOG_WARN("[HULK/QUALITY-211-CAS] legacy CAS value {} remains; "
+                "normalization was not accepted; keeping Vulkan active",
+                effective_sharpness);
   }
   const int32_t effective_af =
       rex::cvar::Query<int32_t>("anisotropic_override");
