@@ -5,6 +5,7 @@
 #include <spdlog/sinks/base_sink.h>
 #include <algorithm>
 #include <atomic>
+#include <cstdint>
 #include <cstdlib>
 #include <memory>
 #include <mutex>
