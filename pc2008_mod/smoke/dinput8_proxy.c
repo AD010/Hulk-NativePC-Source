@@ -24,10 +24,12 @@ static DWORD WINAPI LoadHulkAsi(LPVOID unused) {
   char path[MAX_PATH];unsigned end=0;
   if(!HulkEndsAt(path,MAX_PATH,&end))return 0;
   // Load only the owner's explicitly selected Hulk plugin, never arbitrary ASIs.
-  if(HulkAppend(path,MAX_PATH,end,"HulkPC.asi")) {
+  // Safe diagnostic probe wins over an optional graphics extension.
+  // Never load both, so D3D9 vtables are not hooked by competing ASIs.
+  if(HulkAppend(path,MAX_PATH,end,"HulkPCProbe.asi")) {
     if(LoadLibraryA(path))return 0;
   }
-  if(HulkAppend(path,MAX_PATH,end,"HulkPCProbe.asi")) {
+  if(HulkAppend(path,MAX_PATH,end,"HulkPC.asi")) {
     if(LoadLibraryA(path))return 0;
   }
   OutputDebugStringA("Hulk PC dinput8 proxy loaded but no HulkPC.asi found\n");
