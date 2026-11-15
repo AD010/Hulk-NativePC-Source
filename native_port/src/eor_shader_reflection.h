@@ -58,10 +58,12 @@ class ReflectionBank {
         auto* span = spans[k];
         span->index = u32(at+36+8*k);
         span->count = u32(at+40+8*k);
-        if ((span->index == UINT32_MAX && span->count != 0) ||
-            (span->index != UINT32_MAX &&
-             (span->count != 4 || span->index > 252 ||
-              r.stage != Stage::Vertex)))
+        const bool valid_span = span->index == UINT32_MAX
+            ? span->count == 0
+            : (r.stage == Stage::Vertex &&
+               (span->count == 4 || (k == 1 && span->count == 3)) &&
+               span->index <= 256u - span->count);
+        if (!valid_span)
           throw std::invalid_argument("Invalid native 4-register VS matrix");
       }
       if (!next.emplace(id,r).second)

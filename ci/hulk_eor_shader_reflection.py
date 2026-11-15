@@ -45,7 +45,9 @@ def inspect_container(source: bytes, stage: str) -> tuple[tuple[int,int],...]:
             raise ValueError('Unterminated original shader constant name')
         name = source[offset:end].decode('ascii')
         if name in MATRICES:
-            if name in names or register_set != 2 or n != 4 or index > 252:
+            if (name in names or register_set != 2 or
+                    (n not in (3,4) if name == 'World' else n != 4) or
+                    index + n > 256):
                 raise ValueError('Unexpected original matrix binding')
             # Game shaders use ViewProj in eight PS variants too, but a
             # fragment binding cannot prove the 3D vertex projection.

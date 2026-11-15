@@ -12,7 +12,7 @@ static void Entry(std::vector<uint8_t>& b,uint8_t key,int stage,bool projection)
   for(int k=0;k<32;++k)b.push_back(key);
   W(b,uint32_t(stage));
   W(b,projection?11:UINT32_MAX);W(b,projection?4:0);
-  W(b,projection?7:UINT32_MAX);W(b,projection?4:0);
+  W(b,projection?7:UINT32_MAX);W(b,projection?3:0);
   for(int i=0;i<2;++i){W(b,UINT32_MAX);W(b,0);}
 }
 int main(){
@@ -25,7 +25,8 @@ int main(){
   Digest vs{},ps{};vs.fill(0x11);ps.fill(0x22);
   auto v=bank.Find(vs,Stage::Vertex);
   assert(v && v->view_projection.Present() && v->view_projection.index==11);
-  assert(v->world.Present() && v->world.index==7);
+  assert(v->world.Present() && v->world.index==7 &&
+         v->world.count==3);
   assert(!v->previous_world.Present());
   assert(!bank.Find(vs,Stage::Pixel));
   assert(bank.Find(ps,Stage::Pixel) && !bank.Find(ps,Stage::Pixel)->view_projection.Present());
