@@ -793,3 +793,20 @@ accepted "One-shot USER-AUTHORIZED D140 integration build" marker. The
 single workflow returns to manual-only immediately after scheduling.
 The underlying renderer, save, physics, original UI and DLSS completion
 claims remain unverified until actual engine/runtime work is finished.
+
+## 2026-11-15 #134 verified PM4 owned draw replay — user-authorized release gate
+
+The owner explicitly ordered completion in sequence and release validation.
+This build validates `ci/patch_native_x_hulk_gap_owned_draws.py` after
+the full pinned D140 45-patch source chain (now 46 transformations):
+bounded (8 MiB / 128 draw) immutable register/IM_LOAD snapshots from the
+FIRST validated unhooked command scan are replayed without a second
+potentially recycled guest-ring scan. The complete original PM4 gap must
+be valid before any Vulkan Draw callback; all original draw order and
+post-draw writes are retained, with fail-closed budget fallback and
+idempotent source tests. No invented PM4 or copyrighted resources.
+
+The #133 release (SHA 6e5a4ed329fa) is preserved as a previous owner
+comparison point. This #134 candidate must not be treated as gameplay-verified,
+a fully native PM4-free EoR renderer, a fixed Havok scheduler, or DLSS/FG.
+Manual-only workflow restored immediately after the new run is queued.
