@@ -51,3 +51,42 @@ completed.** Xbox USA camera and native 16:10, corrupted PM4 shaders,
 GPU flashes/low-clarity signs, 60+FPS physics, Alt+Tab, and Windows game
 compilation beyond the unsuccessful #114 are not validated. Never call
 source-only tests or a successfully produced ZIP a fully fixed game.
+
+
+## Original EoR shader compilation to Vulkan (source-only 2026-11-15)
+
+Sonic Unleashed Recompiled uses XenosRecomp to produce HLSL and DXC to
+compile native shaders, rather than replaying every Xenos PM4 draw at runtime.
+Hulk now has two complementary source-only utilities:
+
+1. `ci/hulk_shader_effect_bank.py` reads the owner's original **Xbox 360**
+   ShaderEffects index/archive outside the public repository. Invoke with
+   `--xbox-index`, `--xbox-effects`, `--private-dir` and `--extract-xenos`.
+   Its private `manifest.json` records verified original shader containers,
+   stage and SHA-256.
+2. `ci/hulk_xenos_to_spirv.py` consumes that **private** manifest, verifies
+   every source container digest, calls an **adapted** XenosRecomp for each
+   source, then DXC (`vs_6_0`/`ps_6_0`) and `spirv-val`. It accepts
+   `--manifest`, `--output`, `--xenosrecomp`, `--dxc`,
+   `--spirv-val`, `--shader-common`. An atomic `HEORSPV1` binary is written
+   only if **all** shaders pass; it can be read by the existing
+   `eor_spirv_bank.cpp` with the exact original SHA identities.
+   Run `python ci/test_hulk_xenos_to_spirv.py` for source-only tests.
+
+**No original shader, decoded source, raw binary or SPIR-V output is
+committed to GitHub.** The converter is not silently installed into the one
+Windows Release workflow and will not produce a new game ZIP by itself.
+XenosRecomp is not fully generic: for Hulk, vertex fetch, interpolator
+semantics, texture LOD, binding layouts, render-target formats and the
+material/draw ABI must be verified against the actual game's EoR engine.
+Successful offline DXC/SPIR-V validation is **not** proof of correct gameplay
+pixels, native PM4-free rendering, a complete converter or DLSS support.
+
+Official ReXGlue **v0.11.0** was published on 2026-11-14. The current
+Hulk build still depends on the separately pinned
+`ElGuslml/rexglue-sdk` recomp branch for PPC guest runtime and
+NativeXRenderer. The official release is not an ABI-compatible drop-in
+replacement. The eventual independent EoR Windows runtime must replace
+those guest-runtime dependencies deliberately, subsystem by subsystem,
+while preserving original FMOD/Havok/save ownership and data.
+
