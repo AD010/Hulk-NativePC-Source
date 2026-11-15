@@ -73,6 +73,10 @@ native_x_renderer_thread = true
 # destruction and cannot by itself reduce required Vulkan Resolve work.
 native_x_renderer_upload_ahead = 256
 hulk_native_x_verify_only = false
+# Diagnostic only. When native_x_renderer=false this records the genuine USA
+# XDK Draw/Present calls while Xenos continues rendering (no GPU takeover).
+# In regular releases keep this disabled to avoid frame-copy overhead.
+hulk_eor_xdk_capture = false
 # HULK/RETAIL-CPU-BUDGET: the NativeX trace path captures per-frame D3D
 # state. It is a diagnostic, not required for the native Vulkan render.
 # Switch on explicitly for source-provenance investigations only.

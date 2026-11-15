@@ -93,11 +93,16 @@ bool NativeXInitialize(
   // A shipped release with an unverified 6534 GPU layout must not silently
   // take over the display or demand an experimental INI sidecar.
   // Keep renderer code compiled; opt in only when a validated profile exists.
+  const bool native_requested = rex::cvar::Query<bool>("native_x_renderer");
   const bool verify_only = rex::cvar::Query<bool>("hulk_native_x_verify_only") &&
-                           !rex::cvar::Query<bool>("native_x_renderer");
-  if (!rex::cvar::Query<bool>("native_x_renderer") && !verify_only) {
-    REXLOG_INFO("[HULK/GPU-MODE] Xenos selected; F11 inactive unless "
-                "hulk_native_x_verify_only=true");
+                           !native_requested;
+  // Allow high-level XDK call capture while the known Xenos path still
+  // renders: no competing Vulkan surface or PM4 redirection is installed.
+  const bool eor_observer_only =
+      rex::cvar::Query<bool>("hulk_eor_xdk_capture") &&
+      !native_requested && !verify_only;
+  if (!native_requested && !verify_only && !eor_observer_only) {
+    REXLOG_INFO("[HULK/GPU-MODE] Xenos selected; optional XDK observer disabled");
     return false;
   }
   REXLOG_INFO("[HULK/GPU-MODE] NativeX={} verify_only={}",
@@ -145,6 +150,18 @@ bool NativeXInitialize(
     return false;
   }
 
+  // AOT migration oracle: run exactly the verified USA XDK draw hooks while
+  // Xenos remains the sole presenter. Hook raw arguments but never enter
+  // NativeXRenderer, allocate host RTs, or alter the guest instruction path.
+  if (eor_observer_only) {
+    g_profile = std::move(candidate);
+    nx::Install(g_profile.get());
+    g_initialized = true;
+    REXLOG_INFO("[HULK/EOR-XDK-OBSERVER] enabled for {} verified USA hooks;"
+                " Xenos remains presenter, native Vulkan GPU not started",
+                g_profile->calls.size());
+    return false;
+  }
   std::error_code error;
   std::filesystem::create_directories(cache, error);
 

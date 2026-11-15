@@ -135,6 +135,8 @@ jobs:
           # Real USA XDK call provenance observer (no guest writes, no GPU redirection).
           python ci/test_gen_native_x_hooks_probe.py
           if ($LASTEXITCODE -ne 0) { throw 'Hulk verified XDK wrapper generator regression failed' }
+          python ci/test_hulk_eor_xdk_observer_only.py
+          if ($LASTEXITCODE -ne 0) { throw 'Hulk observer-only Xenos and real XDK call-through regression failed' }
           $xdkTest = Join-Path $env:RUNNER_TEMP 'hulk-eor-xdk-capture-test.exe'
           $xdkArgs = @('/nologo', '/std:c++20', '/EHsc', '/W4', '/WX', '/utf-8',
                        "/Fe:$xdkTest", 'native_port/src/eor_xdk_draw_capture.cpp',
