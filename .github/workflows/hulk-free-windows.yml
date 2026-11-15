@@ -266,6 +266,19 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Native original Hulk model decoder failed MSVC compilation' }
           & $modelTest
           if ($LASTEXITCODE -ne 0) { throw 'Native original Hulk model parser regression failed' }
+          # Endian-proven original EoR Models IND/ARC model retrieval,
+          # real surface names and frontend alias hash checks.
+          $modelAssetsTest = Join-Path $env:RUNNER_TEMP 'hulk-eor-model-assets-test.exe'
+          $modelAssetsArgs = @('/nologo','/std:c++20','/EHsc','/W4','/WX','/utf-8',
+                               "/Fe:$modelAssetsTest",
+                               'native_port/src/eor_archive.cpp',
+                               'native_port/src/eor_model_resource.cpp',
+                               'native_port/src/eor_original_model_assets.cpp',
+                               'ci/eor_original_model_assets_test.cpp')
+          & cl.exe @modelAssetsArgs
+          if ($LASTEXITCODE -ne 0) { throw 'Native EoR model archive adapter failed MSVC compilation' }
+          & $modelAssetsTest
+          if ($LASTEXITCODE -ne 0) { throw 'Native EoR source model archive read regression failed' }
           # Original Xenos shader source constant registers: ViewProj, World,
           # PrevWorld and SkyViewProj. No engine camera ABI inferred here.
           $reflectionTest = Join-Path $env:RUNNER_TEMP 'hulk-eor-reflection-test.exe'
