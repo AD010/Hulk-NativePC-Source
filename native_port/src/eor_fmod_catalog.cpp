@@ -73,7 +73,7 @@ std::vector<CatalogEntry> ReadCatalog(const Index& index,
     throw std::invalid_argument("Unbounded FMOD archive");
   std::vector<std::byte> bytes(static_cast<size_t>(size));
   file.seekg(0);
-  file.read(reinterpret_cast<char*>(bytes.data()),size);
+  file.read(reinterpret_cast<char*>(bytes.data()),static_cast<std::streamsize>(size));
   if(!file)throw std::runtime_error("Cannot read complete FMOD archive");
   return DecodeCatalog(bytes,it->second);
 }
