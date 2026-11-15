@@ -112,6 +112,19 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Private X360 EoR effect bank extraction regression failed' }
           python ci/test_hulk_xenos_aot.py
           if ($LASTEXITCODE -ne 0) { throw 'Hulk XenosRecomp/DXC offline AOT toolchain regression failed' }
+          # Native original ShaderEffects shader and material source-only verification.
+          python ci/test_hulk_xenos_to_spirv.py
+          if ($LASTEXITCODE -ne 0) { throw 'Hulk Xenos shader-to-SPIR-V offline compiler validation failed' }
+          python ci/test_patch_xenosrecomp_hulk_fetch.py
+          if ($LASTEXITCODE -ne 0) { throw 'Hulk strict Xenos fetch adapter regression failed' }
+          python ci/test_patch_xenosrecomp_hulk_lod.py
+          if ($LASTEXITCODE -ne 0) { throw 'Hulk computed LOD native adapter regression failed' }
+          python ci/test_patch_xenosrecomp_hulk_gradients.py
+          if ($LASTEXITCODE -ne 0) { throw 'Hulk original registered gradient adapter regression failed' }
+          python ci/test_audit_hulk_eor_shader_coverage.py
+          if ($LASTEXITCODE -ne 0) { throw 'Hulk original shader opcode audit regression failed' }
+          python ci/test_hulk_eor_effect_ledger.py
+          if ($LASTEXITCODE -ne 0) { throw 'Hulk original effect/VS/PS identity ledger regression failed' }
           python ci/test_ghidra_hulk_ui_hash_xrefs.py
           if ($LASTEXITCODE -ne 0) { throw 'Original pause-menu resource CRC32 cross-reference scanner regression failed' }
           # Compile the real native C++ asset backend against the Windows
@@ -198,6 +211,17 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'EoR host-native frame contract failed MSVC compilation' }
           & $frameTest
           if ($LASTEXITCODE -ne 0) { throw 'EoR native 2560x1600 / 16:9 fallback frame test failed' }
+          # EoR-only fixed-step clock and motion-vector math; no guest Havok claim.
+          $temporalTest = Join-Path $env:RUNNER_TEMP 'hulk-eor-fixed-temporal-test.exe'
+          $temporalArgs = @('/nologo','/std:c++20','/EHsc','/W4','/WX','/utf-8',
+                            "/Fe:$temporalTest",
+                            'native_port/src/eor_frame_scheduler.cpp',
+                            'native_port/src/eor_motion_vectors.cpp',
+                            'ci/eor_frame_temporal_test.cpp')
+          & cl.exe @temporalArgs
+          if ($LASTEXITCODE -ne 0) { throw 'Native EoR fixed-clock and motion vectors failed MSVC compilation' }
+          & $temporalTest
+          if ($LASTEXITCODE -ne 0) { throw 'EoR fixed timestep/temporal history regression failed' }
           # Real USA XDK call provenance observer (no guest writes, no GPU redirection).
           python ci/test_gen_native_x_hooks_probe.py
           if ($LASTEXITCODE -ne 0) { throw 'Hulk verified XDK wrapper generator regression failed' }
@@ -221,6 +245,15 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Private AOT SPIR-V bank reader failed MSVC compile' }
           & $bankTest
           if ($LASTEXITCODE -ne 0) { throw 'AOT Vulkan shader SHA index/bounds check failed' }
+          # Verified original ShaderEffects IDs and their real VS/PS pairing.
+          $effectTest = Join-Path $env:RUNNER_TEMP 'hulk-eor-effect-identity-test.exe'
+          $effectArgs = @('/nologo','/std:c++20','/EHsc','/W4','/WX','/utf-8',
+                          "/Fe:$effectTest",
+                          'ci/eor_effect_catalog_test.cpp')
+          & cl.exe @effectArgs
+          if ($LASTEXITCODE -ne 0) { throw 'Original EoR effect and shader identity reader failed MSVC compilation' }
+          & $effectTest
+          if ($LASTEXITCODE -ne 0) { throw 'Original EoR VS/PS material pairing regression failed' }
           # Real SPIR-V bank -> EoR indexed draw pair and source identity gate.
           $aotDrawTest = Join-Path $env:RUNNER_TEMP 'hulk-eor-aot-draw-test.exe'
           $aotDrawArgs = @('/nologo', '/std:c++20', '/EHsc', '/W4', '/WX', '/utf-8',
