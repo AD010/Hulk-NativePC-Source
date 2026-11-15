@@ -649,3 +649,6 @@ in-game EoR pause settings or PC-format saves have passed gameplay acceptance.
 2026-11-15: User-authorized build validation retry #124 after correcting the
 legitimate native antialiasing TOML string allowlist regression expectation.
 Only one source SHA is built, original USA title remains private.
+
+2026-11-15: User-authorized full Windows candidate #125, validating
+Win32 F11 Xenos observer source regression and all earlier native subsystems.
