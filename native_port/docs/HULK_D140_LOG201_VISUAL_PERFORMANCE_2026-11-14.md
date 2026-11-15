@@ -783,3 +783,13 @@ native USA 16:10 camera, original pause options, PC save conversion, or
 DLSS/FSR frame generation. Those gates remain unsatisfied. Preserve existing
 private input and old Releases. Restore the single workflow to manual-only
 as soon as this job is queued; do not create another workflow or repository.
+
+## #133 user-authorized CI retry after #132 source gate
+#132 stopped at test_native_x_d140_dispatch.py because the temporary docs-only
+trigger omitted the exact marker which the existing source guard requires.
+No private source or executable was downloaded or compiled by #132.
+This retry changes only the temporary trigger comment to the strictly
+accepted "One-shot USER-AUTHORIZED D140 integration build" marker. The
+single workflow returns to manual-only immediately after scheduling.
+The underlying renderer, save, physics, original UI and DLSS completion
+claims remain unverified until actual engine/runtime work is finished.
