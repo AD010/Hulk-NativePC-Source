@@ -90,3 +90,20 @@ replacement. The eventual independent EoR Windows runtime must replace
 those guest-runtime dependencies deliberately, subsystem by subsystem,
 while preserving original FMOD/Havok/save ownership and data.
 
+
+### Native Hulk registered gradients (verified Xbox ShaderEffects)
+
+The 5,194-container original bank scan isolated exactly **two** pixel
+shader programs, from **one EoR effect**, with actual
+`SetTextureGradientsHorz` / `SetTextureGradientsVert` and subsequent
+2D `useRegGradients` texture sampling.
+
+`ci/patch_xenosrecomp_hulk_gradients.py` (apply AFTER the strict fetch
+and computed LOD patches) preserves shader-local gradients and emits
+`Texture2D.SampleGrad` instead of silently dropping gradient state.
+Unexpected vertex, predicated, stale, explicit-LOD or non-2D cases fail.
+The offline `HEORSPV1` compiler now requires BOTH the strict LOD and
+registered-gradient Hulk adapter markers before accepting shader output.
+This is original shader source adaptation, not verified Vulkan PSO binding;
+the 24 dynamic-flow shaders, all EoR material descriptors, game-time
+shader injections and GPU command routing still require source/runtime work.

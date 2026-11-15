@@ -8,7 +8,7 @@ from pathlib import Path
 import struct
 import tempfile
 import unittest
-from hulk_xenos_to_spirv import spirv_info, encode_bank, manifest_entries, compile_private_bank, ADAPTER_MARKER
+from hulk_xenos_to_spirv import spirv_info, encode_bank, manifest_entries, compile_private_bank, ADAPTER_MARKER, GRADIENT_ADAPTER_MARKER
 
 
 def fake_spv(stage):
@@ -62,7 +62,7 @@ if '-Fo' in args:
            0 if stage=='VS' else 4,1,0x6e69616d,0]
     pathlib.Path(args[args.index('-Fo')+1]).write_bytes(struct.pack('<15I',*words))
 elif '--target-env' not in args:
-    pathlib.Path(args[1]).write_text('// HULK_EOR_XENOSRECOMP_STRICT_LOD2D_V1\\nvoid main() {}')
+    pathlib.Path(args[1]).write_text('// HULK_EOR_XENOSRECOMP_STRICT_LOD2D_V1\\n// HULK_EOR_XENOSRECOMP_GRAD2D_V1\\nvoid main() {}')
 ''')
             script.chmod(0o755)
             if os.name == 'nt':
@@ -83,6 +83,7 @@ elif '--target-env' not in args:
             self.assertEqual(result['compiled'], 2)
             self.assertFalse(result['runtime_material_binding_verified'])
             self.assertEqual(ADAPTER_MARKER, 'HULK_EOR_XENOSRECOMP_STRICT_LOD2D_V1')
+            self.assertEqual(GRADIENT_ADAPTER_MARKER, 'HULK_EOR_XENOSRECOMP_GRAD2D_V1')
             saved = output.read_bytes()
             self.assertEqual(saved[:8], b'HEORSPV1')
             (root / 'Xenos' / (entries[1]['sha256'] + '.xenos.bin')).write_bytes(b'X' * 48)
