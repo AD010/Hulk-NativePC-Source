@@ -2,6 +2,8 @@
 """Synthetic compiler-protocol tests. Never require original Hulk shader bytes."""
 import hashlib
 import json
+import os
+import sys
 from pathlib import Path
 import struct
 import tempfile
@@ -63,6 +65,13 @@ elif '--target-env' not in args:
     pathlib.Path(args[1]).write_text('void main() {}')
 ''')
             script.chmod(0o755)
+            if os.name == 'nt':
+                # Windows CreateProcess cannot execute a Python source file as
+                # a native executable. Exercise the same subprocess protocol.
+                wrapper = folder / 'fake_tool.cmd'
+                wrapper.write_text('@echo off\r\n"' + sys.executable +
+                                   '" "' + str(script) + '" %*\r\n')
+                script = wrapper
             header = folder / 'shader_common.h'
             header.write_text('// synthetic')
             output = root / 'native.spvbank'
