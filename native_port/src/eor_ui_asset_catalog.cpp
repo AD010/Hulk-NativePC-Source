@@ -2,9 +2,19 @@
 // NO unverified Xbox texture substitution is performed.
 #include "eor_ui_asset_catalog.h"
 
+#include <atomic>
+#include <algorithm>
+#include <exception>
 #include <stdexcept>
 #include <system_error>
+#include <thread>
 #include <utility>
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#endif
 
 namespace hulk::eor {
 namespace {
@@ -98,4 +108,63 @@ std::vector<std::byte> OriginalUiAssets::Read(
     throw std::runtime_error("UI resource origin or indexed range changed");
   return ReadResource(verified->archive, verified->record, maximum);
 }
+
+std::vector<std::vector<std::byte>> OriginalUiAssets::ReadBatch(
+    std::span<const OriginalUiAsset> assets, size_t maximum_total,
+    size_t maximum_each, uint32_t workers) const {
+  if (assets.empty()) return {};
+  if (assets.size() > 4096 || maximum_total == 0 ||
+      maximum_total > (256u << 20) ||
+      maximum_each == 0 || maximum_each > maximum_total ||
+      workers > 16)
+    throw std::invalid_argument("Invalid native asset-batch CPU/memory budget");
+  size_t total = 0;
+  // Complete the size and origin preflight before starting any I/O.
+  for (const auto& asset : assets) {
+    if (asset.record.size == 0 || asset.record.size > maximum_each ||
+        asset.record.size > maximum_total - total)
+      throw std::invalid_argument("Native EoR asset read exceeds host memory budget");
+    auto found = Find(asset.platform, asset.group, asset.name);
+    if (!found || found->archive != asset.archive ||
+        found->record.hash != asset.record.hash ||
+        found->record.offset != asset.record.offset ||
+        found->record.size != asset.record.size ||
+        found->record.reserved != asset.record.reserved)
+      throw std::invalid_argument("Unverified EoR asset in parallel read batch");
+    total += asset.record.size;
+  }
+  const unsigned logical = std::max(1u, std::thread::hardware_concurrency());
+  const unsigned background_workers = std::min<unsigned>(
+      static_cast<unsigned>(assets.size()),
+      std::min<unsigned>(8u, workers ? workers :
+          std::max(1u, logical > 2 ? logical - 2 : 1u)));
+  std::vector<std::vector<std::byte>> output(assets.size());
+  std::vector<std::exception_ptr> failures(assets.size());
+  std::atomic_size_t next{0};
+  {
+    std::vector<std::jthread> threads;
+    threads.reserve(background_workers);
+    for (unsigned w = 0; w < background_workers; ++w) {
+      threads.emplace_back([&] {
+#ifdef _WIN32
+        // Asset prefetch must not preempt the game's audio/physics threads.
+        SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL);
+#endif
+        for (;;) {
+          const size_t i = next.fetch_add(1, std::memory_order_relaxed);
+          if (i >= assets.size()) break;
+          try {
+            output[i] = Read(assets[i], maximum_each);
+          } catch (...) {
+            failures[i] = std::current_exception();
+          }
+        }
+      });
+    }
+  }  // joins every jthread; no workers can outlive assets or the catalogue.
+  for (const auto& error : failures)
+    if (error) std::rethrow_exception(error);
+  return output;
+}
+
 }  // namespace hulk::eor

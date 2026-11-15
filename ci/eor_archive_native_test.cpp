@@ -211,6 +211,23 @@ int main() {
          "Positive PC DDS magic detection failed");
   Expect(ClassifyImage(original.Read(*xbox_ui)) == KnownImageEncoding::Unknown,
          "Unknown Xbox texture was incorrectly claimed to be host DDS");
+  // HULK/EOR-PARALLEL-IO: indexed file records can be read on distinct
+  // native CPU threads; order, bytes, and memory limits never depend on
+  // worker completion order or proprietary texture assumptions.
+  const std::array<hulk::eor::OriginalUiAsset, 3> batch{
+      *pc_ui, *xbox_ui, *pc_ui};
+  const auto parallel = original.ReadBatch(batch, 24, 8, 3);
+  Expect(parallel.size() == 3, "Parallel EoR resource count mismatch");
+  Expect(parallel[0] == original.Read(*pc_ui) &&
+         parallel[1] == original.Read(*xbox_ui) &&
+         parallel[2] == parallel[0],
+         "Parallel native file I/O changed original EoR resource order");
+  MustThrow([&] { (void)original.ReadBatch(batch, 12, 8, 3); });
+  MustThrow([&] { (void)original.ReadBatch(batch, 24, 4, 3); });
+  MustThrow([&] { (void)original.ReadBatch(batch, 24, 8, 17); });
+  auto malformed_batch = batch;
+  malformed_batch[1].record.size++;
+  MustThrow([&] { (void)original.ReadBatch(malformed_batch, 24, 8, 3); });
   auto spoofed = *pc_ui;
   spoofed.archive = xbox_tex;
   MustThrow([&] { (void)original.Read(spoofed); });

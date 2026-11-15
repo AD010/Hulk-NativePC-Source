@@ -51,6 +51,15 @@ class OriginalUiAssets final {
   std::vector<std::byte> Read(const OriginalUiAsset& asset,
                               size_t maximum = 256u << 20) const;
 
+  // HULK/EOR-PARALLEL-IO: read independent owner-owned font/UI records
+  // in parallel using real host worker threads and separate file handles.
+  // Bounded memory, stable original order, fail before returning partial
+  // data. Never execute guest PPC, Havok or any GPU calls on these workers.
+  std::vector<std::vector<std::byte>> ReadBatch(
+      std::span<const OriginalUiAsset> assets,
+      size_t maximum_total = 64u << 20, size_t maximum_each = 8u << 20,
+      uint32_t workers = 0) const;
+
   bool HasXboxSource() const noexcept { return xbox_index_.has_value(); }
 
  private:
