@@ -31,7 +31,12 @@ class TestWin32Menu(unittest.TestCase):
         self.assertIn("window()->RequestClose();",app)
     def test_observer_inactive_message(self):
         source=(R/"native_port/src/native_x_renderer_hulk.cpp").read_text()
-        self.assertIn("F11 inactive unless",source)
+        # A source-only XDK observer may run with Xenos rendering; the
+        # old unconditional F11-inactive log no longer describes this path.
+        self.assertIn("optional XDK observer disabled",source)
+        self.assertIn("const bool eor_observer_only =",source)
+        self.assertIn("if (eor_observer_only) {",source)
+        self.assertIn("Xenos remains presenter",source)
 
 if __name__=="__main__":
     unittest.main()
