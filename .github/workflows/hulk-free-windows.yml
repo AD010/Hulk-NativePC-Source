@@ -4,6 +4,11 @@ on:
   # builds on source edits. Keep this single Release-only workflow available
   # for an explicit final validation through GitHub Actions.
   workflow_dispatch:
+  # One-shot USER-AUTHORIZED D140 integration build: #211 PM4 owned replay.
+  push:
+    branches: [main]
+    paths:
+      - native_port/docs/HULK_D140_LOG201_VISUAL_PERFORMANCE_2026-11-14.md
 permissions:
   contents: write
 concurrency:
