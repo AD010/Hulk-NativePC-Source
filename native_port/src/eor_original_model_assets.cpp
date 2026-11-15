@@ -45,6 +45,20 @@ std::optional<LoadedModelWithMaterials>
 OriginalModelAssets::LoadWithMaterialsName(std::string_view name) const {
   return LoadWithMaterialsHash(ResourceHash(name));
 }
+std::optional<LoadedNativeGeometry>
+OriginalModelAssets::LoadNativeGeometryHash(uint32_t hash) const {
+  auto assets=LoadWithMaterialsHash(hash);
+  if(!assets) return std::nullopt;
+  // The model is already proven by the original platform index and resource
+  // hash. Full source mesh decoding is only supported for the Xbox format.
+  auto meshes=DecodeNativeXboxIndexedMeshes(assets->model.bytes);
+  return LoadedNativeGeometry{std::move(assets->model),
+                              std::move(assets->surfaces),std::move(meshes)};
+}
+std::optional<LoadedNativeGeometry>
+OriginalModelAssets::LoadNativeGeometryName(std::string_view name) const {
+  return LoadNativeGeometryHash(ResourceHash(name));
+}
 size_t OriginalModelAssets::IndexedModelCount() const noexcept {
   const auto it=index_.groups().find("Models");
   return it==index_.groups().end()?0:it->second.size();

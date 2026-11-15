@@ -4,6 +4,7 @@
 #include "eor_archive.h"
 #include "eor_model_resource.h"
 #include "eor_model_surface_materials.h"
+#include "eor_native_mesh_geometry.h"
 #include <filesystem>
 #include <optional>
 #include <string_view>
@@ -19,6 +20,13 @@ struct LoadedModelWithMaterials {
   LoadedModel model;
   std::vector<SurfaceMaterials> surfaces;
 };
+struct LoadedNativeGeometry {
+  LoadedModel model;
+  std::vector<SurfaceMaterials> original_surfaces;
+  std::vector<NativeIndexedMesh> decoded_meshes;
+  // No invented mesh -> material pass assignment; these are independent
+  // original source arrays until the EoR material draw ABI is proven.
+};
 class OriginalModelAssets {
  public:
   static OriginalModelAssets Open(const std::filesystem::path& index,
@@ -29,6 +37,10 @@ class OriginalModelAssets {
   // texture hashes. Still no claimed vertex/index stream or Vulkan PSO.
   std::optional<LoadedModelWithMaterials> LoadWithMaterialsHash(uint32_t hash) const;
   std::optional<LoadedModelWithMaterials> LoadWithMaterialsName(std::string_view name) const;
+  // Direct original Xbox IND/ARC -> all surface descriptors -> validated
+  // host-native position/index buffers. No guest PM4 renderer is used.
+  std::optional<LoadedNativeGeometry> LoadNativeGeometryHash(uint32_t hash) const;
+  std::optional<LoadedNativeGeometry> LoadNativeGeometryName(std::string_view name) const;
   size_t IndexedModelCount() const noexcept;
  private:
   Index index_;
