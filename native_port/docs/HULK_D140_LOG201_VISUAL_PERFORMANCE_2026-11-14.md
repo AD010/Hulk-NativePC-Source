@@ -655,3 +655,7 @@ Win32 F11 Xenos observer source regression and all earlier native subsystems.
 
 2026-11-15: User-authorized Release validation #126 after repairing MSVC
 C4456 local shadowing and C4996 removed u8path in Unicode save/asset-root test.
+
+2026-11-15: User-authorized integration release #127 covering the newly
+compiled original FMOD FEV1 event catalog loader (b87dacb276dd) in addition
+to successful Windows Release #126. Do not overwrite prior known-good ZIP.
