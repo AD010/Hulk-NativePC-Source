@@ -28,3 +28,17 @@ ci/test_audit_hulk_fmod_owner_pair.py uses no owner proprietary data.
 No original DLL, XEX, FEV, shader, archive, or save bytes in public Git.
 These checks do not implement physics timing, Vulkan PSOs, actual EoR
 pause-menu replacement, native FMOD mixer, or retail PC save conversion.
+
+## Original trailing manifest decoded without guessing field meaning
+Beyond the indexed resource payloads both owner archives have EXACTLY
+373 BE manifest entries: u32 count, then [u32 indexed_hash, u32 offset,
+u32 size, null-terminated ASCII event name, 3 opaque BE u32 words],
+followed by a four-byte zero footer. Names' uppercase CRC32 agrees with
+the same owner's index(2).ind keys, and all original indexed ranges match.
+Every record in (1) and (2) differs in opaque word #1 and #2; none
+differs in word #3. Do NOT assign undocumented timestamps or pointers to
+these values. Verified the source-level native C++20 decoder against
+all 373 real owner records in both archives: PASS (zero rejected).
+native_port/src/eor_fmod_catalog.cpp preserves all three opaque words,
+checks the original hash+range+name triple and refuses malformed suffixes.
+No FMOD playback/ABI adaptation is implied.
