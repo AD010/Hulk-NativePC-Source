@@ -464,7 +464,7 @@ class PcMenu final : public rex::ui::ImGuiDialog {
         : rex::cvar::Query<double>(key);
   }
   void Change(const char* key, const std::string& value) {
-    const bool saved=hulk::options::Save(config_,key,value);
+    const bool saved=hulk::options::Save(config_, key, value);
     last_save_ok_=saved;
     if (!saved) {
       std::error_code ec;
