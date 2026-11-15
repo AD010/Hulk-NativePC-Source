@@ -96,6 +96,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Original EoR CRC32 named asset extractor regression failed (synthetic assets only)' }
           python ci/test_hulk_shader_effect_bank.py
           if ($LASTEXITCODE -ne 0) { throw 'Private X360 EoR effect bank extraction regression failed' }
+          python ci/test_hulk_xenos_aot.py
+          if ($LASTEXITCODE -ne 0) { throw 'Hulk XenosRecomp/DXC offline AOT toolchain regression failed' }
           python ci/test_ghidra_hulk_ui_hash_xrefs.py
           if ($LASTEXITCODE -ne 0) { throw 'Original pause-menu resource CRC32 cross-reference scanner regression failed' }
           # Compile the real native C++ asset backend against the Windows
