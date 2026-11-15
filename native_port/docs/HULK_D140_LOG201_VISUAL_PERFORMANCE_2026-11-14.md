@@ -652,3 +652,6 @@ Only one source SHA is built, original USA title remains private.
 
 2026-11-15: User-authorized full Windows candidate #125, validating
 Win32 F11 Xenos observer source regression and all earlier native subsystems.
+
+2026-11-15: User-authorized Release validation #126 after repairing MSVC
+C4456 local shadowing and C4996 removed u8path in Unicode save/asset-root test.
