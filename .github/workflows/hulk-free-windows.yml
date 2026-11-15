@@ -86,6 +86,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'USA game configuration test failed' }
           python ci/test_audit_hulk_sdk_services.py
           if ($LASTEXITCODE -ne 0) { throw 'ReXGlue XMA/XAM/VFS/thread source services audit regression failed' }
+          python ci/test_audit_hulk_gpu_load.py
+          if ($LASTEXITCODE -ne 0) { throw 'NativeX real GPU interval statistics parser regression failed' }
           python ci/test_hulk_pc_menu.py
           if ($LASTEXITCODE -ne 0) { throw 'Native PC menu regression failed' }
           # Synthetic-only PM4/header/shader-family test: no private XEX
