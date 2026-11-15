@@ -125,6 +125,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Hulk original shader opcode audit regression failed' }
           python ci/test_hulk_eor_effect_ledger.py
           if ($LASTEXITCODE -ne 0) { throw 'Hulk original effect/VS/PS identity ledger regression failed' }
+          python ci/test_hulk_eor_shader_reflection.py
+          if ($LASTEXITCODE -ne 0) { throw 'Original EoR camera/constant register reflection regression failed' }
           python ci/test_ghidra_hulk_ui_hash_xrefs.py
           if ($LASTEXITCODE -ne 0) { throw 'Original pause-menu resource CRC32 cross-reference scanner regression failed' }
           # Compile the real native C++ asset backend against the Windows
@@ -254,6 +256,16 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Original EoR effect and shader identity reader failed MSVC compilation' }
           & $effectTest
           if ($LASTEXITCODE -ne 0) { throw 'Original EoR VS/PS material pairing regression failed' }
+          # Original Xenos shader source constant registers: ViewProj, World,
+          # PrevWorld and SkyViewProj. No engine camera ABI inferred here.
+          $reflectionTest = Join-Path $env:RUNNER_TEMP 'hulk-eor-reflection-test.exe'
+          $reflectionArgs = @('/nologo','/std:c++20','/EHsc','/W4','/WX','/utf-8',
+                              "/Fe:$reflectionTest",
+                              'ci/eor_shader_reflection_test.cpp')
+          & cl.exe @reflectionArgs
+          if ($LASTEXITCODE -ne 0) { throw 'Original EoR constant register reader failed MSVC compilation' }
+          & $reflectionTest
+          if ($LASTEXITCODE -ne 0) { throw 'Original EoR camera and motion-reflection regression failed' }
           # Real SPIR-V bank -> EoR indexed draw pair and source identity gate.
           $aotDrawTest = Join-Path $env:RUNNER_TEMP 'hulk-eor-aot-draw-test.exe'
           $aotDrawArgs = @('/nologo', '/std:c++20', '/EHsc', '/W4', '/WX', '/utf-8',
