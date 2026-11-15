@@ -86,6 +86,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'USA game configuration test failed' }
           python ci/test_audit_hulk_sdk_services.py
           if ($LASTEXITCODE -ne 0) { throw 'ReXGlue XMA/XAM/VFS/thread source services audit regression failed' }
+          python ci/test_audit_hulk_pc_middleware.py
+          if ($LASTEXITCODE -ne 0) { throw 'Original Windows 2008 FMOD/Havok pure-PE audit regression failed' }
           python ci/test_audit_hulk_gpu_load.py
           if ($LASTEXITCODE -ne 0) { throw 'NativeX real GPU interval statistics parser regression failed' }
           python ci/test_patch_sdk_hulk_thread_probe.py
