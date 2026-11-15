@@ -100,6 +100,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw '27-word shader/PM4 provenance classifier regression failed' }
           python ci/test_audit_hulk_pc_x360_ui_assets.py
           if ($LASTEXITCODE -ne 0) { throw 'Original EoR UI archive/index regression failed (no game assets used)' }
+          python ci/test_audit_hulk_havok_pair.py
+          if ($LASTEXITCODE -ne 0) { throw 'Original user-indexed PC/Xbox Havok 5.1 section/fixup synthetic regression failed' }
           python ci/test_hulk_eor_extract_named_assets.py
           if ($LASTEXITCODE -ne 0) { throw 'Original EoR CRC32 named asset extractor regression failed (synthetic assets only)' }
           python ci/test_hulk_shader_effect_bank.py
