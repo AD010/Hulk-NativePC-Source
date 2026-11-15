@@ -132,6 +132,17 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'EoR host-native frame contract failed MSVC compilation' }
           & $frameTest
           if ($LASTEXITCODE -ne 0) { throw 'EoR native 2560x1600 / 16:9 fallback frame test failed' }
+          # Real USA XDK call provenance observer (no guest writes, no GPU redirection).
+          python ci/test_gen_native_x_hooks_probe.py
+          if ($LASTEXITCODE -ne 0) { throw 'Hulk verified XDK wrapper generator regression failed' }
+          $xdkTest = Join-Path $env:RUNNER_TEMP 'hulk-eor-xdk-capture-test.exe'
+          $xdkArgs = @('/nologo', '/std:c++20', '/EHsc', '/W4', '/WX', '/utf-8',
+                       "/Fe:$xdkTest", 'native_port/src/eor_xdk_draw_capture.cpp',
+                       'ci/eor_xdk_draw_capture_test.cpp')
+          & cl.exe @xdkArgs
+          if ($LASTEXITCODE -ne 0) { throw 'Native EoR verified XDK capture test failed MSVC compile' }
+          & $xdkTest
+          if ($LASTEXITCODE -ne 0) { throw 'Original XDK Draw capture regression failed' }
           # Verify user settings can be saved in the ONE existing TOML,
           # with no fake F4 Save, duplicate keys or unwanted developer files.
           $optionTest = Join-Path $env:RUNNER_TEMP 'hulk-native-settings-test.exe'

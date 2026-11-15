@@ -25,6 +25,9 @@ with tempfile.TemporaryDirectory() as d:
     assert "#if defined(HULK_NATIVE_GPU_HOOK_PROBE)" in cpp
     assert "#define HULK_GPU_PROBE_HIT(index, addr, ctx) ((void)0)" in cpp
     assert "HULK_GPU_PROBE_HIT(index, 0x##addr, ctx)" in cpp
+    assert "CapturePpcDraw" in cpp
+    assert "EndPpcHook(type)" in cpp
+    assert "eor_xdk_hook_bridge.h" in cpp
     assert "gpu_probe::Hit(index, addr, ctx)" in cpp
     cmake = (Path(__file__).resolve().parents[1] / "native_port/CMakeLists.txt").read_text()
     assert "option(HULK_NATIVE_GPU_HOOK_PROBE" in cmake

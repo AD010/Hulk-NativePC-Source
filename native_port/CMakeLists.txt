@@ -25,6 +25,7 @@ set(INCREDIBLEHULK_SOURCES
     src/eor_archive.cpp
     src/eor_font_pack.cpp
     src/eor_native_frame.cpp
+    src/eor_xdk_draw_capture.cpp
     src/eor_ui_asset_catalog.cpp
     src/native_pc_options_store.cpp
     src/native_pc_save_path.cpp
@@ -79,7 +80,7 @@ if(HULK_WITH_NATIVE_X)
                 hulk_native_x_profile.ini
         VERBATIM COMMENT "Generate guest-function NativeX hook wrappers")
     add_subdirectory("${HULK_NATIVE_X_SOURCE_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/hulk_native_x_renderer")
-    target_sources(incredible_hulk PRIVATE src/native_x_renderer_hulk.cpp
+    target_sources(incredible_hulk PRIVATE src/eor_xdk_hook_bridge.cpp src/native_x_renderer_hulk.cpp
         src/native_x_hulk_profile.cpp "${_hulk_hooks}")
     if(HULK_NATIVE_GPU_HOOK_PROBE)
         target_sources(incredible_hulk PRIVATE src/native_gpu_hook_probe.cpp)
