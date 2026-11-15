@@ -35,6 +35,27 @@ class PM4OracleTests(unittest.TestCase):
         self.assertFalse(r['complete'])
         self.assertEqual(r['packet_counters']['indirect_packets'], 1)
 
+    def test_indirect_invalidates_prior_registers_and_shader_identity(self):
+        # Nested IB may overwrite both GPU registers and VS/PS programs.
+        # A later draw must not claim pre-IB state is still authoritative.
+        setup = t3(0x2d, [(1 << 16), 0x880000fe])
+        shader = t3(0x2b, [1, 1, 0x12345678])
+        indirect = t3(0x3f, [0x1000, 8])
+        draw = t3(0x36, [0x40])
+        audit = replay(setup + shader + draw + indirect + draw)
+        before, after = audit['draw_snapshots']
+        self.assertEqual(before['known_watched_registers']['0x4800'],
+                         '0x880000fe')
+        self.assertIsNotNone(before['shader_programs']['ps']['sha256'])
+        self.assertNotIn('0x4800', after['known_watched_registers'])
+        self.assertIn('0x4800', after['unresolved_watched_registers'])
+        self.assertIsNone(after['shader_programs']['ps']['sha256'])
+        self.assertEqual(after['shader_programs']['ps']['source'],
+                         'indirect_unresolved')
+        self.assertEqual(before['known_watched_registers']['0x4800'],
+                         '0x880000fe')
+        self.assertFalse(audit['complete'])
+
     def test_predicated_constant_never_assumed_executed(self):
         state = t3(0x2d, [(1 << 16) | 6, 0x44a00000], pred=True)
         r = replay(state + t3(0x36, [0x40], pred=True))
