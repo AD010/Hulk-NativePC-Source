@@ -20,8 +20,14 @@ struct Backend final:ShaderBindingBackend {
 void I32(std::vector<uint8_t>& b,uint32_t v){for(unsigned i=0;i<4;++i)b.push_back(uint8_t(v>>(8*i)));}
 void Add(std::vector<uint8_t>& b,uint8_t digest,uint32_t stage) {
   for(unsigned i=0;i<32;++i)b.push_back(digest);
-  I32(b,stage);I32(b,6);
-  for(uint32_t v:{0x07230203u,0x10500u,0u,16u,0u,0u})I32(b,v);
+  const std::vector<uint32_t> words{
+      0x07230203u,0x10500u,0u,16u,0u,
+      0x00020011u,1u,
+      0x0003000eu,0u,1u,
+      0x0005000fu,stage==1?0u:4u,1u,0x6e69616du,0u
+  };
+  I32(b,stage);I32(b,static_cast<uint32_t>(words.size()));
+  for(uint32_t v:words)I32(b,v);
 }
 int main(){
   auto file=std::filesystem::temp_directory_path()/"hulk_native_aot_pair_test.bin";

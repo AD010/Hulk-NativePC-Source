@@ -11,8 +11,14 @@ void Dword(std::vector<uint8_t>& out, uint32_t n) {
 }
 void Record(std::vector<uint8_t>& out, uint8_t key, uint32_t stage) {
   for (unsigned i=0;i<32;++i)out.push_back(key);
-  Dword(out,stage);Dword(out,6);
-  for(uint32_t value:{0x07230203u,0x10500u,1u,12u,0u,0u})Dword(out,value);
+  const std::vector<uint32_t> words{
+      0x07230203u, 0x10500u, 1u, 12u, 0u,       // module header
+      0x00020011u, 1u,                            // OpCapability Shader
+      0x0003000eu, 0u, 1u,                        // OpMemoryModel
+      0x0005000fu, stage==1?0u:4u, 1u, 0x6e69616du, 0u // OpEntryPoint "main"
+  };
+  Dword(out,stage);Dword(out,static_cast<uint32_t>(words.size()));
+  for(uint32_t value:words)Dword(out,value);
 }
 std::vector<uint8_t> Bank(uint32_t expected,uint32_t compiled) {
   std::vector<uint8_t> out{'H','E','O','R','S','P','V','1'};
@@ -35,17 +41,25 @@ int main() {
   assert(bank.Find(one,Stage::Vertex));
   assert(!bank.Find(one,Stage::Pixel));
   Digest two{};two.fill(2);
-  assert(bank.Find(two,Stage::Pixel) && bank.Find(two,Stage::Pixel)->spirv.size()==6);
-  auto damaged=data;damaged.back()=0x33;Write(p,damaged);
-  // Tail mutation affects opcode, not SPIR-V header: basic loader does not
-  // claim a full spirv-val validator or binary SHA verification.
-  bank.Load(p);assert(bank.size()==2);
+  assert(bank.Find(two,Stage::Pixel) && bank.Find(two,Stage::Pixel)->spirv.size()==15);
+  // First OpCapability word starts at the first record's 5-word header end.
+  // Changing its wordcount to zero must be rejected before any Vulkan upload.
+  auto damaged=data;
+  damaged[16+40+5*4+2]=0;
+  damaged[16+40+5*4+3]=0;
+  Write(p,damaged);Bad([&]{bank.Load(p);});
+  assert(bank.size()==2 && bank.HasFullArchiveCoverage());
+  // A structurally well-formed fragment entry point cannot substitute a VS.
+  damaged=Bank(2,2);
+  damaged[16+40+11*4]=4; // first entry's execution model: Fragment, not Vertex
+  Write(p,damaged);Bad([&]{bank.Load(p);});
+  assert(bank.Find(one,Stage::Vertex));
   damaged=Bank(2,2);damaged.pop_back();Write(p,damaged);
   Bad([&]{bank.Load(p);});assert(bank.size()==2);
   damaged=Bank(2,2);damaged[0]='X';Write(p,damaged);Bad([&]{bank.Load(p);});
   damaged=Bank(1,2);Write(p,damaged);Bad([&]{bank.Load(p);});
   damaged=Bank(2,2);
-  for(unsigned i=0;i<32;++i)damaged[16+64+i]=1; // second SHA duplicates first
+  for(unsigned i=0;i<32;++i)damaged[16+100+i]=1; // second SHA duplicates first
   Write(p,damaged);Bad([&]{bank.Load(p);});
   damaged=Bank(3,2);Write(p,damaged);bank.Load(p);
   assert(bank.size()==2 && !bank.HasFullArchiveCoverage());

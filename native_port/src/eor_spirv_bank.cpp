@@ -19,6 +19,47 @@ uint32_t Read32(std::span<const uint8_t> bytes, size_t& offset) {
   offset += 4;
   return value;
 }
+
+// Verify instruction WORD COUNTS and the declared pipeline stage before
+// opening a Vulkan device. This is a structural safety gate, NOT spirv-val:
+// type graphs, resource layouts, capabilities and shader semantics still need
+// the offline compiler/validator and an actual EoR material/PSO match.
+void CheckStructure(std::span<const uint32_t> words, Stage stage) {
+  bool memory_model = false;
+  bool entry = false;
+  const uint32_t required_model = stage == Stage::Vertex ? 0u : 4u;
+  for (size_t i = 5; i < words.size();) {
+    const uint32_t header = words[i];
+    const size_t count = header >> 16;
+    const uint32_t opcode = header & 0xffffu;
+    if (!count || count > words.size() - i)
+      throw std::invalid_argument("Truncated SPIR-V instruction in private bank");
+    if (opcode == 14) { // OpMemoryModel
+      if (count != 3 || memory_model)
+        throw std::invalid_argument("Invalid SPIR-V memory model instruction");
+      memory_model = true;
+    } else if (opcode == 15) { // OpEntryPoint
+      if (count < 5)
+        throw std::invalid_argument("Invalid SPIR-V entry point instruction");
+      if (words[i + 1] == required_model) {
+        bool terminated = false;
+        // The name starts in word 3, after execution model and function ID.
+        // A missing NUL can merge shader text into the interface ID stream.
+        for (size_t j = i + 3; j < i + count && !terminated; ++j)
+          for (unsigned byte = 0; byte < 4; ++byte)
+            if (((words[j] >> (byte * 8)) & 0xffu) == 0)
+              terminated = true;
+        if (!terminated || words[i + 2] == 0 ||
+            words[i + 2] >= words[3])
+          throw std::invalid_argument("Invalid SPIR-V entry point name or ID");
+        entry = true;
+      }
+    }
+    i += count;
+  }
+  if (!memory_model || !entry)
+    throw std::invalid_argument("Missing matching vertex/fragment SPIR-V entry point");
+}
 } // namespace
 
 void ShaderBank::Load(const std::filesystem::path& path) {
@@ -61,6 +102,7 @@ void ShaderBank::Load(const std::filesystem::path& path) {
         blob.spirv[3] == 0 || blob.spirv[3] > 1000000 ||
         blob.spirv[4] != 0)
       throw std::invalid_argument("Invalid SPIR-V module header in private bank");
+    CheckStructure(blob.spirv, blob.stage);
     if (!next.emplace(key, std::move(blob)).second)
       throw std::invalid_argument("Duplicate Xenos source SHA in private AOT bank");
   }
