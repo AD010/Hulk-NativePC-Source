@@ -71,6 +71,53 @@ Packfile Inspect(std::span<const std::byte> bytes,uint32_t key,Platform plat) {
   }
   return {key,5,3,marker,bytes.size(),plat,table};
 }
+std::vector<Fixup> DecodeFixups(std::span<const std::byte> bytes,
+                                uint32_t hash, Platform plat) {
+  const Packfile pack=Inspect(bytes,hash,plat);
+  constexpr size_t kMaxEdges=262144;
+  std::vector<Fixup> result;
+  for(uint32_t section=0;section<3;++section) {
+    const Section& s=pack.section_table[section];
+    const size_t base=pack.header_offset+s.absolute_start;
+    struct Region {uint32_t from,to,step;FixupKind kind;};
+    const Region regions[]{
+      {s.local_fixups,s.global_fixups,8,FixupKind::Local},
+      {s.global_fixups,s.virtual_fixups,12,FixupKind::Global},
+      {s.virtual_fixups,s.exports,12,FixupKind::VirtualClass}
+    };
+    for(const Region& region:regions) {
+      for(uint32_t i=region.from;i<region.to;) {
+        const size_t remaining=static_cast<size_t>(region.to)-i;
+        const size_t p=base+i;
+        if(remaining<region.step) {
+          for(size_t k=0;k<remaining;++k)
+            if(U8(bytes,p+k)!=0xff)
+              throw std::invalid_argument("Malformed Havok fixup array padding");
+          break;
+        }
+        const uint32_t from=U32(bytes,p,plat);
+        const uint32_t a=U32(bytes,p+4,plat);
+        const uint32_t b=region.step==12?U32(bytes,p+8,plat):0;
+        i+=region.step;
+        if(from==0xffffffffu) {
+          if(a!=0xffffffffu || (region.step==12 && b!=0xffffffffu))
+            throw std::invalid_argument("Incomplete Havok fixup sentinel");
+          continue;
+        }
+        const uint32_t dst_section=region.step==8?section:a;
+        const uint32_t dst_offset=region.step==8?a:b;
+        if(from>s.local_fixups || s.local_fixups-from<4 ||
+           dst_section>=3 || dst_offset>=pack.section_table[dst_section].local_fixups)
+          throw std::invalid_argument("Havok fixup references invalid serialized data");
+        if(result.size()>=kMaxEdges)
+          throw std::invalid_argument("Havok fixup edge limit exceeded");
+        result.push_back({region.kind,section,from,dst_section,dst_offset});
+      }
+    }
+  }
+  return result;
+}
+
 Packfile ReadIndexed(const Index& index,const std::filesystem::path& archive,
                      std::string_view category,uint32_t hash,size_t maximum_size) {
   if(category!="Havoks"&&category!="HavokMopps")
