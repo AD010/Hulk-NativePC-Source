@@ -666,3 +666,9 @@ and 373-entry trailing catalog plus retail PC save CRC32 and field table.
 Private original assets remain outside public Git; existing good ZIP #127
 is preserved. Native EoR shader/Draw GPU hooks, Havok timestep and original
 in-game EoR menu are still unverified and MUST NOT be claimed as fixed.
+
+2026-11-15: User-approved Windows x64 Release validation for verified log207/208
+defects: F10 state reversion, PC F grab/RMB heavy bindings, comment-free
+shipped TOML, and in-process shader/PM4/Resolve GPU fault summaries.
+The source still uses NativeX and is NOT a direct EoR Vulkan render
+pipeline. Do not claim native 16:10, fixed physics or original EoR menu.
