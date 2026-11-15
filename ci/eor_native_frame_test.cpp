@@ -50,6 +50,18 @@ int main() {
   assert(b.scene.width == 2560 && b.scene.height == 1600);
   assert(b.resolved.width == 2560 && b.resolved.height == 1600);
   assert(b.samples == 4 && b.rectangle.width == 2560);
+  // 2560x1600 stays PHYSICAL 2560x1600, while 4x->2x MSAA
+  // reduces color samples from 16,384,000 to 8,192,000.
+  s.max_scene_color_samples = 8u << 20;
+  const auto balanced = PlanFrame(s);
+  assert(balanced.world.width == 2560 && balanced.world.height == 1600);
+  assert(balanced.samples == 2 && balanced.direct_engine_path_ready);
+  FakeBackend budget_backend;
+  ReplayNativeScene(balanced, real, budget_backend);
+  assert(budget_backend.samples == 2 && budget_backend.resolved.height == 1600);
+  s.max_scene_color_samples = 1;
+  assert(PlanFrame(s).samples == 1); // never upscale or shrink pixels
+  s.max_scene_color_samples = 0;
   s.samples = 1;
   FakeBackend c;
   ReplayNativeScene(PlanFrame(s), real, c);

@@ -34,7 +34,13 @@ FrameGeometry PlanFrame(const FrameSetup& s) {
             (s.backbuffer.height - world.height) / 2u,
             world.width, world.height};
   }
-  return {world, s.backbuffer, rect, s.samples, wide,
+  uint32_t samples = s.samples;
+  if (s.max_scene_color_samples) {
+    const uint64_t pixels = uint64_t(world.width) * world.height;
+    while (samples > 1 && pixels > s.max_scene_color_samples / samples)
+      samples /= 2;
+  }
+  return {world, s.backbuffer, rect, samples, wide,
           s.engine_draw_hook_verified && s.offline_shader_cache_verified &&
           s.projection_hook_verified};
 }

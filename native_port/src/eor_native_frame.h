@@ -16,6 +16,10 @@ struct FrameSetup {
   bool engine_draw_hook_verified = false;
   bool offline_shader_cache_verified = false;
   uint32_t samples = 1;
+  // Optional host resource budget. Physical world width/height NEVER shrink.
+  // Counts only color MSAA samples, not depth, shadows or VRAM allocation.
+  // 0 means no cap; this is not a GPU utilization or frame-time model.
+  uint64_t max_scene_color_samples = 0;
 };
 struct FrameGeometry {
   Size world;                         // Physically rasterized scene pixels.
