@@ -1,0 +1,339 @@
+// Optional official 2008 PC host enhancement, independent of Xenos/ReXGlue.
+// This library is NOT a finished Xbox graphics port. All game-data-changing
+// paths are explicitly opt-in. Requires the exact original HULK.EXE x86 build.
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+#include <d3d9.h>
+#include <algorithm>
+#include <atomic>
+#include <cmath>
+#include <cstdarg>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <cwchar>
+#include <mutex>
+#include <unordered_map>
+#include <vector>
+#include <cstdint>
+
+static_assert(sizeof(void*) == 4, "The Incredible Hulk PC 2008 is PE32/x86");
+namespace {
+using Create9 = IDirect3D9* (WINAPI*)(UINT);
+using CreateDeviceFn = HRESULT (STDMETHODCALLTYPE*)(IDirect3D9*,UINT,D3DDEVTYPE,HWND,DWORD,D3DPRESENT_PARAMETERS*,IDirect3DDevice9**);
+using PresentFn = HRESULT (STDMETHODCALLTYPE*)(IDirect3DDevice9*,const RECT*,const RECT*,HWND,const RGNDATA*);
+using ResetFn = HRESULT (STDMETHODCALLTYPE*)(IDirect3DDevice9*,D3DPRESENT_PARAMETERS*);
+using CreateVSFn = HRESULT (STDMETHODCALLTYPE*)(IDirect3DDevice9*,const DWORD*,IDirect3DVertexShader9**);
+using CreatePSFn = HRESULT (STDMETHODCALLTYPE*)(IDirect3DDevice9*,const DWORD*,IDirect3DPixelShader9**);
+using SetVSFn = HRESULT (STDMETHODCALLTYPE*)(IDirect3DDevice9*,IDirect3DVertexShader9*);
+using SetVSConstFn = HRESULT (STDMETHODCALLTYPE*)(IDirect3DDevice9*,UINT,const float*,UINT);
+using SamplerFn = HRESULT (STDMETHODCALLTYPE*)(IDirect3DDevice9*,DWORD,D3DSAMPLERSTATETYPE,DWORD);
+Create9 realCreate9{};
+CreateDeviceFn realCreateDevice{};
+PresentFn realPresent{};
+ResetFn realReset{};
+CreateVSFn realCreateVS{};
+CreatePSFn realCreatePS{};
+SetVSFn realSetVS{};
+SetVSConstFn realVSConst{};
+SamplerFn realSampler{};
+struct ShaderInfo {
+  UINT view = 0, world = 0;
+  WORD matrixClass = 0;
+  bool hasView = false, hasWorld = false;
+};
+std::mutex shaderMutex, logMutex;
+std::unordered_map<void*,ShaderInfo> shaderMap;
+IDirect3DVertexShader9* activeVS{};
+std::atomic<uint32_t> vsCount{0}, psCount{0}, viewProjCount{0};
+std::once_flag configOnce;
+wchar_t ini[MAX_PATH]{}, logFile[MAX_PATH]{};
+bool fixAspect = false;
+uint32_t width = 0, height = 0, anisotropy = 0, maxAnisotropy = 1;
+double sourceAspect = 16.0 / 9.0;
+
+bool OriginalHulk() noexcept {
+  auto* dos=reinterpret_cast<const IMAGE_DOS_HEADER*>(GetModuleHandleW(nullptr));
+  if(!dos || dos->e_magic!=IMAGE_DOS_SIGNATURE || dos->e_lfanew!=0x40) return false;
+  const auto* nt=reinterpret_cast<const IMAGE_NT_HEADERS32*>(
+      reinterpret_cast<const BYTE*>(dos)+dos->e_lfanew);
+  return nt->Signature==IMAGE_NT_SIGNATURE &&
+         nt->FileHeader.Machine==IMAGE_FILE_MACHINE_I386 &&
+         nt->FileHeader.TimeDateStamp==0x48503ec6u &&
+         nt->OptionalHeader.Magic==IMAGE_NT_OPTIONAL_HDR32_MAGIC &&
+         nt->OptionalHeader.AddressOfEntryPoint==0x24e129u &&
+         nt->OptionalHeader.SizeOfImage==0x81b000u;
+}
+void LoadConfig() {
+  std::call_once(configOnce, [] {
+    wchar_t path[MAX_PATH]{};
+    if(!GetModuleFileNameW(nullptr,path,MAX_PATH))return;
+    wchar_t* slash=wcsrchr(path,L'\\');
+    if(!slash)return;
+    *(slash+1)=0;
+    wcscpy_s(ini,path);wcscat_s(ini,L"HulkPC.ini");
+    wcscpy_s(logFile,path);wcscat_s(logFile,L"HulkPC_ASI.log");
+    fixAspect=GetPrivateProfileIntW(L"Graphics",L"EnableExperimentalViewProj16x10",0,ini)==1;
+    anisotropy=GetPrivateProfileIntW(L"Graphics",L"ForceAnisotropy",0,ini);
+    if(anisotropy!=2&&anisotropy!=4&&anisotropy!=8&&anisotropy!=16)anisotropy=0;
+    width=GetPrivateProfileIntW(L"Graphics",L"ForceFullscreenWidth",0,ini);
+    height=GetPrivateProfileIntW(L"Graphics",L"ForceFullscreenHeight",0,ini);
+    if(!width||!height||width>16384||height>16384)width=height=0;
+    wchar_t value[64]{};
+    GetPrivateProfileStringW(L"Graphics",L"SourceAspect",
+                             L"1.777777777777778",value,64,ini);
+    wchar_t* end=nullptr;
+    const double aspect=wcstod(value,&end);
+    if(end!=value&&std::isfinite(aspect)&&aspect>=1.0&&aspect<=3.0)
+      sourceAspect=aspect;
+  });
+}
+void Log(const char* fmt,...) {
+  LoadConfig();
+  if(!logFile[0])return;
+  char buffer[1024]{};
+  va_list args;va_start(args,fmt);
+  vsnprintf_s(buffer,sizeof(buffer),_TRUNCATE,fmt,args);va_end(args);
+  std::lock_guard lock(logMutex);
+  HANDLE file=CreateFileW(logFile,FILE_APPEND_DATA,FILE_SHARE_READ,nullptr,
+                          OPEN_ALWAYS,FILE_ATTRIBUTE_NORMAL,nullptr);
+  if(file==INVALID_HANDLE_VALUE)return;
+  DWORD written=0;
+  WriteFile(file,buffer,(DWORD)strlen(buffer),&written,nullptr);
+  CloseHandle(file);
+}
+template<typename Fn> bool ReplaceVtable(void* object,size_t index,Fn hook,Fn& original) {
+  if(!object)return false;
+  auto** table=*reinterpret_cast<void***>(object);
+  if(!table)return false;
+  auto* slot=&table[index];
+  DWORD protect=0;
+  if(!VirtualProtect(slot,sizeof(void*),PAGE_EXECUTE_READWRITE,&protect))return false;
+  const auto current=*slot;
+  bool success=true;
+  if(current!=reinterpret_cast<void*>(hook)) {
+    if(!original) original=reinterpret_cast<Fn>(current);
+    if(current!=reinterpret_cast<void*>(original))success=false;
+    else InterlockedExchangePointer(reinterpret_cast<PVOID volatile*>(slot),
+                                    reinterpret_cast<PVOID>(hook));
+  }
+  DWORD unused=0;VirtualProtect(slot,sizeof(void*),protect,&unused);
+  return success;
+}
+uint32_t U32(const uint8_t* p) {
+  return uint32_t(p[0])|(uint32_t(p[1])<<8)|(uint32_t(p[2])<<16)|(uint32_t(p[3])<<24);
+}
+uint16_t U16(const uint8_t* p){return uint16_t(p[0])|uint16_t(p[1]<<8);}
+ShaderInfo ReadCtab(IDirect3DVertexShader9* shader) {
+  ShaderInfo info{};
+  UINT bytes=0;
+  if(!shader || FAILED(shader->GetFunction(nullptr,&bytes)) ||
+     bytes<44||bytes>(1u<<20))return info;
+  std::vector<uint8_t> code(bytes);
+  if(FAILED(shader->GetFunction(code.data(),&bytes)))return info;
+  for(size_t i=0;i+36<bytes;i+=4) {
+    if(memcmp(code.data()+i,"CTAB",4))continue;
+    const size_t base=i+4;
+    if(U32(code.data()+base)!=28)continue;
+    const size_t count=U32(code.data()+base+12);
+    const size_t offset=U32(code.data()+base+16);
+    if(count>128 || offset>bytes-base || 20*count>bytes-base-offset)continue;
+    for(size_t j=0;j<count;++j) {
+      const size_t at=base+offset+j*20;
+      const auto nameOff=U32(code.data()+at);
+      const auto set=U16(code.data()+at+4);
+      const auto reg=U16(code.data()+at+6);
+      const auto size=U16(code.data()+at+8);
+      const auto type=U32(code.data()+at+12);
+      if(nameOff>=bytes-base || type>bytes-base-16 || set!=2 ||
+         size!=4 || reg>252)continue;
+      const char* name=reinterpret_cast<const char*>(code.data()+base+nameOff);
+      if(!memchr(name,'\0',bytes-base-nameOff))continue;
+      if(!strcmp(name,"ViewProj")) {
+        info.view=reg;info.matrixClass=U16(code.data()+base+type);
+        info.hasView=true;
+      }
+      if(!strcmp(name,"World")) {info.world=reg;info.hasWorld=true;}
+    }
+    break;
+  }
+  return info;
+}
+HRESULT STDMETHODCALLTYPE OnCreateDevice(IDirect3D9*,UINT,D3DDEVTYPE,HWND,
+                                         DWORD,D3DPRESENT_PARAMETERS*,IDirect3DDevice9**);
+HRESULT STDMETHODCALLTYPE OnPresent(IDirect3DDevice9*,const RECT*,const RECT*,HWND,const RGNDATA*);
+HRESULT STDMETHODCALLTYPE OnReset(IDirect3DDevice9*,D3DPRESENT_PARAMETERS*);
+HRESULT STDMETHODCALLTYPE OnCreateVS(IDirect3DDevice9*,const DWORD*,IDirect3DVertexShader9**);
+HRESULT STDMETHODCALLTYPE OnCreatePS(IDirect3DDevice9*,const DWORD*,IDirect3DPixelShader9**);
+HRESULT STDMETHODCALLTYPE OnSetVS(IDirect3DDevice9*,IDirect3DVertexShader9*);
+HRESULT STDMETHODCALLTYPE OnVSConstants(IDirect3DDevice9*,UINT,const float*,UINT);
+HRESULT STDMETHODCALLTYPE OnSampler(IDirect3DDevice9*,DWORD,D3DSAMPLERSTATETYPE,DWORD);
+
+IDirect3D9* WINAPI OnCreate9(UINT sdk) {
+  if(!realCreate9)return nullptr;
+  LoadConfig();
+  auto* api=realCreate9(sdk);
+  if(api && ReplaceVtable(api,16,&OnCreateDevice,realCreateDevice))
+    Log("[ASI] HULK.EXE x86; Direct3DCreate9 / CreateDevice hook installed\r\n");
+  return api;
+}
+bool HookIat() {
+  if(!OriginalHulk())return false;
+  auto* exe=reinterpret_cast<uint8_t*>(GetModuleHandleW(nullptr));
+  HMODULE dll=GetModuleHandleW(L"d3d9.dll");
+  if(!dll)return false;
+  void* target=reinterpret_cast<void*>(GetProcAddress(dll,"Direct3DCreate9"));
+  auto** thunk=reinterpret_cast<void**>(exe+0x003cc310u);
+  if(!target || *thunk!=target)return false;
+  DWORD old=0;
+  if(!VirtualProtect(thunk,4,PAGE_READWRITE,&old))return false;
+  realCreate9=reinterpret_cast<Create9>(*thunk);
+  InterlockedExchangePointer(reinterpret_cast<PVOID volatile*>(thunk),
+                             reinterpret_cast<PVOID>(&OnCreate9));
+  DWORD unused=0;VirtualProtect(thunk,4,old,&unused);
+  return true;
+}
+DWORD WINAPI TryLateHook(void*) {
+  for(unsigned n=0;n<200;++n) {
+    if(HookIat())return 0;
+    Sleep(10);
+  }
+  OutputDebugStringA("HulkPC: original D3D9 import not found, leaving game untouched\n");
+  return 0;
+}
+HRESULT STDMETHODCALLTYPE OnCreateDevice(IDirect3D9* api,UINT adapter,
+  D3DDEVTYPE type,HWND window,DWORD flags,D3DPRESENT_PARAMETERS* pp,
+  IDirect3DDevice9** result) {
+  if(!realCreateDevice)return D3DERR_INVALIDCALL;
+  if(!pp||!result)return realCreateDevice(api,adapter,type,window,flags,pp,result);
+  const D3DPRESENT_PARAMETERS original=*pp;
+  if(width && height && !pp->Windowed) {
+    pp->BackBufferWidth=width;pp->BackBufferHeight=height;
+  }
+  HRESULT hr=realCreateDevice(api,adapter,type,window,flags,pp,result);
+  if(FAILED(hr) && (pp->BackBufferWidth!=original.BackBufferWidth ||
+                    pp->BackBufferHeight!=original.BackBufferHeight)) {
+    *pp=original;
+    hr=realCreateDevice(api,adapter,type,window,flags,pp,result);
+  }
+  if(SUCCEEDED(hr) && *result) {
+    D3DCAPS9 caps{};
+    if(SUCCEEDED((*result)->GetDeviceCaps(&caps)))
+      maxAnisotropy=std::max(1u,caps.MaxAnisotropy);
+    ReplaceVtable(*result,16,&OnReset,realReset);
+    ReplaceVtable(*result,17,&OnPresent,realPresent);
+    ReplaceVtable(*result,91,&OnCreateVS,realCreateVS);
+    ReplaceVtable(*result,92,&OnSetVS,realSetVS);
+    ReplaceVtable(*result,94,&OnVSConstants,realVSConst);
+    ReplaceVtable(*result,106,&OnCreatePS,realCreatePS);
+    ReplaceVtable(*result,69,&OnSampler,realSampler);
+    Log("[D3D9] Device %ux%u fullscreen=%u, FOV experimental=%u, AF=%u\r\n",
+        pp->BackBufferWidth,pp->BackBufferHeight,(unsigned)!pp->Windowed,
+        (unsigned)fixAspect,anisotropy);
+  }
+  return hr;
+}
+HRESULT STDMETHODCALLTYPE OnReset(IDirect3DDevice9* dev,D3DPRESENT_PARAMETERS* pp) {
+  {std::lock_guard lock(shaderMutex);activeVS=nullptr;}
+  if(pp)Log("[D3D9] Reset %ux%u\r\n",pp->BackBufferWidth,pp->BackBufferHeight);
+  return realReset(dev,pp);
+}
+HRESULT STDMETHODCALLTYPE OnPresent(IDirect3DDevice9* dev,const RECT* a,
+                                    const RECT* b,HWND c,const RGNDATA* d) {
+  static LARGE_INTEGER frequency{},then{};
+  static unsigned frames=0;
+  LARGE_INTEGER now{};
+  QueryPerformanceCounter(&now);
+  if(!frequency.QuadPart) {
+    QueryPerformanceFrequency(&frequency);
+    then=now;
+  }
+  if(++frames>=300 && frequency.QuadPart) {
+    const double seconds=double(now.QuadPart-then.QuadPart)/frequency.QuadPart;
+    D3DVIEWPORT9 vp{};
+    if(seconds>0.01 && SUCCEEDED(dev->GetViewport(&vp))) {
+      Log("[D3D9] fps=%.1f viewport=%ux%u VS=%u PS=%u ViewProjVS=%u\r\n",
+          frames/seconds,vp.Width,vp.Height,vsCount.load(),
+          psCount.load(),viewProjCount.load());
+    }
+    then=now;frames=0;
+  }
+  return realPresent(dev,a,b,c,d);
+}
+HRESULT STDMETHODCALLTYPE OnCreateVS(IDirect3DDevice9* dev,const DWORD* data,
+                                     IDirect3DVertexShader9** output) {
+  if(!realCreateVS)return D3DERR_INVALIDCALL;
+  const HRESULT hr=realCreateVS(dev,data,output);
+  if(SUCCEEDED(hr) && output && *output) {
+    ShaderInfo reflection{};
+    try {reflection=ReadCtab(*output);}catch(...){}
+    {std::lock_guard lock(shaderMutex);shaderMap[*output]=reflection;}
+    ++vsCount;
+    if(reflection.hasView)++viewProjCount;
+  }
+  return hr;
+}
+HRESULT STDMETHODCALLTYPE OnCreatePS(IDirect3DDevice9* dev,const DWORD* data,
+                                     IDirect3DPixelShader9** output) {
+  if(!realCreatePS)return D3DERR_INVALIDCALL;
+  const HRESULT hr=realCreatePS(dev,data,output);
+  if(SUCCEEDED(hr))++psCount;
+  return hr;
+}
+HRESULT STDMETHODCALLTYPE OnSetVS(IDirect3DDevice9* dev,IDirect3DVertexShader9* shader) {
+  if(!realSetVS)return D3DERR_INVALIDCALL;
+  const HRESULT hr=realSetVS(dev,shader);
+  if(SUCCEEDED(hr)){std::lock_guard lock(shaderMutex);activeVS=shader;}
+  return hr;
+}
+HRESULT STDMETHODCALLTYPE OnVSConstants(IDirect3DDevice9* dev,UINT reg,
+                                        const float* data,UINT count) {
+  if(!realVSConst)return D3DERR_INVALIDCALL;
+  if(!fixAspect || !data || !count || count>256)return realVSConst(dev,reg,data,count);
+  ShaderInfo reflected{};
+  {std::lock_guard lock(shaderMutex);
+   const auto it=shaderMap.find(activeVS);
+   if(it!=shaderMap.end())reflected=it->second;}
+  if(!reflected.hasView || !reflected.hasWorld || reflected.matrixClass!=3 ||
+     reg>reflected.view || uint64_t(reg)+count<uint64_t(reflected.view)+4)
+    return realVSConst(dev,reg,data,count);
+  D3DVIEWPORT9 vp{};
+  if(FAILED(dev->GetViewport(&vp))||!vp.Width||!vp.Height)
+    return realVSConst(dev,reg,data,count);
+  const double scale=sourceAspect/(double(vp.Width)/vp.Height);
+  if(!std::isfinite(scale)||scale<0.6||scale>1.8||
+     std::abs(scale-1.0)<0.0001)return realVSConst(dev,reg,data,count);
+  try {
+    std::vector<float> changed(data,data+size_t(count)*4);
+    const size_t column=size_t(reflected.view-reg)*4;
+    for(size_t c=0;c<4;++c)changed[column+c]=float(changed[column+c]*scale);
+    return realVSConst(dev,reg,changed.data(),count);
+  } catch(...) {return realVSConst(dev,reg,data,count);}
+}
+HRESULT STDMETHODCALLTYPE OnSampler(IDirect3DDevice9* dev,DWORD sampler,
+                                    D3DSAMPLERSTATETYPE type,DWORD value) {
+  if(!realSampler)return D3DERR_INVALIDCALL;
+  if(anisotropy && maxAnisotropy>1 && sampler<16) {
+    const unsigned maximum=std::min(anisotropy,maxAnisotropy);
+    if(type==D3DSAMP_MAXANISOTROPY)value=maximum;
+    else if(type==D3DSAMP_MINFILTER && value==D3DTEXF_LINEAR) {
+      realSampler(dev,sampler,D3DSAMP_MAXANISOTROPY,maximum);
+      if(SUCCEEDED(realSampler(dev,sampler,type,D3DTEXF_ANISOTROPIC)))
+        return D3D_OK;
+    }
+  }
+  return realSampler(dev,sampler,type,value);
+}
+} // namespace
+
+BOOL APIENTRY DllMain(HMODULE dll,DWORD reason,LPVOID) {
+  if(reason==DLL_PROCESS_ATTACH) {
+    DisableThreadLibraryCalls(dll);
+    if(!HookIat() && OriginalHulk()) {
+      HANDLE worker=CreateThread(nullptr,0,TryLateHook,nullptr,0,nullptr);
+      if(worker)CloseHandle(worker);
+    }
+  }
+  return TRUE;
+}
