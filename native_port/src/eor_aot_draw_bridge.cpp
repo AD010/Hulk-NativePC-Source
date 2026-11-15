@@ -29,7 +29,7 @@ class ForwardingBackend final : public native::Backend {
     const auto* ps = bank_.Find(pair.pixel_source_sha256, Stage::Pixel);
     if (!vs || !ps)
       throw std::logic_error("Unknown original Xenos shader in AOT Vulkan bank");
-    return target_.BindOriginalEffect(pair.effect_hash) &&
+    return target_.BindOriginalEffect(pair.effect_hash, pair.pass_index) &&
            target_.BindOfflineShaders(vs->spirv, ps->spirv) &&
            target_.DrawIndexed(draw);
   }
@@ -68,8 +68,8 @@ void ReplayAotScene(const native::FrameGeometry& frame,
   commands.reserve(draws.size());
   for (const auto& value : draws) {
     if (!value.effect_hash ||
-        !effects.HasPair(value.effect_hash, value.vertex_source_sha256,
-                         value.pixel_source_sha256))
+        !effects.HasPair(value.effect_hash, value.pass_index,
+                         value.vertex_source_sha256, value.pixel_source_sha256))
       throw std::logic_error("Shader programs do not belong to EoR material effect");
     if (!bank.Find(value.vertex_source_sha256, Stage::Vertex) ||
         !bank.Find(value.pixel_source_sha256, Stage::Pixel))

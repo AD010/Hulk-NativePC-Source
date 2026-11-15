@@ -12,13 +12,15 @@ struct BoundIndexedDraw {
   native::IndexedDraw draw;
   Digest vertex_source_sha256{};
   Digest pixel_source_sha256{};
-  uint32_t effect_hash = 0; // Verified original EoR ShaderEffect ID, never guest pointer.
+  uint32_t effect_hash = 0; // Original EoR ShaderEffect ID.
+  uint32_t pass_index = UINT32_MAX; // Original candidate technique/pass slot.
 };
 class ShaderBindingBackend : public native::Backend {
  public:
   // True only after binding original effect material resources and PSO layout.
   // An effect hash alone is not proof of descriptor/vertex layout correctness.
-  virtual bool BindOriginalEffect(uint32_t original_effect_hash) = 0;
+  virtual bool BindOriginalEffect(uint32_t original_effect_hash,
+                                  uint32_t pass_index) = 0;
   // Called before each DrawIndexed. Returns false if the Vulkan/Diligent
   // program cannot be created/selected for the real resource/vertex layout.
   virtual bool BindOfflineShaders(std::span<const uint32_t> vertex_spirv,
