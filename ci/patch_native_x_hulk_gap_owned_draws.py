@@ -18,6 +18,10 @@ import sys
 PIN = os.environ.get("HULK_NATIVEX_SOURCE_SHA",
                      "fa19ea85fec5c7f7f8a2df82d6c4a86548817b52")
 SUPPORTED = {"fa19ea85fec5c7f7f8a2df82d6c4a86548817b52"}
+LEGACY_PREFLIGHT = {
+    "bf965e952c98e050753e91d08f32685a9f754b12",
+    "919371b5bdae0c9c4c7120ca321f5a4d72b7e78e",
+}
 MARK = "HULK/PM4-FIRST-PASS-OWNED-DRAWS-211"
 PRE_OLD = """    std::vector<std::pair<size_t, size_t>> hulk_prescan_draw_ends;
     const auto hulk_on_prescan_draw = [&]() {
@@ -109,7 +113,15 @@ def main() -> None:
     root = Path(sys.argv[1]).resolve()
     sha = subprocess.check_output(
         ["git", "-C", str(root), "rev-parse", "HEAD"], text=True).strip()
-    if sha != PIN or sha not in SUPPORTED:
+    if sha != PIN:
+        raise ValueError("NativeX checkout does not match pinned revision " + sha)
+    # The one preflight also exercises the historical reviewed D127/D135
+    # chain. This is a D140-only production improvement: don't retroactively
+    # modify working legacy source or make its regression gate fail.
+    if sha in LEGACY_PREFLIGHT:
+        print("Hulk immutable first-scan PM4 replay: legacy preflight unchanged")
+        return
+    if sha not in SUPPORTED:
         raise ValueError("Unreviewed NativeX D140 revision " + sha)
     target = root / "src/state.cpp"
     updated, modified = patch(target.read_text(encoding="utf-8"))
