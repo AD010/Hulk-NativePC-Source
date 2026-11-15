@@ -635,3 +635,13 @@ unsupported opcodes before either analysis or real shader translation.
 This fixes a proven build/source mismatch, not the underlying malformed
 27-dword GPU microcode or any color artifacts. This is an owner-authorized
 docs-only diagnostic trigger; release/ZIP output remains disabled.
+
+## 2026-11-15 User-authorized single full Windows Release validation
+Commit-bound integration build for direct Havok 5.1 archive/relocation reader,
+native Windows storage and audio service audits, EoR Vulkan AOT contracts,
+CPU XThread observer and GPU/16:10 renderer compatibility changes.
+The Actions job MUST compile and package the real Windows x64 executable
+from SHA-256-pinned USA default.xex, then publish the compiled ZIP only to
+the existing private AD010/hulk-cloud release. This run is not a statement
+that the unfinished native GPU pipeline, fixed Havok timestep, original
+in-game EoR pause settings or PC-format saves have passed gameplay acceptance.
