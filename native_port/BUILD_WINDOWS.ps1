@@ -73,6 +73,12 @@ try {
     Write-Host 'Using existing sdk-src (no automatic upgrade).'
     Invoke-Checked 'git' @('-C', $Sdk, 'submodule', 'update', '--init', '--recursive') $Source
   }
+  # Source-proven host services: XMA/SDL/WASAPI/XAM/VFS/threads.
+  # Report raw SDK support and explicit XAM stubs WITHOUT claiming that
+  # the USA XEX reaches those APIs or that gameplay is correct.
+  $ServicesAudit = Join-Path (Split-Path $Source -Parent) 'ci/audit_hulk_sdk_services.py'
+  Invoke-Checked 'python' @($ServicesAudit, $Sdk, '--output',
+    (Join-Path $Source 'out/analysis/hulk_sdk_services_audit.json')) $Source
   # HULK USA DIAGNOSTIC: guard an observed potential MnK shutdown race.
   $InputPatch = Join-Path (Split-Path $Source -Parent) 'ci/patch_sdk_input_lifetime.py'
   Invoke-Checked 'python' @($InputPatch, $Sdk) $Source
