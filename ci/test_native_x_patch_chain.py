@@ -305,6 +305,14 @@ def run(sha=SHA):
             missing.append("Hulk bounded main-scene pipeline/shader wait")
         header_state=(source/"src/state.h").read_text(encoding="utf-8")
         if sha == D140_SHA:
+            # #211: inspect the REAL final StateTracker after all 46 patches,
+            # not merely the synthetic string-replacement regression.
+            for marker in ("HULK/PM4-FIRST-PASS-OWNED-DRAWS-211",
+                           "hulk_owned_draws.emplace_back(scan_);",
+                           "scan_ = std::move(owned);",
+                           "hulk_owned_complete && hulk_owned_draws.size() == expected"):
+                if marker not in state:
+                    missing.append("D140 immutable validated-gap GPU replay: " + marker)
             if ("struct LoadedAt {" not in header_state or
                 "std::array<LoadedAt, 256> loaded_at_{};" not in header_state or
                 "loaded_at_ = {};" not in state or
