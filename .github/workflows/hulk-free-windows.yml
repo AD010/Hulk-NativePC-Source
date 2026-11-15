@@ -122,6 +122,16 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Original EoR font profile reader failed MSVC compile' }
           & $fontTest
           if ($LASTEXITCODE -ne 0) { throw 'Original EoR PC/Xbox font profile validation failed' }
+          # Atomic single-TOML game-data root persistence, with Unicode paths.
+          $rootTest = Join-Path $env:RUNNER_TEMP 'hulk-asset-root-test.exe'
+          $rootArgs = @('/nologo','/std:c++20','/EHsc','/W4','/WX','/utf-8',
+                        "/Fe:$rootTest",
+                        'native_port/src/native_game_data_root_store.cpp',
+                        'ci/native_game_data_root_store_test.cpp')
+          & cl.exe @rootArgs
+          if ($LASTEXITCODE -ne 0) { throw 'Hulk asset-root writer failed MSVC compilation' }
+          & $rootTest
+          if ($LASTEXITCODE -ne 0) { throw 'Atomic Hulk game root TOML writer regression' }
           # Host-native EoR draw contract, strictly independent of PM4 and
           # the 720p guest surface layout. Synthetic, no copyrighted payload.
           $frameTest = Join-Path $env:RUNNER_TEMP 'hulk-eor-native-frame-test.exe'

@@ -1,5 +1,6 @@
 // Native installation-data discovery. No launch scripts and no extra user files.
 #include "assets_locator.h"
+#include "native_game_data_root_store.h"
 
 #include <rex/cvar.h>
 #include <rex/filesystem.h>
@@ -123,62 +124,6 @@ std::string Utf8Generic(const std::filesystem::path& path) {
 }
 
 // TOML basic string with forward slashes instead of Windows '\\' escapes.
-std::string TomlQuotedPath(const std::filesystem::path& path) {
-  const auto utf8 = Utf8Generic(path);
-  std::string result = "\"";
-  for (const unsigned char c : utf8) {
-    if (c == '"' || c == '\\') {
-      result.push_back('\\');
-      result.push_back(static_cast<char>(c));
-    } else if (c >= 0x20) {
-      result.push_back(static_cast<char>(c));
-    }
-  }
-  result.push_back('"');
-  return result;
-}
-
-bool IsRootAssignment(std::string_view line) {
-  const auto start = line.find_first_not_of(" \t");
-  if (start == std::string_view::npos) return false;
-  line.remove_prefix(start);
-  constexpr std::string_view key = "game_data_root";
-  if (!line.starts_with(key)) return false;
-  line.remove_prefix(key.size());
-  const auto equal = line.find_first_not_of(" \t");
-  return equal != std::string_view::npos && line[equal] == '=';
-}
-
-bool SaveInExistingToml(const std::filesystem::path& config,
-                        const std::filesystem::path& folder) {
-  std::string old;
-  {
-    std::ifstream in(config, std::ios::binary);
-    if (in) old.assign(std::istreambuf_iterator<char>(in), {});
-  }
-  // Retain UTF-8 BOM only at the beginning; prepend one canonical value.
-  std::string content;
-  if (old.starts_with("\xEF\xBB\xBF")) {
-    content.append(old, 0, 3);
-    old.erase(0, 3);
-  }
-  content += "game_data_root = " + TomlQuotedPath(folder) + "\n";
-
-  std::istringstream lines(old);
-  std::string line;
-  while (std::getline(lines, line)) {
-    if (!line.empty() && line.back() == '\r') line.pop_back();
-    if (IsRootAssignment(line)) continue;  // avoid duplicate keys
-    content += line;
-    content.push_back('\n');
-  }
-  std::ofstream out(config, std::ios::binary | std::ios::trunc);
-  if (!out) return false;
-  out.write(content.data(), static_cast<std::streamsize>(content.size()));
-  out.flush();
-  return out.good();
-}
-
 #if defined(_WIN32)
 std::optional<std::filesystem::path> SelectDefaultXex() {
   std::array<wchar_t, 32768> result{};
@@ -255,7 +200,7 @@ std::optional<std::filesystem::path> LocateOrSelectGameData(
   // Save into the existing and ONLY TOML, never a sidecar or new script.
   // Sync the live cvar too, so ReXGlue's F4 "Save" doesn't lose the path.
   (void)rex::cvar::SetFlagByName("game_data_root", Utf8Generic(folder));
-  if (!SaveInExistingToml(config_toml, folder)) {
+  if (!config::SaveGameDataRoot(config_toml, folder)) {
     REXLOG_WARN("[HULK/ASSETS] Could not save directory to {}",
                 config_toml.string());
     MessageBoxW(nullptr,
