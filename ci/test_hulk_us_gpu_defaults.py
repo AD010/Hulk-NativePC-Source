@@ -35,6 +35,11 @@ class TestHulkUsGpuDefaults(unittest.TestCase):
         # D140 records successful shader and PSO variants for subsequent
         # launches; do not rebuild this same game's pipelines every session.
         self.assertTrue(config["native_x_renderer_pipeline_storage"])
+        self.assertTrue(config["ignore_thread_affinities"])
+        self.assertTrue(config["ignore_thread_priorities"])
+        self.assertEqual(config["native_x_renderer_antialiasing"], "off")
+        self.assertTrue(config["native_x_renderer_hulk_auto_scene_aa"])
+        self.assertTrue(config["native_x_renderer_hulk_expand_msaa_sample_grid"])
         self.assertIn("[HULK/PIPELINE-CACHE-203]", app)
         self.assertIn('rex::cvar::Query<bool>("native_x_renderer_pipeline_storage")', app)
         self.assertIn("!cache.empty()", app)

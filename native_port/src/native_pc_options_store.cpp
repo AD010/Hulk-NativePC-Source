@@ -43,6 +43,8 @@ bool Allowed(std::string_view key, std::string_view value) {
     return value == "0.0" || value == "1.0" || value == "2.0";
   if (key == "native_x_renderer_scaling")
     return value == "bilinear" || value == "fsr" || value == "nis";
+  if (key == "native_x_renderer_antialiasing")
+    return value == "off" || value == "fxaa" || value == "smaa";
   if (key == "hulk_mouse_horizontal_multiplier" ||
       key == "hulk_mouse_vertical_multiplier") {
     if (value.empty() || value.size() > 24) return false;
@@ -119,7 +121,7 @@ bool SaveSettings(const std::filesystem::path& config_file,
       if (edited.empty() && bom)
         edited += "\xEF\xBB\xBF";
       edited += std::string(key) + " = ";
-      if (key == "native_x_renderer_scaling" || IsBindingOption(key))
+      if (key == "native_x_renderer_scaling" || key == "native_x_renderer_antialiasing" || IsBindingOption(key))
         edited += "\"" + std::string(value) + "\"";
       else
         edited += value;
@@ -133,7 +135,7 @@ bool SaveSettings(const std::filesystem::path& config_file,
     if (matched[j]) continue;
     const auto& [key, value] = updates[j];
     edited += std::string(key) + " = ";
-    if (key == "native_x_renderer_scaling" || IsBindingOption(key))
+    if (key == "native_x_renderer_scaling" || key == "native_x_renderer_antialiasing" || IsBindingOption(key))
       edited += "\"" + std::string(value) + "\"";
     else
       edited += value;

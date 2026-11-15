@@ -20,6 +20,11 @@ vblank_follows_display = false
 # Preserve current game pacing until a 60Hz physics simulation is validated.
 # 0 = no additional XDK submission cap; engine may still choose 30 FPS.
 hulk_guest_swap_fps_cap = 0
+# Leave independent recompiled Xbox threads schedulable across Windows
+# cores; do not force affinities to 3 Xenon CPUs. Real Havok job dispatch
+# and physics timestep are separate, unverified engine-specific problems.
+ignore_thread_affinities = true
+ignore_thread_priorities = true
 user_country = 103
 user_language = 1
 render_target_path_vulkan = "fsi"
@@ -64,7 +69,10 @@ native_x_renderer_hulk_gap_single_draw = true
 native_x_renderer_hulk_expand_msaa_sample_grid = true
 native_x_renderer_hulk_full_output_scissor = true
 native_x_renderer_hulk_auto_scene_aa = true
-native_x_renderer_antialiasing = "smaa"
+# NativeX guest main scene keeps authentic 4x MSAA. Skip a SECOND,
+# full-resolution SMAA/FXAA pass by default to reduce Vulkan frame cost.
+# Post AA remains selectable in the existing F10 settings.
+native_x_renderer_antialiasing = "off"
 native_x_renderer_present_with_swaps = true
 native_x_renderer_thread = true
 # Keep the upstream D140 upload-ahead window until a matched-scene

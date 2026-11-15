@@ -201,6 +201,11 @@ bool NativeXInitialize(
                 requested_scaling);
     rex::cvar::SetFlagByName("native_x_renderer_scaling", "bilinear");
   }
+  const auto effective_post_aa =
+      rex::cvar::Query<std::string>("native_x_renderer_antialiasing");
+  REXLOG_INFO("[HULK/GPU-SAMPLE-BUDGET] additional post-AA={} "
+              "(guest 4x MSAA unchanged; this is not a GPU load metric)",
+              effective_post_aa);
   const auto effective_scaling =
       rex::cvar::Query<std::string>("native_x_renderer_scaling");
   const double effective_sharpness =

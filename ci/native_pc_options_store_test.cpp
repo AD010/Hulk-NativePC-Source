@@ -42,6 +42,7 @@ int main() {
       "video_mode_width = 1280\r\n"
       "video_mode_height = 720\r\n"
       "native_x_renderer_scaling = \"bilinear\"\r\n"
+      "native_x_renderer_antialiasing = \"smaa\"\r\n"
       "native_x_renderer_sharpness = 0.0\r\n"
       "native_x_renderer_trace = false\r\n";
   Write(config, original);
@@ -50,6 +51,8 @@ int main() {
          "Native render scale update failed");
   Expect(Save(config, "native_x_renderer_scaling", "nis"),
          "Native filter update failed");
+  Expect(Save(config, "native_x_renderer_antialiasing", "off"),
+         "Post-AA disable while retaining guest 4x MSAA failed");
   Expect(Save(config, "native_x_renderer_sharpness", "0.250000"),
          "Native sharpness update failed");
   Expect(Save(config, "hulk_guest_swap_fps_cap", "30"),
@@ -85,6 +88,8 @@ int main() {
          "Saving host resolution damaged Xbox guest video-mode dimensions");
   Expect(changed.find("native_x_renderer_scaling = \"nis\"\r\n") != std::string::npos,
          "Filter TOML string was not quoted");
+  Expect(changed.find("native_x_renderer_antialiasing = \"off\"\r\n") != std::string::npos,
+         "Native AA TOML string was not quoted");
   Expect(changed.find("native_x_renderer_sharpness = 0.250000\r\n") != std::string::npos,
          "Sharpness number was changed");
   Expect(changed.find("vsync = false\r\n") != std::string::npos,
@@ -103,6 +108,8 @@ int main() {
   for (auto [key, value] : {
       std::pair{"vsync", "maybe"},
       std::pair{"native_x_renderer_scaling", "smaa"},
+      std::pair{"native_x_renderer_antialiasing", "dlss_quality"},
+      std::pair{"native_x_renderer_antialiasing", "on\\ninjected=true"},
       std::pair{"native_x_renderer_sharpness", "nan"},
       std::pair{"native_x_renderer_sharpness", "0.8"},
       std::pair{"hulk_guest_swap_fps_cap", "-1"},

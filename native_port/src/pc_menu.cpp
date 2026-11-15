@@ -238,6 +238,20 @@ class PcMenu final : public rex::ui::ImGuiDialog {
         case 2: {
           ImGui::TextUnformatted("Post-processing");
           ImGui::Separator();
+      // HULK/GPU-SAMPLE-BUDGET: original guest MSAA remains 4x.
+      // Only the additional full-scene NativeX post-AA pass changes.
+      const std::string post_aa = Bind("native_x_renderer_antialiasing");
+      ImGui::Text("Extra post-AA: %s (restart)", post_aa.c_str());
+      if (ImGui::Button("Original 4x MSAA only (lower GPU work)"))
+        Change("native_x_renderer_antialiasing", "off");
+      if (ImGui::Button("Post-FXAA"))
+        Change("native_x_renderer_antialiasing", "fxaa");
+      ImGui::SameLine();
+      if (ImGui::Button("Post-SMAA"))
+        Change("native_x_renderer_antialiasing", "smaa");
+      ImGui::TextWrapped(
+          "Keeps native host pixels and the original 4x MSAA scene. "
+          "Disabling extra AA does not fix PM4 geometry or missing textures.");
       const std::string scaling = Bind("native_x_renderer_scaling");
       ImGui::Text("Presentation filter: %s", scaling.c_str());
       if (ImGui::Button("Bilinear + CAS")) {
