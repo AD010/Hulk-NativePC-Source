@@ -28,6 +28,7 @@ set(INCREDIBLEHULK_SOURCES
     src/eor_model_resource.cpp
     src/eor_model_material_refs.cpp
     src/eor_model_surfaces.cpp
+    src/eor_native_mesh_geometry.cpp
     src/eor_model_surface_materials.cpp
     src/eor_original_model_assets.cpp
     src/eor_fmod_project.cpp

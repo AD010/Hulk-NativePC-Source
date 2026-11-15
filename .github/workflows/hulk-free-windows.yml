@@ -290,6 +290,17 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Full original Xbox/PC surface directory compile failed' }
           & $surfaceTest
           if ($LASTEXITCODE -ne 0) { throw 'Original EoR surface directory test failed' }
+          # Actual original Xbox 360 index/vertex stream format, native BE -> host.
+          $meshTest = Join-Path $env:RUNNER_TEMP 'hulk-eor-native-mesh-test.exe'
+          $meshArgs = @('/nologo','/std:c++20','/EHsc','/W4','/WX','/utf-8',
+                        "/Fe:$meshTest",
+                        'native_port/src/eor_model_resource.cpp',
+                        'native_port/src/eor_native_mesh_geometry.cpp',
+                        'ci/eor_native_mesh_geometry_test.cpp')
+          & cl.exe @meshArgs
+          if ($LASTEXITCODE -ne 0) { throw 'Original Xbox mesh vertex/index decoder compile failed' }
+          & $meshTest
+          if ($LASTEXITCODE -ne 0) { throw 'Original Xbox mesh vertex/index decode regression failed' }
           $allSurfaceTest = Join-Path $env:RUNNER_TEMP 'hulk-eor-all-surface-materials-test.exe'
           $allSurfaceArgs = @('/nologo','/std:c++20','/EHsc','/W4','/WX','/utf-8',
                               "/Fe:$allSurfaceTest",
