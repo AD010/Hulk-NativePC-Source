@@ -6,32 +6,42 @@
 #include <vector>
 using hulk::eor::aot::EffectCatalog;
 static void Word(std::vector<uint8_t>& b,uint32_t v) {
-  for(unsigned i=0;i<4;++i)b.push_back(uint8_t(v>>(i*8)));
+  for(unsigned i=0;i<4;++i) b.push_back(uint8_t(v>>(8*i)));
 }
-static void Record(std::vector<uint8_t>& b,uint32_t effect,uint32_t stage,uint8_t id) {
-  Word(b,effect);Word(b,stage);
-  for(unsigned i=0;i<32;++i)b.push_back(id);
+static void Pair(std::vector<uint8_t>& b,uint32_t effect,uint32_t pass,
+                 uint8_t vs,uint8_t ps) {
+  Word(b,effect);Word(b,pass);
+  for(unsigned i=0;i<32;++i)b.push_back(vs);
+  for(unsigned i=0;i<32;++i)b.push_back(ps);
 }
 int main() {
-  auto path=std::filesystem::temp_directory_path()/"hulk_effect_catalog_test.bin";
-  std::vector<uint8_t> bytes{'H','E','O','R','M','A','T','1'};
-  Word(bytes,4);Word(bytes,1);
-  Record(bytes,0x111,1,0x11); Record(bytes,0x111,2,0x22);
-  Record(bytes,0x222,1,0x33); Record(bytes,0x222,2,0x44);
-  auto write=[&]{std::ofstream file(path,std::ios::binary|std::ios::trunc);
-    file.write((const char*)bytes.data(),bytes.size());};
+  auto path=std::filesystem::temp_directory_path()/"hulk_eor_material_pairs_test.bin";
+  std::vector<uint8_t> data{'H','E','O','R','M','A','T','2'};
+  Word(data,3);Word(data,2);
+  Pair(data,0x111,0,0x11,0x22);
+  Pair(data,0x111,1,0x33,0x44);
+  Pair(data,0x222,0,0x55,0x66);
+  auto write=[&]{std::ofstream f(path,std::ios::binary|std::ios::trunc);
+    f.write(reinterpret_cast<const char*>(data.data()),data.size());};
   write();
-  EffectCatalog c; c.Load(path);
-  assert(c.EffectCount()==2 && c.ShaderCount()==4);
-  hulk::eor::aot::Digest a{},b{},bad{}; a.fill(0x11);b.fill(0x22);bad.fill(0x44);
-  assert(c.HasPair(0x111,a,b));
-  assert(!c.HasPair(0x111,a,bad)); // genuine shader, WRONG original effect
-  assert(!c.HasPair(0,a,b));
-  bytes[16+40+4]=1;write(); // duplicate vertex stage, missing PS in first effect
-  bool caught=false;try{c.Load(path);}catch(const std::invalid_argument&){caught=true;}
-  assert(caught && c.HasPair(0x111,a,b)); // previously loaded state survives
-  bytes.resize(bytes.size()-1);write();caught=false;
-  try{c.Load(path);}catch(const std::invalid_argument&){caught=true;}
-  assert(caught && c.HasPair(0x111,a,b));
+  EffectCatalog catalog;catalog.Load(path);
+  assert(catalog.EffectCount()==2 && catalog.PairCount()==3);
+  assert(catalog.ShaderCount()==6);
+  hulk::eor::aot::Digest vs{},ps{};vs.fill(0x11);ps.fill(0x22);
+  assert(catalog.HasPair(0x111,0,vs,ps));
+  assert(!catalog.HasPair(0x111,1,vs,ps)); // wrong technique ordinal
+  vs.fill(0x33);ps.fill(0x44);
+  assert(catalog.HasPair(0x111,1,vs,ps));
+  assert(!catalog.HasPair(0x111,0,vs,ps));
+  assert(!catalog.HasPair(0x222,1,vs,ps));
+  data[16+72+4]=2;write();
+  bool failed=false;try {catalog.Load(path);}catch(const std::invalid_argument&){failed=true;}
+  assert(failed && catalog.HasPair(0x111,1,vs,ps));
+  data.resize(data.size()-1);write();failed=false;
+  try {catalog.Load(path);}catch(const std::invalid_argument&){failed=true;}
+  assert(failed && catalog.HasPair(0x111,1,vs,ps));
+  data[7]='1';write();failed=false;
+  try {catalog.Load(path);}catch(const std::invalid_argument&){failed=true;}
+  assert(failed);
   std::filesystem::remove(path);
 }
