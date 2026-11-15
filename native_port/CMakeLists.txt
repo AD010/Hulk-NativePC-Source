@@ -29,6 +29,8 @@ set(INCREDIBLEHULK_SOURCES
     src/eor_fmod_catalog.cpp
     src/eor_havok_packfile.cpp
     src/eor_font_pack.cpp
+    src/eor_frame_scheduler.cpp
+    src/eor_motion_vectors.cpp
     src/eor_native_frame.cpp
     src/eor_spirv_bank.cpp
     src/eor_aot_draw_bridge.cpp
