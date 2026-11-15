@@ -21,7 +21,6 @@ class TestEorObserverOnly(unittest.TestCase):
                         renderer.index('native_x_renderer::Initialize('))
         self.assertIn('CapturePpcDraw',hooks)
         self.assertIn('::hulk::eor::xdk::EndPpcHook(type); return;',hooks)
-        self.assertIn('::__imp__sub_',hooks) if False else None
         self.assertIn('__imp__sub_##addr(ctx,base);',hooks)
 if __name__ == "__main__":
     unittest.main()
