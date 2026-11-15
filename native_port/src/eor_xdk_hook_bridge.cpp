@@ -4,6 +4,7 @@
 #include "eor_xdk_hook_bridge.h"
 #include <rex/cvar.h>
 #include <rex/logging.h>
+#include <algorithm>
 #include <mutex>
 
 REXCVAR_DEFINE_BOOL(hulk_eor_xdk_capture, false, "Hulk/Diagnostics",
@@ -43,6 +44,21 @@ void EndPpcHook(native_x_renderer::Call kind) {
                 "indexed={} vertices={} UP={} dropped={}; "
                 "native EoR vertex/index/shader identity NOT decoded",
                 frame.sequence, indexed, verts, up, frame.dropped);
+    // Representative REAL PPC arguments, not invented engine structure
+    // offsets. One sample per reported frame is enough for an ABI oracle.
+    // Never log original game memory, shader contents or raw GPU buffers.
+    const auto sample = std::find_if(frame.calls.begin(), frame.calls.end(),
+        [](const RawDraw& call) {
+          return call.kind == Kind::DrawIndexedVertices;
+        });
+    if (sample != frame.calls.end()) {
+      const auto& r = sample->gpr;
+      REXLOG_INFO("[HULK/EOR-XDK-ABI] indexed_fn=0x{:08X} LR=0x{:08X}"
+                  " PPC_r3_r10={:08X},{:08X},{:08X},{:08X},"
+                  "{:08X},{:08X},{:08X},{:08X} (uninterpreted)",
+                  sample->function, sample->lr, r[0], r[1], r[2], r[3],
+                  r[4], r[5], r[6], r[7]);
+    }
   }
 }
 }  // namespace hulk::eor::xdk
