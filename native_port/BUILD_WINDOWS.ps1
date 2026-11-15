@@ -413,6 +413,10 @@ try {
     # rejected as incomplete; report first exact PM4 failure site and header.
     Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--test', (Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_pm4_first_failure.py')) $Source
     Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--patch', (Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_pm4_first_failure.py'), $NxrFull) $Source
+    # #211: authentic PM4 gap draw state comes from ONE validated first pass,
+    # never from recycled XDK command memory on a second scan.
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--test', (Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_gap_owned_draws.py')) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--patch', (Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_gap_owned_draws.py'), $NxrFull) $Source
     # Preserve known-buildable NativeX pipeline scheduling. The optional
     # wait-all experiment stays source-only until independently proven
     # against this pinned Diligent/Vulkan build and a real Hulk frame.

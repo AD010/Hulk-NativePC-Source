@@ -77,10 +77,10 @@ class D140WindowsDispatchTests(unittest.TestCase):
         lines=[line for line in builder.splitlines()
                if "Invoke-Checked 'python'" in line and
                re.search(r"ci/(?:test_)?patch_native_x_hulk_[a-z0-9_]+\.py",line)]
-        self.assertEqual(len(lines),86)
+        self.assertEqual(len(lines),88)
         patch_lines=[line for line in lines if "'--patch'" in line]
         test_lines=[line for line in lines if "'--test'" in line]
-        self.assertEqual((len(patch_lines),len(test_lines)),(45,41))
+        self.assertEqual((len(patch_lines),len(test_lines)),(46,42))
         self.assertTrue(all("ci/native_x_d140_dispatch.py" in line for line in lines))
         self.assertTrue(all(", $NxrFull)" in line for line in patch_lines))
         self.assertTrue(all("$NxrFull)" not in line for line in test_lines))
