@@ -753,3 +753,22 @@ or game data.
 
 The single Release workflow remains manual-only. No additional Actions
 run is implied by this source-only investigation.
+
+
+### #211 follow-up: telemetry at window shutdown
+Source changes committed after the first #211 report:
+- `pc_menu.cpp` now holds a reference to the app-owned resolved
+  config path; no second TOML and no external bootstrap/PowerShell.
+- The effective NativeX CAS value is normalized to 0.5 when stale TOML
+  requests 0.90. If a legacy CVar blocks the normalization, **do not
+  disable native Vulkan**; log the unresolved value rather than falling back
+  to Xenos.
+- The app's custom Windows subclass now emits one `[HULK/AUTO-GPU]`
+  diagnostic report on `WM_DESTROY`. This covers the observed
+  hard-exit route where `OnShutdown` was skipped. An atomic once-guard
+  prevents duplicate summaries.
+- Throttled log categories use their highest explicit sequence numbers
+  (e.g. XDK #60000, Present #17400), reported as **at least** counts;
+  printed warning-line counts were not the true number of rejected draws.
+- **All runtime outcomes remain unverified** until the next expressly
+  authorized Windows build and gameplay log; no CI was initiated here.
