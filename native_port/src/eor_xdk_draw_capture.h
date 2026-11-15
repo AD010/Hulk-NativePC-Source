@@ -2,6 +2,7 @@
 // Keep original PPC call-through and memory untouched. Opt-in audit only.
 #pragma once
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <vector>
 
@@ -19,7 +20,7 @@ struct Frame {
 };
 class FrameCapture {
  public:
-  static constexpr size_t kMaxDraws = 8192;
+  static constexpr std::size_t kMaxDraws = 8192;
   void Record(const RawDraw& call);
   Frame Finish();
   void Reset();
