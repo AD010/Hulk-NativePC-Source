@@ -39,7 +39,7 @@ void CheckStructure(std::span<const uint32_t> words, Stage stage) {
         throw std::invalid_argument("Invalid SPIR-V memory model instruction");
       memory_model = true;
     } else if (opcode == 15) { // OpEntryPoint
-      if (count < 5)
+      if (count < 4)
         throw std::invalid_argument("Invalid SPIR-V entry point instruction");
       if (words[i + 1] == required_model) {
         bool terminated = false;
