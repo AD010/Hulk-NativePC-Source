@@ -66,7 +66,10 @@ class TestHulkPcMenu(unittest.TestCase):
             self.assertIn('"' + key + '"', menu)
         self.assertIn("IsBindingOption(key)", store)
         self.assertIn("IsBindingToken(value)", store)
-        self.assertIn('key == "native_x_renderer_scaling" || IsBindingOption(key)', store)
+        self.assertIn(
+            'key == "native_x_renderer_scaling" || '
+            'key == "native_x_renderer_antialiasing" || IsBindingOption(key)',
+            store)
 
     def test_native_host_resolution_aspect_and_safe_guest_mode(self):
         menu = (ROOT/"native_port/src/pc_menu.cpp").read_text()
