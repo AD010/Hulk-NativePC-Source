@@ -82,6 +82,13 @@ class TestHulkUsGpuDefaults(unittest.TestCase):
         # scaling names before NativeX reads its startup-only values.
         self.assertEqual(config["native_x_renderer_scaling"], "bilinear")
         self.assertEqual(config["native_x_renderer_sharpness"], 0.0)
+        # #211 exposes stale older TOML 0.90 despite the F10 CAS UI max 0.50.
+        # Runtime changes are bounded and validated before Vulkan starts.
+        self.assertIn("HULK/QUALITY-211-CAS", app)
+        self.assertIn('SetFlagByName(\n        "native_x_renderer_sharpness", replacement)', app)
+        self.assertIn("std::isfinite(effective_sharpness)", app)
+        self.assertLess(app.index("HULK/QUALITY-211-CAS"),
+                        app.index("native_x_renderer::Initialize("))
         self.assertIn('requested_scaling != "bilinear"', app)
         self.assertIn('requested_scaling != "fsr"', app)
         self.assertIn('requested_scaling != "nis"', app)

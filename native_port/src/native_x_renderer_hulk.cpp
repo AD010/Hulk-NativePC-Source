@@ -7,6 +7,7 @@
 #include <rex/rex_app.h>
 
 #include <cstdlib>
+#include <cmath>
 #include <filesystem>
 #include <memory>
 #include <string>
@@ -208,8 +209,31 @@ bool NativeXInitialize(
               effective_post_aa);
   const auto effective_scaling =
       rex::cvar::Query<std::string>("native_x_renderer_scaling");
+  // HULK/QUALITY-211-CAS: #211 launched with a persisted 0.90 CAS value
+  // despite the official one-TOML settings UI and writer only accepting
+  // 0.00..0.50. Normalize the *runtime* value BEFORE NativeX Initialize.
+  // This does not mutate the user's TOML and cannot fix missing texture mips.
+  const double requested_sharpness =
+      rex::cvar::Query<double>("native_x_renderer_sharpness");
+  if (!std::isfinite(requested_sharpness) ||
+      requested_sharpness < 0.0 || requested_sharpness > 0.5) {
+    const char* replacement = std::isfinite(requested_sharpness) &&
+                              requested_sharpness > 0.5 ? "0.5" : "0.0";
+    const bool accepted = rex::cvar::SetFlagByName(
+        "native_x_renderer_sharpness", replacement);
+    REXLOG_WARN("[HULK/QUALITY-211-CAS] out-of-range CAS value {}, "
+                "runtime normalization requested={} accepted={}",
+                requested_sharpness, replacement, accepted);
+  }
   const double effective_sharpness =
       rex::cvar::Query<double>("native_x_renderer_sharpness");
+  if (!std::isfinite(effective_sharpness) ||
+      effective_sharpness < 0.0 || effective_sharpness > 0.5) {
+    REXLOG_ERROR("[HULK/QUALITY-211-CAS] invalid effective CAS value {}; "
+                 "refusing NativeX startup instead of silently using it",
+                 effective_sharpness);
+    return false;
+  }
   const int32_t effective_af =
       rex::cvar::Query<int32_t>("anisotropic_override");
   const int32_t effective_upload_ahead =

@@ -55,6 +55,12 @@ class IncredibleHulkApp : public rex::ReXApp {
     auto paths = defaults;
     // Use the actual resolved config path, not a guessed executable folder.
     native_pc_config_ = paths.config_path;
+    // HULK/PCMENU-CONFIG-LATE: F10 may already exist when this callback
+    // runs. The dialog now holds a live reference to this resolved path.
+    std::error_code config_error;
+    REXLOG_INFO("[HULK/PCMENU-CONFIG] final_path_ready={} regular={}",
+                !native_pc_config_.empty(),
+                std::filesystem::is_regular_file(native_pc_config_, config_error));
     // The SDK has loaded incredible_hulk.toml by this point. If its asset
     // path is absent or stale, Windows opens the native file picker once.
     const auto game = hulk::assets::LocateOrSelectGameData(
