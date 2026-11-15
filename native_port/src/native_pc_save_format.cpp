@@ -55,7 +55,7 @@ Summary Read(const std::filesystem::path& path,Kind kind,size_t maximum) {
     throw std::invalid_argument("Hulk save outside private safety bound");
   std::vector<std::byte> bytes(static_cast<size_t>(length));
   file.seekg(0);
-  file.read(reinterpret_cast<char*>(bytes.data()),length);
+  file.read(reinterpret_cast<char*>(bytes.data()),static_cast<std::streamsize>(length));
   if(!file)throw std::runtime_error("Cannot read complete Hulk save");
   return Inspect(bytes,kind);
 }
