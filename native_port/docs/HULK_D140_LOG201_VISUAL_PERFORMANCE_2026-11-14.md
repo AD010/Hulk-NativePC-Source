@@ -676,3 +676,8 @@ pipeline. Do not claim native 16:10, fixed physics or original EoR menu.
 2026-11-15: User-approved Win64 source and Release validation retry for
 F10 persisted settings, PC keyboard/mouse, stripped TOML, in-game GPU
 fault log collector. Previous source test cosmetic match corrected.
+
+2026-11-15: User-authorized Release validation after respecting exact
+single-document push gate required by ci/test_native_x_d140_dispatch.py.
+Fixes include real F10 persistent previews and automatic in-game Vulkan
+GPU health summaries. Source compiles only after Windows MSVC checks.
