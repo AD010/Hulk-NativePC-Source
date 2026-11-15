@@ -25,6 +25,7 @@
 #include <array>
 
 #include "pc_menu.h"
+#include "native_gpu_autodiag.h"
 #include <rex/cvar.h>
 #include <rex/logging.h>
 
@@ -67,6 +68,10 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     }
   }
   if (msg == WM_DESTROY) {
+    // HULK/AUTO-GPU-211: the Xbox guest can hard-exit without calling
+    // IncredibleHulkApp::OnShutdown. Emit once while Win32/logging is live.
+    // This does not wait on GPU fences or alter render/camera state.
+    ReportAutomaticGpuDiagnostics();
     NativeInputReleaseCapture();
     g_restore_after_focus = false;
     g_restore_after_menu = false;

@@ -4,6 +4,7 @@
 #include <rex/logging.h>
 #include <spdlog/sinks/base_sink.h>
 #include <algorithm>
+#include <atomic>
 #include <cstdlib>
 #include <memory>
 #include <mutex>
@@ -32,11 +33,14 @@ class GpuSink final : public spdlog::sinks::base_sink<std::mutex> {
       ++values_.comp_lod;
     if(s.find("vertex shader ")!=s.npos && s.find("analysis failed:")!=s.npos)
       ++values_.vertex_programs;
-    if(s.find("[HULK/INVALID-VERTEX-DRAW]")!=s.npos)++values_.bad_vertex;
-    if(s.find("[HULK/INCOMPLETE-XDK-DRAW]")!=s.npos)++values_.bad_xdk;
-    if(s.find("[HULK/PM4-DMA-REJECT]")!=s.npos)++values_.pm4_dma;
-    if(s.find("[HULK/PRESENT-FRAME-RECOVERY]")!=s.npos)++values_.present_recovery;
-    if(s.find("[HULK/SCENE-RESOLVE]")!=s.npos)++values_.scene_resolve;
+    // HULK/AUTO-GPU-211-COUNTS: these warnings are throttled, e.g. line
+    // #60000 follows #16. Counting emitted log lines is deeply misleading.
+    // Store the highest explicit sequence observed, never invent a total.
+    MaxSequence(s,"[HULK/INVALID-VERTEX-DRAW]",values_.bad_vertex);
+    MaxSequence(s,"[HULK/INCOMPLETE-XDK-DRAW]",values_.bad_xdk);
+    MaxSequence(s,"[HULK/PM4-DMA-REJECT]",values_.pm4_dma);
+    MaxSequence(s,"[HULK/PRESENT-FRAME-RECOVERY]",values_.present_recovery);
+    MaxSequence(s,"[HULK/SCENE-RESOLVE]",values_.scene_resolve);
     if(s.find("[HULK/GAP-STREAM]")!=s.npos)++values_.pm4_replay;
     if(s.find("guest_size=1280x720")!=s.npos)values_.guest720=true;
     if(s.find("host_size=2560x1440")!=s.npos)values_.host1440=true;
@@ -59,6 +63,26 @@ class GpuSink final : public spdlog::sinks::base_sink<std::mutex> {
   }
   void flush_() override {}
  private:
+  static void MaxSequence(std::string_view line, std::string_view marker,
+                          uint64_t& value) {
+    const size_t offset = line.find(marker);
+    if (offset == line.npos) return;
+    size_t start = offset + marker.size();
+    while (start < line.size() && line[start] == ' ') ++start;
+    if (start == line.size() || line[start] != '#') return;
+    ++start;
+    uint64_t n = 0;
+    bool seen = false;
+    while (start < line.size() &&
+           line[start] >= '0' && line[start] <= '9') {
+      seen = true;
+      const uint64_t digit = uint64_t(line[start] - '0');
+      if (n > (UINT64_MAX - digit) / 10) return;
+      n = n * 10 + digit;
+      ++start;
+    }
+    if (seen && n > value) value = n;
+  }
   static double Number(std::string_view v) {
     if(v.empty()||v.size()>32)return 0;
     const std::string copy(v);char*end=nullptr;
@@ -68,6 +92,7 @@ class GpuSink final : public spdlog::sinks::base_sink<std::mutex> {
   Counters values_;
 };
 std::shared_ptr<GpuSink> sink;
+std::atomic<bool> reported{false};
 }
 void InstallAutomaticGpuDiagnostics() {
   if(sink)return;
@@ -77,14 +102,15 @@ void InstallAutomaticGpuDiagnostics() {
               "fault aggregation and Vulkan GPU timings; no RenderDoc required");
 }
 void ReportAutomaticGpuDiagnostics() {
-  if(!sink)return;
+  if(!sink || reported.exchange(true,std::memory_order_acq_rel))return;
   const Counters s=sink->Snapshot();
   REXLOG_INFO("[HULK/AUTO-GPU] getCompTexLOD_failures={} "
-              "vertex_shader_analysis_failures={} bad_vertex_fetch={} "
-              "incomplete_XDK_draws={} DMA_rejects={} present_recoveries={}",
+              "vertex_shader_analysis_failures={} bad_vertex_fetch_at_least={} "
+              "incomplete_XDK_draws_at_least={} DMA_rejects_at_least={} "
+              "present_recoveries_at_least={}",
               s.comp_lod,s.vertex_programs,s.bad_vertex,s.bad_xdk,
               s.pm4_dma,s.present_recovery);
-  REXLOG_INFO("[HULK/AUTO-GPU] scene_resolves={} PM4_replay_events={} "
+  REXLOG_INFO("[HULK/AUTO-GPU] scene_resolves_at_least={} PM4_replay_log_lines={} "
               "gpu_windows={} worst_GPU_average_ms={:.3f} "
               "worst_GPU_spike_ms={:.3f} last_frame_interval_ms={:.3f}",
               s.scene_resolve,s.pm4_replay,s.timing_windows,

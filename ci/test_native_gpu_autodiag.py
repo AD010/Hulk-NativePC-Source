@@ -12,3 +12,13 @@ for s in ["rex::AddSink(sink)","getCompTexLOD requires pixel shader implicit der
 assert "InstallAutomaticGpuDiagnostics();" in app
 assert "ReportAutomaticGpuDiagnostics();" in app
 assert "src/native_gpu_autodiag.cpp" in cm
+
+# #211: OnShutdown may never execute after the guest hard exit; report
+# through the Win32 window destroy path, at most once, before logging ends.
+window=(p/"native_port/src/launcher/game_window.cpp").read_text()
+assert "HULK/AUTO-GPU-211" in window
+assert "ReportAutomaticGpuDiagnostics();" in window
+assert "if (msg == WM_DESTROY)" in window
+assert "reported.exchange(true" in src
+assert "HULK/AUTO-GPU-211-COUNTS" in src
+assert "incomplete_XDK_draws_at_least" in src
