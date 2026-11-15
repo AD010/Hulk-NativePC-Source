@@ -1,0 +1,20 @@
+// Native Edge of Reality original FMOD Event metadata reader.
+// This validates FEV1 references; it does NOT decode audio or launch FMOD.
+#pragma once
+#include "eor_archive.h"
+#include <cstddef>
+#include <cstdint>
+#include <filesystem>
+#include <span>
+#include <string>
+namespace hulk::eor::fmod {
+struct Event {
+  uint32_t index_hash = 0;
+  std::string identifier;
+  size_t embedded_fev_offset = 0;
+  size_t embedded_fev_bytes = 0;
+};
+Event Inspect(std::span<const std::byte> source, uint32_t expected_hash);
+Event ReadIndexed(const Index& index, const std::filesystem::path& archive,
+                  uint32_t hash, size_t max_bytes = 2u << 20);
+} // namespace hulk::eor::fmod

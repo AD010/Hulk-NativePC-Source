@@ -122,6 +122,17 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Native C++ EoR asset backend failed MSVC compile' }
           & $nativeTest
           if ($LASTEXITCODE -ne 0) { throw 'Native C++ EoR endian/index/CRC/resource regression failed' }
+          # Original FMOD FEV1 metadata and EoR resource identity, no
+          # proprietary event data, no audio playback or FMOD DLL required.
+          $fmodTest = Join-Path $env:RUNNER_TEMP 'hulk-eor-fmod-test.exe'
+          $fmodArgs = @('/nologo','/std:c++20','/EHsc','/W4','/WX','/utf-8',
+                        "/Fe:$fmodTest", 'native_port/src/eor_archive.cpp',
+                        'native_port/src/eor_fmod_project.cpp',
+                        'ci/eor_fmod_project_test.cpp')
+          & cl.exe @fmodArgs
+          if ($LASTEXITCODE -ne 0) { throw 'Original EoR FMOD Event parser failed MSVC compilation' }
+          & $fmodTest
+          if ($LASTEXITCODE -ne 0) { throw 'EoR FMOD FEV1/CRC event identity regression failed' }
           # Havok 5.1 standalone PC/Xbox endian/index tests (synthetic only).
           $havokTest = Join-Path $env:RUNNER_TEMP 'hulk-eor-havok-packfile-test.exe'
           $havokArgs = @('/nologo', '/std:c++20', '/EHsc', '/W4', '/WX', '/utf-8',

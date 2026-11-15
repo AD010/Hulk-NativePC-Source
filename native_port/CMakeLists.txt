@@ -24,6 +24,7 @@ set(INCREDIBLEHULK_SOURCES
     src/native_game_data_root_store.cpp
     # Self-contained, native original EoR resource backend. No SDK dependency.
     src/eor_archive.cpp
+    src/eor_fmod_project.cpp
     src/eor_havok_packfile.cpp
     src/eor_font_pack.cpp
     src/eor_native_frame.cpp
