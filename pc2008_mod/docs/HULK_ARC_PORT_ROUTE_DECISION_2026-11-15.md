@@ -77,3 +77,46 @@ console remaster; do not claim visual parity without actual game scene
 capture and correctness testing. Do NOT merge unvalidated original
 assets into either PC or Xbox index. Never publish any proprietary
 game bytes or create additional GitHub workflows/repositories.
+
+
+## Addendum: original PC assets recovered from the owner's clean licensed install (2026-11-15)
+
+The original owner provided seven more archives. Checked against the
+**actual PC index** SHA-256
+`3309ac7650c53c7bf64f797f962f6c5961c33774718347a2a0999fc04b04a33a`.
+For every archive the initial little-endian dword equals the highest
+indexed resource end, and **all** PC indexed record slices fit the file.
+This supersedes the earlier paragraph saying that the original PC animation
+and QuickDatas archives had not been supplied.
+
+| Incoming filename | Original PC filename | PC resource count | PC record-end match | Xbox record-end match |
+| --- | --- | ---: | --- | --- |
+| ANIMATIO(2).ARC | ANIMATIO.ARC | 1,994 | yes | no |
+| BINARIES.ARC | BINARIES.ARC | 1 | yes | **yes (ambiguous)** |
+| FMODPROJ(3).ARC | FMODPROJ.ARC | 371 | yes | no |
+| SKELETON.ARC | SKELETON.ARC | 100 | yes | no |
+| TONEMAPC.ARC | TONEMAPC.ARC | 24 | yes | no |
+| quickdat(4).arc | QUICKDAT.ARC | 2,338 | yes | no |
+| OBJECTS(2).ARC | OBJECTS.ARC | 2,444 | yes | no |
+
+Archive SHA-256 values in the same order:
+- ANIMATIO(2): `ff2b0c3423e99602d9301f07657d25ea7064ae6f65d713afd2cd9d347ee06bd4`
+- BINARIES: `235550520c3345e8d75f8828d15e3f9dc77ef2885cca90f098b07f6c269db7ff`
+- FMODPROJ(3): `808024cd0a6953dae8f9ec797a3cd18d7f13b570cef0dc2b9d16a8ceecbb0901`
+- SKELETON: `4b2c6d1c4989744cce4eff39f63343f982a38718e71b7d2dec9b4e4136e24a02`
+- TONEMAPC: `be233080f34cbd305758f6f0dbace07436b695ba952a1dc9534668f14029e511`
+- quickdat(4): `03a6f92ae18dbe27e84f5eccac4304489c42754fd5f44271e1306372a73c65aa`
+- OBJECTS(2): `2d080575a4608f6ebf0fb04f1005a3f8b2ec96233fb4cb6e5e790af7d0d4f7b5`
+
+**Interpretation:** Six archives are strongly attributable to the PC index.
+`BINARIES.ARC` has the SAME resource extent in both PC and Xbox indexes,
+so index bounds alone do not prove its platform, despite PC compatibility.
+The original PC game's black screen may have resulted from prior Xbox data
+substitutions, but gameplay recovery must be verified with the corrected
+local installation. Restore only from the owner's clean source, backing up
+replaced archives and retaining the paired PC index.ind. No automatic upload
+or replacement of copyrighted assets in the public source repository.
+
+With the new verified originals, future per-resource PC/Xbox conversion work
+can now use **both original PC and Xbox animation/QuickData payloads**,
+rather than treating PC animation and QuickData as missing.
