@@ -52,3 +52,15 @@ ReXGlue/NativeX on the current runtime path.
 **New game build intentionally NOT triggered.** Single Windows Release
 workflow stays manual-only until all requested system integration work
 has passed source tests and actual gameplay validation.
+
+## Direct-EXEC offline converter blocker screen (2026-11-15)
+
+A private scan of **all 5,194 original containers**, decoding only actual
+Xenos direct EXEC fetch instructions (never interpreting ALU words as fetch),
+found only **2 shaders** from **1 original effect** with directly used
+unsupported SET_GRADIENT opcodes 25/26. **24 shaders** have dynamic flow.
+Thus **5,168** pass the *static direct-fetch vocabulary* check. This is
+NOT a count of compiled shaders or proof of parity: XenosRecomp may reject
+other opcodes/control flow; layouts, texture formats, material semantics
+and real runtime PM4-origin shader programs remain unverified. The script
+reports `candidate_is_compiled=false` explicitly to avoid false positives.

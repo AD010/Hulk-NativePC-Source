@@ -44,7 +44,11 @@ class TestOriginalXenosAudit(unittest.TestCase):
             manifest.write_text(json.dumps({'bank_version': 1,
                  'platform': 'Xbox360', 'shader_containers': [
                     {'sha256': sha, 'bytes': len(original), 'effect': 1234, 'stage': 'VS'}]}))
-            self.assertEqual(audit(manifest)['direct_exec_fetch_opcode_counts'], {17: 1, 1: 1})
+            report = audit(manifest)
+            self.assertEqual(report['direct_exec_fetch_opcode_counts'], {17: 1, 1: 1})
+            self.assertEqual(report['shaders_with_unimplemented_direct_fetch'], 1)
+            self.assertEqual(report['static_direct_exec_fetch_candidate_shaders'], 0)
+            self.assertFalse(report['candidate_is_compiled'])
             path.write_bytes(original[:-1])
             with self.assertRaises(ValueError):
                 audit(manifest)
