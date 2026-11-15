@@ -20,6 +20,7 @@ include(generated/rexglue.cmake)
 set(INCREDIBLEHULK_SOURCES
     src/main.cpp
     src/crash_report.cpp
+    src/native_gpu_autodiag.cpp
     src/assets_locator.cpp
     src/native_game_data_root_store.cpp
     # Self-contained, native original EoR resource backend. No SDK dependency.

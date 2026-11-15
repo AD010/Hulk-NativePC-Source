@@ -13,6 +13,7 @@
 #include "eor_spirv_bank.h"
 #include "native_pc_save_path.h"
 #include "native_pc_save_format.h"
+#include "native_gpu_autodiag.h"
 #include "pc_menu.h"
 
 #include <rex/rex_app.h>
@@ -84,6 +85,7 @@ class IncredibleHulkApp : public rex::ReXApp {
   // After the runtime's own exception handlers are in place (crash_report.cpp).
   void OnPostSetup() override {
     hulk::InstallCrashReport();
+    hulk::InstallAutomaticGpuDiagnostics();
     // Read-only verification of a real 2008 PC save file, if it exists.
     // Never overwrite it or reinterpret PC pointer-valued fields as Xbox.
     // This is not a guest save-load hook or PC-format conversion.
@@ -160,7 +162,7 @@ class IncredibleHulkApp : public rex::ReXApp {
     });
     REXLOG_INFO("[HULK/PCMENU] NativePC UI registered; F10 opens controls and Exit");
   }
-  void OnShutdown() override { eor_aot_.reset(); pc_menu_.reset(); }
+  void OnShutdown() override { hulk::ReportAutomaticGpuDiagnostics(); eor_aot_.reset(); pc_menu_.reset(); }
   // std::unique_ptr<rex::ui::ImGuiDialog> CreateAchievementsOverlay() override;
   // std::unique_ptr<rex::ui::AchievementNotificationDialog>
   // CreateAchievementNotificationDialog() override;

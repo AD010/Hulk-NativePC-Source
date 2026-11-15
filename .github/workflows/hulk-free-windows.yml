@@ -91,6 +91,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Original FMOD 32bit DLL and USA event index comparison regression failed' }
           if ($LASTEXITCODE -ne 0) { throw 'Original Windows 2008 FMOD/Havok pure-PE audit regression failed' }
           python ci/test_audit_hulk_gpu_load.py
+          python ci/test_native_gpu_autodiag.py
+          if ($LASTEXITCODE -ne 0) { throw 'Native Vulkan auto GPU diagnostic sink source regression failed' }
           if ($LASTEXITCODE -ne 0) { throw 'NativeX real GPU interval statistics parser regression failed' }
           python ci/test_patch_sdk_hulk_thread_probe.py
           if ($LASTEXITCODE -ne 0) { throw 'Read-only real guest thread/affinity CPU probe SDK patch regression failed' }
