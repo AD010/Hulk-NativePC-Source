@@ -83,16 +83,16 @@ A private **x86** cross-compiled package was produced independently from
 the ReXGlue/NativeX Windows x64 CI and made available in the conversation:
 
 - `bin/dinput8.dll` SHA-256
-  `faa0745c01a85e3f225a457a9c4288b527f8e86f80e57665c90d50dcf2e22897`
+  `4553d4e4d3778792273ba2e5f60f2e146ae0836b72743058ff11f0028df82fc8`
   (exports `DirectInput8Create`, forwards it to system32).
 - `bin/HulkPCProbe.asi` SHA-256
-  `73136b9fe8ffbc6247c644d3fbb19bf5b7290dcf0adfa97b62ade90b776d680c`
+  `c849cda689f15f260518d305ae0c708fbbce6c6f58d56418442e960cb1d451ec`
   (read-only D3D9 CreateDevice/Present diagnostic).
 - `bin/HulkPC.asi` SHA-256
-  `ad269c413f04df7b62c2ad83d46291f2dbe37d7c4d9eef864a46fc68a639f2a7`
+  `9abec84d4940549441ea930f15c8991473fb76c6e3919e25e853a29aaac3ccd7`
   (optional native D3D9 shader CTAB/constant sampler interceptor).
 - ZIP `Hulk_2008_PC_ASI_Probe_x86.zip` SHA-256
-  `82a0b9dcd2efb7289c456e4d32c9268c50fdb91862181136f4f3b38f8f43af8b`.
+  `0431cb6354f2c8bc00bf209a0851f46afdc4c260f8b636d7289a278997a5c831`.
 
 The ZIP contains the extra freestanding `source/HulkPC.c`,
 `source/build_x86_smoke.py`, `source/win32_min.h` and installer
@@ -115,3 +115,11 @@ No original game EXE, saves or textures are bundled.
 Do not claim the optional Win32 program has imported Xbox geometry,
 textures, Havok or shaders, or that it implements DLSS/FSR Frame
 Generation. Those are independent and substantially incomplete tasks.
+
+The advanced plugin now uses native Win32 process-heap allocation for its
+8-KiB reflection buffers and transient VS constants instead of disabling
+stack probing on an unbounded stack array. The diagnostic loader takes
+precedence when both plugins are present. The output ZIP is updated to
+24,912 bytes with 18 tested entries. The freestanding C source for the
+advanced x86 build is bundled in the package's source/HulkPC.c, separately
+from the Windows SDK C++ implementation in src/HulkPC.cpp.
