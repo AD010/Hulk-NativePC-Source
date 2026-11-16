@@ -3,12 +3,12 @@
 
 ## Provenance
 
-- Owner uploaded \`Hulk_USA_LFXT_Header_Report.txt\`, 10 original source descriptors,
-  from Xbox 360 USA \`TEXTURES.ARC\` (351,883,360 bytes), INDEX.IND SHA256
-  \`ad22432b3484d079080047a5d6b8a0bffa54b7e8affba1d2273003d9b3c6090d\`.
-- Owner uploaded 10 original \`TexStreams\` .bin samples + manifest and a text
+- Owner uploaded `Hulk_USA_LFXT_Header_Report.txt`, 10 original source descriptors,
+  from Xbox 360 USA `TEXTURES.ARC` (351,883,360 bytes), INDEX.IND SHA256
+  `ad22432b3484d079080047a5d6b8a0bffa54b7e8affba1d2273003d9b3c6090d`.
+- Owner uploaded 10 original `TexStreams` .bin samples + manifest and a text
   hex report: source archive 1,330,443,104 bytes. Each BE record-prefix u32
-  is exactly \`record.size() - 4\`.
+  is exactly `record.size() - 4`.
 - The original game bytes and report bodies are NOT committed to GitHub.
 - The stream manifest originally lacked its own USA-index hash. However
   the LFXT-linked stream keys and original indexed sizes match exactly
@@ -16,23 +16,23 @@
 
 ## Actual LFXT structure (all 10 match)
 
-After \`LFXT + ASCII name + NUL\`:
+After `LFXT + ASCII name + NUL`:
 
-- Resident mip dimensions are 16-bit BE fields at offsets \`+3\` (width)
-  and \`+7\` (height) relative to the byte **following** the name's NUL.
-  Big-endian float32 at \`+9\` equals \`sqrt(resident_width * resident_height)\`.
-- Original \`_STREAM\` CRC32 hash is at \`base+34\` in 8 descriptors, or
-  \`base+22\` in 2 directional-lightmap descriptors.
-- Original stream hash \`+8\`: u8 number of streamed mip records (1-4 in
+- Resident mip dimensions are 16-bit BE fields at offsets `+3` (width)
+  and `+7` (height) relative to the byte **following** the name's NUL.
+  Big-endian float32 at `+9` equals `sqrt(resident_width * resident_height)`.
+- Original `_STREAM` CRC32 hash is at `base+34` in 8 descriptors, or
+  `base+22` in 2 directional-lightmap descriptors.
+- Original stream hash `+8`: u8 number of streamed mip records (1-4 in
   current samples).
-- Original stream hash \`+9\`: count times \`(BE u32 tiled allocation size,
-  BE f32 sqrt(pixel_area))\`. The record order is largest to smallest
+- Original stream hash `+9`: count times `(BE u32 tiled allocation size,
+  BE f32 sqrt(pixel_area))`. The record order is largest to smallest
   texture, each level doubles the preceding lower level's width/height.
 - Exactly after those entries: two nested BE remaining-length fields.
-  Outer and inner values respectively equal \`remaining_bytes_after_field\`,
-  such as \`0x8038, 0x8034\`. This is variable-offset within LFXT.
-- All ten have \`sum(streamed aligned allocations) == stream_RECORD_size-56\`.
-  All ten have \`inline_second_length-52\` equal to the sum of their
+  Outer and inner values respectively equal `remaining_bytes_after_field`,
+  such as `0x8038, 0x8034`. This is variable-offset within LFXT.
+- All ten have `sum(streamed aligned allocations) == stream_RECORD_size-56`.
+  All ten have `inline_second_length-52` equal to the sum of their
   *resident* tiled mip allocations (usually 2 compressed, 1 HDR).
 - A 32x32 minimum alignment in **compressed 4x4 blocks** explains larger
   allocations for 64x64, 128x64 and 256x64 mips. For uncompressed
@@ -58,14 +58,14 @@ from the actual original USA engine/Xenos fetch declaration.
 | signswap_32x32_misc01_d | 32x32 | 64x64 | 8,192 | 2 | BC 8-byte block |
 
 Concrete code:
-- \`FindOriginalLfxtInlineSection\` searches actual nested lengths without
+- `FindOriginalLfxtInlineSection` searches actual nested lengths without
   hard-coded name or array-body offsets.
-- \`ParseOriginalLfxtStreamTable\` validates original count, BE u32
+- `ParseOriginalLfxtStreamTable` validates original count, BE u32
   allocations, finite BE f32 metrics, original indexed stream size.
-- \`ReconstructOriginalLfxtMipPlan\` validates resident dimensions, float
+- `ReconstructOriginalLfxtMipPlan` validates resident dimensions, float
   sqrt(pixel_area), all streamed and resident allocations with 32x32
   tiled block alignment; **fails closed** on unknown/ambiguous families.
-- \`UploadExplicitOriginalTexture\` now requires a complete reconstructed
+- `UploadExplicitOriginalTexture` now requires a complete reconstructed
   mip sequence and matching explicit GPU format family before allocating
   a DiligentCore image. BC4/BC5 and 8-byte RGBA16F uploads are available
   when independently validated from real Xbox GPU fetch state.
@@ -86,7 +86,7 @@ those verified parameters. Do not make up binding flags or ship a
 graphics-fix build without the matching GPU capture and real test.
 
 The compute sandbox in this session returns ClientError on even
-\`print(1)\`; original metadata TXT was read via the file connector,
+`print(1)`; original metadata TXT was read via the file connector,
 and actual cross-file arithmetic was checked in isolated JavaScript.
 No Microsoft C++/DiligentCore compilation or in-game Vulkan test has
 been claimed for the current HEAD. Existing CI remains manual-only.
