@@ -38,6 +38,13 @@ class OriginalXboxTextureAssets {
   static OriginalXboxTextureAssets Open(const std::filesystem::path& xbox_index,
                                         const std::filesystem::path& xbox_textures_arc,
                                         const std::filesystem::path& xbox_texstreams_arc = {});
+  // Unlike generic Open (for offline audit and synthetic fixtures), this
+  // entrypoint checks the pinned original USA INDEX.IND SHA-256 before I/O.
+  // A European Xbox index is never substituted based on similar structure.
+  static OriginalXboxTextureAssets OpenPinnedUsa(
+      const std::filesystem::path& xbox_usa_index,
+      const std::filesystem::path& xbox_usa_textures_arc,
+      const std::filesystem::path& xbox_usa_texstreams_arc = {});
   std::optional<OriginalTexture> LoadHash(uint32_t original_hash) const;
   // Preflights every candidate against the original Xbox index BEFORE doing
   // disk I/O. Duplicate hash references retain their original slot positions

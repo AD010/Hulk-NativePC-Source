@@ -3,6 +3,11 @@
 #include <optional>
 
 namespace hulk::assets {
+// True only when the INDEX.IND bytes match the separately audited USA
+// global disc index. Big-endian Xbox format alone NEVER proves USA identity.
+// On non-Windows builds, without a portable verified hash backend, fail closed.
+bool IsPinnedUsaIndex(const std::filesystem::path& original_index) noexcept;
+
 
 // Called from ReXApp::OnFinalizePaths after the single TOML is loaded.
 // An existing valid game directory is used directly. If none is found, on

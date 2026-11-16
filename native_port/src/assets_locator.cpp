@@ -77,9 +77,10 @@ bool IsUsXex(const std::filesystem::path& file) {
 }
 // The user's USA global index differs from the older Xbox index by
 // 4250 resource entries. Localized indexes may legitimately differ.
+constexpr std::string_view kPinnedUsaIndexSha256 =
+    "ad22432b3484d079080047a5d6b8a0bffa54b7e8affba1d2273003d9b3c6090d";
 void AuditUsIndex(const std::filesystem::path& root) {
-  constexpr std::string_view known_us =
-      "ad22432b3484d079080047a5d6b8a0bffa54b7e8affba1d2273003d9b3c6090d";
+  constexpr auto known_us = kPinnedUsaIndexSha256;
   constexpr std::string_view prior =
       "46e6c6ec9f7428ba3a1737ab7ebad564c1b027b006c3e35156d2e036ab8b2820";
   const std::array<std::filesystem::path, 3> candidates = {
@@ -158,6 +159,20 @@ std::optional<std::filesystem::path> SelectDefaultXex() {
 }
 #endif
 }  // namespace
+
+bool IsPinnedUsaIndex(const std::filesystem::path& original_index) noexcept {
+#ifdef _WIN32
+  try {
+    if (original_index.empty()) return false;
+    return MatchesSha256(original_index, kPinnedUsaIndexSha256);
+  } catch (...) {
+    return false;
+  }
+#else
+  (void)original_index;
+  return false; // no trusted sha256 provider on this platform
+#endif
+}
 
 std::optional<std::filesystem::path> LocateOrSelectGameData(
     const std::filesystem::path& preferred,
