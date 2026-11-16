@@ -42,7 +42,7 @@ bool KnownDescriptor(std::span<const std::byte> full,
 }
 uint32_t PaddedBlocks(uint32_t texels, uint32_t block) {
   const uint64_t count=(uint64_t(texels)+block-1)/block;
-  if(count>8160u)return 0;
+  if(count>8192u)return 0;
   return static_cast<uint32_t>((count+31u)&~uint64_t(31));
 }
 } // namespace
@@ -71,7 +71,7 @@ std::optional<VerifiedOriginalXboxGpuMipChain> DecodeOriginalXboxGpuMips(
      sw!=plan.levels.front().width || sh!=plan.levels.front().height)
     return std::nullopt;
   const uint32_t block_pixels=resident_format==XenosTextureFormat::RGBA16F?1u:4u;
-  const uint32_t block_bytes=resident_format==XenosTextureFormat::BC1?8u:16u;
+  const uint32_t block_bytes=resident_format==XenosTextureFormat::BC3?16u:8u;
   const OriginalLfxtStorageFamily family=
       resident_format==XenosTextureFormat::BC1 ?
           OriginalLfxtStorageFamily::BC_8ByteBlock :

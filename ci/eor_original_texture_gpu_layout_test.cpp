@@ -26,6 +26,7 @@ template<typename F> void Reject(F&& f) {
 void Case(uint32_t fmt,uint32_t block,
           uint32_t rw,uint32_t rh,
           const std::vector<OriginalLfxtMipLevel>& levels) {
+  assert(block==(fmt==0x14?16u:8u));
   uint64_t stream_bytes=0,inline_bytes=0;
   for(const auto& l:levels)(l.from_stream_archive?stream_bytes:inline_bytes)+=
       l.aligned_storage_bytes;
