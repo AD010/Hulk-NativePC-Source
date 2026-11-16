@@ -87,8 +87,48 @@ DiligentEorDirectBackend::DiligentEorDirectBackend(
      effects.ShaderCount()!=bank.expected() || state_->passes.empty() ||
      state_->draw_buffers.empty())
     throw std::invalid_argument("Original EoR engine Draw/constant/output Vulkan ABI not verified");
+  if(!formats.original_color_format_verified ||
+     !formats.original_depth_format_verified)
+    throw std::invalid_argument("Native EoR scene color and depth format not source-proven");
+  const Diligent::TEXTURE_FORMAT color =
+      formats.color==NativeColorFormat::Rgba8 ?
+          Diligent::TEX_FORMAT_RGBA8_UNORM :
+      formats.color==NativeColorFormat::Rgba16Float ?
+          Diligent::TEX_FORMAT_RGBA16_FLOAT : Diligent::TEX_FORMAT_UNKNOWN;
+  const Diligent::TEXTURE_FORMAT depth =
+      formats.depth==NativeDepthFormat::D24S8 ?
+          Diligent::TEX_FORMAT_D24_UNORM_S8_UINT :
+      formats.depth==NativeDepthFormat::D32Float ?
+          Diligent::TEX_FORMAT_D32_FLOAT : Diligent::TEX_FORMAT_UNKNOWN;
+  if(color==Diligent::TEX_FORMAT_UNKNOWN || depth==Diligent::TEX_FORMAT_UNKNOWN)
+    throw std::invalid_argument("Unknown EoR native scene format");
   for(size_t i=0;i<state_->passes.size();++i) {
     const auto& pass=state_->passes[i].pipeline;
+    const auto& gpu=pass.exact_render_state;
+    // The owned host scene has exactly one color RT and one depth RT.
+    // Never bind a PSO expecting mismatched sample counts or formats.
+    if(gpu.NumRenderTargets!=1 || gpu.RTVFormats[0]!=color ||
+       gpu.DSVFormat!=depth || gpu.SmplDesc.Count!=frame.samples)
+      throw std::invalid_argument("Native Vulkan PSO format/sample contract disagrees with scene");
+    uint32_t used_slots=0;
+    for(const auto& v:pass.exact_host_input_layout) {
+      if(v.BufferSlot>=16 || (used_slots & (1u << v.BufferSlot)) ||
+         v.ValueType!=Diligent::VT_FLOAT32 ||
+         v.Frequency!=Diligent::INPUT_ELEMENT_FREQUENCY_PER_VERTEX ||
+         (v.RelativeOffset!=0 &&
+          v.RelativeOffset!=Diligent::LAYOUT_ELEMENT_AUTO_OFFSET) ||
+         v.NumComponents==0 || v.NumComponents>4)
+        throw std::invalid_argument("Unverified independent EoR float vertex slot layout");
+      const uint32_t stride=v.BufferSlot==0?12:16;
+      if(v.Stride!=stride && v.Stride!=Diligent::LAYOUT_ELEMENT_AUTO_STRIDE)
+        throw std::invalid_argument("EoR vertex strides do not match decoded host data");
+      if(v.BufferSlot==0 && v.NumComponents!=3)
+        throw std::invalid_argument("EoR host position buffer requires float3 XYZ");
+      used_slots |= 1u << v.BufferSlot;
+    }
+    const uint32_t count=static_cast<uint32_t>(pass.exact_host_input_layout.size());
+    if(count==0 || count>16 || used_slots!=((1u << count)-1u))
+      throw std::invalid_argument("EoR shader vertex inputs have gaps/duplicates");
     if(!effects.HasPair(pass.original_effect_hash,pass.original_pass_index,
                         pass.original_vertex_shader_sha256,
                         pass.original_pixel_shader_sha256))
