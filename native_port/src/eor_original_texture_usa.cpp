@@ -9,6 +9,8 @@ OriginalXboxTextureAssets OriginalXboxTextureAssets::OpenPinnedUsa(
   if (!hulk::assets::IsPinnedUsaIndex(index))
     throw std::invalid_argument(
         "Native Hulk USA texture stream requires the pinned USA INDEX.IND");
-  return Open(index, texture_archive, streams_archive);
+  auto verified = Open(index, texture_archive, streams_archive);
+  verified.pinned_usa_index_ = true;
+  return verified;
 }
 } // namespace hulk::eor::textures

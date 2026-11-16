@@ -40,7 +40,8 @@ UploadedEorTexture UploadExplicitOriginalTexture(
     std::span<const textures::SourceMipLayout> layouts) {
   if(!host_device || !original.hash || original.source_record.hash!=original.hash ||
      original.original_bytes.empty() ||
-     color_space==OriginalTextureColorSpace::Unknown)
+     color_space==OriginalTextureColorSpace::Unknown ||
+     !original.pinned_usa_index)
     throw std::invalid_argument("Original EoR Xbox texture identity/color space unresolved");
   for(const auto& mip:layouts)
     if(mip.from_stream_archive &&

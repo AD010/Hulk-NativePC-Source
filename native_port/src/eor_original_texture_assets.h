@@ -19,6 +19,8 @@ struct OriginalTexture {
   std::vector<std::byte> original_bytes;
   std::optional<OriginalStreamLink> original_stream;
   std::vector<std::byte> original_stream_bytes; // optional original TexStreams ARC payload
+  // Set only by OpenPinnedUsa after SHA-256 verification, never by generic Open.
+  bool pinned_usa_index = false;
 };
 struct CandidateSlot {
   uint32_t offset_from_surface_data = 0;
@@ -55,5 +57,6 @@ class OriginalXboxTextureAssets {
   Index index_;
   std::filesystem::path archive_;
   std::filesystem::path stream_archive_;
+  bool pinned_usa_index_ = false;
 };
 } // namespace hulk::eor::textures

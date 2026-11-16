@@ -56,6 +56,7 @@ int main(){
   auto source=textures::OriginalXboxTextureAssets::Open(idx,arc);
   const auto original=source.LoadHash(x);
   assert(original && original->original_bytes.size()==3);
+  assert(!original->pinned_usa_index); // synthetic or old regional index is never USA
   assert(original->original_bytes[0]==std::byte(0xab));
   assert(!source.LoadHash(0xfedcba98u));
   auto s=Surface(x,y);

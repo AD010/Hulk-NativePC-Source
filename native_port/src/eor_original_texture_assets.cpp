@@ -40,7 +40,8 @@ std::optional<OriginalTexture> OriginalXboxTextureAssets::LoadHash(uint32_t hash
       indexed->size > kMaxSingleTexture)
     throw std::invalid_argument("Unsafe original Xbox texture record");
   auto bytes=ReadResource(archive_,*indexed,kMaxSingleTexture);
-  OriginalTexture result{hash,*indexed,std::move(bytes),std::nullopt,{}};
+  OriginalTexture result{hash,*indexed,std::move(bytes),std::nullopt,{},
+                         pinned_usa_index_};
   // A missing high-detail archive NEVER triggers guessed/upsampled mip data.
   if (index_.groups().contains("TexStreams")) {
     result.original_stream = FindVerifiedOriginalTexStream(
