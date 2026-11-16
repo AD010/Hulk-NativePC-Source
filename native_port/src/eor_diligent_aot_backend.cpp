@@ -66,6 +66,9 @@ struct DiligentEorDirectBackend::State {
   const NativeEorPassResources* selected=nullptr;
   aot::ReflectedShader vertex{},pixel{};
   OriginalVulkanPipeline active{};
+  // Immutable shader/PSO pairing remains live across Draws and frames;
+  // no per-draw driver compilation and no guessed shader cache keys.
+  std::map<std::pair<uint32_t,uint32_t>,OriginalVulkanPipeline> pipeline_cache;
   bool scene_open=false,constants_ready=false,program_ready=false;
   bool textures_ready=false,finished=false;
 };
@@ -199,8 +202,16 @@ bool DiligentEorDirectBackend::BindVerifiedProgramPair(
      s.bank.Find(ps_id,aot::Stage::Pixel)!=&ps)
     return false;
   try {
-    s.active=CreateOriginalVulkanPipeline(s.device.RawPtr(),s.shaders,
-                s.bank,s.effects,s.selected->pipeline);
+    const auto key=std::make_pair(
+        s.selected->pipeline.original_effect_hash,
+        s.selected->pipeline.original_pass_index);
+    auto cached=s.pipeline_cache.find(key);
+    if(cached==s.pipeline_cache.end()) {
+      auto newly_created=CreateOriginalVulkanPipeline(
+          s.device.RawPtr(),s.shaders,s.bank,s.effects,s.selected->pipeline);
+      cached=s.pipeline_cache.emplace(key,std::move(newly_created)).first;
+    }
+    s.active=cached->second;
     s.program_ready=true;
     return true;
   } catch (...) {s.active={};return false;}
