@@ -41,6 +41,16 @@ class ShaderBindingBackend : public native::Backend {
   // program cannot be created/selected for the real resource/vertex layout.
   virtual bool BindOfflineShaders(std::span<const uint32_t> vertex_spirv,
                                   std::span<const uint32_t> pixel_spirv) = 0;
+  // Pass original shader identities directly to a native Vulkan backend.
+  // Legacy implementations still use the existing bytecode interface.
+  virtual bool BindVerifiedProgramPair(const Digest& vertex_digest,
+                                       const Blob& vertex,
+                                       const Digest& pixel_digest,
+                                       const Blob& pixel) {
+    if (vertex.stage!=Stage::Vertex || pixel.stage!=Stage::Pixel ||
+        vertex_digest==pixel_digest) return false;
+    return BindOfflineShaders(vertex.spirv,pixel.spirv);
+  }
 };
 void ReplayAotScene(const native::FrameGeometry& frame,
                     std::span<const BoundIndexedDraw> draws,
