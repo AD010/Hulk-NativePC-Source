@@ -4,6 +4,7 @@
 // No fabricated sRGB, mip layout or shader sampler assignments.
 #include "eor_original_texture_assets.h"
 #include "eor_xenos_texture_mips.h"
+#include "Texture.h"
 #include "RefCntAutoPtr.hpp"
 #include <cstdint>
 #include <span>

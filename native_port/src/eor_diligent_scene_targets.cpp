@@ -33,7 +33,7 @@ struct DiligentSceneTargets::State {
   native::Size physical{};
   VerifiedSceneFormat formats{};
   uint32_t samples=0;
-  bool bound=false, ready=false;
+  bool prepared=false, bound=false, ready=false;
 };
 DiligentSceneTargets::DiligentSceneTargets(Diligent::IRenderDevice* d,Diligent::IDeviceContext* c)
     :state_(d && c ? std::make_unique<State>(d,c) : nullptr) {
@@ -48,6 +48,7 @@ void DiligentSceneTargets::AbortScene() noexcept {
     state_->bound=false;
   }
   state_->ready=false;
+  state_->prepared=false;
 }
 void DiligentSceneTargets::Reset() noexcept {
   if(!state_)return;
@@ -57,7 +58,8 @@ void DiligentSceneTargets::Reset() noexcept {
 }
 bool DiligentSceneTargets::Prepare(const native::FrameGeometry& frame,
                                   VerifiedSceneFormat verified) {
-  // An invalid new frame must never expose the prior frame as ready.
+  // Never allow BeginScene after Prepare fails or returns an old allocation.
+  state_->prepared=false;
   state_->ready=false;
   if(!frame.direct_engine_path_ready || !verified.original_color_format_verified ||
      !verified.original_depth_format_verified ||
@@ -75,8 +77,10 @@ bool DiligentSceneTargets::Prepare(const native::FrameGeometry& frame,
   if(state_->bound)return false;
   if(Same(state_->physical,frame.world) && state_->samples==frame.samples &&
      state_->formats.color==verified.color && state_->formats.depth==verified.depth &&
-     state_->color && state_->depth && state_->resolved)
+     state_->color && state_->depth && state_->resolved) {
+    state_->prepared=true;
     return true;
+  }
   // Transactional attachment allocation: a failure keeps the preceding
   // complete target set, rather than presenting an empty/half-size image.
   Diligent::RefCntAutoPtr<Diligent::ITexture> new_color,new_depth,new_resolved;
@@ -116,10 +120,11 @@ bool DiligentSceneTargets::Prepare(const native::FrameGeometry& frame,
   state_->physical=frame.world;
   state_->formats=verified;
   state_->samples=frame.samples;
+  state_->prepared=true;
   return true;
 }
 bool DiligentSceneTargets::BeginScene() {
-  if (!state_ || state_->bound || !state_->color || !state_->depth || !state_->resolved) return false;
+  if (!state_ || !state_->prepared || state_->bound || !state_->color || !state_->depth || !state_->resolved) return false;
   state_->ready=false;
   try {
     auto* rtv=state_->color->GetDefaultView(Diligent::TEXTURE_VIEW_RENDER_TARGET);
@@ -147,6 +152,7 @@ bool DiligentSceneTargets::ResolveScene() {
       state_->context->ResolveTextureSubresource(state_->color,state_->resolved,args);
     }
     state_->ready=true;
+    state_->prepared=false; // require fresh frame validation before next BeginScene
     return true;
   } catch (...) {AbortScene();return false;}
 }
