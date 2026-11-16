@@ -44,7 +44,8 @@ int main() {
   reused_vs.fill(0x11);reused_ps.fill(0x66);
   assert(catalog.HasPair(0x222,1,reused_vs,reused_ps));
   const auto verified_shared=data;
-  data[16+3*72+8]=0x22; // VS tries to impersonate an already-used PS digest
+  for(unsigned k=0;k<32;++k) data[16+3*72+8+k]=0x22;
+  // The ENTIRE VS digest now equals the PS digest of another material.
   write();bool stage_failed=false;
   try {catalog.Load(path);}catch(const std::invalid_argument&){stage_failed=true;}
   assert(stage_failed && catalog.PairCount()==4 &&
