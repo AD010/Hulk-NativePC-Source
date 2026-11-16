@@ -1,0 +1,71 @@
+#include "eor_diligent_mesh_buffers.h"
+#include "RenderDevice.h"
+#include "Buffer.h"
+#include "RefCntAutoPtr.hpp"
+#include <limits>
+#include <map>
+#include <stdexcept>
+#include <type_traits>
+
+namespace hulk::eor::gpu {
+namespace {
+constexpr uint64_t kMaxUploadBytes = 256ull << 20;
+static_assert(sizeof(model::NativePosition) == 3 * sizeof(float));
+static_assert(std::is_trivially_copyable_v<model::NativePosition>);
+}
+struct DiligentMeshUploadBackend::State {
+  explicit State(Diligent::IRenderDevice* dev) : device(dev) {}
+  Diligent::RefCntAutoPtr<Diligent::IRenderDevice> device;
+  std::map<uint64_t,Diligent::RefCntAutoPtr<Diligent::IBuffer>> live;
+  uint64_t next_handle = 1;
+};
+DiligentMeshUploadBackend::DiligentMeshUploadBackend(Diligent::IRenderDevice* device)
+    : state_(device ? std::make_unique<State>(device) : nullptr) {
+  if (!device) throw std::invalid_argument("Missing native EoR Vulkan/Diligent device");
+}
+DiligentMeshUploadBackend::~DiligentMeshUploadBackend() noexcept = default;
+uint64_t DiligentMeshUploadBackend::Create(const void* bytes, uint64_t length, uint32_t kind) {
+  if (!bytes || !length || length > kMaxUploadBytes ||
+      state_->next_handle == std::numeric_limits<uint64_t>::max()) return 0;
+  Diligent::BufferDesc description;
+  description.Name = kind == 0 ? "EoR decoded XYZ" :
+                     kind == 1 ? "EoR original BE attribute stream" : "EoR native index32";
+  description.Size = length;
+  description.Usage = Diligent::USAGE_IMMUTABLE;
+  // The original BE stream is not a verified host vertex layout. It is
+  // uploaded and owned, but may not be submitted as a draw until decoded.
+  description.BindFlags = kind == 2 ? Diligent::BIND_INDEX_BUFFER : Diligent::BIND_VERTEX_BUFFER;
+  const Diligent::BufferData initial{bytes,length};
+  try {
+    Diligent::RefCntAutoPtr<Diligent::IBuffer> buffer;
+    state_->device->CreateBuffer(description,&initial,&buffer);
+    if (!buffer) return 0;
+    const uint64_t handle=state_->next_handle;
+    state_->live.emplace(handle,std::move(buffer));
+    ++state_->next_handle;
+    return handle;
+  } catch (...) {
+    // Caller's UploadedNativeMeshBatch rolls back all older buffer handles.
+    return 0;
+  }
+}
+uint64_t DiligentMeshUploadBackend::UploadPositions(std::span<const model::NativePosition> v) {
+  if (v.size() > kMaxUploadBytes / sizeof(model::NativePosition)) return 0;
+  return Create(v.data(),v.size_bytes(),0);
+}
+uint64_t DiligentMeshUploadBackend::UploadOriginalVertexStream(std::span<const std::byte> v) {
+  return Create(v.data(),v.size_bytes(),1);
+}
+uint64_t DiligentMeshUploadBackend::UploadIndices(std::span<const uint32_t> v) {
+  if (v.size() > kMaxUploadBytes / sizeof(uint32_t)) return 0;
+  return Create(v.data(),v.size_bytes(),2);
+}
+void DiligentMeshUploadBackend::ReleaseBuffer(uint64_t handle) noexcept {
+  state_->live.erase(handle);
+}
+Diligent::IBuffer* DiligentMeshUploadBackend::FindBuffer(uint64_t handle) const noexcept {
+  const auto it=state_->live.find(handle);
+  return it==state_->live.end()?nullptr:it->second.RawPtr();
+}
+size_t DiligentMeshUploadBackend::LiveBufferCount() const noexcept {return state_->live.size();}
+} // namespace hulk::eor::gpu

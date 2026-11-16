@@ -105,6 +105,10 @@ if(HULK_WITH_NATIVE_X)
         target_sources(incredible_hulk PRIVATE src/native_gpu_hook_probe.cpp)
         target_compile_definitions(incredible_hulk PRIVATE HULK_NATIVE_GPU_HOOK_PROBE=1)
     endif()
+    # Native EoR GPU buffers are immutable DiligentCore allocations, independent
+    # of guest Xenos/PM4 emulation. Runtime creation needs an actual host device.
+    target_sources(incredible_hulk PRIVATE src/eor_diligent_mesh_buffers.cpp)
+    target_link_libraries(incredible_hulk PRIVATE Diligent-GraphicsEngineInterface Diligent-Common)
     target_link_libraries(incredible_hulk PRIVATE native_x_renderer::native_x_renderer)
     target_include_directories(incredible_hulk PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
     native_x_renderer_copy_runtime(incredible_hulk)
