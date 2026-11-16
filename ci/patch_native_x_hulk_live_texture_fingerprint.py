@@ -22,7 +22,7 @@ PINS={"bf965e952c98e050753e91d08f32685a9f754b12",
 INCLUDES_OLD="#include <algorithm>\n#include <cstring>"
 INCLUDES_NEW="#include <atomic>\n#include <algorithm>\n#include <cstring>\n#include <rex/cvar.h>"
 CVAR_ANCHOR="namespace native_x_renderer {\n"
-CVAR=String.raw if False else """REXCVAR_DEFINE_BOOL(native_x_renderer_hulk_live_texture_id, false,
+CVAR= """REXCVAR_DEFINE_BOOL(native_x_renderer_hulk_live_texture_id, false,
                     "Hulk/Original Texture Proof",
                     "Read-only actual Xbox guest texture format, sizes and "
                     "two 128-byte Xenos tiled-content fingerprints at first GPU base loads");
@@ -33,6 +33,7 @@ BODY_OLD="""  if (load_base) {
   }"""
 BODY_NEW="""  if (load_base) {
     const uint32_t hulk_base_bytes = host_texture.GetGuestBaseSize();
+    base_hash = hash(key.base_page, hulk_base_bytes);
     // HULK/LIVE-XENOS-ARC-IDENTITY: fingerprint the true GPU source data
     // the ACTIVE NativeX D140 texture uploader consumes. Two separate
     // windows are checked against the original archived mip pixels.
@@ -61,23 +62,22 @@ BODY_NEW="""  if (load_base) {
         if (n <= 48 || n % 12000 == 0) {
           REXLOG_INFO("[HULK/LIVE-XENOS-ARC-IDENTITY] source_read={} "
                       "format={} width={} height={} guest_base={:#x} "
-                      "guest_mip={:#x} gpu_base_bytes={} h0={:016x} h1={:016x} "
+                      "guest_mip={:#x} gpu_base_bytes={} full_xxh3={:016x} h0={:016x} h1={:016x} "
                       "(source fingerprint, no asset assumption)",
                       n, uint32_t(key.format), key.GetWidth(), key.GetHeight(),
                       hulk_base, uint64_t(key.mip_page) << 12,
-                      hulk_base_bytes, hulk_fingerprint(0),
+                      hulk_base_bytes, base_hash, hulk_fingerprint(0),
                       hulk_fingerprint(hulk_second_at));
         }
       }
     }
-    base_hash = hash(key.base_page, hulk_base_bytes);
     load_base = host_texture.base_hash != base_hash;
   }"""
 
 def patch(src: str) -> tuple[str,bool]:
     if "HULK/LIVE-XENOS-ARC-IDENTITY" in src:
         if (src.count(BODY_NEW)!=1 or src.count(CVAR)!=1 or
-            src.count(INCLUDES_NEW)!=1):
+            src.count(INCLUDES_NEW)!=1 or BODY_OLD in src):
             raise ValueError("Partially installed source texture identity bridge")
         return src,False
     for name,old in (("header",INCLUDES_OLD),("namespace",CVAR_ANCHOR),

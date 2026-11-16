@@ -27,6 +27,8 @@ class LiveOriginalGpuTextureIdentityTest(unittest.TestCase):
         self.assertNotIn("RequestTextures",BODY_NEW)
         self.assertNotIn("return false",BODY_NEW)
         self.assertIn("base_hash = hash(key.base_page, hulk_base_bytes);",BODY_NEW)
+        self.assertIn("full_xxh3={:016x}",BODY_NEW)
+        self.assertIn("hulk_base_bytes, base_hash, hulk_fingerprint(0)",BODY_NEW)
         with self.assertRaises(ValueError):
             patch("unknown NativeX source")
         with self.assertRaises(ValueError):
