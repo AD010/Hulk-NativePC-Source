@@ -67,8 +67,11 @@ UploadedEorTexture UploadExplicitOriginalTexture(
     const textures::OriginalTexture& original,
     textures::XenosTextureFormat format,
     OriginalTextureColorSpace color_space,
-    std::span<const textures::SourceMipLayout> layouts) {
-  if(!host_device || !original.hash || original.source_record.hash!=original.hash ||
+    std::span<const textures::SourceMipLayout> layouts,
+    OriginalTextureViewKind view_kind) {
+  if((view_kind!=OriginalTextureViewKind::Native2D &&
+      view_kind!=OriginalTextureViewKind::NativeX2DArray) ||
+     !host_device || !original.hash || original.source_record.hash!=original.hash ||
      original.original_bytes.empty() ||
      color_space==OriginalTextureColorSpace::Unknown ||
      !original.pinned_usa_index)
@@ -146,7 +149,11 @@ UploadedEorTexture UploadExplicitOriginalTexture(
   const auto format_host=Convert(image.format,color_space);
   Diligent::TextureDesc desc;
   desc.Name="Original EoR verified Xbox texture";
-  desc.Type=Diligent::RESOURCE_DIM_TEX_2D;
+  // A NativeX shader expects Texture2DArray for 2D fetches (including one
+  // layer). A bare Texture2D view is incompatible with that SPIR-V image
+  // type. Only the caller's verified live fetch/PSO may select array mode.
+  desc.Type=view_kind==OriginalTextureViewKind::NativeX2DArray ?
+      Diligent::RESOURCE_DIM_TEX_2D_ARRAY : Diligent::RESOURCE_DIM_TEX_2D;
   desc.Format=format_host;
   desc.Width=image.mips.front().width;
   desc.Height=image.mips.front().height;
@@ -169,6 +176,7 @@ UploadedEorTexture UploadExplicitOriginalTexture(
   UploadedEorTexture out;
   out.original_texture_hash=original.hash;
   out.original_mip_levels=initial.NumSubresources;
+  out.view_kind=view_kind;
   host_device->CreateTexture(desc,&initial,&out.host_texture);
   if(!out.host_texture || !out.SRV())
     throw std::runtime_error("Vulkan/DiligentCore could not allocate original EoR texture");
@@ -177,11 +185,12 @@ UploadedEorTexture UploadExplicitOriginalTexture(
 UploadedEorTexture UploadVerifiedOriginalTexture(
     Diligent::IRenderDevice* host,
     const textures::OriginalTexture& original,
-    OriginalTextureColorSpace color_space) {
+    OriginalTextureColorSpace color_space,
+    OriginalTextureViewKind view_kind) {
   if(!original.verified_gpu_mips)
     throw std::invalid_argument("No authentic original Xbox GPU texture layout");
   return UploadExplicitOriginalTexture(host,original,
       original.verified_gpu_mips->format,color_space,
-      original.verified_gpu_mips->layouts);
+      original.verified_gpu_mips->layouts,view_kind);
 }
 } // namespace hulk::eor::gpu
