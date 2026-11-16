@@ -1,0 +1,137 @@
+#include "eor_original_texture_gpu_layout.h"
+#include "eor_original_texture_mip_ranges.h"
+#include <algorithm>
+#include <cstdint>
+#include <limits>
+#include <stdexcept>
+#include <utility>
+namespace hulk::eor::textures {
+namespace {
+constexpr size_t kDescriptorBytes=52;
+uint32_t BE32(std::span<const std::byte> bytes, size_t pos) {
+  if(pos>bytes.size() || bytes.size()-pos<4)
+    throw std::invalid_argument("Truncated authentic Xbox 360 texture descriptor");
+  return uint32_t(std::to_integer<uint8_t>(bytes[pos]))<<24 |
+         uint32_t(std::to_integer<uint8_t>(bytes[pos+1]))<<16 |
+         uint32_t(std::to_integer<uint8_t>(bytes[pos+2]))<<8 |
+         uint32_t(std::to_integer<uint8_t>(bytes[pos+3]));
+}
+bool KnownDescriptor(std::span<const std::byte> full,
+                     XenosTextureFormat& fmt, uint32_t& w,uint32_t& h) {
+  if(full.size()<kDescriptorBytes)return false;
+  const auto data=full.last(kDescriptorBytes);
+  // Confirmed in 20 real trailer instances (10 LFXT and 10 TexStreams).
+  if(BE32(data,0)!=3 || BE32(data,4)!=1 ||
+     BE32(data,8)!=0 || BE32(data,12)!=0 || BE32(data,16)!=0 ||
+     BE32(data,20)!=0xffff0000u || BE32(data,24)!=0xffff0000u)
+    return false;
+  const uint32_t id=BE32(data,32);
+  switch(id) {
+    case 0x12: fmt=XenosTextureFormat::BC1;break; // k_DXT1
+    case 0x14: fmt=XenosTextureFormat::BC3;break; // k_DXT4_5
+    case 0x1d: fmt=XenosTextureFormat::RGBA16F;break; // k_16_16_16_16_EXPAND
+    default:return false;
+  }
+  if(BE32(data,40)!=(id==0x1d ? 0x00000d11u : 0x00000d10u))
+    return false;
+  const uint32_t dimensions=BE32(data,36);
+  w=(dimensions&0x1fffu)+1;
+  h=((dimensions>>13)&0x1fffu)+1;
+  return w!=0 && h!=0 && w<=8192 && h<=8192 &&
+         (dimensions>>26)==0;
+}
+uint32_t PaddedBlocks(uint32_t texels, uint32_t block) {
+  const uint64_t count=(uint64_t(texels)+block-1)/block;
+  if(count>8160u)return 0;
+  return static_cast<uint32_t>((count+31u)&~uint64_t(31));
+}
+} // namespace
+std::optional<VerifiedOriginalXboxGpuMipChain> DecodeOriginalXboxGpuMips(
+    std::span<const std::byte> lfxt,std::span<const std::byte> stream,
+    const OriginalLfxtInlineSection& section,
+    const OriginalLfxtStreamTable& table,
+    const OriginalLfxtMipPlan& plan) {
+  if(lfxt.size()<kDescriptorBytes || stream.size()<kDescriptorBytes+4 ||
+     !section.inline_data_bytes || !section.inline_data_offset ||
+     section.inline_data_offset>lfxt.size()-kDescriptorBytes ||
+     section.inline_data_bytes!=lfxt.size()-section.inline_data_offset ||
+     plan.levels.empty() || plan.levels.size()>14 ||
+     table.levels.empty() || table.levels.size()>=plan.levels.size())
+    return std::nullopt;
+  // The original Xbox archive uses a 32-bit big-endian size of its
+  // remaining record. The last 52 bytes are the actual GPU descriptor.
+  (void)ValidateOriginalTexStreamEnvelope(stream);
+  XenosTextureFormat resident_format=XenosTextureFormat::Unknown;
+  XenosTextureFormat stream_format=XenosTextureFormat::Unknown;
+  uint32_t rw=0,rh=0,sw=0,sh=0;
+  if(!KnownDescriptor(lfxt,resident_format,rw,rh) ||
+     !KnownDescriptor(stream,stream_format,sw,sh) ||
+     resident_format!=stream_format ||
+     rw!=plan.resident_width || rh!=plan.resident_height ||
+     sw!=plan.levels.front().width || sh!=plan.levels.front().height)
+    return std::nullopt;
+  const uint32_t block_pixels=resident_format==XenosTextureFormat::RGBA16F?1u:4u;
+  const uint32_t block_bytes=resident_format==XenosTextureFormat::BC1?8u:16u;
+  const OriginalLfxtStorageFamily family=
+      resident_format==XenosTextureFormat::BC1 ?
+          OriginalLfxtStorageFamily::BC_8ByteBlock :
+      resident_format==XenosTextureFormat::BC3 ?
+          OriginalLfxtStorageFamily::BC_16ByteBlock :
+          OriginalLfxtStorageFamily::Texel_8Byte;
+  if(plan.family!=family ||
+     table.levels.size()!=static_cast<size_t>(std::count_if(
+        plan.levels.begin(),plan.levels.end(),
+        [](const OriginalLfxtMipLevel& l){return l.from_stream_archive;})))
+    return std::nullopt;
+  uint64_t stream_cursor=4;
+  uint64_t resident_cursor=section.inline_data_offset;
+  const uint64_t stream_end=stream.size()-kDescriptorBytes;
+  const uint64_t resident_end=lfxt.size()-kDescriptorBytes;
+  VerifiedOriginalXboxGpuMipChain result;
+  result.format=resident_format;
+  result.layouts.reserve(plan.levels.size());
+  bool entered_resident=false;
+  for(size_t i=0;i<plan.levels.size();++i) {
+    const auto& mip=plan.levels[i];
+    const uint32_t pitch=PaddedBlocks(mip.width,block_pixels);
+    const uint32_t height=PaddedBlocks(mip.height,block_pixels);
+    const uint64_t required=uint64_t(pitch)*height*block_bytes;
+    if(!pitch || !height || !required ||
+       required!=mip.aligned_storage_bytes ||
+       (i<table.levels.size() &&
+        mip.aligned_storage_bytes!=table.levels[i].source_aligned_bytes))
+      return std::nullopt;
+    SourceMipLayout layout{};
+    layout.from_stream_archive=mip.from_stream_archive;
+    layout.width=mip.width;
+    layout.height=mip.height;
+    layout.storage_pitch_blocks=pitch;
+    layout.storage_height_blocks=height;
+    layout.tiling=XenosTileMode::Tiled2D;
+    // Real BC1/BC3 Xenos source blocks decoded legibly WITHOUT byte swap
+    // in all eight user-supplied compressed texture specimens.
+    // The two original EXPAND lightmaps likewise decode as finite half floats.
+    layout.endian=XenosDataEndian::NoSwap;
+    if(mip.from_stream_archive) {
+      if(entered_resident || stream_cursor>stream_end ||
+         required>stream_end-stream_cursor)return std::nullopt;
+      layout.source_offset=stream_cursor;
+      stream_cursor+=required;
+    } else {
+      entered_resident=true;
+      if(resident_cursor>resident_end ||
+         required>resident_end-resident_cursor)return std::nullopt;
+      layout.source_offset=resident_cursor;
+      resident_cursor+=required;
+    }
+    result.layouts.push_back(layout);
+  }
+  if(stream_cursor!=stream_end || resident_cursor!=resident_end)
+    return std::nullopt;
+  // Range validator independently rejects insufficient/stale/overlapping
+  // original payloads before making a host GPU allocation.
+  ValidateOriginalMipPayloadRanges(lfxt,stream,section,plan,
+                                   result.format,result.layouts);
+  return result;
+}
+} // namespace hulk::eor::textures

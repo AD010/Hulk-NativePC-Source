@@ -61,6 +61,16 @@ std::optional<OriginalTexture> OriginalXboxTextureAssets::LoadHash(uint32_t hash
     if (result.original_stream && !stream_archive_.empty())
       result.original_stream_bytes = ReadOriginalTexStream(
           stream_archive_,*result.original_stream);
+    if (result.pinned_usa_index && result.original_inline_section &&
+        result.original_stream_table && result.original_mip_plan &&
+        !result.original_stream_bytes.empty()) {
+      result.verified_gpu_mips=DecodeOriginalXboxGpuMips(
+          result.original_bytes,result.original_stream_bytes,
+          *result.original_inline_section,*result.original_stream_table,
+          *result.original_mip_plan);
+      if(result.verified_gpu_mips)
+        result.original_mip_plan->absolute_source_offsets_proven=true;
+    }
   }
   return result;
 }

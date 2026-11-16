@@ -85,6 +85,23 @@ UploadedEorTexture UploadExplicitOriginalTexture(
   // authorize a GPU upload while the source provenance flag is false.
   if(!original.original_mip_plan->absolute_source_offsets_proven)
     throw std::invalid_argument("Original Xbox mip GPU byte starts not source-proven");
+  if(!original.verified_gpu_mips ||
+     format!=original.verified_gpu_mips->format ||
+     layouts.size()!=original.verified_gpu_mips->layouts.size())
+    throw std::invalid_argument("Requested GPU mip layout disagrees with source-proven USA Xenos fetch");
+  for(size_t i=0;i<layouts.size();++i) {
+    const auto& proof=original.verified_gpu_mips->layouts[i];
+    const auto& candidate=layouts[i];
+    if(candidate.from_stream_archive!=proof.from_stream_archive ||
+       candidate.source_offset!=proof.source_offset ||
+       candidate.width!=proof.width || candidate.height!=proof.height ||
+       candidate.storage_pitch_blocks!=proof.storage_pitch_blocks ||
+       candidate.storage_height_blocks!=proof.storage_height_blocks ||
+       candidate.source_x_blocks!=proof.source_x_blocks ||
+       candidate.source_y_blocks!=proof.source_y_blocks ||
+       candidate.endian!=proof.endian || candidate.tiling!=proof.tiling)
+      throw std::invalid_argument("Unverified original EoR mip tile offsets/endian");
+  }
   for(size_t i=0;i<layouts.size();++i) {
     const auto& actual=layouts[i];
     const auto& expected=original.original_mip_plan->levels[i];
@@ -155,5 +172,15 @@ UploadedEorTexture UploadExplicitOriginalTexture(
   if(!out.host_texture || !out.SRV())
     throw std::runtime_error("Vulkan/DiligentCore could not allocate original EoR texture");
   return out;
+}
+UploadedEorTexture UploadVerifiedOriginalTexture(
+    Diligent::IRenderDevice* host,
+    const textures::OriginalTexture& original,
+    OriginalTextureColorSpace color_space) {
+  if(!original.verified_gpu_mips)
+    throw std::invalid_argument("No authentic original Xbox GPU texture layout");
+  return UploadExplicitOriginalTexture(host,original,
+      original.verified_gpu_mips->format,color_space,
+      original.verified_gpu_mips->layouts);
 }
 } // namespace hulk::eor::gpu

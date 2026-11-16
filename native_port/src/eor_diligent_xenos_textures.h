@@ -28,4 +28,10 @@ UploadedEorTexture UploadExplicitOriginalTexture(
     textures::XenosTextureFormat xenos_format,
     OriginalTextureColorSpace color_space,
     std::span<const textures::SourceMipLayout> proven_mip_layout);
+// Format/mip locations come from original verified Xbox resources; the caller
+// still supplies actual material/color-space information (not inferred).
+UploadedEorTexture UploadVerifiedOriginalTexture(
+    Diligent::IRenderDevice* host_device,
+    const textures::OriginalTexture& original,
+    OriginalTextureColorSpace proven_color_space);
 } // namespace hulk::eor::gpu

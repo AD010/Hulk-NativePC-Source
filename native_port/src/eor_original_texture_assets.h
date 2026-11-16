@@ -4,6 +4,7 @@
 // surface are CANDIDATES, not established sampler bindings or GPU formats.
 #include "eor_archive.h"
 #include "eor_original_texture_streams.h"
+#include "eor_original_texture_gpu_layout.h"
 #include "eor_model_surface_materials.h"
 #include <cstddef>
 #include <cstdint>
@@ -28,6 +29,8 @@ struct OriginalTexture {
   // Verified mip dimensions/aligned allocations from authentic USA LFXT;
   // still not a decoded GPU format nor physical pixel source offset.
   std::optional<OriginalLfxtMipPlan> original_mip_plan;
+  // Concrete source-proven Xenos format, byte starts and full mip layouts.
+  std::optional<VerifiedOriginalXboxGpuMipChain> verified_gpu_mips;
 };
 struct CandidateSlot {
   uint32_t offset_from_surface_data = 0;
