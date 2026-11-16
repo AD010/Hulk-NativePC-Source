@@ -484,6 +484,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'XEX metadata tests failed' }
           python ci/audit_hulk_xex_xdk.py native_port/game/default.xex --expected-sha256 $env:HULK_PINNED_XEX_SHA256
           if ($LASTEXITCODE -ne 0) { throw 'XEX 6534 verification failed' }
+          python ci/test_audit_hulk_texstreams_split.py
+          if ($LASTEXITCODE -ne 0) { throw 'Original USA EoR split TexStreams audit regression failed' }
           python ci/test_prepare_hulk_tu1_stage.py
           if ($LASTEXITCODE -ne 0) { throw 'EU TU1 source-stage test failed' }
           python ci/check_hulk_tu1_xex.py native_port/game/default.xex
