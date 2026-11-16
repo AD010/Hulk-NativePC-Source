@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <array>
 #include <bit>
+#include <cmath>
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
@@ -163,6 +164,27 @@ int main(){
     const std::string name{example.name};
     for(size_t i=0;i<name.size();++i)
       original_lfxt[i+4]=std::byte(static_cast<unsigned char>(name[i]));
+    uint32_t resident_width=32,resident_height=32;
+    if(name=="signswap_64x32_eats10_d" ||
+       name=="building_windows07a_n") {
+      resident_width=64;resident_height=32;
+    } else if(name=="building_empirel_n") {
+      resident_width=128;resident_height=32;
+    } else if(name=="frontend_lightmap_dir") {
+      resident_width=256;resident_height=256;
+    } else if(name=="perimeter_sidewalk01_curb_n") {
+      resident_width=256;resident_height=32;
+    } else if(name=="bf_area1_lightmap_dir") {
+      resident_width=256;resident_height=128;
+    }
+    const size_t name_base=4+name.size()+1;
+    original_lfxt[name_base+3]=std::byte(resident_width>>8);
+    original_lfxt[name_base+4]=std::byte(resident_width&255u);
+    original_lfxt[name_base+7]=std::byte(resident_height>>8);
+    original_lfxt[name_base+8]=std::byte(resident_height&255u);
+    Replace32(original_lfxt,name_base+9,
+      std::bit_cast<uint32_t>(static_cast<float>(
+          std::sqrt(static_cast<double>(resident_width)*resident_height))));
     const size_t reference=4+name.size()+1+example.relative_stream_reference;
     textures::OriginalStreamLink identified{};
     identified.original_texture_hash=ResourceHash(name);
