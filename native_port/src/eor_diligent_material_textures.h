@@ -10,6 +10,9 @@ namespace hulk::eor::gpu {
 struct OriginalDiligentSampler {
   VerifiedEorSampler identity{};
   const UploadedEorTexture* uploaded=nullptr; // must outlive the GPU fence
+  // NativeX fetch shaders use 2D arrays; legacy EoR shaders may use 2D.
+  // The caller proves this by current, exact shader-variable reflection.
+  OriginalTextureViewKind required_view=OriginalTextureViewKind::Native2D;
 };
 // Resolve all shader variables before mutating the binding. Never invent
 // variable names, register numbers, or bind a fallback/magenta texture.
