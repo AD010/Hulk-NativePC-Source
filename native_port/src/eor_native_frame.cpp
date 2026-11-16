@@ -88,8 +88,11 @@ void ReplayNativeScene(const FrameGeometry& frame,
   }
   // Physical MSAA Resolve: target is the same pixel size as the world.
   // Do not blit to a 720p guest texture and then upscale the result.
-  if (frame.samples > 1 && !backend.ResolveScene(frame.world))
-    throw std::runtime_error("Native same-extent MSAA resolve failed");
+  // Always FINISH the host-native scene: even MSAA=1 must unbind
+  // color/depth render targets to make the scene SRV available for composite.
+  // At >1 samples the same operation performs the physical MSAA resolve.
+  if (!backend.ResolveScene(frame.world))
+    throw std::runtime_error("Native scene finish / MSAA resolve failed");
   if (!backend.Composite(frame.composite, frame.backbuffer))
     throw std::runtime_error("Native scene composite failed");
   rollback.committed = true;
