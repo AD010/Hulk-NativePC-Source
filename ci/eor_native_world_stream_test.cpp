@@ -2,6 +2,8 @@
 #include <atomic>
 #include <cassert>
 #include <chrono>
+#include <condition_variable>
+#include <mutex>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -60,6 +62,68 @@ template<class F> void RetryUntil(F f) {
   throw std::runtime_error("EoR source load timed out");
 }
 }
+struct PriorityState {
+  std::mutex mutex;
+  std::condition_variable ready;
+  std::vector<uint32_t> order;
+  bool release_first = false;
+};
+class PrioritySource final : public ModelSource {
+ public:
+  explicit PrioritySource(std::shared_ptr<PriorityState> state)
+      : state_(std::move(state)) {}
+  std::optional<model::LoadedNativeGeometry> Load(uint32_t hash) override {
+    {
+      std::unique_lock lock(state_->mutex);
+      state_->order.push_back(hash);
+      state_->ready.notify_all();
+      if (hash == 11)
+        state_->ready.wait(lock,[this]{return state_->release_first;});
+    }
+    return Source{}.Load(hash);
+  }
+ private:
+  std::shared_ptr<PriorityState> state_;
+};
+void CheckRapidCameraJump() {
+  FakeGpu gpu;
+  auto state = std::make_shared<PriorityState>();
+  {
+    NativeWorldStream stream(std::make_unique<PrioritySource>(state),gpu,
+      {{11,100.0},{22,300.0},{33,std::numeric_limits<double>::infinity()}});
+    assert(stream.Tick(20).request_model_hash == 11);
+    {
+      std::unique_lock lock(state->mutex);
+      assert(state->ready.wait_for(lock,std::chrono::seconds(3),
+                                  [&]{return !state->order.empty();}));
+      assert(state->order[0] == 11);
+    }
+    // Queue far tier 33 then immediately move toward 22 while the old
+    // 11 read is in flight: priority must become 22, 33, not FIFO.
+    stream.Tick(999);
+    stream.Tick(150);
+    {
+      std::lock_guard lock(state->mutex);
+      state->release_first = true;
+    }
+    state->ready.notify_all();
+    RetryUntil([&] {
+      stream.Tick(150);
+      std::lock_guard lock(state->mutex);
+      return state->order.size() >= 2;
+    });
+    {
+      std::lock_guard lock(state->mutex);
+      assert(state->order[1] == 22);
+    }
+    // Completed near-LOD 11 is stale and MUST NOT be uploaded after the
+    // camera has moved to 150 world units.
+    RetryUntil([&] {stream.Tick(150);return stream.Resident(22)!=nullptr;});
+    assert(stream.Resident(11)==nullptr);
+    assert(gpu.serial == 3);
+  }
+  assert(gpu.freed.size()==3);
+}
 int main() {
   FakeGpu gpu;
   {
@@ -86,4 +150,5 @@ int main() {
   }
   assert(gpu.serial==6);
   assert(gpu.freed.size()==6);
+  CheckRapidCameraJump();
 }

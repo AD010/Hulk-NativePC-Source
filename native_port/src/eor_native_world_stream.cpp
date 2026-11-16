@@ -1,4 +1,5 @@
 #include "eor_native_world_stream.h"
+#include <algorithm>
 #include <cmath>
 #include <stdexcept>
 #include <utility>
@@ -37,12 +38,30 @@ void NativeWorldStream::RetryFailed(uint32_t hash) {
   std::lock_guard lock(mutex_);
   failed_.erase(hash);
 }
-void NativeWorldStream::Queue(uint32_t hash) {
+void NativeWorldStream::Queue(uint32_t hash, bool urgent) {
   if (!hash || gpu_.contains(hash)) return;
   std::lock_guard lock(mutex_);
-  if (failed_.contains(hash) || queued_.contains(hash) || stopping_) return;
+  if (failed_.contains(hash) || stopping_) return;
+  if (queued_.contains(hash)) {
+    // A model queued as distant prefetch can become the camera's needed
+    // high-detail tier before the worker reaches it: promote it immediately.
+    if (urgent) {
+      const auto it = std::find(requests_.begin(), requests_.end(), hash);
+      if (it != requests_.end()) {
+        requests_.erase(it);
+        requests_.push_front(hash);
+      }
+    }
+    return;
+  }
   queued_.insert(hash);
-  requests_.push_back(hash);
+  try {
+    if (urgent) requests_.push_front(hash);
+    else requests_.push_back(hash);
+  } catch (...) {
+    queued_.erase(hash);
+    throw;
+  }
   wake_.notify_one();
 }
 LodDecision NativeWorldStream::Tick(double distance) {
@@ -54,18 +73,27 @@ LodDecision NativeWorldStream::Tick(double distance) {
     std::lock_guard lock(mutex_);
     if (staged_) prepared.swap(staged_);
   }
+  // Re-evaluate current camera demand BEFORE touching GPU memory. A fast
+  // camera jump can make an in-flight read irrelevant; don't upload a stale
+  // building model into VRAM, or let prefetch starve the needed near LOD.
+  const LodDecision needed = lod_.Update(distance);
   if (prepared) {
-    const uint32_t hash=prepared->first;
-    try {
-      if (prepared->second.model.original_resource_hash != hash)
-        throw std::invalid_argument("Original model index/hash changed during streaming");
-      auto uploaded=model::UploadOriginalModel(std::move(prepared->second),backend_);
-      if (!gpu_.emplace(hash,std::move(uploaded)).second)
-        throw std::logic_error("Original EoR GPU model already resident");
-      lod_.SetResident(hash,true);
-    } catch (...) {
-      std::lock_guard lock(mutex_);
-      failed_.insert(hash);
+    const uint32_t hash = prepared->first;
+    const bool useful = hash == needed.request_model_hash ||
+                        hash == needed.prefetch_model_hash ||
+                        hash == needed.active_model_hash;
+    if (useful) {
+      try {
+        if (prepared->second.model.original_resource_hash != hash)
+          throw std::invalid_argument("Original model index/hash changed during streaming");
+        auto uploaded=model::UploadOriginalModel(std::move(prepared->second),backend_);
+        if (!gpu_.emplace(hash,std::move(uploaded)).second)
+          throw std::logic_error("Original EoR GPU model already resident");
+        lod_.SetResident(hash,true);
+      } catch (...) {
+        std::lock_guard lock(mutex_);
+        failed_.insert(hash);
+      }
     }
     {
       std::lock_guard lock(mutex_);
@@ -73,9 +101,9 @@ LodDecision NativeWorldStream::Tick(double distance) {
     }
     wake_.notify_one();
   }
-  auto decision=lod_.Update(distance);
-  Queue(decision.request_model_hash);
-  Queue(decision.prefetch_model_hash);
+  auto decision = lod_.Update(distance);
+  Queue(decision.request_model_hash, true);  // needed by this frame
+  Queue(decision.prefetch_model_hash, false); // can wait behind urgent loads
   return decision;
 }
 void NativeWorldStream::Worker() {

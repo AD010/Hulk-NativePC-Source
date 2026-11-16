@@ -37,7 +37,7 @@ class NativeWorldStream {
   bool Failed(uint32_t original_hash) const;
   void RetryFailed(uint32_t original_hash);
  private:
-  void Queue(uint32_t hash);
+  void Queue(uint32_t hash, bool urgent);
   void Worker();
   model::NativeMeshUploadBackend& backend_; // outlives this object
   ResidentLodSet lod_;
