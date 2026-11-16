@@ -81,7 +81,11 @@ int main() {
   s.samples = 1;
   FakeBackend c;
   ReplayNativeScene(PlanFrame(s), real, c);
-  assert((c.order == std::vector<std::string>{"BeginScene","DrawIndexed","DrawIndexed","Composite"}));
+  assert((c.order == std::vector<std::string>{"BeginScene","DrawIndexed","DrawIndexed","ResolveScene","Composite"}));
+  assert(c.resolved.width==2560 && c.resolved.height==1600);
+  FakeBackend invalid_1x;invalid_1x.fail_resolve=true;
+  MustThrow([&] { ReplayNativeScene(PlanFrame(s),real,invalid_1x); });
+  assert(invalid_1x.aborts==1 && invalid_1x.order.back()=="ResolveScene");
   s.engine_draw_hook_verified = false;
   MustThrow([&] { FakeBackend d; ReplayNativeScene(PlanFrame(s), real, d); });
   s.engine_draw_hook_verified = true;
