@@ -195,6 +195,8 @@ bool DiligentEorDirectBackend::BindVerifiedProgramPair(
     const aot::Digest& vs_id,const aot::Blob& vs,
     const aot::Digest& ps_id,const aot::Blob& ps) {
   auto& s=*state_;
+  s.program_ready=false;
+  s.textures_ready=false;
   if(!s.selected || !s.constants_ready ||
      s.selected->pipeline.original_vertex_shader_sha256!=vs_id ||
      s.selected->pipeline.original_pixel_shader_sha256!=ps_id ||
@@ -219,6 +221,7 @@ bool DiligentEorDirectBackend::BindVerifiedProgramPair(
 bool DiligentEorDirectBackend::BindOriginalSamplers(
     std::span<const VerifiedEorSampler> expected) {
   auto& s=*state_;
+  s.textures_ready=false;
   if(!s.program_ready || !s.selected || !s.active.bindings ||
      expected.size()!=s.selected->original_textures.size())
     return false;
