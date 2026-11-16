@@ -451,6 +451,8 @@ jobs:
                             'native_port/src/eor_archive.cpp',
                             'native_port/src/eor_original_texture_assets.cpp',
                             'native_port/src/eor_original_texture_streams.cpp',
+                            'native_port/src/eor_original_texture_mip_ranges.cpp',
+                            'native_port/src/eor_original_texture_gpu_layout.cpp',
                             'ci/eor_original_texture_assets_test.cpp')
           & cl.exe @textureArgs
           if ($LASTEXITCODE -ne 0) { throw 'Original Xbox EoR texture ARC loader MSVC compile failed' }
