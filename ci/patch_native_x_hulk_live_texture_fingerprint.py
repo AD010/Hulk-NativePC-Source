@@ -136,6 +136,7 @@ def patch_draw(src: str) -> tuple[str, bool]:
              ("shader binding", DRAW_BIND_OLD, DRAW_BIND_NEW))
     if "HULK/ACTIVE-SHADER-RESOURCE" in src:
         if (src.count(DRAW_BIND_NEW) != 1 or
+            src.count(DRAW_BIND_OLD) != 1 or
             src.count(DRAW_CVAR_NEW) != 1 or
             src.count(DRAW_INCLUDES_NEW) != 1 or
             src.count(DRAW_LOGGING_NEW) != 1):
