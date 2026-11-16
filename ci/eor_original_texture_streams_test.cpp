@@ -164,7 +164,7 @@ int main(){
     for(size_t i=0;i<name.size();++i)
       original_lfxt[i+4]=std::byte(static_cast<unsigned char>(name[i]));
     const size_t reference=4+name.size()+1+example.relative_stream_reference;
-    OriginalStreamLink identified{};
+    textures::OriginalStreamLink identified{};
     identified.original_texture_hash=ResourceHash(name);
     identified.original_stream_hash=ResourceHash(name+"_STREAM");
     identified.original_stream_hash_offset=reference;
