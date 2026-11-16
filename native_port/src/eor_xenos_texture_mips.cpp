@@ -68,6 +68,14 @@ PreparedHostImage PrepareExplicitOriginalMips(
   image.format=format;
   image.mips.reserve(layouts.size());
   const uint32_t base_w=layouts[0].width,base_h=layouts[0].height;
+  size_t max_mip_count=1;
+  for(uint32_t w=base_w,h=base_h;w>1 || h>1;) {
+    w=std::max(1u,w>>1);
+    h=std::max(1u,h>>1);
+    ++max_mip_count;
+  }
+  if(layouts.size()>max_mip_count)
+    throw std::invalid_argument("More original Xenos mip levels than image dimensions allow");
   uint64_t accumulated=0;
   for(size_t i=0;i<layouts.size();++i) {
     const auto& m=layouts[i];

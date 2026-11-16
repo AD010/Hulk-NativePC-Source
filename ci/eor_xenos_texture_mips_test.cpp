@@ -72,6 +72,14 @@ int main() {
       std::vector<SourceMipLayout>{m0,m1},linear,{});
   assert(chain.mips.size()==2 && chain.mips[0].blocks.size()==32 &&
          chain.mips[1].blocks.size()==8 && chain.mips[1].blocks[0]==std::byte(32));
+  std::vector<SourceMipLayout> invented(5,m1);
+  invented[0]=m0;
+  for(size_t k=1;k<invented.size();++k) {
+    invented[k].width=1;
+    invented[k].height=1;
+  }
+  Reject([&]{(void)PrepareExplicitOriginalMips(XenosTextureFormat::BC1,
+      invented,linear,{});});
   m1.width=2;
   Reject([&]{(void)PrepareExplicitOriginalMips(XenosTextureFormat::BC1,
       std::vector<SourceMipLayout>{m0,m1},linear,{});});
