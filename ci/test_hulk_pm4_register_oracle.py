@@ -291,6 +291,22 @@ class PM4OracleTests(unittest.TestCase):
             self.assertEqual(len(audit['draw_snapshots']), 1)
             self.assertTrue(audit['complete'])
 
+    def test_unknown_load_constant_class_invalidates_observed_state(self):
+        # The destination of an unrecognized memory-backed constant class
+        # cannot be reconstructed from PM4 without the guest memory image.
+        seed = t3(0x2b, [1, 1, 0x12345678])
+        write = t3(0x55, [0x4400, 0x3f800000])
+        unknown = t3(0x2f, [0x1000, (0x7f << 16), 1])
+        result = replay(seed + write + unknown + t3(0x36, [0x40]))
+        draw = result['draw_snapshots'][0]
+        self.assertNotIn('0x4400', draw['known_watched_registers'])
+        self.assertIn('0x4400', draw['unresolved_watched_registers'])
+        self.assertIsNone(draw['shader_programs']['ps']['sha256'])
+        self.assertEqual(draw['shader_programs']['ps']['source'],
+                         'unknown_constant_class')
+        self.assertEqual(result['packet_counters']['unrecognized_classes'], 1)
+        self.assertFalse(result['complete'])
+
     def test_bad_packet_and_binary_data(self):
         self.assertFalse(replay([0xc0012d00, 0])['complete'])
         self.assertEqual(replay([])['draw_snapshots'], [])
