@@ -56,6 +56,33 @@ std::optional<OriginalLfxtStreamTable> ParseOriginalLfxtStreamTable(
     std::span<const std::byte> complete_original_lfxt,
     const OriginalStreamLink& indexed_original_stream);
 
+// The aligned byte-size lists from the ten supplied USA LFXT descriptors
+// exactly match Xenos 32x32 block tiling. This determines dimensions and
+// storage-size FAMILY, not exact BC2/BC3/BC5 GPU format or physical 52-byte
+// envelope placement. The source decoder must never guess pixel byte offsets.
+enum class OriginalLfxtStorageFamily : uint8_t {
+  Unknown=0, BC_8ByteBlock, BC_16ByteBlock, Texel_8Byte
+};
+struct OriginalLfxtMipLevel {
+  uint32_t width=0, height=0, aligned_storage_bytes=0;
+  bool from_stream_archive=false;
+};
+struct OriginalLfxtMipPlan {
+  OriginalLfxtStorageFamily family=OriginalLfxtStorageFamily::Unknown;
+  uint32_t resident_width=0, resident_height=0;
+  std::vector<OriginalLfxtMipLevel> levels; // largest -> smallest
+  // A volume-size match cannot prove the absolute start of the first pixel:
+  // 0x34 surplus in both original LFXT/TexStreams length containers.
+  bool absolute_source_offsets_proven=false;
+};
+// Returns nullopt for unknown formats/unsupported structures. This function
+// NEVER returns fabricated BCn type, endian, sRGB, tiled flag or byte offset.
+std::optional<OriginalLfxtMipPlan> ReconstructOriginalLfxtMipPlan(
+    std::span<const std::byte> original_lfxt,
+    uint32_t expected_original_texture_hash,
+    const OriginalLfxtInlineSection& verified_inline_section,
+    const OriginalLfxtStreamTable& verified_stream_table);
+
 std::optional<OriginalLfxtInlineSection> FindOriginalLfxtInlineSection(
     std::span<const std::byte> complete_original_lfxt,
     uint32_t original_texture_hash);

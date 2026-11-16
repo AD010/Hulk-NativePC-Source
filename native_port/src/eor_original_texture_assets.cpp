@@ -54,6 +54,10 @@ std::optional<OriginalTexture> OriginalXboxTextureAssets::LoadHash(uint32_t hash
     if(result.original_stream && result.original_inline_section)
       result.original_stream_table=ParseOriginalLfxtStreamTable(
           result.original_bytes,*result.original_stream);
+    if(result.original_inline_section && result.original_stream_table)
+      result.original_mip_plan=ReconstructOriginalLfxtMipPlan(
+          result.original_bytes,hash,*result.original_inline_section,
+          *result.original_stream_table);
     if (result.original_stream && !stream_archive_.empty())
       result.original_stream_bytes = ReadOriginalTexStream(
           stream_archive_,*result.original_stream);

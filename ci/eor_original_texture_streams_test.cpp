@@ -197,6 +197,22 @@ int main(){
     }
     assert(sum==parsed->summed_source_bytes &&
            sum+56==example.stream_bytes);
+    const auto inline_section=textures::FindOriginalLfxtInlineSection(
+        original_lfxt,ResourceHash(name));
+    assert(inline_section);
+    const auto mip_plan=textures::ReconstructOriginalLfxtMipPlan(
+        original_lfxt,ResourceHash(name),*inline_section,*parsed);
+    assert(mip_plan && mip_plan->levels.size()>=parsed->levels.size() &&
+           !mip_plan->absolute_source_offsets_proven);
+    for(size_t level=0;level<parsed->levels.size();++level) {
+      assert(mip_plan->levels[level].from_stream_archive);
+      assert(mip_plan->levels[level].aligned_storage_bytes==
+             example.original_aligned_levels[level]);
+    }
+    auto corrupt_inline=*inline_section;
+    corrupt_inline.inline_data_bytes-=4;
+    assert(!textures::ReconstructOriginalLfxtMipPlan(
+        original_lfxt,ResourceHash(name),corrupt_inline,*parsed));
     original_lfxt[count_at]=std::byte(0);
     assert(!textures::ParseOriginalLfxtStreamTable(original_lfxt,identified));
     original_lfxt[count_at]=std::byte(example.original_aligned_levels.size());

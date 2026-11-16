@@ -148,6 +148,102 @@ std::optional<OriginalLfxtStreamTable> ParseOriginalLfxtStreamTable(
     return std::nullopt;
   return result;
 }
+std::optional<OriginalLfxtMipPlan> ReconstructOriginalLfxtMipPlan(
+    std::span<const std::byte> bytes,
+    uint32_t texture_hash,
+    const OriginalLfxtInlineSection& inline_section,
+    const OriginalLfxtStreamTable& streamed) {
+  const auto original_section=FindOriginalLfxtInlineSection(bytes,texture_hash);
+  if(!original_section ||
+     original_section->outer_length_field_offset !=
+         inline_section.outer_length_field_offset ||
+     original_section->inner_length_field_offset !=
+         inline_section.inner_length_field_offset ||
+     original_section->inline_data_offset!=inline_section.inline_data_offset ||
+     original_section->inline_data_bytes!=inline_section.inline_data_bytes ||
+     inline_section.inline_data_bytes<=52 ||
+     streamed.levels.empty() || streamed.levels.size()>14)
+    return std::nullopt;
+  size_t end=4;
+  while(end<bytes.size() && bytes[end]!=std::byte{0}) ++end;
+  if(end>=bytes.size())return std::nullopt;
+  const size_t base=end+1;
+  if(base>bytes.size() || bytes.size()-base<9)
+    return std::nullopt;
+  // Original EoR LFXT 16-bit BE resident mip width/height:
+  // (NUL+1)+3 and (NUL+1)+7, including non-square 64x32, 128x32 etc.
+  const uint32_t w=(uint32_t(std::to_integer<uint8_t>(bytes[base+3]))<<8) |
+                    uint32_t(std::to_integer<uint8_t>(bytes[base+4]));
+  const uint32_t h=(uint32_t(std::to_integer<uint8_t>(bytes[base+7]))<<8) |
+                    uint32_t(std::to_integer<uint8_t>(bytes[base+8]));
+  if(!w || !h || w>8192 || h>8192)
+    return std::nullopt;
+  // A 32x32 Xenos tiled macroblock uses actual TEXEL BLOCKS for BCn,
+  // and individual texels for uncompressed formats.
+  struct Shape {OriginalLfxtStorageFamily family;uint32_t pixels,bytes;};
+  constexpr Shape candidate[]{
+    {OriginalLfxtStorageFamily::BC_8ByteBlock,4,8},
+    {OriginalLfxtStorageFamily::BC_16ByteBlock,4,16},
+    {OriginalLfxtStorageFamily::Texel_8Byte,1,8}
+  };
+  const auto padded=[&](uint32_t width,uint32_t height,
+                         const Shape& shape)->uint64_t {
+    const uint64_t bw=(uint64_t(width)+shape.pixels-1)/shape.pixels;
+    const uint64_t bh=(uint64_t(height)+shape.pixels-1)/shape.pixels;
+    const uint64_t pb=(bw+31u)&~uint64_t(31);
+    const uint64_t ph=(bh+31u)&~uint64_t(31);
+    return pb*ph*shape.bytes;
+  };
+  std::optional<OriginalLfxtMipPlan> accepted;
+  for(const auto& shape:candidate) {
+    OriginalLfxtMipPlan plan;
+    plan.family=shape.family;
+    plan.resident_width=w;plan.resident_height=h;
+    bool valid=true;
+    const size_t count=streamed.levels.size();
+    uint64_t accounted=0;
+    for(size_t i=0;i<count;++i) {
+      const uint64_t factor=uint64_t{1}<<(count-i);
+      const uint64_t width=uint64_t(w)*factor;
+      const uint64_t height=uint64_t(h)*factor;
+      if(width>8192 || height>8192) {valid=false;break;}
+      const uint64_t bytes_required=padded(
+          static_cast<uint32_t>(width),static_cast<uint32_t>(height),shape);
+      const auto& actual=streamed.levels[i];
+      const double metric=std::sqrt(static_cast<double>(width)*height);
+      if(bytes_required!=actual.source_aligned_bytes ||
+         std::fabs(static_cast<double>(actual.original_level_metric)-metric)>
+               std::max(0.01,metric*0.00002)) {
+        valid=false;break;
+      }
+      accounted+=bytes_required;
+      plan.levels.push_back({
+          static_cast<uint32_t>(width),static_cast<uint32_t>(height),
+          static_cast<uint32_t>(bytes_required),true});
+    }
+    if(!valid || accounted!=streamed.summed_source_bytes)
+      continue;
+    const uint64_t inline_payload=inline_section.inline_data_bytes-52;
+    uint64_t total=0;
+    uint32_t width=w,height=h;
+    for(unsigned mip=0;mip<14;++mip) {
+      const uint64_t size=padded(width,height,shape);
+      total+=size;
+      if(total>inline_payload)break;
+      plan.levels.push_back({
+          width,height,static_cast<uint32_t>(size),false});
+      if(total==inline_payload)break;
+      if(width==1 && height==1)break;
+      width=std::max(1u,width>>1);height=std::max(1u,height>>1);
+    }
+    if(total!=inline_payload)
+      continue;
+    if(accepted) // More than one format family fits: fail closed.
+      return std::nullopt;
+    accepted=std::move(plan);
+  }
+  return accepted;
+}
 std::span<const std::byte> ValidateOriginalTexStreamEnvelope(
     std::span<const std::byte> bytes) {
   if (bytes.size() < 5 || bytes.size() > kMaxStreamSize)

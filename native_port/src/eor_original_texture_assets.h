@@ -25,6 +25,9 @@ struct OriginalTexture {
   std::optional<OriginalLfxtInlineSection> original_inline_section;
   // Structural exact size-table proof, not format/tiling/mip-address proof.
   std::optional<OriginalLfxtStreamTable> original_stream_table;
+  // Verified mip dimensions/aligned allocations from authentic USA LFXT;
+  // still not a decoded GPU format nor physical pixel source offset.
+  std::optional<OriginalLfxtMipPlan> original_mip_plan;
 };
 struct CandidateSlot {
   uint32_t offset_from_surface_data = 0;
