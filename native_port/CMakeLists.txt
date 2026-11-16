@@ -35,6 +35,8 @@ set(INCREDIBLEHULK_SOURCES
     src/eor_original_model_assets.cpp
     src/eor_original_model_upload.cpp
     src/eor_native_lod.cpp
+    src/eor_native_world_stream.cpp
+    src/eor_native_archive_source.cpp
     src/eor_fmod_project.cpp
     src/eor_fmod_catalog.cpp
     src/eor_havok_packfile.cpp

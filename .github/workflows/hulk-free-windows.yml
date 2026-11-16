@@ -346,6 +346,24 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'EoR original vertex attribute decoder MSVC compile failed' }
           & $attributesTest
           if ($LASTEXITCODE -ne 0) { throw 'EoR vertex data format/bounds regression failed' }
+          # I/O thread loads real original IND/ARC resources, render thread
+          # owns GPU uploads; LOD streaming never blocks on archive file I/O.
+          $worldTest = Join-Path $env:RUNNER_TEMP 'hulk-eor-native-world-stream-test.exe'
+          $worldArgs = @('/nologo','/std:c++20','/EHsc','/W4','/WX','/utf-8',
+                        "/Fe:$worldTest",
+                        'native_port/src/eor_native_mesh_upload.cpp',
+                        'native_port/src/eor_original_model_upload.cpp',
+                        'native_port/src/eor_native_lod.cpp',
+                        'native_port/src/eor_native_world_stream.cpp',
+                        'ci/eor_native_world_stream_test.cpp')
+          & cl.exe @worldArgs
+          if ($LASTEXITCODE -ne 0) { throw 'Original EoR asynchronous LOD model streaming MSVC compile failed' }
+          & $worldTest
+          if ($LASTEXITCODE -ne 0) { throw 'Original EoR LOD asset-stream/gpu-pump regression failed' }
+          # Also compile the real archive source against the original IND/ARC reader
+          # without adding any proprietary assets to this public source repository.
+          & cl.exe /nologo /std:c++20 /EHsc /W4 /WX /utf-8 /c 'native_port/src/eor_native_archive_source.cpp' "/Fo:$env:RUNNER_TEMP\hulk-eor-original-archive-source.obj"
+          if ($LASTEXITCODE -ne 0) { throw 'Original EoR archive source MSVC compile failed' }
           $allSurfaceTest = Join-Path $env:RUNNER_TEMP 'hulk-eor-all-surface-materials-test.exe'
           $allSurfaceArgs = @('/nologo','/std:c++20','/EHsc','/W4','/WX','/utf-8',
                               "/Fe:$allSurfaceTest",
