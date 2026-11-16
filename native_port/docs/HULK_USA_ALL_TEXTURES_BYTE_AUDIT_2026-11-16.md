@@ -14,9 +14,10 @@ Original game data is NOT included in this repository.
   the original Bytes, NOT names/types from a synthetic unit test.
 - All 6,669 have 52-byte GPU descriptors at the END of the resource.
   Their BE format IDs were parsed directly from descriptor offset +32.
-- All 6,669 resident image dimensions match the exact packed original
-  trailer dimensions at +36 except 11 **special no-stream environment maps**
-  with cube/other dimensions; do not treat those as 2D.
+- All 6,669 resident width/height values match the LOW 26 bits of
+  the packed trailer dimensions at +36. Exactly 11 no-stream environment/
+  cube maps use additional nonzero top dimension/type flags and must not be
+  mistaken for ordinary 2D images.
 - Exactly 5,836 stream hash references had valid count + 8-byte
   aligned-size/float entries, with zero mis-sized source streams.
 - All **5,836** stream-linked mip chains match the 32×32 Xenos
@@ -91,3 +92,40 @@ the guest material hash and the exact SRB used by the current Draw.
 Source-only format decoding must never stand in for that mapping.
 Current Windows build has not passed post-audit Release CI and a new
 game frame has not been captured.
+
+
+## Complete 1.33-GB original TexStreams.ARC binary verification
+
+The two owner-provided TEXSTREA.7z volumes were reconstructed and
+decompressed with libarchive; the extracted TEXSTREA.ARC is exactly
+1,330,443,104 bytes. Original full-file SHA-256:
+
+`4e49b38f7357f37b8563653e928a034ec3bdb3f77bf533ec0acad5e5a4c76229`
+
+The entire original stream archive was then memory-mapped and EVERY indexed
+USA TexStreams record's actual bytes were inspected (not only the ten
+samples and the INDEX metadata).
+
+- 5,836 / 5,836 physical records have correct BE remaining-length header
+  `record_bytes-4`.
+- 5,836 / 5,836 have authentic structured 52-byte GPU descriptor
+  **trailers**, byte-verified against their linked source LFXT records,
+  including the original GPU format number and extended mip dimensions.
+- Every 5,836 / 5,836 physical high-res descriptor's dimensions are
+  exactly `resident_width * 2^stream_level_count` by
+  `resident_height * 2^stream_level_count`.
+- Every record's actual size equals the original LFXT per-mip aligned
+  allocations + 4-byte BE prefix + 52-byte trailer.
+- Zero errors in original prefix, trailer formats, source bounds, linked
+  mip-table sizes, and high-level dimensions across all records.
+
+Original original-stream physical format counts (5,836):
+DXT4_5 = 4,172; DXT1 = 1,648; RGBA16_EXPAND = 8; RGBA8 = 8.
+The remaining 833 original texture records have no TexStreams link.
+
+**This proves the full ORIGINAL ARCHIVE byte layout, not that the
+NativeXRenderer guest GPU memory or its PSO/SRB uses these exact resource
+names or file offsets.** The live per-Draw guest texture-fetch address
+still needs to be joined with original asset bytes with strict identity
+and lifecycle checks. Until then, the new codec cannot be described as
+an on-screen graphics fix.
