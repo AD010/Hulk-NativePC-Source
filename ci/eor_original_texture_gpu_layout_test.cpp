@@ -50,6 +50,21 @@ void Case(uint32_t fmt,uint32_t block,
   plan.resident_width=rw;plan.resident_height=rh;plan.levels=levels;
   const auto verified=DecodeOriginalXboxGpuMips(lfxt,stream,section,table,plan);
   assert(verified && verified->layouts.size()==levels.size());
+  // Uncompressed 0x06/0x1D mips are 1 pixel per GPU storage unit, unlike
+  // BC1/BC3 whose 4x4 blocks are 8/16 bytes. Incorrect RGBA8 decoding
+  // previously undercounted a 1024x1024 source level by 16x.
+  if (fmt==0x06) {
+    assert(verified->format==XenosTextureFormat::RGBA8);
+    assert(verified->layouts[0].storage_pitch_blocks==1024);
+    assert(verified->layouts[0].storage_height_blocks==1024);
+    assert(uint64_t(verified->layouts[0].storage_pitch_blocks) *
+           verified->layouts[0].storage_height_blocks * 4u ==
+           levels[0].aligned_storage_bytes);
+  }
+  if (fmt==0x1d) {
+    assert(verified->format==XenosTextureFormat::RGBA16F);
+    assert(verified->layouts[0].storage_pitch_blocks==1024);
+  }
   assert(verified->layouts[0].source_offset==4 &&
          verified->layouts[0].tiling==XenosTileMode::Tiled2D &&
          verified->layouts[0].endian==XenosDataEndian::NoSwap);
@@ -68,8 +83,8 @@ void Case(uint32_t fmt,uint32_t block,
 }
 } // namespace
 int main() {
-  // Original 10 authenticated records have exactly three GPU storage codes:
-  // Xenos DXT1 (0x12), DXT4_5 (0x14), RGBA16_EXPAND (0x1d).
+  // Supported source-proven Xenos codes: DXT1 (0x12), DXT4_5 (0x14),
+  // RGBA8 (0x06) and RGBA16_EXPAND (0x1d).
   Case(0x12,8,64,32,{{128,64,8192,true},{64,32,8192,false},
                        {32,16,8192,false}});
   Case(0x14,16,32,32,{{256,256,65536,true},
