@@ -46,7 +46,7 @@ int main() {
   Reject([&]{(void)InspectSpirvImageResources(bad);});
   bad=shader;
   // Missing OpDecorate Binding 2 -> no legal shader image source.
-  bad.erase(bad.begin()+18,bad.begin()+22);
+  bad.erase(bad.begin()+22,bad.begin()+26);
   Reject([&]{(void)InspectSpirvImageResources(bad);});
   // Shader with no UniformConstant texture declarations is valid.
   std::vector<uint32_t> empty{0x07230203,0x00010500,0,16,0};

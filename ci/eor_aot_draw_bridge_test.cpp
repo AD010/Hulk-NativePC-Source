@@ -36,14 +36,27 @@ struct Backend final:ShaderBindingBackend {
   bool Composite(native::Rect r,native::Size) override {assert(r.height==1600);++composite;return true;}
 };
 void I32(std::vector<uint8_t>& b,uint32_t v){for(unsigned i=0;i<4;++i)b.push_back(uint8_t(v>>(8*i)));}
-void Add(std::vector<uint8_t>& b,uint8_t digest,uint32_t stage) {
+void Add(std::vector<uint8_t>& b,uint8_t digest,uint32_t stage,bool sampled=false) {
   for(unsigned i=0;i<32;++i)b.push_back(digest);
-  const std::vector<uint32_t> words{
+  std::vector<uint32_t> words{
       0x07230203u,0x10500u,0u,16u,0u,
       0x00020011u,1u,
       0x0003000eu,0u,1u,
       0x0005000fu,stage==1?0u:4u,1u,0x6e69616du,0u
   };
+  if(sampled && stage==2) {
+    // Original shader fixture with a *named* UniformConstant image at
+    // descriptor set 0, Vulkan binding 2. Unnamed/absent slots must fail.
+    const uint32_t image_resource[] = {
+      0x00050005u,4u,0x69445f67u,0x73756666u,0x00000065u,
+      0x00040047u,4u,33u,2u,
+      0x00040047u,4u,34u,0u,
+      0x00090019u,2u,5u,1u,0u,0u,0u,1u,0u,
+      0x00040020u,3u,0u,2u,
+      0x0004003bu,3u,4u,0u
+    };
+    words.insert(words.end(),std::begin(image_resource),std::end(image_resource));
+  }
   I32(b,stage);I32(b,static_cast<uint32_t>(words.size()));
   for(uint32_t v:words)I32(b,v);
 }
@@ -134,10 +147,23 @@ int main(){
   texture.original_material_ownership_verified=true;
   texture.original_shader_fetch_slot_verified=true;
   texture.original_texture_format_and_mips_verified=true;
+  // The original dummy programs have no declared images. Replace only
+  // the pixel module with an explicit named image variable for this test.
+  std::vector<uint8_t> texturedBank{'H','E','O','R','S','P','V','1'};
+  I32(texturedBank,2);I32(texturedBank,2);
+  Add(texturedBank,0x11,1);
+  Add(texturedBank,0x22,2,true);
+  const auto texturedFile=std::filesystem::temp_directory_path()/
+                          "hulk_original_textured_aot_test.bin";
+  {std::ofstream out(texturedFile,std::ios::binary);
+   out.write(reinterpret_cast<const char*>(texturedBank.data()),texturedBank.size());}
+  ShaderBank texturedShaders;
+  texturedShaders.Load(texturedFile);
+  std::filesystem::remove(texturedFile);
   entry.original_samplers={texture};
   Backend textured;
   draws={entry};
-  ReplayAotScene(geometry,draws,shaders,effects,reflection,textured);
+  ReplayAotScene(geometry,draws,texturedShaders,effects,reflection,textured);
   assert(textured.begin==1 && textured.bind==1 && textured.samplers==1 &&
          textured.draw==1 && textured.abort==0);
   Backend blocked;
@@ -146,7 +172,7 @@ int main(){
   entry.original_samplers={other};
   draws={entry};
   bool wrong_owner=false;
-  try {ReplayAotScene(geometry,draws,shaders,effects,reflection,blocked);}
+  try {ReplayAotScene(geometry,draws,texturedShaders,effects,reflection,blocked);}
   catch(const std::invalid_argument&){wrong_owner=true;}
   assert(wrong_owner && blocked.begin==0 && blocked.samplers==0 &&
          blocked.draw==0);
@@ -155,7 +181,7 @@ int main(){
   missing_resource.refuse_samplers=true;
   draws={entry};
   bool refused=false;
-  try {ReplayAotScene(geometry,draws,shaders,effects,reflection,missing_resource);}
+  try {ReplayAotScene(geometry,draws,texturedShaders,effects,reflection,missing_resource);}
   catch(const std::runtime_error&){refused=true;}
   assert(refused && missing_resource.begin==1 && missing_resource.abort==1 &&
          missing_resource.draw==0 && missing_resource.resolve==0);

@@ -45,7 +45,7 @@ std::vector<SpirvImageResource> InspectSpirvImageResources(
      shader[4]!=0)
     throw std::invalid_argument("Original Xenos AOT shader is not valid SPIR-V");
   std::map<uint32_t,Type> types;
-  std::map<uint32_t,std::string> names;
+  std::map<uint32_t,std::span<const uint32_t>> names;
   std::map<uint32_t,uint32_t> sets,bindings;
   std::vector<Variable> vars;
   for(size_t pos=5;pos<shader.size();) {
@@ -78,7 +78,7 @@ std::vector<SpirvImageResource> InspectSpirvImageResources(
       const auto id=operand(1);
       if(!id || id>=shader[3] || words<3 || names.contains(id))
         throw std::invalid_argument("Bad SPIR-V original resource name ID");
-      names.emplace(id,Name(shader.subspan(pos+2,words-2)));
+      names.emplace(id,shader.subspan(pos+2,words-2));
     } else if(op==71) { // OpDecorate: target, decoration, literal.
       const auto id=operand(1),kind=operand(2);
       if(kind==33 || kind==34) {
@@ -100,7 +100,7 @@ std::vector<SpirvImageResource> InspectSpirvImageResources(
     if(name==names.end() || set==sets.end() || bind==bindings.end() ||
        !occupied.emplace(set->second,bind->second).second)
       throw std::invalid_argument("Original AOT SPIR-V image descriptor lacks unique binding/name");
-    result.push_back({name->second,set->second,bind->second});
+    result.push_back({Name(name->second),set->second,bind->second});
   }
   return result;
 }
