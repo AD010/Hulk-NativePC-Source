@@ -38,3 +38,47 @@ CPU-only synthetic tests. A source commit is not a successful CI
 artifact; trigger the existing manual build only when a functional
 game test is warranted. Do not generate placeholder shader or mip
 data to force a screenshot.
+
+## Current checkpoint after image-binding preflight
+
+Code (committed in the existing main branch):
+- `fe21ca4b`: strict original 4-byte big-endian TexStreams
+  envelope and source-offset bounds checks, tests based on ten genuine record
+  lengths from owner-provided TXT.
+- `19a46270`: explicit original material/fetch ownership validation and
+  DiligentCore shader-resource variable setter for resident texture SRVs.
+- `65e4c57b`: sampler ownership metadata handed through the source-verified
+  geometry -> AOT shader -> native Draw pipeline before submitting geometry.
+- `58a22858`: regression test for good, wrong-owner and failed backend
+  shader-resource binding conditions.
+- `8675437c`: SPIR-V shader image descriptor declarations are preflighted
+  against original stage/name binding ownership before BeginScene.
+- `1de62b53`: strengthen synthetic shader-module tests and skip irrelevant
+  non-image OpName debug metadata during validation.
+- `647eb9f6`: cache SPIR-V image descriptors once per shader digest per
+  frame, avoiding a shader-bytecode scan for each repeated Draw.
+- `8e8b4924`: downloadable browser ZIP:
+  `tools/Hulk_USA_LFXT_Header_Collector_PC.zip`.
+  This emits `Hulk_USA_LFXT_Header_Report.txt` for the ten texture
+  resources, requiring the user's existing USA index(2).ind and Xbox
+  TEXTURES.ARC, without uploading those archives.
+
+**Still not proven / no production claim:** exact original Xenos format,
+tiled image dimensions, packed mip offsets and per-pass sampler ownership
+from the game's running USA EoR engine; a fully functional Diligent
+`ShaderBindingBackend` integrated with the live original guest Draw;
+Windows CI execution on the current HEAD; GPU screenshot/RenderDoc validation;
+correct color/material/LOD/flicker in the released game.
+
+**Runtime rule:** The new shader SRB function is a callable host binding,
+not a live PSO implementation or automatic inference of proprietary engine
+fields. Do not substitute inferred sampler slots, fake textures, or incomplete
+OriginalStream records. No original game bytes entered GitHub.
+
+**Next evidence:** ingest `Hulk_USA_LFXT_Header_Report.txt` from the above
+Windows collector. The previous TexStreams record TXT already proved
+10/10 big-endian size prefixes but not their Xenos texture descriptor
+layouts. After actual LFXT parameters are verified, connect exact image
+dimensions, GPU format, tiling, and mip addresses, then validate source
+shader descriptors against an original live USA Draw capture. Only then
+run the one existing manual-only Release workflow and check the game.
