@@ -26,6 +26,21 @@ std::optional<OriginalStreamLink> FindVerifiedOriginalTexStream(
 // envelope itself is excluded from this size. The remainder is opaque:
 // do NOT drop an additional 52 bytes or assume any GPU format/mip layout.
 // The returned span points into the caller-owned original byte buffer.
+// Exact nested remaining-length fields found in all ten genuine USA LFXT
+// descriptors. Their location varies with header length and texture type.
+// This establishes a BINARY SECTION BOUNDARY, not the GPU format/mip layout.
+struct OriginalLfxtInlineSection {
+  size_t outer_length_field_offset=0;
+  size_t inner_length_field_offset=0;
+  size_t inline_data_offset=0;
+  size_t inline_data_bytes=0;
+};
+// Returns nullopt for unsupported layouts; NEVER assumes a fixed 0x38 or
+// guessed position after the original LFXT name. Validates real name/hash.
+std::optional<OriginalLfxtInlineSection> FindOriginalLfxtInlineSection(
+    std::span<const std::byte> complete_original_lfxt,
+    uint32_t original_texture_hash);
+
 std::span<const std::byte> ValidateOriginalTexStreamEnvelope(
     std::span<const std::byte> complete_indexed_record);
 // Offsets in explicitly verified GPU mip layouts are relative to the

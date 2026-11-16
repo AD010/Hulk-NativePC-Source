@@ -44,7 +44,15 @@ UploadedEorTexture UploadExplicitOriginalTexture(
      !original.pinned_usa_index)
     throw std::invalid_argument("Original EoR Xbox texture identity/color space unresolved");
   for(const auto& mip:layouts) {
-    if(!mip.from_stream_archive) continue;
+    if(!mip.from_stream_archive) {
+      // For the independent USA-native Vulkan path, offsets in Textures.ARC
+      // are full-record offsets and MUST point to a validated LFXT suffix.
+      if(!original.original_inline_section ||
+         mip.source_offset<original.original_inline_section->inline_data_offset ||
+         mip.source_offset>=original.original_bytes.size())
+        throw std::invalid_argument("Original LFXT mip points into undocumented header");
+      continue;
+    }
     if(!original.original_stream ||
        original.original_stream->original_texture_hash!=original.hash ||
        original.original_stream_bytes.empty())

@@ -42,6 +42,11 @@ std::optional<OriginalTexture> OriginalXboxTextureAssets::LoadHash(uint32_t hash
   auto bytes=ReadResource(archive_,*indexed,kMaxSingleTexture);
   OriginalTexture result{hash,*indexed,std::move(bytes),std::nullopt,{},
                          pinned_usa_index_};
+  // Each original Xbox LFXT owns an optional variable-length inline data
+  // section. This is source-evidenced by two nested BE size-prefix fields;
+  // no synthetic mip offset or 52-byte texture-prefix removal is permitted.
+  result.original_inline_section=FindOriginalLfxtInlineSection(
+      result.original_bytes,hash);
   // A missing high-detail archive NEVER triggers guessed/upsampled mip data.
   if (index_.groups().contains("TexStreams")) {
     result.original_stream = FindVerifiedOriginalTexStream(

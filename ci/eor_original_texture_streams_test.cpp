@@ -91,6 +91,59 @@ int main(){
   Save(file,disk);
   Reject([&]{(void)textures::ReadOriginalTexStream(file,*link);});
   std::filesystem::remove(file);
+  // Ten original USA Xbox LFXT header sizes and nested remaining-length
+  // positions measured in the user's actual (SHA-pinned) INDEX.IND report.
+  // No copyrighted texture blocks are distributed as test fixtures.
+  struct OriginalSize {const char* name;size_t length;size_t first;};
+  constexpr OriginalSize originals[]{
+    {"building_brick41c_grunge_ds",32927u,99u},
+    {"signswap_64x32_eats10_d",16523u,79u},
+    {"building_empirel_n",32918u,90u},
+    {"frontend_lightmap_dir",524421u,73u},
+    {"bldg_city_mt0098_egc_marble02b_ds",32933u,105u},
+    {"perimeter_sidewalk01_curb_n",49295u,83u},
+    {"storefront_mid_016d_n",32929u,101u},
+    {"building_windows07a_n",32921u,93u},
+    {"bf_area1_lightmap_dir",262277u,73u},
+    {"signswap_32x32_misc01_d",16523u,79u}
+  };
+  for(const auto& example:originals) {
+    std::vector<std::byte> lfxt(example.length,std::byte{0});
+    for(size_t i=0;i<4;++i)
+      lfxt[i]=std::byte(static_cast<unsigned char>("LFXT"[i]));
+    const std::string name{example.name};
+    for(size_t i=0;i<name.size();++i)
+      lfxt[4+i]=std::byte(static_cast<unsigned char>(name[i]));
+    // name terminator already zero from initialization.
+    Replace32(lfxt,example.first,uint32_t(example.length-example.first-4));
+    Replace32(lfxt,example.first+4,uint32_t(example.length-example.first-8));
+    const auto layout=textures::FindOriginalLfxtInlineSection(
+       lfxt,ResourceHash(name));
+    assert(layout &&
+           layout->outer_length_field_offset==example.first &&
+           layout->inner_length_field_offset==example.first+4 &&
+           layout->inline_data_offset==example.first+8 &&
+           layout->inline_data_bytes==example.length-example.first-8);
+    assert(layout->inline_data_offset+layout->inline_data_bytes==lfxt.size());
+    assert((layout->inline_data_bytes-52u)%4096u==0u);
+    Reject([&]{(void)textures::FindOriginalLfxtInlineSection(
+      lfxt,ResourceHash("some_other_original_texture"));});
+    lfxt[example.first]=std::byte{0x7f};
+    assert(!textures::FindOriginalLfxtInlineSection(
+        lfxt,ResourceHash(name)));
+  }
+  // Ambiguous double candidates cannot select an arbitrary wrong GPU region.
+  std::vector<std::byte> dup(2048,std::byte{0});
+  for(size_t i=0;i<4;++i)dup[i]=std::byte(static_cast<unsigned char>("LFXT"[i]));
+  const std::string dupname="sample";
+  for(size_t i=0;i<dupname.size();++i)
+    dup[4+i]=std::byte(static_cast<unsigned char>(dupname[i]));
+  for(size_t pos:{size_t(72),size_t(88)}) {
+    Replace32(dup,pos,uint32_t(dup.size()-pos-4));
+    Replace32(dup,pos+4,uint32_t(dup.size()-pos-8));
+  }
+  Reject([&]{(void)textures::FindOriginalLfxtInlineSection(
+       dup,ResourceHash(dupname));});
   // Genuine source record lengths from ten uploaded TexStreams samples.
   // Synthetic contents test only the BE framing, not a guessed GPU format.
   for (const size_t len : {size_t(98360), size_t(8248),

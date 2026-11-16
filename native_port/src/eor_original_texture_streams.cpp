@@ -65,6 +65,45 @@ std::optional<OriginalStreamLink> FindVerifiedOriginalTexStream(
     throw std::invalid_argument("Indexed Xbox texture stream hash absent from original LFXT header");
   return OriginalStreamLink{texture_hash,stream_hash,*stream,matching};
 }
+std::optional<OriginalLfxtInlineSection> FindOriginalLfxtInlineSection(
+    std::span<const std::byte> bytes, uint32_t original_hash) {
+  if(bytes.size()<20 || bytes.size()>kMaxStreamSize ||
+     bytes[0]!=std::byte{'L'} || bytes[1]!=std::byte{'F'} ||
+     bytes[2]!=std::byte{'X'} || bytes[3]!=std::byte{'T'})
+    return std::nullopt;
+  const size_t name_limit=std::min(bytes.size(), kNameLimit+5);
+  size_t name_end=4;
+  while(name_end<name_limit && bytes[name_end]!=std::byte{0}) {
+    const auto value=std::to_integer<unsigned char>(bytes[name_end]);
+    if(value<0x21 || value>0x7e || value=='/' || value=='\\')
+      throw std::invalid_argument("Malformed USA LFXT name in original texture");
+    ++name_end;
+  }
+  if(name_end==4 || name_end==name_limit)
+    throw std::invalid_argument("Unterminated original USA LFXT name");
+  const std::string_view name{
+      reinterpret_cast<const char*>(bytes.data()+4),name_end-4};
+  if(!original_hash || ResourceHash(name)!=original_hash)
+    throw std::invalid_argument("USA original LFXT resource name/hash mismatch");
+  const size_t start=name_end+1;
+  const size_t end=std::min(bytes.size()-8,start+128);
+  std::optional<OriginalLfxtInlineSection> matched;
+  for(size_t at=start;at<=end;++at) {
+    const uint64_t outer=ReadBig32(bytes,at);
+    const uint64_t inner=ReadBig32(bytes,at+4);
+    // Each length field declares all remaining bytes after itself:
+    // 0x8038 / 0x8034, 0x4038 / 0x4034, ... from genuine USA assets.
+    if(outer!=bytes.size()-at-4 ||
+       inner!=bytes.size()-at-8 ||
+       inner<52)
+      continue;
+    if(matched)
+      throw std::invalid_argument("Ambiguous original EoR LFXT data suffix");
+    matched=OriginalLfxtInlineSection{
+        at,at+4,at+8,static_cast<size_t>(inner)};
+  }
+  return matched;
+}
 std::span<const std::byte> ValidateOriginalTexStreamEnvelope(
     std::span<const std::byte> bytes) {
   if (bytes.size() < 5 || bytes.size() > kMaxStreamSize)
