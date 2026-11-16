@@ -107,6 +107,16 @@ PreparedHostImage PrepareExplicitOriginalMips(
       throw std::invalid_argument("Required original Xbox TexStreams mip source missing");
     if(m.source_offset>src.size())
       throw std::invalid_argument("Original Xenos mip source starts past ARC payload");
+    // A mip must be fully backed by its OWN declared tiled/linear storage.
+    // Bounds against the whole ARC alone can accidentally read the NEXT mip
+    // or the 52-byte original LFXT GPU descriptor as pixels, producing
+    // false material matches or corrupt high-resolution host images.
+    const uint64_t source_storage_bytes=
+        uint64_t(m.storage_pitch_blocks)*m.storage_height_blocks*info.bpp;
+    if(!source_storage_bytes || source_storage_bytes>(512ull<<20) ||
+       source_storage_bytes>src.size()-m.source_offset)
+      throw std::invalid_argument("Original Xenos mip storage overlaps another ARC record");
+
     LinearHostMip dst;
     dst.width=m.width;dst.height=m.height;
     dst.row_pitch_bytes=blocks_x*info.bpp;
@@ -117,9 +127,9 @@ PreparedHostImage PrepareExplicitOriginalMips(
         const uint64_t address=m.tiling==XenosTileMode::Tiled2D ?
           OriginalTiled2DOffset(sx,sy,m.storage_pitch_blocks,info.bpp) :
           (uint64_t(sy)*m.storage_pitch_blocks+sx)*info.bpp;
-        if(address>src.size()-m.source_offset ||
-           info.bpp>src.size()-m.source_offset-address)
-          throw std::invalid_argument("Original Xenos texture tile reads beyond real ARC payload");
+        if(address>source_storage_bytes ||
+           info.bpp>source_storage_bytes-address)
+          throw std::invalid_argument("Original Xenos tile escapes its own mip allocation");
         const auto* input=src.data()+static_cast<size_t>(m.source_offset+address);
         auto* output=dst.blocks.data()+static_cast<size_t>(
           (uint64_t(y)*blocks_x+x)*info.bpp);
