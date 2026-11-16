@@ -4,11 +4,11 @@ import unittest
 from patch_native_x_hulk_live_texture_fingerprint import (
     patch,patch_draw,INCLUDES_OLD,BODY_OLD,CVAR_ANCHOR,CVAR,BODY_NEW,
     DRAW_INCLUDES_OLD,DRAW_LOGGING_OLD,DRAW_CVAR_OLD,DRAW_BIND_OLD,
-    DRAW_BIND_NEW)
+    DRAW_BIND_NEW,GUEST_VIEW_OLD,GUEST_VIEW_NEW)
 
 class LiveOriginalGpuTextureIdentityTest(unittest.TestCase):
     def test_real_guest_upload_anchor_and_idempotence(self):
-        original=INCLUDES_OLD+"\n"+CVAR_ANCHOR+"\n"+BODY_OLD+"\n"
+        original=INCLUDES_OLD+"\n"+CVAR_ANCHOR+"\n"+BODY_OLD+"\n"+GUEST_VIEW_OLD+"\n"
         updated,changed=patch(original)
         self.assertTrue(changed)
         self.assertEqual(patch(updated),(updated,False))
@@ -21,10 +21,19 @@ class LiveOriginalGpuTextureIdentityTest(unittest.TestCase):
                       "UINT64_C(1099511628211)",
                       "native_x_renderer_hulk_live_texture_id",
                       "hulk_fingerprint(0)",
-                      "hulk_fingerprint(hulk_second_at)"):
+                      "hulk_fingerprint(hulk_second_at)",
+                      "HULK/GUEST-SHADER-IDENTITY",
+                      "texture->base_hash.has_value()",
+                      "texture->key()",
+                      "base_xxh3={:016x}",
+                      "not submitted Draw proof"):
             self.assertIn(token,updated)
         self.assertIn("false,",CVAR)
         self.assertNotIn("CreateTexture(",BODY_NEW)
+        self.assertNotIn("CreateTexture(",GUEST_VIEW_NEW)
+        self.assertNotIn("return nullptr",GUEST_VIEW_NEW)
+        self.assertNotIn("variable->Set(",GUEST_VIEW_NEW)
+        self.assertIn("texture->MarkAsUsed();",GUEST_VIEW_NEW)
         self.assertNotIn("SetTexture",BODY_NEW)
         self.assertNotIn("RequestTextures",BODY_NEW)
         self.assertNotIn("return false",BODY_NEW)
@@ -35,6 +44,8 @@ class LiveOriginalGpuTextureIdentityTest(unittest.TestCase):
             patch("unknown NativeX source")
         with self.assertRaises(ValueError):
             patch(updated+BODY_OLD)
+        with self.assertRaises(ValueError):
+            patch(updated+GUEST_VIEW_OLD)
         with self.assertRaises(ValueError):
             patch(original+BODY_OLD)
 
