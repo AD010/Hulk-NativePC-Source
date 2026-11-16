@@ -324,6 +324,17 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Native EoR original model/material GPU staging compile failed' }
           & $modelUploadTest
           if ($LASTEXITCODE -ne 0) { throw 'Native EoR source model metadata/GPU staging regression failed' }
+          # LOD world streaming residency: hysteresis, prefetch, fallback,
+          # never draw a nonresident model; synthetic thresholds only.
+          $lodTest = Join-Path $env:RUNNER_TEMP 'hulk-eor-native-lod-test.exe'
+          $lodArgs = @('/nologo','/std:c++20','/EHsc','/W4','/WX','/utf-8',
+                       "/Fe:$lodTest",
+                       'native_port/src/eor_native_lod.cpp',
+                       'ci/eor_native_lod_test.cpp')
+          & cl.exe @lodArgs
+          if ($LASTEXITCODE -ne 0) { throw 'EoR LOD residency policy MSVC compile failed' }
+          & $lodTest
+          if ($LASTEXITCODE -ne 0) { throw 'EoR LOD hysteresis/prefetch regression failed' }
           $allSurfaceTest = Join-Path $env:RUNNER_TEMP 'hulk-eor-all-surface-materials-test.exe'
           $allSurfaceArgs = @('/nologo','/std:c++20','/EHsc','/W4','/WX','/utf-8',
                               "/Fe:$allSurfaceTest",
