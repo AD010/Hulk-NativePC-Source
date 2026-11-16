@@ -36,7 +36,8 @@ class ForwardingBackend final : public native::Backend {
       throw std::logic_error("Unknown original Xenos shader or constant layout");
     return target_.BindOriginalEffect(pair.effect_hash, pair.pass_index) &&
            target_.BindOriginalConstants(*vr, *pr) &&
-           target_.BindOfflineShaders(vs->spirv, ps->spirv) &&
+           target_.BindVerifiedProgramPair(pair.vertex_source_sha256, *vs,
+                                          pair.pixel_source_sha256, *ps) &&
            target_.BindOriginalSamplers(pair.original_samplers) &&
            target_.DrawIndexed(draw);
   }
