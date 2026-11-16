@@ -61,10 +61,22 @@ class PM4OracleTests(unittest.TestCase):
         r = replay(state + t3(0x36, [0x40], pred=True))
         # DRAW_INDX_2 writes its own VGT_DRAW_INITIATOR regardless of
         # whether an earlier *constant* packet was BIN-predicated.
-        self.assertEqual(r['draw_snapshots'][0]['known_watched_registers'],
-                         {'0x21fc': '0x00000040'})
+        self.assertNotIn('0x21fc', r['draw_snapshots'][0]['known_watched_registers'])
+        self.assertIn('0x21fc', r['draw_snapshots'][0]['unresolved_watched_registers'])
         self.assertTrue(r['draw_snapshots'][0]['predicate_state_unknown'])
         self.assertFalse(r['complete'])
+
+    def test_predicated_draw_does_not_claim_packet_side_dma_writes(self):
+        setup = t3(0x36, [0, 0x1000, 0x20])
+        conditional = t3(0x36, [0, 0x2000, 0x40], pred=True)
+        result = replay(setup + conditional)
+        before, after = result['draw_snapshots']
+        self.assertEqual(before['known_watched_registers']['0x21fa'], '0x00001000')
+        for reg in ('0x21fc', '0x21fa', '0x21fb'):
+            self.assertNotIn(reg, after['known_watched_registers'])
+            self.assertIn(reg, after['unresolved_watched_registers'])
+        self.assertTrue(after['predicate_state_unknown'])
+        self.assertFalse(result['complete'])
 
     def test_immediate_shader_identity_then_external_unknown(self):
         ps = t3(0x2b, [1, 2, 0x12345678, 0xabcdef00])
