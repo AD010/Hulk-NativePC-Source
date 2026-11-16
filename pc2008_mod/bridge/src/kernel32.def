@@ -1,0 +1,25 @@
+LIBRARY "KERNEL32.dll"
+EXPORTS
+ _OutputDebugStringA@4=OutputDebugStringA
+ _GetModuleHandleW@4=GetModuleHandleW
+ _GetModuleHandleA@4=GetModuleHandleA
+ _GetModuleFileNameA@12=GetModuleFileNameA
+ _GetSystemDirectoryA@8=GetSystemDirectoryA
+ _LoadLibraryA@4=LoadLibraryA
+ _GetProcAddress@8=GetProcAddress
+ _CreateThread@24=CreateThread
+ _CloseHandle@4=CloseHandle
+ _DisableThreadLibraryCalls@4=DisableThreadLibraryCalls
+ _Sleep@4=Sleep
+ _CreateFileA@28=CreateFileA
+ _WriteFile@20=WriteFile
+ _VirtualProtect@16=VirtualProtect
+ _InterlockedExchange@8=InterlockedExchange
+ _GetTickCount@0=GetTickCount
+ _GetPrivateProfileIntA@16=GetPrivateProfileIntA
+ _GetProcessHeap@0=GetProcessHeap
+ _HeapAlloc@12=HeapAlloc
+ _HeapFree@12=HeapFree
+ _GetFileAttributesA@4=GetFileAttributesA
+ _ReadFile@20=ReadFile
+ _GetFileSize@8=GetFileSize
