@@ -382,6 +382,17 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'EoR original geometry/material/shader Draw provenance regression failed' }
           # Original Xbox IND hash -> exact opaque Textures.ARC payloads.
           # Candidate offsets remain candidates, NEVER guessed samplers/mips.
+          # Source-faithful Xenos tiled BCn mip-addressing with explicit
+          # format, endian and packed-tail provenance. No guessed LFXT fields.
+          $xenosMipTest = Join-Path $env:RUNNER_TEMP 'hulk-original-xenos-mips-test.exe'
+          $xenosMipArgs = @('/nologo','/std:c++20','/EHsc','/W4','/WX','/utf-8',
+                            "/Fe:$xenosMipTest",
+                            'native_port/src/eor_xenos_texture_mips.cpp',
+                            'ci/eor_xenos_texture_mips_test.cpp')
+          & cl.exe @xenosMipArgs
+          if ($LASTEXITCODE -ne 0) { throw 'Original Xenos untile/mip decoder MSVC compilation failed' }
+          & $xenosMipTest
+          if ($LASTEXITCODE -ne 0) { throw 'Original Xenos untile/mip regression failed' }
           $textureTest = Join-Path $env:RUNNER_TEMP 'hulk-eor-original-texture-assets-test.exe'
           $textureArgs = @('/nologo','/std:c++20','/EHsc','/W4','/WX','/utf-8',
                             "/Fe:$textureTest",
