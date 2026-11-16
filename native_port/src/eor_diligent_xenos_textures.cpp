@@ -53,6 +53,7 @@ textures::OriginalLfxtStorageFamily Family(textures::XenosTextureFormat fmt) {
     case XenosTextureFormat::BC3:
     case XenosTextureFormat::BC5:return OriginalLfxtStorageFamily::BC_16ByteBlock;
     case XenosTextureFormat::RGBA16F:return OriginalLfxtStorageFamily::Texel_8Byte;
+    case XenosTextureFormat::RGBA8:return OriginalLfxtStorageFamily::Texel_4Byte;
     default: return OriginalLfxtStorageFamily::Unknown;
   }
 }

@@ -30,9 +30,11 @@ bool KnownDescriptor(std::span<const std::byte> full,
     case 0x12: fmt=XenosTextureFormat::BC1;break; // k_DXT1
     case 0x14: fmt=XenosTextureFormat::BC3;break; // k_DXT4_5
     case 0x1d: fmt=XenosTextureFormat::RGBA16F;break; // k_16_16_16_16_EXPAND
+    case 0x06: fmt=XenosTextureFormat::RGBA8;break; // k_8_8_8_8
     default:return false;
   }
-  if(BE32(data,40)!=(id==0x1d ? 0x00000d11u : 0x00000d10u))
+  if(BE32(data,40)!=(id==0x1d ? 0x00000d11u :
+                      id==0x06 ? 0x00000c14u : 0x00000d10u))
     return false;
   const uint32_t dimensions=BE32(data,36);
   w=(dimensions&0x1fffu)+1;
@@ -71,12 +73,15 @@ std::optional<VerifiedOriginalXboxGpuMipChain> DecodeOriginalXboxGpuMips(
      sw!=plan.levels.front().width || sh!=plan.levels.front().height)
     return std::nullopt;
   const uint32_t block_pixels=resident_format==XenosTextureFormat::RGBA16F?1u:4u;
-  const uint32_t block_bytes=resident_format==XenosTextureFormat::BC3?16u:8u;
+  const uint32_t block_bytes=resident_format==XenosTextureFormat::BC3?16u:
+      resident_format==XenosTextureFormat::RGBA8?4u:8u;
   const OriginalLfxtStorageFamily family=
       resident_format==XenosTextureFormat::BC1 ?
           OriginalLfxtStorageFamily::BC_8ByteBlock :
       resident_format==XenosTextureFormat::BC3 ?
           OriginalLfxtStorageFamily::BC_16ByteBlock :
+      resident_format==XenosTextureFormat::RGBA8 ?
+          OriginalLfxtStorageFamily::Texel_4Byte :
           OriginalLfxtStorageFamily::Texel_8Byte;
   if(plan.family!=family ||
      table.levels.size()!=static_cast<size_t>(std::count_if(

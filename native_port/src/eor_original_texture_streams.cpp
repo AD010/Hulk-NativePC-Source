@@ -191,7 +191,8 @@ std::optional<OriginalLfxtMipPlan> ReconstructOriginalLfxtMipPlan(
   constexpr Shape candidate[]{
     {OriginalLfxtStorageFamily::BC_8ByteBlock,4,8},
     {OriginalLfxtStorageFamily::BC_16ByteBlock,4,16},
-    {OriginalLfxtStorageFamily::Texel_8Byte,1,8}
+    {OriginalLfxtStorageFamily::Texel_8Byte,1,8},
+    {OriginalLfxtStorageFamily::Texel_4Byte,1,4}
   };
   const auto padded=[&](uint32_t width,uint32_t height,
                          const Shape& shape)->uint64_t {

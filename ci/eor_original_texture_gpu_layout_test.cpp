@@ -17,7 +17,7 @@ void Trailer(std::vector<std::byte>& v,uint32_t fmt,uint32_t w,uint32_t h) {
   Put32(v,base+20,0xffff0000u);Put32(v,base+24,0xffff0000u);
   Put32(v,base+32,fmt);
   Put32(v,base+36,(w-1)|((h-1)<<13));
-  Put32(v,base+40,fmt==0x1d?0xd11:0xd10);
+  Put32(v,base+40,fmt==0x1d?0xd11:fmt==0x06?0xc14:0xd10);
 }
 template<typename F> void Reject(F&& f) {
   bool threw=false;try{f();}catch(const std::invalid_argument&){threw=true;}
@@ -26,7 +26,7 @@ template<typename F> void Reject(F&& f) {
 void Case(uint32_t fmt,uint32_t block,
           uint32_t rw,uint32_t rh,
           const std::vector<OriginalLfxtMipLevel>& levels) {
-  assert(block==(fmt==0x14?16u:8u));
+  assert(block==(fmt==0x14?16u:fmt==0x06?4u:8u));
   uint64_t stream_bytes=0,inline_bytes=0;
   for(const auto& l:levels)(l.from_stream_archive?stream_bytes:inline_bytes)+=
       l.aligned_storage_bytes;
@@ -45,6 +45,7 @@ void Case(uint32_t fmt,uint32_t block,
   OriginalLfxtMipPlan plan{};
   plan.family=fmt==0x12?OriginalLfxtStorageFamily::BC_8ByteBlock:
               fmt==0x14?OriginalLfxtStorageFamily::BC_16ByteBlock:
+              fmt==0x06?OriginalLfxtStorageFamily::Texel_4Byte:
                         OriginalLfxtStorageFamily::Texel_8Byte;
   plan.resident_width=rw;plan.resident_height=rh;plan.levels=levels;
   const auto verified=DecodeOriginalXboxGpuMips(lfxt,stream,section,table,plan);
@@ -74,6 +75,9 @@ int main() {
   Case(0x14,16,32,32,{{256,256,65536,true},
                          {128,128,16384,true},{64,64,16384,true},
                          {32,32,16384,false},{16,16,16384,false}});
+  Case(0x06,4,256,256,{{1024,1024,4194304,true},
+                          {512,512,1048576,true},
+                          {256,256,262144,false}});
   Case(0x1d,8,256,256,{{1024,1024,8388608,true},
                           {512,512,2097152,true},
                           {256,256,524288,false}});
