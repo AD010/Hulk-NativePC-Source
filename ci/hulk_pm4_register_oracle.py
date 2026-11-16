@@ -144,6 +144,14 @@ def replay(words: list[int], watch=WATCH, max_draws=MAX_DRAWS) -> dict:
             desc = payload[0]; cls = (desc >> 16) & 0xff
             if cls not in BASE:
                 counters['unrecognized_classes'] += 1
+                warnings.append(f'unknown SET_CONSTANT class {cls:02x}: state unresolved')
+                for reg in tuple(known):
+                    mark_unknown(reg, 1)
+                for stage in ('vs', 'ps'):
+                    programs[stage] = {
+                        'source': 'unknown_constant_class', 'dwords': None,
+                        'sha256': None, 'external_guest_address': None,
+                    }
             else:
                 for i, val in enumerate(payload[1:]):
                     write(BASE[cls] + (desc & 0x7ff) + i, val)
