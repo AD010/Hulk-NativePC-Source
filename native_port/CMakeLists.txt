@@ -25,6 +25,7 @@ set(INCREDIBLEHULK_SOURCES
     src/native_game_data_root_store.cpp
     # Self-contained, native original EoR resource backend. No SDK dependency.
     src/eor_archive.cpp
+    src/eor_verified_sampler_bindings.cpp
     src/eor_model_resource.cpp
     src/eor_model_material_refs.cpp
     src/eor_model_surfaces.cpp

@@ -66,8 +66,24 @@ int main(){
   original.index_count=3;
   original.engine_draw_verified=original.mesh_material_verified=true;
   original.host_vertex_layout_verified=original.render_state_verified=true;
+  // One independently verified material texture ownership descriptor.
+  gpu::VerifiedEorSampler valid_sampler;
+  valid_sampler.original_model_hash=0xCAFE;
+  valid_sampler.original_surface_ordinal=0;
+  valid_sampler.original_effect_hash=0x1234;
+  valid_sampler.original_pass_index=0;
+  valid_sampler.original_texture_hash=0xBEEF;
+  valid_sampler.original_fetch_register=0;
+  valid_sampler.stage=gpu::OriginalSamplerStage::Pixel;
+  valid_sampler.exact_shader_variable_name="g_Diffuse";
+  valid_sampler.original_material_ownership_verified=true;
+  valid_sampler.original_shader_fetch_slot_verified=true;
+  valid_sampler.original_texture_format_and_mips_verified=true;
+  original.original_sampler_slots={valid_sampler};
   const auto good=native::BindVerifiedGeometryDraws(
      std::span<const native::VerifiedDrawSource>(&original,1),models,effects);
+  assert(good.size()==1 && good[0].original_samplers.size()==1 &&
+         good[0].original_samplers[0].original_texture_hash==0xBEEF);
   assert(good.size()==1 && good[0].draw.vertex_buffer==1 &&
          good[0].draw.index_buffer==3 && good[0].draw.index_count==3 &&
          good[0].effect_hash==0x1234 && good[0].pass_index==0);
@@ -89,6 +105,9 @@ int main(){
   check([](auto& v){v.mesh_material_verified=false;});
   check([](auto& v){v.host_vertex_layout_verified=false;});
   check([](auto& v){v.render_state_verified=false;});
+  check([](auto& v){v.original_sampler_slots[0].original_texture_hash=0;});
+  check([](auto& v){v.original_sampler_slots[0].original_surface_ordinal=1;});
+  check([](auto& v){v.original_sampler_slots[0].original_shader_fetch_slot_verified=false;});
   Reject([&]{std::vector<const model::UploadedOriginalModel*> dup{&resident,&resident};
             (void)native::BindVerifiedGeometryDraws(
                 std::span<const native::VerifiedDrawSource>(&original,1),dup,effects);});

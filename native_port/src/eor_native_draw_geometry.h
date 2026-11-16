@@ -9,6 +9,7 @@
 #include <span>
 #include <string_view>
 #include <vector>
+#include <vector>
 
 namespace hulk::eor::native {
 struct VerifiedDrawSource {
@@ -30,6 +31,9 @@ struct VerifiedDrawSource {
   bool mesh_material_verified = false;
   bool host_vertex_layout_verified = false;
   bool render_state_verified = false;
+  // Real guest material/fetch mapping supplied by a separately audited EoR
+  // engine Draw, never inferred from adjacent textures in MODELS.ARC.
+  std::vector<gpu::VerifiedEorSampler> original_sampler_slots;
 };
 
 // Build a native DrawIndexed batch only from real resident GPU buffers and

@@ -6,6 +6,8 @@
 #include "eor_spirv_bank.h"
 #include "eor_effect_catalog.h"
 #include "eor_shader_reflection.h"
+#include "eor_verified_sampler_bindings.h"
+#include <vector>
 #include <span>
 
 namespace hulk::eor::aot {
@@ -15,6 +17,7 @@ struct BoundIndexedDraw {
   Digest pixel_source_sha256{};
   uint32_t effect_hash = 0; // Original EoR ShaderEffect ID.
   uint32_t pass_index = UINT32_MAX; // Original candidate technique/pass slot.
+  std::vector<gpu::VerifiedEorSampler> original_samplers;
 };
 class ShaderBindingBackend : public native::Backend {
  public:
@@ -26,6 +29,14 @@ class ShaderBindingBackend : public native::Backend {
   // shader assumptions. Backend must bind actual game VS/PS constants.
   virtual bool BindOriginalConstants(const ReflectedShader& vertex,
                                      const ReflectedShader& pixel) = 0;
+  // Called after selecting the correct native shader/PSO but before Draw.
+  // Default fail-closed for nonempty sampler lists. Production implementations
+  // must look up the EXACT original hash and Diligent shader resource variable,
+  // bind resident SRVs, and commit resources to the active context.
+  virtual bool BindOriginalSamplers(
+      std::span<const gpu::VerifiedEorSampler> samplers) {
+    return samplers.empty();
+  }
   // Called before each DrawIndexed. Returns false if the Vulkan/Diligent
   // program cannot be created/selected for the real resource/vertex layout.
   virtual bool BindOfflineShaders(std::span<const uint32_t> vertex_spirv,

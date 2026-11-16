@@ -35,6 +35,7 @@ class ForwardingBackend final : public native::Backend {
     return target_.BindOriginalEffect(pair.effect_hash, pair.pass_index) &&
            target_.BindOriginalConstants(*vr, *pr) &&
            target_.BindOfflineShaders(vs->spirv, ps->spirv) &&
+           target_.BindOriginalSamplers(pair.original_samplers) &&
            target_.DrawIndexed(draw);
   }
   bool ResolveScene(native::Size size) override {
@@ -75,6 +76,12 @@ void ReplayAotScene(const native::FrameGeometry& frame,
   std::vector<native::IndexedDraw> commands;
   commands.reserve(draws.size());
   for (const auto& value : draws) {
+    gpu::ValidateOriginalEorSamplers(value.original_samplers);
+    for (const auto& sampler : value.original_samplers) {
+      if (sampler.original_effect_hash != value.effect_hash ||
+          sampler.original_pass_index != value.pass_index)
+        throw std::invalid_argument("Original shader sampler belongs to a different Draw pass");
+    }
     if (!value.effect_hash ||
         !effects.HasPair(value.effect_hash, value.pass_index,
                          value.vertex_source_sha256, value.pixel_source_sha256))

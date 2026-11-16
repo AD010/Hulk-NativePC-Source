@@ -373,7 +373,9 @@ jobs:
                               'native_port/src/eor_original_model_upload.cpp',
                               'native_port/src/eor_native_frame.cpp',
                               'native_port/src/eor_spirv_bank.cpp',
-                              'native_port/src/eor_aot_draw_bridge.cpp',
+                              'native_port/src/eor_verified_sampler_bindings.cpp',
+                              'native_port/src/eor_verified_sampler_bindings.cpp',
+                           'native_port/src/eor_aot_draw_bridge.cpp',
                               'native_port/src/eor_native_draw_geometry.cpp',
                               'ci/eor_native_draw_geometry_test.cpp')
           & cl.exe @nativeDrawArgs

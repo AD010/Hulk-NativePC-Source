@@ -7,7 +7,7 @@
 using namespace hulk::eor;
 using namespace hulk::eor::aot;
 struct Backend final:ShaderBindingBackend {
-  unsigned begin=0,bind=0,effect=0,constants=0,draw=0,resolve=0,composite=0,abort=0;
+  unsigned begin=0,bind=0,effect=0,constants=0,draw=0,resolve=0,composite=0,abort=0,samplers=0;
   bool BeginScene(native::Size size,uint32_t) override {
     assert(size.width==2560 && size.height==1600); ++begin;return true;}
   bool BindOriginalEffect(uint32_t hash, uint32_t pass) override {
@@ -19,6 +19,12 @@ struct Backend final:ShaderBindingBackend {
     assert(vs.view_projection.index==11 && vs.view_projection.count==4);
     assert(!ps.view_projection.Present());
     ++constants;return true;
+  }
+  bool BindOriginalSamplers(std::span<const gpu::VerifiedEorSampler> slots) override {
+    ++samplers;
+    for(const auto& slot:slots)
+      assert(slot.original_effect_hash==0x123 && slot.original_pass_index==0);
+    return true;
   }
   bool BindOfflineShaders(std::span<const uint32_t> vs,
                           std::span<const uint32_t> ps) override {
@@ -77,6 +83,7 @@ int main(){
   Backend target;
   std::vector<BoundIndexedDraw> draws{entry};
   ReplayAotScene(geometry,draws,shaders,effects,reflection,target);
+  assert(target.samplers==1);
   assert(target.begin==1 && target.bind==1 && target.effect==1 &&
          target.constants==1 && target.draw==1 &&
          target.resolve==1 && target.composite==1);

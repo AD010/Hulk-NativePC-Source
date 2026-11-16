@@ -56,6 +56,13 @@ std::vector<aot::BoundIndexedDraw> BindVerifiedGeometryDraws(
         mesh->original_vertex_stride < 12 || mesh->original_vertex_stride > 192 ||
         uint64_t(src.first_index)+src.index_count > mesh->index_count)
       throw std::invalid_argument("Unmatched or out-of-bounds EoR indexed GPU geometry");
+    gpu::ValidateOriginalEorSamplers(src.original_sampler_slots);
+    for (const auto& sampler:src.original_sampler_slots)
+      if (sampler.original_model_hash!=src.original_model_hash ||
+          sampler.original_surface_ordinal!=src.original_surface_ordinal ||
+          sampler.original_effect_hash!=src.original_effect_hash ||
+          sampler.original_pass_index!=src.original_pass_index)
+        throw std::invalid_argument("Original EoR surface/PSO texture slot owner mismatch");
     aot::BoundIndexedDraw item;
     item.draw = {mesh->position_buffer,mesh->index_buffer,
                  src.vertex_shader_id,src.pixel_shader_id,
@@ -64,7 +71,8 @@ std::vector<aot::BoundIndexedDraw> BindVerifiedGeometryDraws(
     item.pixel_source_sha256 = src.pixel_source_sha256;
     item.effect_hash = src.original_effect_hash;
     item.pass_index = src.original_pass_index;
-    out.push_back(item);
+    item.original_samplers = src.original_sampler_slots;
+    out.push_back(std::move(item));
   }
   return out;
 }
