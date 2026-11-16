@@ -1,4 +1,5 @@
 #include "eor_aot_draw_bridge.h"
+#include "eor_spirv_texture_bindings.h"
 #include <stdexcept>
 #include <vector>
 
@@ -77,6 +78,37 @@ void ReplayAotScene(const native::FrameGeometry& frame,
   commands.reserve(draws.size());
   for (const auto& value : draws) {
     gpu::ValidateOriginalEorSamplers(value.original_samplers);
+    // Fail closed for ORIGINAL sampled images that have no resident material
+    // ownership. The shader's Vulkan resource name is not its Xenos register.
+    for (const auto stage : {Stage::Vertex,Stage::Pixel}) {
+      const auto* program=bank.Find(
+          stage==Stage::Vertex ? value.vertex_source_sha256 :
+                                 value.pixel_source_sha256,stage);
+      if(!program)
+        throw std::logic_error("Original source shader stage unavailable");
+      const auto images=InspectSpirvImageResources(program->spirv);
+      for(const auto& image:images) {
+        size_t matches=0;
+        for(const auto& slot:value.original_samplers)
+          if(slot.exact_shader_variable_name==image.exact_variable_name &&
+             slot.stage==(stage==Stage::Vertex ?
+                   gpu::OriginalSamplerStage::Vertex :
+                   gpu::OriginalSamplerStage::Pixel))
+            ++matches;
+        if(matches!=1)
+          throw std::invalid_argument("Original material lacks exact sampled SPIR-V shader resource");
+      }
+      for(const auto& slot:value.original_samplers) {
+        if(slot.stage!=(stage==Stage::Vertex ? gpu::OriginalSamplerStage::Vertex :
+                                               gpu::OriginalSamplerStage::Pixel))continue;
+        bool exists=false;
+        for(const auto& image:images)
+          if(image.exact_variable_name==slot.exact_shader_variable_name)
+            exists=true;
+        if(!exists)
+          throw std::invalid_argument("Unmatched original material shader sampler name/stage");
+      }
+    }
     for (const auto& sampler : value.original_samplers) {
       if (sampler.original_effect_hash != value.effect_hash ||
           sampler.original_pass_index != value.pass_index)

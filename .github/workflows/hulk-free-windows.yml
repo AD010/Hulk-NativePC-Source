@@ -375,6 +375,7 @@ jobs:
                               'native_port/src/eor_spirv_bank.cpp',
                               'native_port/src/eor_verified_sampler_bindings.cpp',
                               'native_port/src/eor_verified_sampler_bindings.cpp',
+                           'native_port/src/eor_spirv_texture_bindings.cpp',
                            'native_port/src/eor_aot_draw_bridge.cpp',
                               'native_port/src/eor_native_draw_geometry.cpp',
                               'ci/eor_native_draw_geometry_test.cpp')
@@ -397,6 +398,17 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Original Xenos untile/mip regression failed' }
           # Original EoR material/texture ownership and true host shader SRB
           # variable slots: never infer fetch register from nearby hashes.
+          # SPIR-V sampled-image OpName/Binding/DescriptorSet ownership must
+          # map to a source-verified material BEFORE the first game Draw.
+          $spvSamplerTest = Join-Path $env:RUNNER_TEMP 'hulk-original-spirv-texture-bindings-test.exe'
+          $spvSamplerArgs = @('/nologo','/std:c++20','/EHsc','/W4','/WX','/utf-8',
+                              "/Fe:$spvSamplerTest",
+                              'native_port/src/eor_spirv_texture_bindings.cpp',
+                              'ci/eor_spirv_texture_bindings_test.cpp')
+          & cl.exe @spvSamplerArgs
+          if ($LASTEXITCODE -ne 0) { throw 'Original Xenos SPIR-V sampler resource parser compile failed' }
+          & $spvSamplerTest
+          if ($LASTEXITCODE -ne 0) { throw 'Original Xenos SPIR-V sampled-image mapping regression failed' }
           $samplerTest = Join-Path $env:RUNNER_TEMP 'hulk-eor-verified-samplers-test.exe'
           $samplerArgs = @('/nologo','/std:c++20','/EHsc','/W4','/WX','/utf-8',
                            "/Fe:$samplerTest",
