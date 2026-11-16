@@ -89,6 +89,65 @@ def patch(src: str) -> tuple[str,bool]:
     src=src.replace(BODY_OLD,BODY_NEW,1)
     return src,True
 
+
+# The guest upload alone is NOT a Draw binding: the same fetch constant can
+# select a resolved render target or a placeholder through Textures::View.
+# This second, read-only witness records the actual shader lookup result.
+# No resource pointer, guest bytes, host texture or shader descriptor is replaced.
+DRAW_INCLUDES_OLD = "#include <algorithm>\n#include <cmath>\n#include <vector>"
+DRAW_INCLUDES_NEW = "#include <algorithm>\n#include <array>\n#include <atomic>\n#include <cmath>\n#include <vector>"
+DRAW_LOGGING_OLD = "#include <rex/cvar.h>"
+DRAW_LOGGING_NEW = "#include <rex/cvar.h>\n#include <rex/logging.h>"
+DRAW_CVAR_OLD = "REXCVAR_DECLARE(int32_t, anisotropic_override);"
+DRAW_CVAR_NEW = (DRAW_CVAR_OLD + "\n"
+                 "REXCVAR_DECLARE(bool, native_x_renderer_hulk_live_texture_id);")
+DRAW_BIND_OLD = """  Count(kept.value.kind);
+  ++record_.counts[std::min<uint32_t>(kept.value.kind, 3)];
+  return kept.value.view;"""
+DRAW_BIND_NEW = """  // HULK/ACTIVE-SHADER-RESOURCE: actual NativeX shader-view selection.
+  // 0=resolved host RT, 1=guest GPU memory texture, 2=placeholder,
+  // 3=incompatible dimension. This is a lookup, NOT proof of GPU submission.
+  // Correlate guest entries with HULK/LIVE-XENOS-ARC-IDENTITY by GPU address
+  // and Xenos format; never treat resolved/placeholder as an ARC match.
+  if (REXCVAR_GET(native_x_renderer_hulk_live_texture_id)) {
+    const uint32_t hulk_kind = std::min<uint32_t>(kept.value.kind, 3u);
+    static std::array<std::atomic<uint64_t>, 4> hulk_bound_counts{};
+    const uint64_t hulk_seen =
+        hulk_bound_counts[hulk_kind].fetch_add(1, std::memory_order_relaxed) + 1;
+    if (hulk_seen <= 16 || hulk_seen % 12000 == 0) {
+      REXLOG_INFO("[HULK/ACTIVE-SHADER-RESOURCE] kind={} count={} "
+                  "fetch={} gpu_base={:#x} format={} dimension={} "
+                  "(real shader view lookup, no Draw submit claim)",
+                  hulk_kind, hulk_seen, fetch_constant,
+                  uint64_t(fetch.base_address) << 12,
+                  uint32_t(fetch.format), uint32_t(dimension));
+    }
+  }
+  Count(kept.value.kind);
+  ++record_.counts[std::min<uint32_t>(kept.value.kind, 3)];
+  return kept.value.view;"""
+
+def patch_draw(src: str) -> tuple[str, bool]:
+    # A partial installation is unsafe: the CVar must resolve uniquely and
+    # the cached draw path must remain unchanged outside this observer.
+    pairs = (("includes", DRAW_INCLUDES_OLD, DRAW_INCLUDES_NEW),
+             ("logging", DRAW_LOGGING_OLD, DRAW_LOGGING_NEW),
+             ("cvar", DRAW_CVAR_OLD, DRAW_CVAR_NEW),
+             ("shader binding", DRAW_BIND_OLD, DRAW_BIND_NEW))
+    if "HULK/ACTIVE-SHADER-RESOURCE" in src:
+        if (src.count(DRAW_BIND_NEW) != 1 or
+            src.count(DRAW_CVAR_NEW) != 1 or
+            src.count(DRAW_INCLUDES_NEW) != 1 or
+            src.count(DRAW_LOGGING_NEW) != 1):
+            raise ValueError("Partially installed shader resource witness")
+        return src, False
+    for name, before, after in pairs:
+        if src.count(before) != 1 or after in src:
+            raise ValueError(f"NativeX D140 active Draw {name} anchor drift")
+    for _, before, after in pairs:
+        src = src.replace(before, after, 1)
+    return src, True
+
 def main() -> None:
     if len(sys.argv)!=2:
         raise SystemExit("Usage: patch_native_x_hulk_live_texture_fingerprint.py NativeXRoot")
@@ -98,9 +157,15 @@ def main() -> None:
     if revision != PIN or revision not in PINS:
         raise ValueError("Unexpected NativeX revision "+revision)
     target=root/"src"/"guest_textures.cpp"
+    draw_target=root/"src"/"textures.cpp"
+    # Validate both patch targets before changing either one.
     source,changed=patch(target.read_text(encoding="utf-8"))
+    draw_source,draw_changed=patch_draw(draw_target.read_text(encoding="utf-8"))
     if changed:target.write_text(source,encoding="utf-8",newline="\n")
+    if draw_changed:draw_target.write_text(draw_source,encoding="utf-8",newline="\n")
     print("Hulk TRUE GPU texture source identity probe:",
-          "installed" if changed else "already installed")
+          "installed" if changed else "already installed",
+          "| active shader view witness:",
+          "installed" if draw_changed else "already installed")
 
 if __name__=="__main__":main()
