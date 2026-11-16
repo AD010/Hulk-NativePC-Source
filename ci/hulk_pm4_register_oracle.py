@@ -196,10 +196,17 @@ def replay(words: list[int], watch=WATCH, max_draws=MAX_DRAWS) -> dict:
                 continue
             # Xenos packet-side VGT writes are authoritative for this draw,
             # in the same sequence as the production NativeX scanner.
-            write(0x21fc, initiator)
-            if dma:
-                write(0x21fa, payload[at + 1])
-                write(0x21fb, payload[at + 2])
+            if h & 1:
+                # A BIN-predicated draw may not execute. Packet-side VGT
+                # writes must not be asserted as observed GPU register state.
+                # Keep the candidate draw for audit with unknown execution.
+                for reg in (0x21fc, 0x21fa, 0x21fb):
+                    mark_unknown(reg, 1)
+            else:
+                write(0x21fc, initiator)
+                if dma:
+                    write(0x21fa, payload[at + 1])
+                    write(0x21fb, payload[at + 2])
             if len(captures) < max_draws:
                 captures.append({
                     'packet_end_word': p,
