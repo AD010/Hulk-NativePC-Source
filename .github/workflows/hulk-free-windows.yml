@@ -335,6 +335,17 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'EoR LOD residency policy MSVC compile failed' }
           & $lodTest
           if ($LASTEXITCODE -ne 0) { throw 'EoR LOD hysteresis/prefetch regression failed' }
+          # Generic original BE vertex attribute decoding; no inferred
+          # semantics until actual EoR vertex declarations are mapped.
+          $attributesTest = Join-Path $env:RUNNER_TEMP 'hulk-eor-native-attributes-test.exe'
+          $attributesArgs = @('/nologo','/std:c++20','/EHsc','/W4','/WX','/utf-8',
+                              "/Fe:$attributesTest",
+                              'native_port/src/eor_native_attributes.cpp',
+                              'ci/eor_native_attributes_test.cpp')
+          & cl.exe @attributesArgs
+          if ($LASTEXITCODE -ne 0) { throw 'EoR original vertex attribute decoder MSVC compile failed' }
+          & $attributesTest
+          if ($LASTEXITCODE -ne 0) { throw 'EoR vertex data format/bounds regression failed' }
           $allSurfaceTest = Join-Path $env:RUNNER_TEMP 'hulk-eor-all-surface-materials-test.exe'
           $allSurfaceArgs = @('/nologo','/std:c++20','/EHsc','/W4','/WX','/utf-8',
                               "/Fe:$allSurfaceTest",
