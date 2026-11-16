@@ -17,7 +17,11 @@ static_assert(std::is_trivially_copyable_v<model::NativePosition>);
 struct DiligentMeshUploadBackend::State {
   explicit State(Diligent::IRenderDevice* dev) : device(dev) {}
   Diligent::RefCntAutoPtr<Diligent::IRenderDevice> device;
-  std::map<uint64_t,Diligent::RefCntAutoPtr<Diligent::IBuffer>> live;
+  struct Entry {
+    Diligent::RefCntAutoPtr<Diligent::IBuffer> buffer;
+    uint32_t kind=UINT32_MAX;
+  };
+  std::map<uint64_t,Entry> live;
   uint64_t next_handle = 1;
 };
 DiligentMeshUploadBackend::DiligentMeshUploadBackend(Diligent::IRenderDevice* device)
@@ -44,7 +48,7 @@ uint64_t DiligentMeshUploadBackend::Create(const void* bytes, uint64_t length, u
     state_->device->CreateBuffer(description,&initial,&buffer);
     if (!buffer) return 0;
     const uint64_t handle=state_->next_handle;
-    state_->live.emplace(handle,std::move(buffer));
+    state_->live.emplace(handle,State::Entry{std::move(buffer),kind});
     ++state_->next_handle;
     return handle;
   } catch (...) {
@@ -77,7 +81,11 @@ void DiligentMeshUploadBackend::ReleaseBuffer(uint64_t handle) noexcept {
 }
 Diligent::IBuffer* DiligentMeshUploadBackend::FindBuffer(uint64_t handle) const noexcept {
   const auto it=state_->live.find(handle);
-  return it==state_->live.end()?nullptr:it->second.RawPtr();
+  return it==state_->live.end()?nullptr:it->second.buffer.RawPtr();
+}
+uint32_t DiligentMeshUploadBackend::KindOf(uint64_t handle) const noexcept {
+  const auto it=state_->live.find(handle);
+  return it==state_->live.end()?UINT32_MAX:it->second.kind;
 }
 size_t DiligentMeshUploadBackend::LiveBufferCount() const noexcept {return state_->live.size();}
 } // namespace hulk::eor::gpu
