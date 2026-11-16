@@ -301,6 +301,17 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Original Xbox mesh vertex/index decoder compile failed' }
           & $meshTest
           if ($LASTEXITCODE -ne 0) { throw 'Original Xbox mesh vertex/index decode regression failed' }
+          # Native XYZ/index GPU upload boundary; all-geometry CPU preflight
+          # and GPU buffer rollback regression (synthetic data only).
+          $uploadTest = Join-Path $env:RUNNER_TEMP 'hulk-eor-native-upload-test.exe'
+          $uploadArgs = @('/nologo','/std:c++20','/EHsc','/W4','/WX','/utf-8',
+                          "/Fe:$uploadTest",
+                          'native_port/src/eor_native_mesh_upload.cpp',
+                          'ci/eor_native_mesh_upload_test.cpp')
+          & cl.exe @uploadArgs
+          if ($LASTEXITCODE -ne 0) { throw 'Native EoR mesh upload bridge MSVC compile failed' }
+          & $uploadTest
+          if ($LASTEXITCODE -ne 0) { throw 'Native EoR GPU buffer upload rollback/preflight regression failed' }
           $allSurfaceTest = Join-Path $env:RUNNER_TEMP 'hulk-eor-all-surface-materials-test.exe'
           $allSurfaceArgs = @('/nologo','/std:c++20','/EHsc','/W4','/WX','/utf-8',
                               "/Fe:$allSurfaceTest",
