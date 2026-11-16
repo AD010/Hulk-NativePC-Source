@@ -28,6 +28,7 @@ void BindVerifiedOriginalEorTextures(
   for(const auto& sampler:samplers) {
     if(!sampler.uploaded ||
        sampler.uploaded->original_texture_hash!=sampler.identity.original_texture_hash ||
+       sampler.uploaded->view_kind!=sampler.required_view ||
        !sampler.uploaded->original_mip_levels || !sampler.uploaded->SRV())
       throw std::invalid_argument("Original EoR sampler has no matching resident GPU texture");
     auto* var=srb->GetVariableByName(
