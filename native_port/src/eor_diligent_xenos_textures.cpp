@@ -79,6 +79,12 @@ UploadedEorTexture UploadExplicitOriginalTexture(
      original.original_mip_plan->family!=Family(format) ||
      original.original_mip_plan->levels.size()!=layouts.size())
     throw std::invalid_argument("Original Xbox texture format family/mip chain incomplete");
+  // The two original 52-byte surpluses are inferred from record lengths,
+  // not yet proven as suffixes by tail-byte inspection or live GPU fetch.
+  // The new range validator can check candidate offsets, but MUST NOT
+  // authorize a GPU upload while the source provenance flag is false.
+  if(!original.original_mip_plan->absolute_source_offsets_proven)
+    throw std::invalid_argument("Original Xbox mip GPU byte starts not source-proven");
   for(size_t i=0;i<layouts.size();++i) {
     const auto& actual=layouts[i];
     const auto& expected=original.original_mip_plan->levels[i];
