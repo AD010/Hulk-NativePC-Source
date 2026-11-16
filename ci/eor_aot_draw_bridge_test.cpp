@@ -8,6 +8,7 @@ using namespace hulk::eor;
 using namespace hulk::eor::aot;
 struct Backend final:ShaderBindingBackend {
   unsigned begin=0,bind=0,effect=0,constants=0,draw=0,resolve=0,composite=0,abort=0,samplers=0;
+  bool refuse_samplers=false;
   bool BeginScene(native::Size size,uint32_t) override {
     assert(size.width==2560 && size.height==1600); ++begin;return true;}
   bool BindOriginalEffect(uint32_t hash, uint32_t pass) override {
@@ -24,7 +25,7 @@ struct Backend final:ShaderBindingBackend {
     ++samplers;
     for(const auto& slot:slots)
       assert(slot.original_effect_hash==0x123 && slot.original_pass_index==0);
-    return true;
+    return !refuse_samplers || slots.empty();
   }
   bool BindOfflineShaders(std::span<const uint32_t> vs,
                           std::span<const uint32_t> ps) override {
@@ -118,5 +119,45 @@ int main(){
   try {ReplayAotScene(geometry,draws,shaders,effects,reflection,fresh);}
   catch(const std::invalid_argument&){rejected=true;}
   assert(rejected && fresh.begin==0 && fresh.bind==0 && fresh.draw==0);
+
+  // A real sample/texture hash must reach the intended Draw only AFTER
+  // validated VS/PS programs and before submission, not from guesses.
+  gpu::VerifiedEorSampler texture;
+  texture.original_model_hash=0xCAFE;
+  texture.original_surface_ordinal=0;
+  texture.original_effect_hash=0x123;
+  texture.original_pass_index=0;
+  texture.original_texture_hash=0xBEEF;
+  texture.original_fetch_register=2;
+  texture.stage=gpu::OriginalSamplerStage::Pixel;
+  texture.exact_shader_variable_name="g_Diffuse";
+  texture.original_material_ownership_verified=true;
+  texture.original_shader_fetch_slot_verified=true;
+  texture.original_texture_format_and_mips_verified=true;
+  entry.original_samplers={texture};
+  Backend textured;
+  draws={entry};
+  ReplayAotScene(geometry,draws,shaders,effects,reflection,textured);
+  assert(textured.begin==1 && textured.bind==1 && textured.samplers==1 &&
+         textured.draw==1 && textured.abort==0);
+  Backend blocked;
+  auto other=texture;
+  other.original_effect_hash=0xFAFE;
+  entry.original_samplers={other};
+  draws={entry};
+  bool wrong_owner=false;
+  try {ReplayAotScene(geometry,draws,shaders,effects,reflection,blocked);}
+  catch(const std::invalid_argument&){wrong_owner=true;}
+  assert(wrong_owner && blocked.begin==0 && blocked.samplers==0 &&
+         blocked.draw==0);
+  entry.original_samplers={texture};
+  Backend missing_resource;
+  missing_resource.refuse_samplers=true;
+  draws={entry};
+  bool refused=false;
+  try {ReplayAotScene(geometry,draws,shaders,effects,reflection,missing_resource);}
+  catch(const std::runtime_error&){refused=true;}
+  assert(refused && missing_resource.begin==1 && missing_resource.abort==1 &&
+         missing_resource.draw==0 && missing_resource.resolve==0);
 }
 
