@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <bit>
 #include <cmath>
+#include <utility>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -177,6 +178,12 @@ std::optional<OriginalLfxtMipPlan> ReconstructOriginalLfxtMipPlan(
   const uint32_t h=(uint32_t(std::to_integer<uint8_t>(bytes[base+7]))<<8) |
                     uint32_t(std::to_integer<uint8_t>(bytes[base+8]));
   if(!w || !h || w>8192 || h>8192)
+    return std::nullopt;
+  const float local_metric=std::bit_cast<float>(ReadBig32(bytes,base+9));
+  const double expected_metric=std::sqrt(static_cast<double>(w)*h);
+  if(!std::isfinite(local_metric) ||
+     std::fabs(static_cast<double>(local_metric)-expected_metric)>
+          std::max(0.01,expected_metric*0.00002))
     return std::nullopt;
   // A 32x32 Xenos tiled macroblock uses actual TEXEL BLOCKS for BCn,
   // and individual texels for uncompressed formats.

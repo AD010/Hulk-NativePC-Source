@@ -226,6 +226,10 @@ int main(){
         original_lfxt,ResourceHash(name),*inline_section,*parsed);
     assert(mip_plan && mip_plan->levels.size()>=parsed->levels.size() &&
            !mip_plan->absolute_source_offsets_proven);
+    auto wrong_metric=original_lfxt;
+    Replace32(wrong_metric,4+name.size()+1+9,0);
+    assert(!textures::ReconstructOriginalLfxtMipPlan(
+        wrong_metric,ResourceHash(name),*inline_section,*parsed));
     for(size_t level=0;level<parsed->levels.size();++level) {
       assert(mip_plan->levels[level].from_stream_archive);
       assert(mip_plan->levels[level].aligned_storage_bytes==
