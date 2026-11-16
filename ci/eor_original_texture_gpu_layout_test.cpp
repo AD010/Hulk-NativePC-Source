@@ -83,8 +83,9 @@ void Case(uint32_t fmt,uint32_t block,
 }
 } // namespace
 int main() {
-  // Supported source-proven Xenos codes: DXT1 (0x12), DXT4_5 (0x14),
-  // RGBA8 (0x06) and RGBA16_EXPAND (0x1d).
+  // GPU descriptor fixture coverage: DXT1 (0x12), DXT4_5 (0x14),
+  // RGBA8 (0x06; synthetic regression), RGBA16_EXPAND (0x1d).
+  // A synthetic format fixture is not evidence of a live Hulk Draw binding.
   Case(0x12,8,64,32,{{128,64,8192,true},{64,32,8192,false},
                        {32,16,8192,false}});
   Case(0x14,16,32,32,{{256,256,65536,true},
