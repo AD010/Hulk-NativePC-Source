@@ -4,11 +4,11 @@ import unittest
 from patch_native_x_hulk_live_texture_fingerprint import (
     patch,patch_draw,INCLUDES_OLD,BODY_OLD,CVAR_ANCHOR,CVAR,BODY_NEW,
     DRAW_INCLUDES_OLD,DRAW_LOGGING_OLD,DRAW_CVAR_OLD,DRAW_BIND_OLD,
-    DRAW_BIND_NEW,GUEST_VIEW_OLD,GUEST_VIEW_NEW)
+    DRAW_BIND_NEW,GUEST_VIEW_OLD,GUEST_VIEW_NEW,MIPS_OLD,MIPS_NEW)
 
 class LiveOriginalGpuTextureIdentityTest(unittest.TestCase):
     def test_real_guest_upload_anchor_and_idempotence(self):
-        original=INCLUDES_OLD+"\n"+CVAR_ANCHOR+"\n"+BODY_OLD+"\n"+GUEST_VIEW_OLD+"\n"
+        original=INCLUDES_OLD+"\n"+CVAR_ANCHOR+"\n"+BODY_OLD+"\n"+MIPS_OLD+"\n"+GUEST_VIEW_OLD+"\n"
         updated,changed=patch(original)
         self.assertTrue(changed)
         self.assertEqual(patch(updated),(updated,False))
@@ -26,10 +26,17 @@ class LiveOriginalGpuTextureIdentityTest(unittest.TestCase):
                       "texture->base_hash.has_value()",
                       "texture->key()",
                       "base_xxh3={:016x}",
+                      "packed_mips_xxh3={:016x}",
+                      "HULK/LIVE-XENOS-MIP-IDENTITY",
+                      "per-level ARC identity unproven",
                       "not submitted Draw proof"):
             self.assertIn(token,updated)
         self.assertIn("false,",CVAR)
         self.assertNotIn("CreateTexture(",BODY_NEW)
+        self.assertNotIn("CreateTexture(",MIPS_NEW)
+        self.assertIn("mips_hash = hash(key.mip_page, hulk_mips_bytes);",MIPS_NEW)
+        self.assertIn("hulk_mips_bytes >= 128",MIPS_NEW)
+        self.assertNotIn("return false;",MIPS_NEW)
         self.assertNotIn("CreateTexture(",GUEST_VIEW_NEW)
         self.assertNotIn("return nullptr",GUEST_VIEW_NEW)
         self.assertNotIn("variable->Set(",GUEST_VIEW_NEW)
@@ -46,6 +53,8 @@ class LiveOriginalGpuTextureIdentityTest(unittest.TestCase):
             patch(updated+BODY_OLD)
         with self.assertRaises(ValueError):
             patch(updated+GUEST_VIEW_OLD)
+        with self.assertRaises(ValueError):
+            patch(updated+MIPS_OLD)
         with self.assertRaises(ValueError):
             patch(original+BODY_OLD)
 
