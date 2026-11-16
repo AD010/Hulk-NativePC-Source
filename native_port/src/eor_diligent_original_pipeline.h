@@ -2,6 +2,7 @@
 // Direct host Vulkan PSO for a VERIFIED EoR material effect. Xenos PM4, EDRAM,
 // guest register snapshots and speculative shader states are not consulted.
 #include "eor_diligent_spirv_shaders.h"
+#include "eor_effect_catalog.h"
 #include "PipelineState.h"
 #include "RefCntAutoPtr.hpp"
 #include <cstdint>
@@ -34,5 +35,6 @@ OriginalVulkanPipeline CreateOriginalVulkanPipeline(
     Diligent::IRenderDevice* device,
     DiligentAotShaderModules& native_shaders,
     const aot::ShaderBank& bank,
+    const aot::EffectCatalog& original_effects,
     const VerifiedOriginalGraphicsPass& verified);
 } // namespace hulk::eor::gpu
