@@ -174,6 +174,18 @@ def replay(words: list[int], watch=WATCH, max_draws=MAX_DRAWS) -> dict:
             count = payload[2] & 0xfff
             if cls not in BASE:
                 counters['unrecognized_classes'] += 1
+                warnings.append(f'unknown LOAD_ALU_CONSTANT class {cls:02x}: state unresolved')
+                # A memory-backed load with an unrecognized register class
+                # cannot be assigned a safe destination range. Invalidate
+                # previously observed values and shader ownership instead
+                # of reporting stale state as authoritative after the load.
+                for reg in tuple(known):
+                    mark_unknown(reg, 1)
+                for stage in ('vs', 'ps'):
+                    programs[stage] = {
+                        'source': 'unknown_constant_class', 'dwords': None,
+                        'sha256': None, 'external_guest_address': None,
+                    }
             else:
                 mark_unknown(BASE[cls] + (desc & 0x7ff), count)
                 counters['unknown_loads'] += 1
