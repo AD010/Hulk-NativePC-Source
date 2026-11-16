@@ -80,6 +80,14 @@ void LoadConfig() {
     width=GetPrivateProfileIntW(L"Graphics",L"ForceFullscreenWidth",0,ini);
     height=GetPrivateProfileIntW(L"Graphics",L"ForceFullscreenHeight",0,ini);
     if(!width||!height||width>16384||height>16384)width=height=0;
+    // DXVK HUD-SAFE: original 2008 PC HUD uses a 4:3 layout even when
+    // forced backbuffer/projection display a 16:10 3D scene. Never change
+    // the engine's UI by accident, including when an old INI is present.
+    // Opt-in ProtectOriginalHUD=0 only AFTER a real native UI mapper exists.
+    if(GetPrivateProfileIntW(L"Graphics",L"ProtectOriginalHUD",1,ini)!=0) {
+      fixAspect=false;
+      width=height=0;
+    }
     wchar_t value[64]{};
     GetPrivateProfileStringW(L"Graphics",L"SourceAspect",
                              L"1.333333333333333",value,64,ini);
