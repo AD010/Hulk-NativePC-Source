@@ -56,6 +56,23 @@ class PM4OracleTests(unittest.TestCase):
                          '0x880000fe')
         self.assertFalse(audit['complete'])
 
+    def test_unknown_constant_class_invalidates_prior_gpu_truth(self):
+        # An unrecognized constant class cannot be silently treated as a
+        # successful no-op: its side effects are not modeled by this oracle.
+        setup = t3(0x2d, [(1 << 16), 0x880000fe])
+        shader = t3(0x2b, [1, 1, 0x12345678])
+        unknown = t3(0x2d, [(0x7f << 16), 0xdeadbeef])
+        draw = t3(0x36, [0x40])
+        result = replay(setup + shader + unknown + draw)
+        snapshot = result['draw_snapshots'][0]
+        self.assertNotIn('0x4800', snapshot['known_watched_registers'])
+        self.assertIn('0x4800', snapshot['unresolved_watched_registers'])
+        self.assertIsNone(snapshot['shader_programs']['ps']['sha256'])
+        self.assertEqual(result['packet_counters']['unrecognized_classes'], 1)
+        self.assertFalse(result['complete'])
+        self.assertTrue(any('unknown SET_CONSTANT class' in w
+                            for w in result['warnings']))
+
     def test_predicated_constant_never_assumed_executed(self):
         state = t3(0x2d, [(1 << 16) | 6, 0x44a00000], pred=True)
         r = replay(state + t3(0x36, [0x40], pred=True))
