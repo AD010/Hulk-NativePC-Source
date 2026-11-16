@@ -16,6 +16,7 @@ bool Valid(const OriginalMipIdentity& entry) {
   const auto& w=entry.witness;
   return entry.original_texture_hash && w.width && w.height &&
     w.width<=8192 && w.height<=8192 && w.full_xxh3 &&
+    w.first_fnv && w.second_fnv &&
     (w.xenos_format==2 || w.xenos_format==6 || w.xenos_format==18 ||
      w.xenos_format==20 || w.xenos_format==29) &&
     entry.original_mip_level<16;
@@ -34,9 +35,14 @@ VerifiedSourceMipResolver::VerifiedSourceMipResolver(
     size_t j=i+1;
     while(j<original_.size() && Key(original_[i].witness)==Key(original_[j].witness))
       ++j;
-    uint32_t owner=original_[i].original_texture_hash;
+    // One fingerprint must identify exactly one source owner, mip level
+    // AND storage archive. Identical bytes in a different level or archive
+    // cannot be silently attributed to an arbitrary material.
+    const auto& owner=original_[i];
     for(size_t k=i+1;k<j;++k)
-      if(original_[k].original_texture_hash!=owner) {
+      if(original_[k].original_texture_hash!=owner.original_texture_hash ||
+         original_[k].original_mip_level!=owner.original_mip_level ||
+         original_[k].archived_stream!=owner.archived_stream) {
         ++ambiguous_;break;
       }
     i=j;
@@ -45,7 +51,8 @@ VerifiedSourceMipResolver::VerifiedSourceMipResolver(
 std::optional<OriginalMipIdentity> VerifiedSourceMipResolver::Find(
     const OriginalMipWitness& observed) const {
   if(!observed.xenos_format || !observed.width || !observed.height ||
-     !observed.full_xxh3)
+     !observed.full_xxh3 || !observed.first_fnv ||
+     !observed.second_fnv || observed.width>8192 || observed.height>8192)
     return std::nullopt;
   const auto key=Key(observed);
   auto it=std::lower_bound(original_.begin(),original_.end(),observed,
