@@ -2,7 +2,9 @@
 """Source-only guards for the actual NativeX texture identity bridge."""
 import unittest
 from patch_native_x_hulk_live_texture_fingerprint import (
-    patch,INCLUDES_OLD,BODY_OLD,CVAR_ANCHOR,CVAR,BODY_NEW)
+    patch,patch_draw,INCLUDES_OLD,BODY_OLD,CVAR_ANCHOR,CVAR,BODY_NEW,
+    DRAW_INCLUDES_OLD,DRAW_LOGGING_OLD,DRAW_CVAR_OLD,DRAW_BIND_OLD,
+    DRAW_BIND_NEW)
 
 class LiveOriginalGpuTextureIdentityTest(unittest.TestCase):
     def test_real_guest_upload_anchor_and_idempotence(self):
@@ -36,6 +38,36 @@ class LiveOriginalGpuTextureIdentityTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             patch(original+BODY_OLD)
 
+    def test_shader_view_attestation_and_fail_closed_binding(self):
+        # D140 Textures::View returns actual cached shader-view selection.
+        original=(DRAW_LOGGING_OLD+"\n"+DRAW_INCLUDES_OLD+"\n"+
+                  DRAW_CVAR_OLD+"\n"+DRAW_BIND_OLD+"\n")
+        changed, installed = patch_draw(original)
+        self.assertTrue(installed)
+        self.assertEqual(patch_draw(changed), (changed, False))
+        self.assertIn("HULK/ACTIVE-SHADER-RESOURCE", changed)
+        self.assertIn("native_x_renderer_hulk_live_texture_id", changed)
+        self.assertIn("hulk_kind = std::min<uint32_t>(kept.value.kind, 3u)", changed)
+        self.assertIn("fetch.base_address", changed)
+        self.assertIn("fetch_constant", changed)
+        self.assertIn("uint32_t(fetch.format)", changed)
+        self.assertIn("kind={} count={}", changed)
+        self.assertIn("return kept.value.view;", changed)
+        self.assertIn("Count(kept.value.kind);", changed)
+        self.assertIn("no Draw submit claim", changed)
+        # No source image/host memory modification by the observer.
+        self.assertNotIn("CreateTexture(", DRAW_BIND_NEW)
+        self.assertNotIn("variable->Set(", DRAW_BIND_NEW)
+        self.assertNotIn("RequestTextures(", DRAW_BIND_NEW)
+        self.assertNotIn("return nullptr", DRAW_BIND_NEW)
+        with self.assertRaises(ValueError):
+            patch_draw("unknown renderer source")
+        with self.assertRaises(ValueError):
+            patch_draw(changed + DRAW_BIND_OLD)
+        with self.assertRaises(ValueError):
+            patch_draw(changed.replace("native_x_renderer_hulk_live_texture_id",
+                                        "missing_cvar", 1))
+ 
     def test_two_witnesses_separate_original_content(self):
         def fnv(b):
             n=14695981039346656037
