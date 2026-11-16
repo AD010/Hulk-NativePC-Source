@@ -387,11 +387,24 @@ jobs:
                             "/Fe:$textureTest",
                             'native_port/src/eor_archive.cpp',
                             'native_port/src/eor_original_texture_assets.cpp',
+                            'native_port/src/eor_original_texture_streams.cpp',
                             'ci/eor_original_texture_assets_test.cpp')
           & cl.exe @textureArgs
           if ($LASTEXITCODE -ne 0) { throw 'Original Xbox EoR texture ARC loader MSVC compile failed' }
           & $textureTest
           if ($LASTEXITCODE -ne 0) { throw 'Original EoR texture index, bounds, dedup regression failed' }
+          # Verified LFXT -> TexStreams.ARC high-detail resource hashes.
+          # No copyrighted pixels or guessed GPU format in CI fixtures.
+          $streamTest = Join-Path $env:RUNNER_TEMP 'hulk-eor-original-texstream-test.exe'
+          $streamArgs = @('/nologo','/std:c++20','/EHsc','/W4','/WX','/utf-8',
+                          "/Fe:$streamTest",
+                          'native_port/src/eor_archive.cpp',
+                          'native_port/src/eor_original_texture_streams.cpp',
+                          'ci/eor_original_texture_streams_test.cpp')
+          & cl.exe @streamArgs
+          if ($LASTEXITCODE -ne 0) { throw 'Original Xbox EoR TexStreams mapper compile failed' }
+          & $streamTest
+          if ($LASTEXITCODE -ne 0) { throw 'Original EoR TexStreams source/reference regression failed' }
           $allSurfaceTest = Join-Path $env:RUNNER_TEMP 'hulk-eor-all-surface-materials-test.exe'
           $allSurfaceArgs = @('/nologo','/std:c++20','/EHsc','/W4','/WX','/utf-8',
                               "/Fe:$allSurfaceTest",

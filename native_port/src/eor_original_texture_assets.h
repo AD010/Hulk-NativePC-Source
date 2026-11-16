@@ -3,6 +3,7 @@
 // Original Xenos texture payloads remain opaque: hashes found beside a model
 // surface are CANDIDATES, not established sampler bindings or GPU formats.
 #include "eor_archive.h"
+#include "eor_original_texture_streams.h"
 #include "eor_model_surface_materials.h"
 #include <cstddef>
 #include <cstdint>
@@ -16,6 +17,8 @@ struct OriginalTexture {
   uint32_t hash = 0;
   Resource source_record{};
   std::vector<std::byte> original_bytes;
+  std::optional<OriginalStreamLink> original_stream;
+  std::vector<std::byte> original_stream_bytes; // optional original TexStreams ARC payload
 };
 struct CandidateSlot {
   uint32_t offset_from_surface_data = 0;
@@ -33,7 +36,8 @@ struct OriginalTextureBatch {
 class OriginalXboxTextureAssets {
  public:
   static OriginalXboxTextureAssets Open(const std::filesystem::path& xbox_index,
-                                        const std::filesystem::path& xbox_textures_arc);
+                                        const std::filesystem::path& xbox_textures_arc,
+                                        const std::filesystem::path& xbox_texstreams_arc = {});
   std::optional<OriginalTexture> LoadHash(uint32_t original_hash) const;
   // Preflights every candidate against the original Xbox index BEFORE doing
   // disk I/O. Duplicate hash references retain their original slot positions
@@ -43,5 +47,6 @@ class OriginalXboxTextureAssets {
  private:
   Index index_;
   std::filesystem::path archive_;
+  std::filesystem::path stream_archive_;
 };
 } // namespace hulk::eor::textures

@@ -15,7 +15,8 @@ bool SameResource(const Resource& a, const Resource& b) {
 }
 OriginalXboxTextureAssets OriginalXboxTextureAssets::Open(
     const std::filesystem::path& index_path,
-    const std::filesystem::path& archive_path) {
+    const std::filesystem::path& archive_path,
+    const std::filesystem::path& stream_path) {
   if (archive_path.empty() || !std::filesystem::is_regular_file(archive_path))
     throw std::invalid_argument("Original Xbox Textures.ARC is missing");
   OriginalXboxTextureAssets result;
@@ -23,6 +24,12 @@ OriginalXboxTextureAssets OriginalXboxTextureAssets::Open(
   if (result.index_.byte_order() != ByteOrder::Big ||
       !result.index_.groups().contains("Textures"))
     throw std::invalid_argument("Original Xbox EoR texture index/platform mismatch");
+  if (!stream_path.empty()) {
+    if (!result.index_.groups().contains("TexStreams") ||
+        !std::filesystem::is_regular_file(stream_path))
+      throw std::invalid_argument("Original Xbox TexStreams.ARC is unavailable");
+    result.stream_archive_ = stream_path;
+  }
   result.archive_ = archive_path;
   return result;
 }
@@ -33,7 +40,16 @@ std::optional<OriginalTexture> OriginalXboxTextureAssets::LoadHash(uint32_t hash
       indexed->size > kMaxSingleTexture)
     throw std::invalid_argument("Unsafe original Xbox texture record");
   auto bytes=ReadResource(archive_,*indexed,kMaxSingleTexture);
-  return OriginalTexture{hash,*indexed,std::move(bytes)};
+  OriginalTexture result{hash,*indexed,std::move(bytes),std::nullopt,{}};
+  // A missing high-detail archive NEVER triggers guessed/upsampled mip data.
+  if (index_.groups().contains("TexStreams")) {
+    result.original_stream = FindVerifiedOriginalTexStream(
+        result.original_bytes,hash,index_);
+    if (result.original_stream && !stream_archive_.empty())
+      result.original_stream_bytes = ReadOriginalTexStream(
+          stream_archive_,*result.original_stream);
+  }
+  return result;
 }
 OriginalTextureBatch OriginalXboxTextureAssets::LoadSurfaceCandidates(
     std::span<const model::SurfaceMaterials> surfaces) const {
@@ -74,6 +90,9 @@ OriginalTextureBatch OriginalXboxTextureAssets::LoadSurfaceCandidates(
     auto original=LoadHash(hash);
     if(!original || !SameResource(original->source_record,resource))
       throw std::logic_error("Indexed original EoR texture changed during load");
+    if (original->original_stream_bytes.size() > kMaxBatchBytes-total_bytes)
+      throw std::invalid_argument("Original texture stream batch exceeds memory budget");
+    total_bytes += original->original_stream_bytes.size();
     batch.unique_textures.push_back(std::move(*original));
   }
   return batch;
