@@ -80,10 +80,10 @@ UploadedEorTexture UploadExplicitOriginalTexture(
      original.original_mip_plan->family!=Family(format) ||
      original.original_mip_plan->levels.size()!=layouts.size())
     throw std::invalid_argument("Original Xbox texture format family/mip chain incomplete");
-  // The two original 52-byte surpluses are inferred from record lengths,
-  // not yet proven as suffixes by tail-byte inspection or live GPU fetch.
-  // The new range validator can check candidate offsets, but MUST NOT
-  // authorize a GPU upload while the source provenance flag is false.
+  // Direct original LFXT and TexStreams byte inspection confirmed their
+  // genuine structured 52-byte GPU descriptor TRAILERS. Only the matching
+  // pinned-USA image layouts may authorize host upload; the shader fetch
+  // binding/PSO still requires separate real Draw provenance.
   if(!original.original_mip_plan->absolute_source_offsets_proven)
     throw std::invalid_argument("Original Xbox mip GPU byte starts not source-proven");
   if(!original.verified_gpu_mips ||

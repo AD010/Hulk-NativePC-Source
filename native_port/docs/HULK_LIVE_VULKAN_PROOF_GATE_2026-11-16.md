@@ -78,3 +78,16 @@ visual improvement. The latest Windows CI success currently targets
 an older commit `48c3f9e62d5e40e4ddc54141f0fc15d6ed02482d`,
 not the HEAD of these corrections. Do not publish a new "fixed
 graphics" ZIP without the conditions above.
+
+## Revised by full actual-byte audit
+
+The old "52 surplus still unlocated" claim above has now been resolved:
+original **both** LFXT and TexStreams contain structured GPU descriptors
+in their FINAL 52 bytes, as verified in 20 full source records. The 4-byte
+BE TexStreams prefix plus physical data (full source layouts) is confirmed.
+All 5,836 indexed stream-linked USA textures also pass exact mip size and
+sqrt-area checks, with 6,669 LFXT records scanned. Formats IDs and physical
+byte range evidence: see
+`HULK_USA_ALL_TEXTURES_BYTE_AUDIT_2026-11-16.md`.
+The **on-screen NativeX renderer still does not call** the new host asset
+uploader, so no actual Vulkan game image improvement can yet be claimed.

@@ -1,7 +1,7 @@
 #pragma once
 // Original Xbox 360 Hulk EoR LFXT -> TexStreams archive mapping.
-// Legacy Xbox data audit: 5836 links (5820 at +34, 16 at +22).
-// This count is NOT verified against the separately pinned USA INDEX.IND.
+// Full USA INDEX.IND/TEXTURES.ARC byte audit: exactly 5,836 stream links.
+// The previous older-region-only count warning is superseded.
 // A verified stream reference is NOT a decoded image/mip layout or sampler.
 #include "eor_archive.h"
 #include <cstddef>
