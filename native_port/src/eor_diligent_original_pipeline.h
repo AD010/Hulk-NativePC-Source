@@ -4,6 +4,7 @@
 #include "eor_diligent_spirv_shaders.h"
 #include "eor_effect_catalog.h"
 #include "PipelineState.h"
+#include "ShaderResourceBinding.h"
 #include "RefCntAutoPtr.hpp"
 #include <cstdint>
 #include <vector>
