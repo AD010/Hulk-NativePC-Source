@@ -1,4 +1,5 @@
 #include "../native_port/src/eor_original_texture_streams.h"
+#include <algorithm>
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
@@ -72,7 +73,7 @@ int main(){
   assert(!textures::FindVerifiedOriginalTexStream(record,th,no_stream));
   const auto file=std::filesystem::temp_directory_path()/"hulk_original_texstream_test.arc";
   std::vector<std::byte> disk(36,std::byte(0x7e));
-  Replace32(disk,0,32);
+  Replace32(disk,4,28);
   Save(file,disk);
   auto link=textures::FindVerifiedOriginalTexStream(record,th,index);
   auto payload=textures::ReadOriginalTexStream(file,*link);
@@ -86,7 +87,8 @@ int main(){
       std::span<const std::byte>(payload).first(4));});
   malformed=payload;
   malformed[0]=std::byte(0x7e);
-  Save(file,malformed);
+  std::copy(malformed.begin(),malformed.end(),disk.begin()+4);
+  Save(file,disk);
   Reject([&]{(void)textures::ReadOriginalTexStream(file,*link);});
   std::filesystem::remove(file);
 }
