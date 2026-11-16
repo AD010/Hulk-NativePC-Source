@@ -77,6 +77,52 @@ BODY_NEW="""  if (load_base) {
 # True guest SRV selection after dimension compatibility, not just texture upload.
 # The full base XXH3 is the hash of the successfully uploaded guest data,
 # unlike an address alone or a potentially stale sampled host image.
+
+MIPS_OLD = """  if (load_mips) {
+    mips_hash = hash(key.mip_page, host_texture.GetGuestMipsSize());
+    load_mips = host_texture.mips_hash != mips_hash;
+  }"""
+MIPS_NEW = """  if (load_mips) {
+    const uint32_t hulk_mips_bytes = host_texture.GetGuestMipsSize();
+    mips_hash = hash(key.mip_page, hulk_mips_bytes);
+    // HULK/LIVE-XENOS-MIP-IDENTITY: the actual separate GPU mip allocation.
+    // Do not confuse this PACKED region with a single ARC mip level; its
+    // physical per-level offsets still require separately verified layout.
+    if (REXCVAR_GET(native_x_renderer_hulk_live_texture_id)) {
+      constexpr uint64_t kGpuMemorySize = 0x20000000ull;
+      const uint64_t hulk_mips_base = uint64_t(key.mip_page) << 12;
+      if (hulk_mips_base < kGpuMemorySize &&
+          hulk_mips_bytes >= 128 &&
+          hulk_mips_bytes <= kGpuMemorySize - hulk_mips_base) {
+        const auto* hulk_bytes = memory_.memory().TranslatePhysical<const uint8_t*>(
+            static_cast<uint32_t>(hulk_mips_base));
+        const uint32_t hulk_second_at =
+            hulk_mips_bytes >= 4224 ? 4096 : hulk_mips_bytes - 128;
+        auto hulk_fingerprint = [&](uint32_t offset) -> uint64_t {
+          uint64_t value = UINT64_C(14695981039346656037);
+          for (uint32_t i = 0; i < 128; ++i) {
+            value ^= hulk_bytes[offset + i];
+            value *= UINT64_C(1099511628211);
+          }
+          return value;
+        };
+        static std::atomic<uint64_t> hulk_mips_samples{0};
+        const uint64_t n = hulk_mips_samples.fetch_add(
+            1, std::memory_order_relaxed) + 1;
+        if (n <= 48 || n % 12000 == 0) {
+          REXLOG_INFO("[HULK/LIVE-XENOS-MIP-IDENTITY] source_read={} "
+                      "format={} width={} height={} guest_mip={:#x} "
+                      "packed_mip_bytes={} full_xxh3={:016x} h0={:016x} h1={:016x} "
+                      "(packed GPU source; per-level ARC identity unproven)",
+                      n, uint32_t(key.format), key.GetWidth(), key.GetHeight(),
+                      hulk_mips_base, hulk_mips_bytes, mips_hash,
+                      hulk_fingerprint(0), hulk_fingerprint(hulk_second_at));
+        }
+      }
+    }
+    load_mips = host_texture.mips_hash != mips_hash;
+  }"""
+
 GUEST_VIEW_OLD = """  auto* texture = static_cast<HostTexture*>(binding->texture);
   texture->MarkAsUsed();"""
 GUEST_VIEW_NEW = """  auto* texture = static_cast<HostTexture*>(binding->texture);
@@ -96,12 +142,14 @@ GUEST_VIEW_NEW = """  auto* texture = static_cast<HostTexture*>(binding->texture
       const auto& hulk_key = texture->key();
       REXLOG_INFO("[HULK/GUEST-SHADER-IDENTITY] selected={} "
                   "fetch={} guest_base={:#x} guest_mip={:#x} "
-                  "format={} width={} height={} base_xxh3={:016x} signed={} "
+                  "format={} width={} height={} base_xxh3={:016x} "
+                  "has_mips={} packed_mips_xxh3={:016x} signed={} "
                   "(real compatible guest SRV; not submitted Draw proof)",
                   n, fetch_constant, uint64_t(hulk_key.base_page) << 12,
                   uint64_t(hulk_key.mip_page) << 12, uint32_t(hulk_key.format),
                   hulk_key.GetWidth(), hulk_key.GetHeight(),
-                  *texture->base_hash, is_signed);
+                  *texture->base_hash, texture->mips_hash.has_value(),
+                  texture->mips_hash.value_or(0), is_signed);
     }
   }"""
 
@@ -109,16 +157,18 @@ def patch(src: str) -> tuple[str,bool]:
     if "HULK/LIVE-XENOS-ARC-IDENTITY" in src:
         if (src.count(BODY_NEW)!=1 or src.count(CVAR)!=1 or
             src.count(INCLUDES_NEW)!=1 or src.count(GUEST_VIEW_NEW)!=1 or
-            BODY_OLD in src):
+            src.count(MIPS_NEW)!=1 or BODY_OLD in src or MIPS_OLD in src):
             raise ValueError("Partially installed source texture identity bridge")
         return src,False
     for name,old in (("header",INCLUDES_OLD),("namespace",CVAR_ANCHOR),
-                     ("guest resident",BODY_OLD),("guest selected SRV",GUEST_VIEW_OLD)):
+                     ("guest resident",BODY_OLD),("guest packed mips",MIPS_OLD),
+                     ("guest selected SRV",GUEST_VIEW_OLD)):
         if src.count(old)!=1:
             raise ValueError(f"NativeX D140 guest textures {name} anchor drift")
     src=src.replace(INCLUDES_OLD,INCLUDES_NEW,1)
     src=src.replace(CVAR_ANCHOR,CVAR+"\n"+CVAR_ANCHOR,1)
     src=src.replace(BODY_OLD,BODY_NEW,1)
+    src=src.replace(MIPS_OLD,MIPS_NEW,1)
     src=src.replace(GUEST_VIEW_OLD,GUEST_VIEW_NEW,1)
     return src,True
 
