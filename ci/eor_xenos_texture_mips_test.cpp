@@ -109,4 +109,28 @@ int main() {
       std::span(&float_mip,1),rgbaf,{});
   assert(hdr.mips.size()==1 && hdr.mips[0].row_pitch_bytes==64 &&
          hdr.mips[0].blocks.size()==512);
+  // A resource must not borrow storage from the following mip or a trailer.
+  // Prior implementation only checked the entire ARC byte span, allowing
+  // an 8x8 footprint to read from a shorter 8-byte current allocation.
+  std::vector<std::byte> short_level(64u, std::byte{0x7f});
+  std::vector<std::byte> trailing_record(64u, std::byte{0x33});
+  short_level.insert(short_level.end(), trailing_record.begin(),
+                     trailing_record.end());
+  SourceMipLayout too_large=m0;
+  too_large.width=8; too_large.height=8;
+  too_large.storage_pitch_blocks=4; too_large.storage_height_blocks=4;
+  // Entire source still contains only 128 bytes (vs required 128 for the
+  // declared level), so now test a missing-offset case independently.
+  too_large.source_offset=8;
+  Reject([&]{(void)PrepareExplicitOriginalMips(XenosTextureFormat::BC1,
+      std::span(&too_large,1),short_level,{});});
+  // The same check must apply to uncompressed RGBA8 source pixels.
+  SourceMipLayout rgba_level;
+  rgba_level.width=8; rgba_level.height=8;
+  rgba_level.storage_pitch_blocks=8;rgba_level.storage_height_blocks=8;
+  rgba_level.tiling=XenosTileMode::Linear;
+  rgba_level.endian=XenosDataEndian::NoSwap;
+  std::vector<std::byte> rgba_truncated(8u*8u*4u-1u, std::byte{0x11});
+  Reject([&]{(void)PrepareExplicitOriginalMips(XenosTextureFormat::RGBA8,
+      std::span(&rgba_level,1),rgba_truncated,{});});
 }
