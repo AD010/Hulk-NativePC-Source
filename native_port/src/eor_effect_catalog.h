@@ -40,7 +40,9 @@ class EffectCatalog {
       throw std::invalid_argument("Invalid original EoR paired shader record count");
     using Pair = std::pair<Digest, Digest>;
     std::map<uint32_t, std::vector<Pair>> next;
-    std::set<Digest> unique;
+    // An original shader may be reused by many effects / passes.
+    // Only conflicting VS/PS stage assignments are ambiguous.
+    std::map<Digest,Stage> unique;
     for (uint32_t i = 0; i < count; ++i) {
       const size_t at = 16ull + size_t(i) * 72;
       const uint32_t effect = read32(at), pass = read32(at + 4);
@@ -51,8 +53,15 @@ class EffectCatalog {
         vs[b] = bytes[at + 8 + b];
         ps[b] = bytes[at + 40 + b];
       }
-      if (!unique.insert(vs).second || !unique.insert(ps).second)
-        throw std::invalid_argument("Duplicate original Xenos VS/PS identity");
+      if (vs == ps)
+        throw std::invalid_argument("One original shader identity has incompatible stages");
+      const auto accept = [&](const Digest& digest, Stage stage) {
+        const auto [it, inserted] = unique.emplace(digest, stage);
+        if (!inserted && it->second != stage)
+          throw std::invalid_argument("Original Xenos shader identity changes stage");
+      };
+      accept(vs, Stage::Vertex);
+      accept(ps, Stage::Pixel);
       auto& slots = next[effect];
       if (pass != slots.size())
         throw std::invalid_argument("EoR pass slots are missing, reordered or duplicated");
@@ -60,6 +69,7 @@ class EffectCatalog {
     }
     sources_.swap(next); // Failure leaves previous valid catalog untouched.
     pair_count_ = count;
+    unique_shader_count_ = unique.size();
   }
   bool HasPair(uint32_t effect_hash, uint32_t pass_index,
                const Digest& vs, const Digest& ps) const noexcept {
@@ -70,9 +80,11 @@ class EffectCatalog {
   }
   size_t EffectCount() const noexcept { return sources_.size(); }
   size_t PairCount() const noexcept { return pair_count_; }
-  size_t ShaderCount() const noexcept { return pair_count_ * 2; }
+  // Actual number of AOT modules, not the number of draw/material references.
+  size_t ShaderCount() const noexcept { return unique_shader_count_; }
  private:
   size_t pair_count_ = 0;
+  size_t unique_shader_count_ = 0;
   std::map<uint32_t, std::vector<std::pair<Digest, Digest>>> sources_;
 };
 } // namespace hulk::eor::aot
