@@ -422,6 +422,17 @@ jobs:
           # original resource trailer can leak into host Vulkan texels.
           # Structural exact original Xbox 360 end-of-record GPU descriptor
           # proves true DXT1/DXT5/RGBA16_EXPAND formats and mip byte offsets.
+          # No blind ARC -> live Xenos guest texture matching: reject
+          # all identical sampled contents owned by multiple resources.
+          $witnessTest = Join-Path $env:RUNNER_TEMP 'hulk-guest-texture-identity-test.exe'
+          $witnessArgs = @('/nologo','/std:c++20','/EHsc','/W4','/WX','/utf-8',
+                           "/Fe:$witnessTest",
+                           'native_port/src/eor_source_mip_resolver.cpp',
+                           'ci/eor_source_mip_resolver_test.cpp')
+          & cl.exe @witnessArgs
+          if ($LASTEXITCODE -ne 0) { throw 'Original Xbox live GPU texture identity resolver compile failed' }
+          & $witnessTest
+          if ($LASTEXITCODE -ne 0) { throw 'Ambiguous original Xenos texture identity accepted' }
           $realGpuMipTest = Join-Path $env:RUNNER_TEMP 'hulk-real-original-gpu-mips-test.exe'
           $realGpuMipArgs = @('/nologo','/std:c++20','/EHsc','/W4','/WX','/utf-8',
                               "/Fe:$realGpuMipTest",

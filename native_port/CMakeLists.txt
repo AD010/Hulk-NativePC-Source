@@ -38,6 +38,7 @@ set(INCREDIBLEHULK_SOURCES
     src/eor_original_texture_streams.cpp
     src/eor_original_texture_mip_ranges.cpp
     src/eor_original_texture_gpu_layout.cpp
+    src/eor_source_mip_resolver.cpp
     src/eor_xenos_texture_mips.cpp
     src/eor_original_texture_usa.cpp
     src/eor_original_model_upload.cpp
