@@ -91,4 +91,23 @@ int main(){
   Save(file,disk);
   Reject([&]{(void)textures::ReadOriginalTexStream(file,*link);});
   std::filesystem::remove(file);
+  // Genuine source record lengths from ten uploaded TexStreams samples.
+  // Synthetic contents test only the BE framing, not a guessed GPU format.
+  for (const size_t len : {size_t(98360), size_t(8248),
+       size_t(360504), size_t(10485816), size_t(65592),
+       size_t(180280), size_t(5242936)}) {
+    std::vector<std::byte> example(len,std::byte{0});
+    Replace32(example,0,static_cast<uint32_t>(len-4));
+    const auto body=textures::ValidateOriginalTexStreamEnvelope(example);
+    assert(body.size()==len-4 && body.data()==example.data()+4);
+    const auto first=textures::VerifiedOriginalStreamByteRange(example,4,1);
+    assert(first.data()==example.data()+4 && first.size()==1);
+    const auto last=textures::VerifiedOriginalStreamByteRange(example,len-1,1);
+    assert(last.data()==example.data()+len-1);
+    Reject([&]{(void)textures::VerifiedOriginalStreamByteRange(example,0,1);});
+    Reject([&]{(void)textures::VerifiedOriginalStreamByteRange(example,3,1);});
+    Reject([&]{(void)textures::VerifiedOriginalStreamByteRange(example,len,1);});
+    Reject([&]{(void)textures::VerifiedOriginalStreamByteRange(example,4,0);});
+    Reject([&]{(void)textures::VerifiedOriginalStreamByteRange(example,len-1,2);});
+  }
 }

@@ -74,6 +74,14 @@ std::span<const std::byte> ValidateOriginalTexStreamEnvelope(
     throw std::invalid_argument("Original Xbox TexStreams BE length-prefix mismatch");
   return bytes.subspan(4);
 }
+std::span<const std::byte> VerifiedOriginalStreamByteRange(
+    std::span<const std::byte> bytes, uint64_t offset, uint64_t count) {
+  (void)ValidateOriginalTexStreamEnvelope(bytes);
+  if (offset < 4 || count == 0 ||
+      offset > bytes.size() || count > bytes.size() - offset)
+    throw std::invalid_argument("Original Xbox TexStreams GPU bytes outside BE-framed record");
+  return bytes.subspan(static_cast<size_t>(offset), static_cast<size_t>(count));
+}
 std::vector<std::byte> ReadOriginalTexStream(
     const std::filesystem::path& archive,const OriginalStreamLink& link) {
   if(archive.empty() || !link.original_texture_hash || !link.original_stream_hash ||

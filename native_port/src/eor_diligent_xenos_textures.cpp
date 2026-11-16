@@ -43,12 +43,17 @@ UploadedEorTexture UploadExplicitOriginalTexture(
      color_space==OriginalTextureColorSpace::Unknown ||
      !original.pinned_usa_index)
     throw std::invalid_argument("Original EoR Xbox texture identity/color space unresolved");
-  for(const auto& mip:layouts)
-    if(mip.from_stream_archive &&
-       (!original.original_stream ||
-        original.original_stream->original_texture_hash!=original.hash ||
-        original.original_stream_bytes.empty()))
+  for(const auto& mip:layouts) {
+    if(!mip.from_stream_archive) continue;
+    if(!original.original_stream ||
+       original.original_stream->original_texture_hash!=original.hash ||
+       original.original_stream_bytes.empty())
       throw std::invalid_argument("Original TexStreams mip not resolved from Xbox index");
+    // Preserve the complete original record and require source offsets in
+    // the real resource, *after* its four-byte length prefix.
+    (void)textures::VerifiedOriginalStreamByteRange(
+        original.original_stream_bytes, mip.source_offset, 1);
+  }
   const auto image=textures::PrepareExplicitOriginalMips(
       format,layouts,original.original_bytes,original.original_stream_bytes);
   if(image.mips.empty() || image.mips.size()>std::numeric_limits<Diligent::Uint32>::max())

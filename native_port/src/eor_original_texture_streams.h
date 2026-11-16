@@ -28,6 +28,12 @@ std::optional<OriginalStreamLink> FindVerifiedOriginalTexStream(
 // The returned span points into the caller-owned original byte buffer.
 std::span<const std::byte> ValidateOriginalTexStreamEnvelope(
     std::span<const std::byte> complete_indexed_record);
+// Offsets in explicitly verified GPU mip layouts are relative to the
+// COMPLETE original indexed record, INCLUDING its BE u32 length field.
+// No legal texel block may read that four-byte envelope.
+std::span<const std::byte> VerifiedOriginalStreamByteRange(
+    std::span<const std::byte> complete_indexed_record,
+    uint64_t original_record_offset, uint64_t requested_byte_count);
 std::vector<std::byte> ReadOriginalTexStream(
     const std::filesystem::path& original_stream_archive,
     const OriginalStreamLink& proven_link);
