@@ -74,19 +74,52 @@ BODY_NEW="""  if (load_base) {
     load_base = host_texture.base_hash != base_hash;
   }"""
 
+# True guest SRV selection after dimension compatibility, not just texture upload.
+# The full base XXH3 is the hash of the successfully uploaded guest data,
+# unlike an address alone or a potentially stale sampled host image.
+GUEST_VIEW_OLD = """  auto* texture = static_cast<HostTexture*>(binding->texture);
+  texture->MarkAsUsed();"""
+GUEST_VIEW_NEW = """  auto* texture = static_cast<HostTexture*>(binding->texture);
+  texture->MarkAsUsed();
+  // HULK/GUEST-SHADER-IDENTITY: this is the guest GPU image selected by
+  // the actual shader fetch, after dimension/resolve/placeholder handling.
+  // Use the cache's verified uploaded base hash, not an untracked memory
+  // reread. This probe never substitutes a GPU image or changes view reuse.
+  if (REXCVAR_GET(native_x_renderer_hulk_live_texture_id) &&
+      texture->base_hash.has_value() &&
+      (is_signed && texture->signed_view() ? texture->signed_view() != nullptr
+                                          : texture->view() != nullptr)) {
+    static std::atomic<uint64_t> hulk_guest_bound{0};
+    const uint64_t n = hulk_guest_bound.fetch_add(
+        1, std::memory_order_relaxed) + 1;
+    if (n <= 96 || n % 8192 == 0) {
+      const auto& hulk_key = texture->key();
+      REXLOG_INFO("[HULK/GUEST-SHADER-IDENTITY] selected={} "
+                  "fetch={} guest_base={:#x} guest_mip={:#x} "
+                  "format={} width={} height={} base_xxh3={:016x} signed={} "
+                  "(real compatible guest SRV; not submitted Draw proof)",
+                  n, fetch_constant, uint64_t(hulk_key.base_page) << 12,
+                  uint64_t(hulk_key.mip_page) << 12, uint32_t(hulk_key.format),
+                  hulk_key.GetWidth(), hulk_key.GetHeight(),
+                  *texture->base_hash, is_signed);
+    }
+  }"""
+
 def patch(src: str) -> tuple[str,bool]:
     if "HULK/LIVE-XENOS-ARC-IDENTITY" in src:
         if (src.count(BODY_NEW)!=1 or src.count(CVAR)!=1 or
-            src.count(INCLUDES_NEW)!=1 or BODY_OLD in src):
+            src.count(INCLUDES_NEW)!=1 or src.count(GUEST_VIEW_NEW)!=1 or
+            BODY_OLD in src):
             raise ValueError("Partially installed source texture identity bridge")
         return src,False
     for name,old in (("header",INCLUDES_OLD),("namespace",CVAR_ANCHOR),
-                     ("guest resident",BODY_OLD)):
+                     ("guest resident",BODY_OLD),("guest selected SRV",GUEST_VIEW_OLD)):
         if src.count(old)!=1:
             raise ValueError(f"NativeX D140 guest textures {name} anchor drift")
     src=src.replace(INCLUDES_OLD,INCLUDES_NEW,1)
     src=src.replace(CVAR_ANCHOR,CVAR+"\n"+CVAR_ANCHOR,1)
     src=src.replace(BODY_OLD,BODY_NEW,1)
+    src=src.replace(GUEST_VIEW_OLD,GUEST_VIEW_NEW,1)
     return src,True
 
 
