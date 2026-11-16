@@ -364,6 +364,22 @@ jobs:
           # without adding any proprietary assets to this public source repository.
           & cl.exe /nologo /std:c++20 /EHsc /W4 /WX /utf-8 /c 'native_port/src/eor_native_archive_source.cpp' "/Fo:$env:RUNNER_TEMP\hulk-eor-original-archive-source.obj"
           if ($LASTEXITCODE -ne 0) { throw 'Original EoR archive source MSVC compile failed' }
+          # Original EoR model/mesh/material/shader-pair GPU draw provenance.
+          # Zero synthetic fallback: unresolved original layout rejects before RT.
+          $nativeDrawTest = Join-Path $env:RUNNER_TEMP 'hulk-eor-native-draw-geometry-test.exe'
+          $nativeDrawArgs = @('/nologo','/std:c++20','/EHsc','/W4','/WX','/utf-8',
+                              "/Fe:$nativeDrawTest",
+                              'native_port/src/eor_native_mesh_upload.cpp',
+                              'native_port/src/eor_original_model_upload.cpp',
+                              'native_port/src/eor_native_frame.cpp',
+                              'native_port/src/eor_spirv_bank.cpp',
+                              'native_port/src/eor_aot_draw_bridge.cpp',
+                              'native_port/src/eor_native_draw_geometry.cpp',
+                              'ci/eor_native_draw_geometry_test.cpp')
+          & cl.exe @nativeDrawArgs
+          if ($LASTEXITCODE -ne 0) { throw 'EoR native material/mesh Draw bridge MSVC compile failed' }
+          & $nativeDrawTest
+          if ($LASTEXITCODE -ne 0) { throw 'EoR original geometry/material/shader Draw provenance regression failed' }
           $allSurfaceTest = Join-Path $env:RUNNER_TEMP 'hulk-eor-all-surface-materials-test.exe'
           $allSurfaceArgs = @('/nologo','/std:c++20','/EHsc','/W4','/WX','/utf-8',
                               "/Fe:$allSurfaceTest",
