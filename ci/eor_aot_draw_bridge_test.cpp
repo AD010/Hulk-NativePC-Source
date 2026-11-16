@@ -9,6 +9,15 @@ using namespace hulk::eor::aot;
 struct Backend final:ShaderBindingBackend {
   unsigned begin=0,bind=0,effect=0,constants=0,draw=0,resolve=0,composite=0,abort=0,samplers=0;
   bool refuse_samplers=false;
+  Digest received_vs{},received_ps{};
+  unsigned verified_program_pairs=0;
+  bool BindVerifiedProgramPair(const Digest& vs_id,const Blob& vs,
+                               const Digest& ps_id,const Blob& ps) override {
+    assert(vs.stage==Stage::Vertex && ps.stage==Stage::Pixel);
+    received_vs=vs_id;received_ps=ps_id;
+    ++verified_program_pairs;
+    return ShaderBindingBackend::BindVerifiedProgramPair(vs_id,vs,ps_id,ps);
+  }
   bool BeginScene(native::Size size,uint32_t) override {
     assert(size.width==2560 && size.height==1600); ++begin;return true;}
   bool BindOriginalEffect(uint32_t hash, uint32_t pass) override {
@@ -97,7 +106,9 @@ int main(){
   Backend target;
   std::vector<BoundIndexedDraw> draws{entry};
   ReplayAotScene(geometry,draws,shaders,effects,reflection,target);
-  assert(target.samplers==1);
+  assert(target.samplers==1 && target.verified_program_pairs==1);
+  assert(target.received_vs==entry.vertex_source_sha256 &&
+         target.received_ps==entry.pixel_source_sha256);
   assert(target.begin==1 && target.bind==1 && target.effect==1 &&
          target.constants==1 && target.draw==1 &&
          target.resolve==1 && target.composite==1);
