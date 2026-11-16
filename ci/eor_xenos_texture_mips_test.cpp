@@ -88,4 +88,25 @@ int main() {
       std::vector<SourceMipLayout>{m0,m1},linear,{});});
   Reject([&]{(void)PrepareExplicitOriginalMips(XenosTextureFormat::Unknown,
       std::vector<SourceMipLayout>{m0},linear,{});});
+  // BC4/BC5 are physically the same 8/16-byte Xenos tiled block families
+  // as BC1/BC3, but retain their different GPU channel semantics.
+  tail.source_x_blocks=5;
+  tail.endian=XenosDataEndian::NoSwap;
+  auto bc5=PrepareExplicitOriginalMips(XenosTextureFormat::BC5,
+      std::span(&tail,1),{},packed);
+  assert(bc5.mips.size()==1 && bc5.mips[0].blocks.size()==16);
+  auto bc4=PrepareExplicitOriginalMips(XenosTextureFormat::BC4,
+      std::span(&tail,1),{},packed);
+  assert(bc4.mips.size()==1 && bc4.mips[0].blocks.size()==8);
+  // Actual 8-byte-per-texel source family for original 16-bit HDR lightmaps.
+  SourceMipLayout float_mip;
+  float_mip.width=8;float_mip.height=8;
+  float_mip.storage_pitch_blocks=8;float_mip.storage_height_blocks=8;
+  float_mip.tiling=XenosTileMode::Linear;
+  float_mip.endian=XenosDataEndian::NoSwap;
+  std::vector<std::byte> rgbaf(8u*8u*8u);
+  auto hdr=PrepareExplicitOriginalMips(XenosTextureFormat::RGBA16F,
+      std::span(&float_mip,1),rgbaf,{});
+  assert(hdr.mips.size()==1 && hdr.mips[0].row_pitch_bytes==64 &&
+         hdr.mips[0].blocks.size()==512);
 }

@@ -11,7 +11,10 @@ BlockInfo Info(XenosTextureFormat f) {
     case XenosTextureFormat::BC1: return {4,8,3};
     case XenosTextureFormat::BC2: return {4,16,4};
     case XenosTextureFormat::BC3: return {4,16,4};
+    case XenosTextureFormat::BC4: return {4,8,3};
+    case XenosTextureFormat::BC5: return {4,16,4};
     case XenosTextureFormat::RGBA8: return {1,4,2};
+    case XenosTextureFormat::RGBA16F: return {1,8,3};
     default: throw std::invalid_argument("Unverified original Xenos GPU texture format");
   }
 }

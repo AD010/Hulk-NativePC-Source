@@ -20,11 +20,39 @@ Diligent::TEXTURE_FORMAT Convert(textures::XenosTextureFormat fmt,
     case XenosTextureFormat::BC3:
       return space==OriginalTextureColorSpace::SRGB ?
         Diligent::TEX_FORMAT_BC3_UNORM_SRGB : Diligent::TEX_FORMAT_BC3_UNORM;
+    case XenosTextureFormat::BC4:
+      if(space!=OriginalTextureColorSpace::Linear)
+        throw std::invalid_argument("Original BC4 single-channel texture cannot be sRGB");
+      return Diligent::TEX_FORMAT_BC4_UNORM;
+    case XenosTextureFormat::BC5:
+      if(space!=OriginalTextureColorSpace::Linear)
+        throw std::invalid_argument("Original BC5 normal texture cannot be sRGB");
+      return Diligent::TEX_FORMAT_BC5_UNORM;
+    case XenosTextureFormat::RGBA16F:
+      if(space!=OriginalTextureColorSpace::Linear)
+        throw std::invalid_argument("Original HDR RGBA16F lightmap cannot be sRGB");
+      return Diligent::TEX_FORMAT_RGBA16_FLOAT;
     case XenosTextureFormat::RGBA8:
       return space==OriginalTextureColorSpace::SRGB ?
         Diligent::TEX_FORMAT_RGBA8_UNORM_SRGB : Diligent::TEX_FORMAT_RGBA8_UNORM;
     default:
       throw std::invalid_argument("Original EoR Xenos texture GPU format not decoded");
+  }
+}
+// Exact original LFXT allocation FAMILY does not specify a complete Xenos
+// GPU-format enum; the caller must independently verify BC subformat,
+// channel semantics, endian and sRGB with the live USA fetch declaration.
+textures::OriginalLfxtStorageFamily Family(textures::XenosTextureFormat fmt) {
+  using textures::XenosTextureFormat;
+  using textures::OriginalLfxtStorageFamily;
+  switch(fmt) {
+    case XenosTextureFormat::BC1:
+    case XenosTextureFormat::BC4:return OriginalLfxtStorageFamily::BC_8ByteBlock;
+    case XenosTextureFormat::BC2:
+    case XenosTextureFormat::BC3:
+    case XenosTextureFormat::BC5:return OriginalLfxtStorageFamily::BC_16ByteBlock;
+    case XenosTextureFormat::RGBA16F:return OriginalLfxtStorageFamily::Texel_8Byte;
+    default: return OriginalLfxtStorageFamily::Unknown;
   }
 }
 }
@@ -43,6 +71,21 @@ UploadedEorTexture UploadExplicitOriginalTexture(
      color_space==OriginalTextureColorSpace::Unknown ||
      !original.pinned_usa_index)
     throw std::invalid_argument("Original EoR Xbox texture identity/color space unresolved");
+  // Require a source-authentic complete high-to-low mip chain, including
+  // resident lower levels from the original Textures.ARC. A valid BC
+  // allocation size is NOT evidence of BC2 vs BC3 vs BC5 subformat.
+  if(!original.original_mip_plan ||
+     original.original_mip_plan->family!=Family(format) ||
+     original.original_mip_plan->levels.size()!=layouts.size())
+    throw std::invalid_argument("Original Xbox texture format family/mip chain incomplete");
+  for(size_t i=0;i<layouts.size();++i) {
+    const auto& actual=layouts[i];
+    const auto& expected=original.original_mip_plan->levels[i];
+    if(actual.width!=expected.width ||
+       actual.height!=expected.height ||
+       actual.from_stream_archive!=expected.from_stream_archive)
+      throw std::invalid_argument("Original LFXT mip dimensions/source do not match real USA descriptor");
+  }
   for(const auto& mip:layouts) {
     if(!mip.from_stream_archive) {
       // For the independent USA-native Vulkan path, offsets in Textures.ARC
