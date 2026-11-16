@@ -8,6 +8,7 @@ OriginalVulkanPipeline CreateOriginalVulkanPipeline(
     Diligent::IRenderDevice* device,
     DiligentAotShaderModules& shaders,
     const aot::ShaderBank& bank,
+    const aot::EffectCatalog& original_effects,
     const VerifiedOriginalGraphicsPass& pass) {
   if(!device || device->GetDeviceInfo().Type != Diligent::RENDER_DEVICE_TYPE_VULKAN ||
      !pass.original_effect_hash || pass.original_pass_index==UINT32_MAX ||
@@ -16,6 +17,12 @@ OriginalVulkanPipeline CreateOriginalVulkanPipeline(
      pass.exact_host_input_layout.empty() ||
      pass.exact_host_input_layout.size()>DILIGENT_MAX_LAYOUT_ELEMENTS)
     throw std::invalid_argument("Original EoR Vulkan pass ownership/vertex layout unresolved");
+  if(!bank.HasFullArchiveCoverage() ||
+     original_effects.ShaderCount()!=bank.expected() ||
+     !original_effects.HasPair(pass.original_effect_hash,pass.original_pass_index,
+                               pass.original_vertex_shader_sha256,
+                               pass.original_pixel_shader_sha256))
+    throw std::invalid_argument("Original EoR Vulkan PSO has no verified effect/shader pairing");
   const auto& state=pass.exact_render_state;
   if(state.NumRenderTargets==0 || state.NumRenderTargets>DILIGENT_MAX_RENDER_TARGETS ||
      state.DSVFormat==Diligent::TEX_FORMAT_UNKNOWN ||
