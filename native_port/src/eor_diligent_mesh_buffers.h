@@ -23,6 +23,9 @@ class DiligentMeshUploadBackend final : public model::NativeMeshUploadBackend {
   void ReleaseBuffer(uint64_t handle) noexcept override;
   // Raw, borrowed pointer: valid only until ReleaseBuffer or destruction.
   Diligent::IBuffer* FindBuffer(uint64_t handle) const noexcept;
+  // 0: decoded XYZ, 1: RAW big-endian Xbox (never bind), 2: native index32,
+  // 3: decoded float4 attributes; UINT32_MAX: missing/stale handle.
+  uint32_t KindOf(uint64_t handle) const noexcept;
   size_t LiveBufferCount() const noexcept;
  private:
   struct State;
