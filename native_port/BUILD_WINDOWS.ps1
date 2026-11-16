@@ -393,6 +393,10 @@ try {
     # Log 185: no draw with invalid shader-used Xenos texture/vertex fetch.
     Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--test', (Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_draw_fetch_guard.py')) $Source
     Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--patch', (Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_draw_fetch_guard.py'), $NxrFull) $Source
+    # Actual NativeX GPU-memory upload fingerprints establish archive mip identity
+    # before any future replacement, with zero rendering changes by default.
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--test', (Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_live_texture_fingerprint.py')) $Source
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--patch', (Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_live_texture_fingerprint.py'), $NxrFull) $Source
     # Hulk 185 NVIDIA nvgpucomp64.dll crash containment (optional, one shared host mutex).
     Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--test', (Join-Path (Split-Path $Source -Parent) 'ci/test_patch_native_x_hulk_driver_compile_serial.py')) $Source
     Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/native_x_d140_dispatch.py'), '--patch', (Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_driver_compile_serial.py'), $NxrFull) $Source
