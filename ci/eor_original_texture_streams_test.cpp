@@ -1,5 +1,7 @@
 #include "../native_port/src/eor_original_texture_streams.h"
 #include <algorithm>
+#include <array>
+#include <bit>
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
@@ -131,6 +133,78 @@ int main(){
     lfxt[example.first]=std::byte{0x7f};
     assert(!textures::FindOriginalLfxtInlineSection(
         lfxt,ResourceHash(name)));
+  }
+  // An actual original USA descriptor table has variable length but its
+  // count and aligned stream spans MUST agree with the original indexed
+  // TexStreams resource. These are the ten verified metadata-only examples.
+  struct OriginalStreamMetadata {
+    const char* name;
+    size_t texture_bytes, outer_at, relative_stream_reference;
+    uint32_t stream_bytes;
+    std::vector<uint32_t> original_aligned_levels;
+    std::vector<float> metrics;
+  };
+  const OriginalStreamMetadata original_tables[]{
+    {"building_brick41c_grunge_ds",32927u,99u,34u,98360u,{65536u,16384u,16384u},{256.000000f,128.000000f,64.000000f}},
+    {"signswap_64x32_eats10_d",16523u,79u,34u,8248u,{8192u},{90.509670f}},
+    {"building_empirel_n",32918u,90u,34u,360504u,{262144u,65536u,32768u},{512.000000f,256.000000f,128.000000f}},
+    {"frontend_lightmap_dir",524421u,73u,22u,10485816u,{8388608u,2097152u},{1024.000000f,512.000000f}},
+    {"bldg_city_mt0098_egc_marble02b_ds",32933u,105u,34u,98360u,{65536u,16384u,16384u},{256.000000f,128.000000f,64.000000f}},
+    {"perimeter_sidewalk01_curb_n",49295u,83u,34u,65592u,{65536u},{181.019300f}},
+    {"storefront_mid_016d_n",32929u,101u,34u,360504u,{262144u,65536u,16384u,16384u},{512.000000f,256.000000f,128.000000f,64.000000f}},
+    {"building_windows07a_n",32921u,93u,34u,180280u,{131072u,32768u,16384u},{362.038670f,181.019330f,90.509667f}},
+    {"bf_area1_lightmap_dir",262277u,73u,22u,5242936u,{4194304u,1048576u},{724.077330f,362.038670f}},
+    {"signswap_32x32_misc01_d",16523u,79u,34u,8248u,{8192u},{64.000000f}}
+  };
+  for(const auto& example:original_tables) {
+    std::vector<std::byte> original_lfxt(example.texture_bytes,std::byte{0});
+    for(size_t i=0;i<4;++i)
+      original_lfxt[i]=std::byte(static_cast<unsigned char>("LFXT"[i]));
+    const std::string name{example.name};
+    for(size_t i=0;i<name.size();++i)
+      original_lfxt[i+4]=std::byte(static_cast<unsigned char>(name[i]));
+    const size_t reference=4+name.size()+1+example.relative_stream_reference;
+    OriginalStreamLink identified{};
+    identified.original_texture_hash=ResourceHash(name);
+    identified.original_stream_hash=ResourceHash(name+"_STREAM");
+    identified.original_stream_hash_offset=reference;
+    identified.indexed_stream={identified.original_stream_hash,4,
+                               example.stream_bytes,0};
+    Replace32(original_lfxt,reference,identified.original_stream_hash);
+    const size_t count_at=reference+8;
+    assert(example.original_aligned_levels.size()==example.metrics.size());
+    assert(example.original_aligned_levels.size()<=14);
+    original_lfxt[count_at]=std::byte(example.original_aligned_levels.size());
+    for(size_t i=0;i<example.original_aligned_levels.size();++i) {
+      const size_t at=count_at+1+8*i;
+      Replace32(original_lfxt,at,example.original_aligned_levels[i]);
+      Replace32(original_lfxt,at+4,
+                std::bit_cast<uint32_t>(example.metrics[i]));
+    }
+    Replace32(original_lfxt,example.outer_at,
+              uint32_t(example.texture_bytes-example.outer_at-4));
+    Replace32(original_lfxt,example.outer_at+4,
+              uint32_t(example.texture_bytes-example.outer_at-8));
+    auto parsed=textures::ParseOriginalLfxtStreamTable(original_lfxt,identified);
+    assert(parsed && parsed->levels.size()==example.metrics.size() &&
+           parsed->original_count_offset==count_at &&
+           parsed->original_entries_offset==count_at+1);
+    uint64_t sum=0;
+    for(size_t i=0;i<parsed->levels.size();++i) {
+      assert(parsed->levels[i].source_aligned_bytes==
+             example.original_aligned_levels[i]);
+      sum+=parsed->levels[i].source_aligned_bytes;
+    }
+    assert(sum==parsed->summed_source_bytes &&
+           sum+56==example.stream_bytes);
+    original_lfxt[count_at]=std::byte(0);
+    assert(!textures::ParseOriginalLfxtStreamTable(original_lfxt,identified));
+    original_lfxt[count_at]=std::byte(example.original_aligned_levels.size());
+    Replace32(original_lfxt,count_at+1,1);
+    assert(!textures::ParseOriginalLfxtStreamTable(original_lfxt,identified));
+    Replace32(original_lfxt,count_at+1,example.original_aligned_levels[0]);
+    Replace32(original_lfxt,count_at+5,0x7f800000u);
+    assert(!textures::ParseOriginalLfxtStreamTable(original_lfxt,identified));
   }
   // Ambiguous double candidates cannot select an arbitrary wrong GPU region.
   std::vector<std::byte> dup(2048,std::byte{0});

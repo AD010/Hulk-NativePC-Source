@@ -23,6 +23,8 @@ struct OriginalTexture {
   bool pinned_usa_index = false;
   // Optional authentic suffix boundary, no inferred GPU layout or mip size.
   std::optional<OriginalLfxtInlineSection> original_inline_section;
+  // Structural exact size-table proof, not format/tiling/mip-address proof.
+  std::optional<OriginalLfxtStreamTable> original_stream_table;
 };
 struct CandidateSlot {
   uint32_t offset_from_surface_data = 0;

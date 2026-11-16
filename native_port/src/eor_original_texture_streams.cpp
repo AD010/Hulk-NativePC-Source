@@ -1,5 +1,7 @@
 #include "eor_original_texture_streams.h"
 #include <algorithm>
+#include <bit>
+#include <cmath>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -103,6 +105,48 @@ std::optional<OriginalLfxtInlineSection> FindOriginalLfxtInlineSection(
         at,at+4,at+8,static_cast<size_t>(inner)};
   }
   return matched;
+}
+std::optional<OriginalLfxtStreamTable> ParseOriginalLfxtStreamTable(
+    std::span<const std::byte> bytes, const OriginalStreamLink& link) {
+  if(!link.original_texture_hash || !link.original_stream_hash ||
+     link.indexed_stream.hash!=link.original_stream_hash ||
+     link.indexed_stream.reserved ||
+     link.indexed_stream.size<56 ||
+     link.indexed_stream.size>kMaxStreamSize)
+    throw std::invalid_argument("Unverified original LFXT stream owner/index");
+  const auto inline_section=FindOriginalLfxtInlineSection(
+      bytes,link.original_texture_hash);
+  if(!inline_section)return std::nullopt;
+  if(link.original_stream_hash_offset>bytes.size() ||
+     bytes.size()-link.original_stream_hash_offset<13)
+    return std::nullopt;
+  if(ReadBig32(bytes,link.original_stream_hash_offset)!=link.original_stream_hash)
+    throw std::invalid_argument("Original USA LFXT stream hash differs from IDX");
+  const size_t count_offset=link.original_stream_hash_offset+8;
+  const size_t entry_offset=count_offset+1;
+  const size_t count=std::to_integer<unsigned char>(bytes[count_offset]);
+  if(!count || count>14 ||
+     entry_offset+count*8!=inline_section->outer_length_field_offset)
+    return std::nullopt;
+  OriginalLfxtStreamTable result;
+  result.original_count_offset=count_offset;
+  result.original_entries_offset=entry_offset;
+  result.levels.reserve(count);
+  for(size_t i=0;i<count;++i) {
+    const size_t at=entry_offset+8*i;
+    const uint32_t size=ReadBig32(bytes,at);
+    const float metric=std::bit_cast<float>(ReadBig32(bytes,at+4));
+    if(!size || size%4096 || !std::isfinite(metric) ||
+       metric<=0.0f || metric>1000000.0f)
+      return std::nullopt;
+    result.summed_source_bytes+=size;
+    if(result.summed_source_bytes>kMaxStreamSize)
+      return std::nullopt;
+    result.levels.push_back({size,metric});
+  }
+  if(result.summed_source_bytes != uint64_t(link.indexed_stream.size)-56)
+    return std::nullopt;
+  return result;
 }
 std::span<const std::byte> ValidateOriginalTexStreamEnvelope(
     std::span<const std::byte> bytes) {

@@ -37,6 +37,25 @@ struct OriginalLfxtInlineSection {
 };
 // Returns nullopt for unsupported layouts; NEVER assumes a fixed 0x38 or
 // guessed position after the original LFXT name. Validates real name/hash.
+// Real USA LFXT structure: four bytes STREAM hash, 4 unknown bytes,
+ // one-byte level count, then count * (big-endian aligned byte size,
+ // big-endian IEEE754 positive level metric). Supported layout is only
+ // accepted if all level sizes match the corresponding genuine indexed
+ // TexStreams record length minus the observed 56-byte record overhead.
+struct OriginalLfxtStreamLevel {
+  uint32_t source_aligned_bytes=0;
+  float original_level_metric=0.0f;
+};
+struct OriginalLfxtStreamTable {
+  size_t original_count_offset=0;
+  size_t original_entries_offset=0;
+  std::vector<OriginalLfxtStreamLevel> levels;
+  uint64_t summed_source_bytes=0;
+};
+std::optional<OriginalLfxtStreamTable> ParseOriginalLfxtStreamTable(
+    std::span<const std::byte> complete_original_lfxt,
+    const OriginalStreamLink& indexed_original_stream);
+
 std::optional<OriginalLfxtInlineSection> FindOriginalLfxtInlineSection(
     std::span<const std::byte> complete_original_lfxt,
     uint32_t original_texture_hash);

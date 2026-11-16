@@ -51,6 +51,9 @@ std::optional<OriginalTexture> OriginalXboxTextureAssets::LoadHash(uint32_t hash
   if (index_.groups().contains("TexStreams")) {
     result.original_stream = FindVerifiedOriginalTexStream(
         result.original_bytes,hash,index_);
+    if(result.original_stream && result.original_inline_section)
+      result.original_stream_table=ParseOriginalLfxtStreamTable(
+          result.original_bytes,*result.original_stream);
     if (result.original_stream && !stream_archive_.empty())
       result.original_stream_bytes = ReadOriginalTexStream(
           stream_archive_,*result.original_stream);

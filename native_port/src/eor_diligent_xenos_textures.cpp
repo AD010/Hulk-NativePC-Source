@@ -55,7 +55,10 @@ UploadedEorTexture UploadExplicitOriginalTexture(
     }
     if(!original.original_stream ||
        original.original_stream->original_texture_hash!=original.hash ||
-       original.original_stream_bytes.empty())
+       original.original_stream_bytes.empty() ||
+       !original.original_stream_table ||
+       original.original_stream_bytes.size()!=
+           original.original_stream->indexed_stream.size)
       throw std::invalid_argument("Original TexStreams mip not resolved from Xbox index");
     // Preserve the complete original record and require source offsets in
     // the real resource, *after* its four-byte length prefix.
