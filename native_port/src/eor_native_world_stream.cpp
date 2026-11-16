@@ -48,8 +48,9 @@ void NativeWorldStream::Queue(uint32_t hash, bool urgent) {
     if (urgent) {
       const auto it = std::find(requests_.begin(), requests_.end(), hash);
       if (it != requests_.end()) {
-        requests_.erase(it);
-        requests_.push_front(hash);
+        // Reorder in place without allocating: erase+push_front could
+        // throw mid-promotion and permanently strand a queued model.
+        std::rotate(requests_.begin(), it, it + 1);
       }
     }
     return;
