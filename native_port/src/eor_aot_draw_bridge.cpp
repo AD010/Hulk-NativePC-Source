@@ -1,6 +1,7 @@
 #include "eor_aot_draw_bridge.h"
 #include "eor_spirv_texture_bindings.h"
 #include <stdexcept>
+#include <map>
 #include <vector>
 
 namespace hulk::eor::aot {
@@ -76,6 +77,9 @@ void ReplayAotScene(const native::FrameGeometry& frame,
   // render pass. No placeholder shaders or compatibility GPU fallback.
   std::vector<native::IndexedDraw> commands;
   commands.reserve(draws.size());
+  // SPIR-V descriptor parsing is O(shader word count), so do it only once
+  // per unique shader digest per stage for this frame, NOT for every Draw.
+  std::map<Digest,std::vector<SpirvImageResource>> vsImageCache,psImageCache;
   for (const auto& value : draws) {
     gpu::ValidateOriginalEorSamplers(value.original_samplers);
     // Fail closed for ORIGINAL sampled images that have no resident material
@@ -86,7 +90,13 @@ void ReplayAotScene(const native::FrameGeometry& frame,
                                  value.pixel_source_sha256,stage);
       if(!program)
         throw std::logic_error("Original source shader stage unavailable");
-      const auto images=InspectSpirvImageResources(program->spirv);
+      const auto& key=stage==Stage::Vertex ? value.vertex_source_sha256 :
+                                              value.pixel_source_sha256;
+      auto& cache=stage==Stage::Vertex ? vsImageCache : psImageCache;
+      auto found=cache.find(key);
+      if(found==cache.end())
+        found=cache.emplace(key,InspectSpirvImageResources(program->spirv)).first;
+      const auto& images=found->second;
       for(const auto& image:images) {
         size_t matches=0;
         for(const auto& slot:value.original_samplers)
