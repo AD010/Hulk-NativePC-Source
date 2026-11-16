@@ -19,8 +19,8 @@ PIN=os.environ.get("HULK_NATIVEX_SOURCE_SHA",
 PINS={"bf965e952c98e050753e91d08f32685a9f754b12",
       "919371b5bdae0c9c4c7120ca321f5a4d72b7e78e",
       "fa19ea85fec5c7f7f8a2df82d6c4a86548817b52"}
-INCLUDES_OLD="#include <algorithm>\n#include <cstring>"
-INCLUDES_NEW="#include <atomic>\n#include <algorithm>\n#include <cstring>\n#include <rex/cvar.h>"
+INCLUDES_OLD="#include <algorithm>\n#include <atomic>\n#include <cstring>"
+INCLUDES_NEW="#include <algorithm>\n#include <atomic>\n#include <cstring>\n#include <rex/cvar.h>"
 CVAR_ANCHOR="namespace native_x_renderer {\n"
 CVAR= """REXCVAR_DEFINE_BOOL(native_x_renderer_hulk_live_texture_id, false,
                     "Hulk/Original Texture Proof",
