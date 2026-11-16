@@ -72,7 +72,12 @@ std::optional<VerifiedOriginalXboxGpuMipChain> DecodeOriginalXboxGpuMips(
      rw!=plan.resident_width || rh!=plan.resident_height ||
      sw!=plan.levels.front().width || sh!=plan.levels.front().height)
     return std::nullopt;
-  const uint32_t block_pixels=resident_format==XenosTextureFormat::RGBA16F?1u:4u;
+  // BC1/BC3 are 4x4 pixel blocks; RGBA8 and RGBA16F are uncompressed
+  // per-texel formats. Treating RGBA8 as BC undercounts its tiled footprint
+  // by up to 16x and rejects or misaddresses the original 0x06 LFXT mips.
+  const uint32_t block_pixels=
+      (resident_format==XenosTextureFormat::BC1 ||
+       resident_format==XenosTextureFormat::BC3) ? 4u : 1u;
   const uint32_t block_bytes=resident_format==XenosTextureFormat::BC3?16u:
       resident_format==XenosTextureFormat::RGBA8?4u:8u;
   const OriginalLfxtStorageFamily family=
