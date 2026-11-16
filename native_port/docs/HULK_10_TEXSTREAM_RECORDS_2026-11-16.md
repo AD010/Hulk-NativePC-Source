@@ -7,10 +7,24 @@ The owner provided ten individually extracted binary TexStreams records and
 Ten record lengths: 98,360; 8,248; 360,504; 10,485,816; 98,360;
 65,592; 360,504; 180,280; 5,242,936; 8,248 bytes.
 
-Every listed record length minus **56** is a multiple of 4,096.
-This is evidence of a candidate 0x38-byte header, **NOT** proof
-of field layout, Xenos texture compression format, mip packing, or
-any live EoR shader sampler slot.
+The subsequently supplied text-based `Hulk_TexStreams_Header_Report.txt`
+allows checking original bytes despite the current Python/container failure.
+
+**Verified for all 10 records:** the first 4 bytes, interpreted as a
+big-endian unsigned integer, equal **(total record length - 4)**.
+For example 8,248 bytes has a BE prefix `0x00002034` (8,244);
+98,360 has `0x00018034` (98,356); 10,485,816 has
+`0x00A00034` (10,485,812). All ten also satisfy
+`(total_length - 56) % 4096 == 0`, but **this does not establish a
+56-byte header**. The 52 bytes following the verified size prefix may
+already contain texture blocks. NEVER unconditionally strip 56 bytes.
+
+`ValidateOriginalTexStreamEnvelope` now checks that independently verified
+4-byte BE length prefix for source records, and returns a zero-copy view
+starting at byte 4; the loader preserves the complete original record for
+source-relative offsets. The remaining bytes have **no verified GPU
+format, tiling or mip ownership**. These facts do not prove a live EoR
+shader sampler slot or resolved 16:10 render output.
 
 The manifest says **"original Xbox 360 IND"** without the pinned USA
 index SHA-256. It cannot independently attest that these bytes came

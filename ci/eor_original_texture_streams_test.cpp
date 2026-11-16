@@ -71,9 +71,22 @@ int main(){
   auto no_stream=Index::Decode(TestIndex(th,sh,false));
   assert(!textures::FindVerifiedOriginalTexStream(record,th,no_stream));
   const auto file=std::filesystem::temp_directory_path()/"hulk_original_texstream_test.arc";
-  std::vector<std::byte> disk(36,std::byte(0x7e));Save(file,disk);
+  std::vector<std::byte> disk(36,std::byte(0x7e));
+  Replace32(disk,0,32);
+  Save(file,disk);
   auto link=textures::FindVerifiedOriginalTexStream(record,th,index);
   auto payload=textures::ReadOriginalTexStream(file,*link);
-  assert(payload.size()==32 && payload.front()==std::byte(0x7e));
+  assert(payload.size()==32 && payload.front()==std::byte(0));
+  auto view=textures::ValidateOriginalTexStreamEnvelope(payload);
+  assert(view.size()==28 && view.front()==std::byte(0x7e));
+  auto malformed=payload;
+  Replace32(malformed,0,28);
+  Reject([&]{(void)textures::ValidateOriginalTexStreamEnvelope(malformed);});
+  Reject([&]{(void)textures::ValidateOriginalTexStreamEnvelope(
+      std::span<const std::byte>(payload).first(4));});
+  malformed=payload;
+  malformed[0]=std::byte(0x7e);
+  Save(file,malformed);
+  Reject([&]{(void)textures::ReadOriginalTexStream(file,*link);});
   std::filesystem::remove(file);
 }

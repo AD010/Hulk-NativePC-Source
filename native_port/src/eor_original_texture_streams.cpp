@@ -65,6 +65,15 @@ std::optional<OriginalStreamLink> FindVerifiedOriginalTexStream(
     throw std::invalid_argument("Indexed Xbox texture stream hash absent from original LFXT header");
   return OriginalStreamLink{texture_hash,stream_hash,*stream,matching};
 }
+std::span<const std::byte> ValidateOriginalTexStreamEnvelope(
+    std::span<const std::byte> bytes) {
+  if (bytes.size() < 5 || bytes.size() > kMaxStreamSize)
+    throw std::invalid_argument("Original Xbox TexStreams record size is unsafe");
+  const uint32_t declared = ReadBig32(bytes, 0);
+  if (declared != bytes.size() - 4)
+    throw std::invalid_argument("Original Xbox TexStreams BE length-prefix mismatch");
+  return bytes.subspan(4);
+}
 std::vector<std::byte> ReadOriginalTexStream(
     const std::filesystem::path& archive,const OriginalStreamLink& link) {
   if(archive.empty() || !link.original_texture_hash || !link.original_stream_hash ||
@@ -72,6 +81,10 @@ std::vector<std::byte> ReadOriginalTexStream(
      link.indexed_stream.reserved || !link.indexed_stream.size ||
      link.indexed_stream.size>kMaxStreamSize)
     throw std::invalid_argument("Unverified source for original Xbox high-resolution texture stream");
-  return ReadResource(archive,link.indexed_stream,kMaxStreamSize);
+  auto record=ReadResource(archive,link.indexed_stream,kMaxStreamSize);
+  (void)ValidateOriginalTexStreamEnvelope(record);
+  // Keep full original record intact for source-relative mip byte offsets.
+  // Only verified format/tiling metadata may decide how to read GPU bytes.
+  return record;
 }
 } // namespace hulk::eor::textures
