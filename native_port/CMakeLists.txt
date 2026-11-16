@@ -32,6 +32,7 @@ set(INCREDIBLEHULK_SOURCES
     src/eor_native_mesh_upload.cpp
     src/eor_model_surface_materials.cpp
     src/eor_original_model_assets.cpp
+    src/eor_original_model_upload.cpp
     src/eor_fmod_project.cpp
     src/eor_fmod_catalog.cpp
     src/eor_havok_packfile.cpp

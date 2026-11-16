@@ -312,6 +312,18 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Native EoR mesh upload bridge MSVC compile failed' }
           & $uploadTest
           if ($LASTEXITCODE -ne 0) { throw 'Native EoR GPU buffer upload rollback/preflight regression failed' }
+          # Original Models IND/ARC metadata and decoded native buffers
+          # stay associated without inventing mesh/material draw assignments.
+          $modelUploadTest = Join-Path $env:RUNNER_TEMP 'hulk-eor-original-model-upload-test.exe'
+          $modelUploadArgs = @('/nologo','/std:c++20','/EHsc','/W4','/WX','/utf-8',
+                               "/Fe:$modelUploadTest",
+                               'native_port/src/eor_native_mesh_upload.cpp',
+                               'native_port/src/eor_original_model_upload.cpp',
+                               'ci/eor_original_model_upload_test.cpp')
+          & cl.exe @modelUploadArgs
+          if ($LASTEXITCODE -ne 0) { throw 'Native EoR original model/material GPU staging compile failed' }
+          & $modelUploadTest
+          if ($LASTEXITCODE -ne 0) { throw 'Native EoR source model metadata/GPU staging regression failed' }
           $allSurfaceTest = Join-Path $env:RUNNER_TEMP 'hulk-eor-all-surface-materials-test.exe'
           $allSurfaceArgs = @('/nologo','/std:c++20','/EHsc','/W4','/WX','/utf-8',
                               "/Fe:$allSurfaceTest",
