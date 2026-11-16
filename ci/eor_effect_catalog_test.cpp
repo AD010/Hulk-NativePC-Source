@@ -34,6 +34,22 @@ int main() {
   assert(catalog.HasPair(0x111,1,vs,ps));
   assert(!catalog.HasPair(0x111,0,vs,ps));
   assert(!catalog.HasPair(0x222,1,vs,ps));
+  // A single native compiled shader can be shared by many effect passes.
+  data[8]=4; // four material/pass entries but just six distinct shader digests
+  Pair(data,0x222,1,0x11,0x66);
+  write();catalog.Load(path);
+  assert(catalog.PairCount()==4 && catalog.EffectCount()==2 &&
+         catalog.ShaderCount()==6);
+  hulk::eor::aot::Digest reused_vs{},reused_ps{};
+  reused_vs.fill(0x11);reused_ps.fill(0x66);
+  assert(catalog.HasPair(0x222,1,reused_vs,reused_ps));
+  const auto verified_shared=data;
+  data[16+3*72+8]=0x22; // VS tries to impersonate an already-used PS digest
+  write();bool stage_failed=false;
+  try {catalog.Load(path);}catch(const std::invalid_argument&){stage_failed=true;}
+  assert(stage_failed && catalog.PairCount()==4 &&
+         catalog.HasPair(0x222,1,reused_vs,reused_ps));
+  data=verified_shared;
   data[16+72+4]=2;write();
   bool failed=false;try {catalog.Load(path);}catch(const std::invalid_argument&){failed=true;}
   assert(failed && catalog.HasPair(0x111,1,vs,ps));
