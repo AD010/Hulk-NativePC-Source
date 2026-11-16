@@ -418,6 +418,19 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Original EoR sampler material provenance MSVC compile failed' }
           & $samplerTest
           if ($LASTEXITCODE -ne 0) { throw 'Original EoR material/sampler ownership regression failed' }
+          # Source-faithful Xbox BCn mip byte-range planner: no 52-byte
+          # original resource trailer can leak into host Vulkan texels.
+          $mipRangeTest = Join-Path $env:RUNNER_TEMP 'hulk-original-mip-range-test.exe'
+          $mipRangeArgs = @('/nologo','/std:c++20','/EHsc','/W4','/WX','/utf-8',
+                            "/Fe:$mipRangeTest",
+                            'native_port/src/eor_archive.cpp',
+                            'native_port/src/eor_original_texture_streams.cpp',
+                            'native_port/src/eor_original_texture_mip_ranges.cpp',
+                            'ci/eor_original_texture_mip_ranges_test.cpp')
+          & cl.exe @mipRangeArgs
+          if ($LASTEXITCODE -ne 0) { throw 'Original USA LFXT/TexStreams mip ranges failed MSVC compilation' }
+          & $mipRangeTest
+          if ($LASTEXITCODE -ne 0) { throw 'Original USA Xenos mip payload source range regression failed' }
           $textureTest = Join-Path $env:RUNNER_TEMP 'hulk-eor-original-texture-assets-test.exe'
           $textureArgs = @('/nologo','/std:c++20','/EHsc','/W4','/WX','/utf-8',
                             "/Fe:$textureTest",

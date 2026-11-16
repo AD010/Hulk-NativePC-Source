@@ -1,4 +1,5 @@
 #include "eor_diligent_xenos_textures.h"
+#include "eor_original_texture_mip_ranges.h"
 #include "RenderDevice.h"
 #include "Texture.h"
 #include "TextureView.h"
@@ -108,6 +109,12 @@ UploadedEorTexture UploadExplicitOriginalTexture(
     (void)textures::VerifiedOriginalStreamByteRange(
         original.original_stream_bytes, mip.source_offset, 1);
   }
+  if(!original.original_inline_section)
+    throw std::invalid_argument("Original LFXT GPU mip has no verified inline allocation");
+  textures::ValidateOriginalMipPayloadRanges(
+      original.original_bytes,original.original_stream_bytes,
+      *original.original_inline_section,*original.original_mip_plan,
+      format,layouts);
   const auto image=textures::PrepareExplicitOriginalMips(
       format,layouts,original.original_bytes,original.original_stream_bytes);
   if(image.mips.empty() || image.mips.size()>std::numeric_limits<Diligent::Uint32>::max())
