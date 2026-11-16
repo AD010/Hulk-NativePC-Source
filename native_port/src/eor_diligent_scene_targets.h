@@ -33,7 +33,9 @@ class DiligentSceneTargets {
   bool Prepare(const native::FrameGeometry& frame,
                VerifiedSceneFormat verified);
   bool BeginScene(); // does not clear: the real EoR Clear/Depth ABI owns it
-  bool ResolveScene(); // MSAA color -> non-MSAA at the same physical extent
+  // Always call after scene draws (even 1x, to unbind the color target).
+  // Only an MSAA scene performs a real same-extent Vulkan resolve.
+  bool ResolveScene();
   Diligent::ITextureView* ResolvedColorSRV() const noexcept;
   void AbortScene() noexcept;
   void Reset() noexcept;

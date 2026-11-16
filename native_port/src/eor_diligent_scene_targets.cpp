@@ -140,7 +140,7 @@ bool DiligentSceneTargets::BeginScene() {
   } catch (...) {AbortScene();return false;}
 }
 bool DiligentSceneTargets::ResolveScene() {
-  if(!state_ || !state_->bound || !state_->color || !state_->resolved)return false;
+  if(!state_ || !state_->prepared || !state_->bound || !state_->color || !state_->resolved)return false;
   try {
     state_->context->SetRenderTargets(0,nullptr,nullptr,Diligent::RESOURCE_STATE_TRANSITION_MODE_NONE);
     state_->bound=false;
