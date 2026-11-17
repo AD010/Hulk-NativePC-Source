@@ -1,4 +1,5 @@
 #include "eor_diligent_aot_backend.h"
+#include "eor_spirv_texture_bindings.h"
 #include "RenderDevice.h"
 #include "DeviceContext.h"
 #include "Buffer.h"
@@ -116,6 +117,49 @@ DiligentEorDirectBackend::DiligentEorDirectBackend(
          texture.identity.original_effect_hash!=pass.original_effect_hash ||
          texture.identity.original_pass_index!=pass.original_pass_index)
         throw std::invalid_argument("Original EoR texture belongs to different material surface");
+    // Verify the SOURCE shader's actual OpTypeImage dimensionality. An
+    // original GPU mip chain uploaded as Texture2DArray cannot be sampled
+    // from a Texture2D binding (or vice versa); one wrong view corrupts
+    // the whole material even though the source bytes are correct.
+    for(const auto stage:{aot::Stage::Vertex,aot::Stage::Pixel}) {
+      const auto* binary=bank.Find(
+          stage==aot::Stage::Vertex ? pass.original_vertex_shader_sha256 :
+                                      pass.original_pixel_shader_sha256,stage);
+      if(!binary)
+        throw std::invalid_argument("Original EoR material shader absent from native AOT bank");
+      const auto reflected=aot::InspectSpirvImageResources(binary->spirv);
+      for(const auto& image:reflected) {
+        if(image.spirv_dim!=1 || image.image_multisampled)
+          throw std::invalid_argument("Original EoR material requires unsupported non-2D or multisampled shader image");
+        const auto view=image.image_arrayed ?
+            OriginalTextureViewKind::NativeX2DArray :
+            OriginalTextureViewKind::Native2D;
+        unsigned matches=0;
+        for(const auto& texture:owner.original_textures)
+          if(texture.identity.stage==
+                (stage==aot::Stage::Vertex ? OriginalSamplerStage::Vertex :
+                                             OriginalSamplerStage::Pixel) &&
+             texture.identity.exact_shader_variable_name==image.exact_variable_name) {
+            if(texture.required_view!=view || !texture.uploaded ||
+               texture.uploaded->view_kind!=view)
+              throw std::invalid_argument("EoR original texture view disagrees with actual SPIR-V image type");
+            ++matches;
+          }
+        if(matches!=1)
+          throw std::invalid_argument("Original EoR shader image has no exact material owner/SRV");
+      }
+      for(const auto& texture:owner.original_textures) {
+        if(texture.identity.stage !=
+            (stage==aot::Stage::Vertex ? OriginalSamplerStage::Vertex :
+                                         OriginalSamplerStage::Pixel))continue;
+        bool present=false;
+        for(const auto& image:reflected)
+          if(texture.identity.exact_shader_variable_name==
+             image.exact_variable_name)present=true;
+        if(!present)
+          throw std::invalid_argument("Native material contains an image not declared by original shader");
+      }
+    }
     const auto& gpu=pass.exact_render_state;
     // The owned host scene has exactly one color RT and one depth RT.
     // Never bind a PSO expecting mismatched sample counts or formats.
