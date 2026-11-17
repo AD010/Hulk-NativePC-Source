@@ -106,7 +106,16 @@ DiligentEorDirectBackend::DiligentEorDirectBackend(
   if(color==Diligent::TEX_FORMAT_UNKNOWN || depth==Diligent::TEX_FORMAT_UNKNOWN)
     throw std::invalid_argument("Unknown EoR native scene format");
   for(size_t i=0;i<state_->passes.size();++i) {
-    const auto& pass=state_->passes[i].pipeline;
+    const auto& owner=state_->passes[i];
+    const auto& pass=owner.pipeline;
+    if(!owner.original_model_hash || owner.original_surface_ordinal==UINT32_MAX)
+      throw std::invalid_argument("Original EoR material surface provenance missing");
+    for(const auto& texture:owner.original_textures)
+      if(texture.identity.original_model_hash!=owner.original_model_hash ||
+         texture.identity.original_surface_ordinal!=owner.original_surface_ordinal ||
+         texture.identity.original_effect_hash!=pass.original_effect_hash ||
+         texture.identity.original_pass_index!=pass.original_pass_index)
+        throw std::invalid_argument("Original EoR texture belongs to different material surface");
     const auto& gpu=pass.exact_render_state;
     // The owned host scene has exactly one color RT and one depth RT.
     // Never bind a PSO expecting mismatched sample counts or formats.
@@ -137,10 +146,23 @@ DiligentEorDirectBackend::DiligentEorDirectBackend(
                         pass.original_pixel_shader_sha256))
       throw std::invalid_argument("Native EoR shader/pass provenance mismatched");
     for(size_t j=0;j<i;++j) {
-      const auto& old=state_->passes[j].pipeline;
-      if(old.original_effect_hash==pass.original_effect_hash &&
+      const auto& earlier=state_->passes[j];
+      const auto& old=earlier.pipeline;
+      // Shader PSO is shared by many surfaces, but NEVER the material's
+      // texture identity. Reject a duplicate owner and a shared PSO
+      // key whose fixed-function state or host vertex layout differs.
+      if(earlier.original_model_hash==owner.original_model_hash &&
+         earlier.original_surface_ordinal==owner.original_surface_ordinal &&
+         old.original_effect_hash==pass.original_effect_hash &&
          old.original_pass_index==pass.original_pass_index)
-        throw std::invalid_argument("Ambiguous native original effect/pass definition");
+        throw std::invalid_argument("Duplicate native EoR surface/material pass");
+      if(old.original_effect_hash==pass.original_effect_hash &&
+         old.original_pass_index==pass.original_pass_index &&
+         (old.original_vertex_shader_sha256!=pass.original_vertex_shader_sha256 ||
+          old.original_pixel_shader_sha256!=pass.original_pixel_shader_sha256 ||
+          !(old.exact_render_state==pass.exact_render_state) ||
+          old.exact_host_input_layout!=pass.exact_host_input_layout))
+        throw std::invalid_argument("Shared native EoR pass has conflicting PSO state");
     }
   }
   for(const auto& [position,slots]:state_->draw_buffers) {
@@ -227,15 +249,33 @@ bool DiligentEorDirectBackend::BindOriginalSamplers(
     std::span<const VerifiedEorSampler> expected) {
   auto& s=*state_;
   s.textures_ready=false;
-  if(!s.program_ready || !s.selected || !s.active.bindings ||
-     expected.size()!=s.selected->original_textures.size())
-    return false;
-  for(size_t i=0;i<expected.size();++i)
-    if(!Same(expected[i],s.selected->original_textures[i].identity))
-      return false;
+  if(!s.program_ready || !s.selected || !s.active.bindings)return false;
+  // Resolve *this draw's* material, not the first mesh that uses the
+  // effect/pass. Reusing PSOs is correct; reusing its previous textures is not.
+  const auto* chosen=static_cast<const NativeEorPassResources*>(nullptr);
+  for(const auto& material:s.passes) {
+    if(material.pipeline.original_effect_hash!=
+           s.selected->pipeline.original_effect_hash ||
+       material.pipeline.original_pass_index!=
+           s.selected->pipeline.original_pass_index ||
+       expected.size()!=material.original_textures.size()) continue;
+    bool matching=true;
+    for(size_t i=0;i<expected.size();++i)
+      if(!Same(expected[i],material.original_textures[i].identity)) {
+        matching=false;break;
+      }
+    if(!matching)continue;
+    // Empty-sampler shaders carry no texture ownership in their shader
+    // variables, so any identical pass with zero samplers is equivalent.
+    if(chosen && !expected.empty())return false;
+    chosen=&material;
+    if(expected.empty())break;
+  }
+  if(!chosen)return false;
   try {
     BindVerifiedOriginalEorTextures(s.active.bindings.RawPtr(),
-                                   s.selected->original_textures);
+                                   chosen->original_textures);
+    s.selected=chosen;
     s.textures_ready=true;
     return true;
   } catch (...) {return false;}
