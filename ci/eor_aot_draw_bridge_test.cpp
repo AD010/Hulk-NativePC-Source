@@ -220,9 +220,9 @@ int main(){
   assert(textured.begin==1 && textured.bind==1 && textured.samplers==1 &&
          textured.draw==1 && textured.abort==0);
   Backend blocked;
-  auto other=texture;
-  other.original_effect_hash=0xFAFE;
-  entry.original_samplers={other};
+  auto invalid_texture=texture;
+  invalid_texture.original_effect_hash=0xFAFE;
+  entry.original_samplers={invalid_texture};
   draws={entry};
   bool wrong_owner=false;
   try {ReplayAotScene(geometry,draws,texturedShaders,effects,reflection,blocked);}

@@ -28,8 +28,10 @@ Diligent::IShader* DiligentAotShaderModules::GetOrCreate(
   const auto key=std::make_pair(digest,stage);
   auto existing=state_->modules.find(key);
   if(existing!=state_->modules.end())return existing->second.RawPtr();
-  if(!bank.HasFullArchiveCoverage())
-    throw std::logic_error("Partial original EoR shader bank cannot create native modules");
+  // A real native frame needs exactly its source-proven VS/PS, not all
+  // 5194 unrelated original shader variants. ReplayAotScene verifies the
+  // requested shader identities and effect/technique before BeginScene.
+  // Never synthesize or substitute an absent original shader.
   const auto* binary=bank.Find(digest,stage);
   if(!binary || binary->spirv.size()<5 || binary->spirv.front()!=0x07230203u)
     throw std::invalid_argument("Original EoR shader identity missing or wrong stage");

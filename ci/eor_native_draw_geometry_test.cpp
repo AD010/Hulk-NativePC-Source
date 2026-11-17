@@ -29,10 +29,12 @@ model::LoadedNativeGeometry MakeModel() {
   m.original_surfaces.push_back(surf);
   model::NativeIndexedMesh mesh;
   mesh.source_header_offset=40;mesh.source_indices_offset=67;
-  mesh.source_vertices_offset=73;mesh.original_vertex_stride=24;
+  mesh.source_vertices_offset=79;mesh.original_vertex_stride=24;
   mesh.original_attribute_count=3;mesh.original_attribute_declarations.resize(3);
-  mesh.positions={{0,0,0},{1,0,0},{0,1,0}};
-  mesh.triangle_list_indices={0,1,2};mesh.original_vertex_stream.resize(72);
+  mesh.positions={{0,0,0},{1,0,0},{0,1,0},
+                  {2,0,0},{3,0,0},{2,1,0}};
+  mesh.triangle_list_indices={0,1,2,3,4,5};
+  mesh.original_vertex_stream.resize(144);
   m.decoded_meshes.push_back(std::move(mesh));
   return m;
 }
@@ -109,8 +111,20 @@ int main(){
   check([](auto& v){v.first_index=6;});
   check([](auto& v){v.index_count=9;});
   check([](auto& v){v.index_count=2;});
-  check([](auto& v){v.host_base_vertex=1;});
+  check([](auto& v){v.host_base_vertex=4;});
   check([](auto& v){v.host_base_vertex=-1;});
+  // Different indexed windows can legitimately use different baseVertex
+  // offsets on the same 6-vertex buffer.
+  auto pos=original;
+  pos.host_base_vertex=1;
+  const auto posDraw=native::BindVerifiedGeometryDraws(
+      std::span<const native::VerifiedDrawSource>(&pos,1),models,effects);
+  assert(posDraw.size()==1 && posDraw[0].draw.base_vertex==1);
+  auto neg=original;
+  neg.first_index=3;neg.host_base_vertex=-3;
+  const auto negDraw=native::BindVerifiedGeometryDraws(
+      std::span<const native::VerifiedDrawSource>(&neg,1),models,effects);
+  assert(negDraw.size()==1 && negDraw[0].draw.base_vertex==-3);
   check([](auto& v){v.vertex_shader_id=0;});
   check([](auto& v){v.engine_draw_verified=false;});
   check([](auto& v){v.mesh_material_verified=false;});

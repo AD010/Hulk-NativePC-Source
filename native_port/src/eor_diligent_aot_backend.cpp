@@ -151,12 +151,13 @@ struct DiligentEorDirectBackend::State {
   bool surface_ready=false;
   aot::ReflectedShader vertex{},pixel{};
   OriginalVulkanPipeline active{};
-  // Immutable shader/PSO pairing remains live across Draws and frames;
-  // no per-draw driver compilation and no guessed shader cache keys.
-  std::map<std::pair<uint32_t,uint32_t>,OriginalVulkanPipeline> pipeline_cache;
-  // Reuse shader PSOs across source-identical passes, NEVER their mutable
-  // descriptor sets. Each real model/material/pass owns its own Vulkan SRB.
+  // Shader MODULES are cached by digest, but host PSOs are keyed by the
+  // EXACT original model/surface/effect/pass: two materials may share a
+  // ShaderEffect pair yet use different source-proven blend/depth/cull or
+  // vertex input state. Sharing a PSO keyed by technique alone was unsafe.
   using MaterialKey=std::tuple<uint32_t,uint32_t,uint32_t,uint32_t>;
+  std::map<MaterialKey,OriginalVulkanPipeline> pipeline_cache;
+  // Each original pass owns a unique mutable Vulkan descriptor binding.
   std::map<MaterialKey,Diligent::RefCntAutoPtr<Diligent::IShaderResourceBinding>>
       material_bindings;
   bool frame_preflight_ready=false;
@@ -333,7 +334,6 @@ bool DiligentEorDirectBackend::PreflightOriginalScene(
   auto& s=*state_;
   s.frame_preflight_ready=false;
   if(s.scene_open || draws.empty())return false;
-  std::set<std::pair<uint32_t,uint32_t>> needed;
   std::set<State::MaterialKey> needed_materials;
   std::set<std::pair<uint64_t,uint32_t>> captured_calls;
   uint64_t captured_frame=0;
@@ -386,7 +386,6 @@ bool DiligentEorDirectBackend::PreflightOriginalScene(
                                     d.index_count,d.base_vertex,
                                     mesh->second.vertex_count))
       return false;
-    needed.emplace(item.effect_hash,item.pass_index);
     needed_materials.emplace(item.original_model_hash,
                              item.original_surface_ordinal,
                              item.effect_hash,item.pass_index);
@@ -395,14 +394,16 @@ bool DiligentEorDirectBackend::PreflightOriginalScene(
   // frame will execute. A PSO failure occurs before BeginScene and never
   // leaves earlier 3D objects partially submitted (red/yellow flashes).
   try {
-    for(const auto& key:needed) {
+    for(const auto& key:needed_materials) {
       if(s.pipeline_cache.contains(key))continue;
       const NativeEorPassResources* match=nullptr;
       for(const auto& material:s.passes)
-        if(material.pipeline.original_effect_hash==key.first &&
-           material.pipeline.original_pass_index==key.second) {
+        if(material.original_model_hash==std::get<0>(key) &&
+           material.original_surface_ordinal==std::get<1>(key) &&
+           material.pipeline.original_effect_hash==std::get<2>(key) &&
+           material.pipeline.original_pass_index==std::get<3>(key)) {
+          if(match)return false; // ambiguous original pass owner
           match=&material;
-          break;
         }
       if(!match)return false;
       auto pipeline=CreateOriginalVulkanPipeline(
@@ -415,8 +416,7 @@ bool DiligentEorDirectBackend::PreflightOriginalScene(
     // to use the same compiled VS/PS technique.
     for(const auto& key:needed_materials) {
       if(s.material_bindings.contains(key))continue;
-      const auto pipeline=s.pipeline_cache.find(
-          {std::get<2>(key),std::get<3>(key)});
+      const auto pipeline=s.pipeline_cache.find(key);
       if(pipeline==s.pipeline_cache.end() || !pipeline->second.pipeline)
         return false;
       Diligent::RefCntAutoPtr<Diligent::IShaderResourceBinding> binding;
@@ -510,6 +510,8 @@ bool DiligentEorDirectBackend::BindVerifiedProgramPair(
   // This path executes in an open render pass: it must NOT compile a new
   // PSO or allocate a mutable SRB. Both were already source-preflighted.
   const auto pipeline=s.pipeline_cache.find({
+      s.selected->original_model_hash,
+      s.selected->original_surface_ordinal,
       s.selected->pipeline.original_effect_hash,
       s.selected->pipeline.original_pass_index});
   const auto binding=s.material_bindings.find({
