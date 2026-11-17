@@ -113,6 +113,16 @@ void CapturePpcDraw(Kind kind, uint32_t guest, const PPCContext& ctx,
   std::lock_guard lock(g_mutex);
   g_collector.Record(draw);
 }
+void CapturePpcCommand(CommandKind kind,uint32_t guest,
+                       const PPCContext& ctx) {
+  if(!CaptureEnabled())return;
+  RawCommand event{kind,guest,static_cast<uint32_t>(ctx.lr),
+                   {ctx.r3.u32,ctx.r4.u32,ctx.r5.u32,ctx.r6.u32,
+                    ctx.r7.u32,ctx.r8.u32,ctx.r9.u32,ctx.r10.u32},
+                   UINT32_MAX};
+  std::lock_guard lock(g_mutex);
+  g_collector.RecordCommand(event);
+}
 void EndPpcHook(native_x_renderer::Call kind) {
   if (kind != native_x_renderer::Call::kPresent || !CaptureEnabled()) return;
   Frame frame;
@@ -136,10 +146,13 @@ void EndPpcHook(native_x_renderer::Call kind) {
       case Kind::DrawVerticesUP: ++up; break;
       }
     }
-    REXLOG_INFO("[HULK/EOR-XDK-PROVENANCE] frame={} actual XDK calls: "
-                "indexed={} vertices={} UP={} dropped={}; "
-                "native EoR vertex/index/shader identity NOT decoded",
-                frame.sequence, indexed, verts, up, frame.dropped);
+    REXLOG_INFO("[HULK/EOR-XDK-PROVENANCE] frame={} real PPC: "
+                "indexed={} vertices={} UP={} dropped={} "
+                "commands={} dropped_commands={} complete_timeline={}; "
+                "native EoR per-pass GPU ownership still source-gated",
+                frame.sequence,indexed,verts,up,frame.dropped,
+                frame.commands.size(),frame.dropped_commands,
+                ValidateOriginalCommandTimeline(frame));
     for (const auto& site: hot) {
       REXLOG_INFO("[HULK/EOR-XDK-CALLSITE] XDK=0x{:08X} LR=0x{:08X} "
                   "kind={} draws={} frames={} first={} last={} "

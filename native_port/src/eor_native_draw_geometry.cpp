@@ -94,7 +94,10 @@ std::vector<aot::BoundIndexedDraw> BindVerifiedGeometryDraws(
 std::vector<VerifiedDrawSource> MatchCapturedXdkDraws(
     const xdk::Frame& frame,
     std::span<const VerifiedXdkIndexedSubmission> verified) {
-  if(!frame.sequence || frame.dropped || frame.calls.empty() ||
+  if(!frame.sequence || frame.dropped || frame.dropped_commands ||
+     (!frame.commands.empty() &&
+      !xdk::ValidateOriginalCommandTimeline(frame)) ||
+     frame.calls.empty() ||
      frame.calls.size()!=verified.size())
     throw std::invalid_argument("Original Xbox XDK frame has missing/unmapped Draws");
   std::vector<VerifiedDrawSource> sources;
@@ -183,7 +186,10 @@ std::vector<VerifiedDrawSource> ResolveCapturedResourceDraws(
     const xdk::Frame& frame,
     std::span<const VerifiedXdkResourceWitness> witnesses,
     std::span<const model::UploadedOriginalModel* const> residents) {
-  if(!frame.sequence || frame.dropped || frame.calls.empty() ||
+  if(!frame.sequence || frame.dropped || frame.dropped_commands ||
+     (!frame.commands.empty() &&
+      !xdk::ValidateOriginalCommandTimeline(frame)) ||
+     frame.calls.empty() ||
      frame.calls.size()>xdk::FrameCapture::kMaxDraws || witnesses.empty())
     throw std::invalid_argument("Incomplete original Xbox resource-witness Draw frame");
   std::vector<VerifiedXdkDrawSubmission> matched;
@@ -279,6 +285,10 @@ void ReplayCapturedResourceScene(
     std::span<const model::UploadedOriginalModel* const> residents,
     const aot::ShaderBank& bank,const aot::EffectCatalog& effects,
     const aot::ReflectionBank& reflection,aot::ShaderBindingBackend& backend) {
+  // No sole Vulkan presenter may replay only Draws while silently
+  // dropping original render-target binds, clears and resolves.
+  if(!xdk::ValidateOriginalCommandTimeline(captured))
+    throw std::invalid_argument("Incomplete source RT/Draw/Resolve/Present timeline");
   const auto source=ResolveCapturedResourceDraws(captured,verified,residents);
   ReplayVerifiedGeometryScene(frame,source,residents,bank,effects,reflection,backend);
 }
@@ -286,7 +296,10 @@ std::vector<VerifiedDrawSource> MatchCapturedMixedDraws(
     const xdk::Frame& frame,
     std::span<const VerifiedXdkDrawSubmission> verified,
     std::span<const model::UploadedOriginalModel* const> residents) {
-  if(!frame.sequence || frame.dropped || frame.calls.empty() ||
+  if(!frame.sequence || frame.dropped || frame.dropped_commands ||
+     (!frame.commands.empty() &&
+      !xdk::ValidateOriginalCommandTimeline(frame)) ||
+     frame.calls.empty() ||
      frame.calls.size()!=verified.size() ||
      frame.calls.size()>xdk::FrameCapture::kMaxDraws)
     throw std::invalid_argument("Original Xbox USA frame lacks a complete exact Draw stream");

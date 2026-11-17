@@ -26,6 +26,12 @@ with tempfile.TemporaryDirectory() as d:
     assert "#define HULK_GPU_PROBE_HIT(index, addr, ctx) ((void)0)" in cpp
     assert "HULK_GPU_PROBE_HIT(index, 0x##addr, ctx)" in cpp
     assert "CapturePpcDraw" in cpp
+    assert "CapturePpcCommand" in cpp
+    assert "CommandKind::SetRenderTarget" in cpp
+    assert "CommandKind::ClearF" in cpp
+    assert "CommandKind::Resolve" in cpp
+    assert "CommandKind::Present" in cpp
+    assert "CommandKind::Clear, " not in cpp # nested Clear -> ClearF once
     assert "ctx, base);" in cpp
     assert "EndPpcHook(type)" in cpp
     assert "eor_xdk_hook_bridge.h" in cpp

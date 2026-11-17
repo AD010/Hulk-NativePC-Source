@@ -20,6 +20,8 @@ class TestEorObserverOnly(unittest.TestCase):
         self.assertLess(renderer.index('if (eor_observer_only) {'),
                         renderer.index('native_x_renderer::Initialize('))
         self.assertIn('CapturePpcDraw',hooks)
+        self.assertIn('CapturePpcCommand',hooks)
+        self.assertIn('CommandKind::Present',hooks)
         self.assertIn('::hulk::eor::xdk::EndPpcHook(type); return;',hooks)
         self.assertIn('__imp__sub_##addr(ctx,base);',hooks)
 if __name__ == "__main__":

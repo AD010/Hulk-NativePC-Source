@@ -7,6 +7,8 @@ namespace hulk::eor::xdk {
 bool CaptureEnabled();
 void CapturePpcDraw(Kind kind, uint32_t guest, const PPCContext& ctx,
                     uint8_t* guest_base);
+void CapturePpcCommand(CommandKind kind, uint32_t guest,
+                       const PPCContext& ctx);
 void EndPpcHook(native_x_renderer::Call kind);
 // The only completed read-only guest frame handoff to a source-verified
 // native renderer. Callers must reject missing witnesses, missed frames,

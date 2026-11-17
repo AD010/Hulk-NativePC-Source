@@ -105,6 +105,61 @@ int main() {
   assert(first.calls.size()==2 && first.calls[0].function==0x8288E318u);
   assert(first.calls[1].gpr[7]==11);
   assert(first.calls[0].lr==0x8263BF50u);
+  // A Draw-only list cannot become a native sole-presenter frame:
+  // original RT/depth, clear and Resolve ownership MUST be ordered too.
+  assert(first.commands.size()==2 &&
+         first.commands[0].kind==CommandKind::DrawIndexedVertices &&
+         first.commands[0].draw_ordinal==0 &&
+         first.commands[1].draw_ordinal==1);
+  assert(!ValidateOriginalCommandTimeline(first));
+  FrameCapture chronology;
+  chronology.RecordCommand(RawCommand{
+      CommandKind::SetRenderTarget,0x8287F2C0u,0x8263A000u,
+      {3,0,0x82001234u,0,0,0,0,0}});
+  chronology.RecordCommand(RawCommand{
+      CommandKind::SetDepthStencilSurface,0x8287F628u,0x8263A004u,
+      {3,0x82004321u,0,0,0,0,0,0}});
+  chronology.RecordCommand(RawCommand{
+      CommandKind::ClearF,0x82888C40u,0x8263A008u,
+      {3,1,0x82001300u,0x82001400u,0,0,0,0}});
+  chronology.Record(a);
+  chronology.RecordCommand(RawCommand{
+      CommandKind::BeginTiling,0x8288A900u,0x8263A00Cu,
+      {3,1,0,0,0,0,0,0}});
+  chronology.Record(b);
+  chronology.RecordCommand(RawCommand{
+      CommandKind::EndTiling,0x8288AD98u,0x8263A010u,
+      {3,1,0,0,0,0,0,0}});
+  chronology.RecordCommand(RawCommand{
+      CommandKind::Resolve,0x828897F8u,0x8263A014u,
+      {3,1,0,0x82002000u,0,0,0,0}});
+  chronology.RecordCommand(RawCommand{
+      CommandKind::Present,0x82880778u,0x8263A018u,
+      {3,0x82003000u,0,0,0,0,0,0}});
+  const Frame full_timeline=chronology.Finish();
+  assert(full_timeline.sequence==1 && full_timeline.calls.size()==2 &&
+         full_timeline.commands.size()==9 &&
+         ValidateOriginalCommandTimeline(full_timeline));
+  auto invalid_timeline=full_timeline;
+  std::swap(invalid_timeline.commands[3],invalid_timeline.commands[5]);
+  assert(!ValidateOriginalCommandTimeline(invalid_timeline));
+  invalid_timeline=full_timeline;
+  invalid_timeline.commands[3].draw_ordinal=7;
+  assert(!ValidateOriginalCommandTimeline(invalid_timeline));
+  invalid_timeline=full_timeline;
+  invalid_timeline.commands.erase(invalid_timeline.commands.begin()+3);
+  assert(!ValidateOriginalCommandTimeline(invalid_timeline));
+  invalid_timeline=full_timeline;
+  invalid_timeline.dropped_commands=1;
+  assert(!ValidateOriginalCommandTimeline(invalid_timeline));
+  invalid_timeline=full_timeline;
+  invalid_timeline.commands[8].kind=CommandKind::ClearF;
+  assert(!ValidateOriginalCommandTimeline(invalid_timeline));
+  bool rejected_unknown_command=false;
+  try {
+    chronology.RecordCommand(RawCommand{CommandKind::ClearF,0x82888D68u});
+  } catch(const std::invalid_argument&) {rejected_unknown_command=true;}
+  assert(rejected_unknown_command); // original outer Clear nests ClearF
   assert(first.calls[0].observed_vs_matrices &&
          ReadOriginalMatrix(*first.calls[0].observed_vs_matrices,11,4)
              ->values[0]==1.5f);

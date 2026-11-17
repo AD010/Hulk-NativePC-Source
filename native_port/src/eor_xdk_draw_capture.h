@@ -14,6 +14,21 @@
 
 namespace hulk::eor::xdk {
 enum class Kind : uint8_t { DrawVertices, DrawIndexedVertices, DrawVerticesUP };
+// Original actual XDK command chronology is essential for a sole Vulkan
+// presenter: Draws alone omit clears, RT/depth changes, tiled resolves and
+// postprocessing. The events record real PPC call arguments but intentionally
+// do NOT invent the ABI of pointed-to guest rectangle/resolve structures.
+enum class CommandKind : uint8_t {
+  DrawVertices, DrawIndexedVertices, DrawVerticesUP,
+  SetRenderTarget, SetDepthStencilSurface,
+  ClearF, Resolve, BeginTiling, EndTiling, Present
+};
+struct RawCommand {
+  CommandKind kind=CommandKind::DrawVertices;
+  uint32_t function=0, lr=0;
+  std::array<uint32_t,8> gpr{};  // original r3..r10
+  uint32_t draw_ordinal=UINT32_MAX; // populated only for Draw commands
+};
 struct RawDraw {
   Kind kind{};
   uint32_t function = 0, lr = 0;
@@ -49,7 +64,14 @@ struct Frame {
   uint64_t sequence = 0;
   uint32_t dropped = 0;
   std::vector<RawDraw> calls;
+  // Explicit interleaved original XDK command order, optional only for
+  // historical diagnostics. Required for future independent presentation.
+  std::vector<RawCommand> commands;
+  uint32_t dropped_commands = 0;
 };
+// A complete native frame must include EXACTLY the recorded Draw subsequence
+// and one terminal Present; discarded commands invalidate the full scene.
+bool ValidateOriginalCommandTimeline(const Frame& original) noexcept;
 // Single-slot frame handoff for the native renderer. Never block guest
 // Present waiting for Vulkan; any overwritten frame is explicitly counted.
 struct DeliveredFrame {
@@ -70,13 +92,17 @@ class CompletedFrameMailbox {
 class FrameCapture {
  public:
   static constexpr std::size_t kMaxDraws = 8192;
+  static constexpr std::size_t kMaxCommands = 65536;
   void Record(const RawDraw& call);
+  void RecordCommand(const RawCommand& command);
   Frame Finish();
   void Reset();
  private:
   uint64_t seq_ = 0;
   uint32_t dropped_ = 0;
+  uint32_t dropped_commands_ = 0;
   std::vector<RawDraw> calls_;
+  std::vector<RawCommand> commands_;
 };
 // Read-only source-proven guest callsite frequency and ABI variability.
 // An LR identifies a callsite lead, NOT an original engine method or layout.

@@ -50,25 +50,110 @@ void CompletedFrameMailbox::Reset() noexcept {
   missed_since_take_=0;
   total_overwritten_=0;
 }
+namespace {
+bool DrawKind(CommandKind kind) noexcept {
+  return kind==CommandKind::DrawVertices ||
+         kind==CommandKind::DrawIndexedVertices ||
+         kind==CommandKind::DrawVerticesUP;
+}
+std::optional<CommandKind> ConvertDraw(Kind kind) noexcept {
+  switch(kind) {
+    case Kind::DrawVertices:return CommandKind::DrawVertices;
+    case Kind::DrawIndexedVertices:return CommandKind::DrawIndexedVertices;
+    case Kind::DrawVerticesUP:return CommandKind::DrawVerticesUP;
+  }
+  return std::nullopt;
+}
+uint32_t KnownUsaCommandAddress(CommandKind kind) noexcept {
+  switch(kind) {
+    case CommandKind::SetRenderTarget:return 0x8287F2C0u;
+    case CommandKind::SetDepthStencilSurface:return 0x8287F628u;
+    case CommandKind::ClearF:return 0x82888C40u;
+    case CommandKind::Resolve:return 0x828897F8u;
+    case CommandKind::BeginTiling:return 0x8288A900u;
+    case CommandKind::EndTiling:return 0x8288AD98u;
+    case CommandKind::Present:return 0x82880778u;
+    default:return 0u;
+  }
+}
+}
 void FrameCapture::Record(const RawDraw& call) {
-  if (!call.function) throw std::invalid_argument("Missing verified XDK address");
-  if (calls_.size() >= kMaxDraws) {
+  if(!call.function)throw std::invalid_argument("Missing verified XDK address");
+  if(calls_.size()>=kMaxDraws || commands_.size()>=kMaxCommands) {
     ++dropped_;
+    ++dropped_commands_;
     return;
   }
+  const auto kind=ConvertDraw(call.kind);
+  if(!kind)throw std::invalid_argument("Unknown original XDK Draw kind");
+  const RawCommand command{*kind,call.function,call.lr,
+                           call.gpr,static_cast<uint32_t>(calls_.size())};
   calls_.push_back(call);
+  try {
+    commands_.push_back(command);
+  } catch (...) {
+    calls_.pop_back(); // never manufacture an unmatched Draw
+    throw;
+  }
+}
+void FrameCapture::RecordCommand(const RawCommand& command) {
+  if(DrawKind(command.kind) ||
+     !KnownUsaCommandAddress(command.kind) ||
+     command.function!=KnownUsaCommandAddress(command.kind) ||
+     command.draw_ordinal!=UINT32_MAX)
+    throw std::invalid_argument("Original XDK non-Draw command ABI unverified");
+  if(commands_.size()>=kMaxCommands) {
+    ++dropped_commands_;
+    return;
+  }
+  commands_.push_back(command);
+}
+bool ValidateOriginalCommandTimeline(const Frame& frame) noexcept {
+  if(!frame.sequence || frame.dropped || frame.dropped_commands ||
+     frame.commands.empty() || frame.calls.empty())
+    return false;
+  size_t next_draw=0;
+  bool presented=false;
+  for(size_t i=0;i<frame.commands.size();++i) {
+    const auto& event=frame.commands[i];
+    if(!event.function || presented)return false;
+    if(event.kind==CommandKind::Present) {
+      if(event.function!=KnownUsaCommandAddress(event.kind) ||
+         event.draw_ordinal!=UINT32_MAX ||
+         i+1!=frame.commands.size())return false;
+      presented=true;
+    } else if(DrawKind(event.kind)) {
+      if(next_draw>=frame.calls.size() ||
+         event.draw_ordinal!=next_draw)return false;
+      const auto& original=frame.calls[next_draw++];
+      const auto kind=ConvertDraw(original.kind);
+      if(!kind || event.kind!=*kind ||
+         event.function!=original.function ||
+         event.lr!=original.lr || event.gpr!=original.gpr)
+        return false;
+    } else if(event.function!=KnownUsaCommandAddress(event.kind) ||
+              event.draw_ordinal!=UINT32_MAX) {
+      return false;
+    }
+  }
+  return presented && next_draw==frame.calls.size();
 }
 Frame FrameCapture::Finish() {
   Frame out;
-  out.sequence = ++seq_;
-  out.dropped = dropped_;
+  out.sequence=++seq_;
+  out.dropped=dropped_;
+  out.dropped_commands=dropped_commands_;
   out.calls.swap(calls_);
-  dropped_ = 0;
+  out.commands.swap(commands_);
+  dropped_=0;
+  dropped_commands_=0;
   return out;
 }
 void FrameCapture::Reset() {
   calls_.clear();
-  dropped_ = 0;
+  commands_.clear();
+  dropped_=0;
+  dropped_commands_=0;
 }
 
 void XdkCallsiteEvidence::Observe(const Frame& frame) {
