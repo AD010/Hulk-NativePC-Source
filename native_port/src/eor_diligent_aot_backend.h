@@ -69,11 +69,14 @@ class DiligentEorDirectBackend final : public aot::ShaderBindingBackend {
   // snapshot. This can be bound only when original shader reflection and
   // the exact SPIR-V constant-buffer variable layout have been validated.
   // It is NOT itself proof of a 16:10 projection hook or camera ownership.
+  // The verified register values are passed as a typed payload; the caller
+  // must supply the exact original SPIR-V UBO variable/packing semantics.
   // A per-pass callback cannot supply the right matrix for repeated models.
   using BindConstants = std::function<bool(
       Diligent::IShaderResourceBinding*,
       const aot::ReflectedShader&,const aot::ReflectedShader&,
-      const native::IndexedDraw&)>;
+      const native::IndexedDraw&,
+      const aot::OriginalDrawVsMatrices&)>;
   using CompositeOutput = std::function<bool(
       Diligent::ITextureView*,
       native::Rect,native::Size)>;

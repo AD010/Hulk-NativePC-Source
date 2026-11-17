@@ -602,8 +602,13 @@ bool DiligentEorDirectBackend::DrawIndexed(const native::IndexedDraw& draw) {
                    index->GetDesc().Size/sizeof(uint32_t))
     return false;
   try {
-    s.context->SetPipelineState(s.active.pipeline.RawPtr());
-    if(!s.bind_constants(s.active.bindings.RawPtr(),s.vertex,s.pixel,draw)) {
+    // A live native EoR Draw must bind the source guest matrices as typed
+    // verified values for this exact frame/call before touching GPU state.
+    // Shader-specific SPIR-V UBO layouts are an independent provenance gate.
+    const auto matrices=aot::ExtractOriginalDrawVsMatrices(s.vertex,draw);
+    if(!matrices ||
+       !s.bind_constants(s.active.bindings.RawPtr(),s.vertex,s.pixel,
+                         draw,*matrices)) {
       // Never permit a later draw to reuse constants from an earlier draw
       // after a partially failed host constant-buffer update.
       s.constants_ready=false;
@@ -611,6 +616,7 @@ bool DiligentEorDirectBackend::DrawIndexed(const native::IndexedDraw& draw) {
       s.textures_ready=false;
       return false;
     }
+    s.context->SetPipelineState(s.active.pipeline.RawPtr());
     s.context->CommitShaderResources(s.active.bindings.RawPtr(),
         Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
     s.context->SetVertexBuffers(0,static_cast<Diligent::Uint32>(slots.size()),
