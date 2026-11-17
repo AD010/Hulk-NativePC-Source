@@ -119,6 +119,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Native Vulkan sampled-image descriptor/name preflight failed' }
           python ci/test_hulk_eor_xdk_callsite_crosswalk.py
           if ($LASTEXITCODE -ne 0) { throw 'Hulk USA engine PPC/XDK runtime callsite correlation test failed' }
+          python ci/test_hulk_ghidra_xdk_crosscheck.py
+          if ($LASTEXITCODE -ne 0) { throw 'Ghidra/ReXGlue/live XDK triple-evidence verifier failed' }
           python ci/test_patch_sdk_hulk_spirv_scalar.py
           if ($LASTEXITCODE -ne 0) { throw 'Xenia Edge scalar SPIR-V vertex fetch regression failed' }
           python ci/test_patch_sdk_hulk_index_pool.py
