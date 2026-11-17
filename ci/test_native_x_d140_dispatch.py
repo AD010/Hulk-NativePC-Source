@@ -64,7 +64,7 @@ class D140WindowsDispatchTests(unittest.TestCase):
                 "One-shot USER-AUTHORIZED D140 integration build":
                     "native_port/docs/HULK_D140_LOG201_VISUAL_PERFORMANCE_2026-11-14.md",
                 "One-shot USER-AUTHORIZED Hulk visual release 2026-11-17":
-                    "'.hulk-release-one-shot-20261117-r7'",
+                    "'.hulk-release-one-shot-20261117-r8'",
             }
             selected = [path for marker, path in authorized.items()
                         if marker in workflow]
