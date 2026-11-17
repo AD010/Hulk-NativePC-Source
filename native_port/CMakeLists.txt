@@ -123,7 +123,8 @@ if(HULK_WITH_NATIVE_X)
     target_sources(incredible_hulk PRIVATE src/eor_diligent_mesh_buffers.cpp
         src/eor_diligent_scene_targets.cpp src/eor_diligent_xenos_textures.cpp
         src/eor_diligent_material_textures.cpp src/eor_diligent_spirv_shaders.cpp
-        src/eor_diligent_original_pipeline.cpp src/eor_diligent_aot_backend.cpp)
+        src/eor_diligent_original_pipeline.cpp src/eor_diligent_aot_backend.cpp
+        src/eor_diligent_texture_residency.cpp)
     target_link_libraries(incredible_hulk PRIVATE Diligent-GraphicsEngineInterface Diligent-Common)
     target_link_libraries(incredible_hulk PRIVATE native_x_renderer::native_x_renderer)
     target_include_directories(incredible_hulk PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
