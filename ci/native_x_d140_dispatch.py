@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import importlib.util
 import os
+import re
 from pathlib import Path
 import subprocess
 import sys
@@ -19,6 +20,47 @@ D140 = "fa19ea85fec5c7f7f8a2df82d6c4a86548817b52"
 D135 = "919371b5bdae0c9c4c7120ca321f5a4d72b7e78e"
 OLDER = "bf965e952c98e050753e91d08f32685a9f754b12"
 
+
+def reviewed_patch_plan(builder: str) -> list[str]:
+    """Expand the ONE PowerShell patch plan into its 90 actual test/patch steps.
+
+    Never maintain a second handwritten list: this parser is consumed by
+    the source-only preflight and CI regression. The six exceptional stages
+    remain explicit to preserve dependencies between source guards.
+    """
+    if builder.count("$NativeXCommit =") != 1 or builder.count("  $BuildDir =") != 1:
+        raise ValueError("Unexpected Hulk source-only Windows builder layout")
+    body = builder.split("$NativeXCommit =", 1)[1].split("  $BuildDir =", 1)[0]
+    pattern = re.compile(
+        r"^\s+Invoke-HulkNativeX(Checked)?Patch "
+        r"'((?:test_)?patch_native_x_hulk_[a-z0-9_]+\.py)'\s*$"
+    )
+    steps: list[str] = []
+    paired = direct = 0
+    for line in body.splitlines():
+        if not re.match(r"^\s+Invoke-HulkNativeX(?:Checked)?Patch\b", line):
+            continue
+        match = pattern.fullmatch(line)
+        if not match:
+            raise ValueError("Unreviewed NativeX patch dispatch: " + line.strip())
+        checked, filename = match.groups()
+        if checked:
+            if filename.startswith("test_"):
+                raise ValueError("Checked NativeX patch must specify a patch filename")
+            steps.extend(("ci/test_" + filename, "ci/" + filename))
+            paired += 1
+        else:
+            steps.append("ci/" + filename)
+            direct += 1
+    if paired != 42 or direct != 6 or len(steps) != 90:
+        raise ValueError(
+            f"NativeX patch plan drift: {paired} checked / {direct} direct / "
+            f"{len(steps)} steps"
+        )
+    if (len(steps) != len(set(steps)) or
+            sum(x.startswith("ci/test_") for x in steps) != 43):
+        raise ValueError("Duplicate patch or missing original Xenos regression")
+    return steps
 
 def checked_patch_path(path: str) -> Path:
     p = Path(path).resolve()
