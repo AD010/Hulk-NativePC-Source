@@ -88,7 +88,7 @@ class D140WindowsDispatchTests(unittest.TestCase):
         # Past releases reached cl.exe only to fail on missing source units.
         # Fail in the public-only preflight, before any private game material.
         workflow=(ROOT/".github"/"workflows"/"hulk-free-windows.yml").read_text("utf-8")
-        pattern=r"(?m)^\\s+\\$(\\w+Args)\\s*=\\s*@\\(([\\s\\S]*?)\\)\\s*\\n\\s+& cl\\.exe @\\1\\s*$"
+        pattern=r"(?m)^\s+\$(\w+Args)\s*=\s*@\(([\s\S]*?)\)\s*\n\s+& cl\.exe @\1\s*$"
         invocations=list(re.finditer(pattern,workflow))
         self.assertGreaterEqual(len(invocations),30)
         by_name={}
@@ -96,7 +96,7 @@ class D140WindowsDispatchTests(unittest.TestCase):
             name,body=match.group(1,2)
             with self.subTest(compiler_list=name):
                 paths=re.findall(
-                    r"'(native_port/src/[^']+\\.cpp|ci/[^']+\\.cpp)'",
+                    r"'(native_port/src/[^']+\.cpp|ci/[^']+\.cpp)'",
                     body)
                 self.assertTrue(paths)
                 self.assertEqual(len(paths),len(set(paths)),
