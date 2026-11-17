@@ -157,7 +157,8 @@ def patch(src: str) -> tuple[str,bool]:
     if "HULK/LIVE-XENOS-ARC-IDENTITY" in src:
         if (src.count(BODY_NEW)!=1 or src.count(CVAR)!=1 or
             src.count(INCLUDES_NEW)!=1 or src.count(GUEST_VIEW_NEW)!=1 or
-            src.count(MIPS_NEW)!=1 or BODY_OLD in src or MIPS_OLD in src):
+            src.count(MIPS_NEW)!=1 or BODY_OLD in src or MIPS_OLD in src or
+            src.count(GUEST_VIEW_OLD)!=1):
             raise ValueError("Partially installed source texture identity bridge")
         return src,False
     for name,old in (("header",INCLUDES_OLD),("namespace",CVAR_ANCHOR),
