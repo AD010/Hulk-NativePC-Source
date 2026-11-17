@@ -85,7 +85,8 @@ int main(){
   assert(good.size()==1 && good[0].original_samplers.size()==1 &&
          good[0].original_samplers[0].original_texture_hash==0xBEEF &&
          good[0].original_model_hash==0xCAFE &&
-         good[0].original_surface_ordinal==0);
+         good[0].original_surface_ordinal==0 &&
+         good[0].draw.base_vertex==0);
   assert(good.size()==1 && good[0].draw.vertex_buffer==1 &&
          good[0].draw.index_buffer==3 && good[0].draw.index_count==3 &&
          good[0].effect_hash==0x1234 && good[0].pass_index==0);
@@ -102,6 +103,8 @@ int main(){
   check([](auto& v){v.first_index=3;});
   check([](auto& v){v.index_count=6;});
   check([](auto& v){v.index_count=2;});
+  check([](auto& v){v.host_base_vertex=1;});
+  check([](auto& v){v.host_base_vertex=-1;});
   check([](auto& v){v.vertex_shader_id=0;});
   check([](auto& v){v.engine_draw_verified=false;});
   check([](auto& v){v.mesh_material_verified=false;});

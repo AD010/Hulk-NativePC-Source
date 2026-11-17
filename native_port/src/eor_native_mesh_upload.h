@@ -13,6 +13,7 @@ struct UploadedNativeMesh {
   size_t original_header_offset=0;
   uint64_t position_buffer=0, original_vertex_stream_buffer=0, index_buffer=0;
   uint32_t original_vertex_stride=0, vertex_count=0, index_count=0;
+  uint32_t min_index=UINT32_MAX, max_index=UINT32_MAX;
   std::vector<std::array<std::byte,4>> original_attribute_declarations;
 };
 class NativeMeshUploadBackend {

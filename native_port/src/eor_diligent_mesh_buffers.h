@@ -29,6 +29,7 @@ class DiligentMeshUploadBackend final : public model::NativeMeshUploadBackend {
   // Highest source index in this immutable GPU index buffer; UINT32_MAX
   // denotes a missing/non-index buffer, not an available vertex index.
   uint32_t MaxIndexOf(uint64_t handle) const noexcept;
+  uint32_t MinIndexOf(uint64_t handle) const noexcept;
   size_t LiveBufferCount() const noexcept;
  private:
   struct State;

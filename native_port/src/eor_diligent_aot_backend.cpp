@@ -401,6 +401,12 @@ bool DiligentEorDirectBackend::DrawIndexed(const native::IndexedDraw& draw) {
      resident.index_handle!=draw.index_buffer ||
      uint64_t(draw.first_index)+draw.index_count>resident.index_count)
     return false;
+  const auto low=s.meshes.MinIndexOf(draw.index_buffer);
+  const auto high=s.meshes.MaxIndexOf(draw.index_buffer);
+  if(low==UINT32_MAX || high==UINT32_MAX ||
+     int64_t(low)+draw.base_vertex<0 ||
+     int64_t(high)+draw.base_vertex>=resident.vertex_count)
+    return false;
   const auto& slots=resident.host_vertex_slots;
   const auto& layout=s.selected->pipeline.exact_host_input_layout;
   if(slots.size()!=layout.size() || slots.empty() ||
@@ -441,7 +447,7 @@ bool DiligentEorDirectBackend::DrawIndexed(const native::IndexedDraw& draw) {
     s.context->SetIndexBuffer(index,0,Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
     Diligent::DrawIndexedAttribs command(
         draw.index_count,Diligent::VT_UINT32,Diligent::DRAW_FLAG_NONE,
-        1,draw.first_index);
+        1,draw.first_index,static_cast<Diligent::Uint32>(draw.base_vertex));
     s.context->DrawIndexed(command);
     return true;
   } catch (...) {

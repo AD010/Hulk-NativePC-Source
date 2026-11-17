@@ -22,6 +22,7 @@ struct DiligentMeshUploadBackend::State {
     Diligent::RefCntAutoPtr<Diligent::IBuffer> buffer;
     uint32_t kind=UINT32_MAX;
     uint32_t maximum_index=UINT32_MAX;
+    uint32_t minimum_index=UINT32_MAX;
   };
   std::map<uint64_t,Entry> live;
   uint64_t next_handle = 1;
@@ -68,9 +69,13 @@ uint64_t DiligentMeshUploadBackend::UploadOriginalVertexStream(std::span<const s
 uint64_t DiligentMeshUploadBackend::UploadIndices(std::span<const uint32_t> v) {
   if (v.empty() || v.size() > kMaxUploadBytes / sizeof(uint32_t) ||
       v.size()%3 != 0)return 0;
-  const auto highest=*std::max_element(v.begin(),v.end());
+  const auto limits=std::minmax_element(v.begin(),v.end());
   const auto handle=Create(v.data(),v.size_bytes(),2);
-  if (handle)state_->live.at(handle).maximum_index=highest;
+  if (handle) {
+    auto& record=state_->live.at(handle);
+    record.minimum_index=*limits.first;
+    record.maximum_index=*limits.second;
+  }
   return handle;
 }
 uint64_t DiligentMeshUploadBackend::UploadDecodedAttributes(
@@ -97,6 +102,11 @@ uint32_t DiligentMeshUploadBackend::MaxIndexOf(uint64_t handle) const noexcept {
   const auto it=state_->live.find(handle);
   return it==state_->live.end() || it->second.kind!=2?
       UINT32_MAX:it->second.maximum_index;
+}
+uint32_t DiligentMeshUploadBackend::MinIndexOf(uint64_t handle) const noexcept {
+  const auto it=state_->live.find(handle);
+  return it==state_->live.end() || it->second.kind!=2 ?
+      UINT32_MAX : it->second.minimum_index;
 }
 size_t DiligentMeshUploadBackend::LiveBufferCount() const noexcept {return state_->live.size();}
 } // namespace hulk::eor::gpu

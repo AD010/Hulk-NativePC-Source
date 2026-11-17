@@ -54,7 +54,9 @@ std::vector<aot::BoundIndexedDraw> BindVerifiedGeometryDraws(
     if (!mesh || !mesh->position_buffer || !mesh->index_buffer ||
         !mesh->original_vertex_stream_buffer || mesh->vertex_count < 3 ||
         mesh->original_vertex_stride < 12 || mesh->original_vertex_stride > 192 ||
-        uint64_t(src.first_index)+src.index_count > mesh->index_count)
+        uint64_t(src.first_index)+src.index_count > mesh->index_count ||
+        int64_t(mesh->min_index)+src.host_base_vertex < 0 ||
+        int64_t(mesh->max_index)+src.host_base_vertex >= mesh->vertex_count)
       throw std::invalid_argument("Unmatched or out-of-bounds EoR indexed GPU geometry");
     gpu::ValidateOriginalEorSamplers(src.original_sampler_slots);
     for (const auto& sampler:src.original_sampler_slots)
@@ -66,7 +68,7 @@ std::vector<aot::BoundIndexedDraw> BindVerifiedGeometryDraws(
     aot::BoundIndexedDraw item;
     item.draw = {mesh->position_buffer,mesh->index_buffer,
                  src.vertex_shader_id,src.pixel_shader_id,
-                 src.index_count,src.first_index};
+                 src.index_count,src.first_index,src.host_base_vertex};
     item.vertex_source_sha256 = src.vertex_source_sha256;
     item.pixel_source_sha256 = src.pixel_source_sha256;
     item.effect_hash = src.original_effect_hash;

@@ -1,4 +1,5 @@
 #include "eor_native_mesh_upload.h"
+#include <algorithm>
 #include <cmath>
 #include <limits>
 #include <stdexcept>
@@ -59,6 +60,10 @@ UploadedNativeMeshBatch UploadNativeIndexedMeshes(std::span<const NativeIndexedM
     rec.original_vertex_stride=m.original_vertex_stride;
     rec.vertex_count=uint32_t(m.positions.size());
     rec.index_count=uint32_t(m.triangle_list_indices.size());
+    const auto limits=std::minmax_element(m.triangle_list_indices.begin(),
+                                          m.triangle_list_indices.end());
+    rec.min_index=*limits.first;
+    rec.max_index=*limits.second;
     rec.original_attribute_declarations=m.original_attribute_declarations;
     batch.meshes_.push_back(std::move(rec)); // bookkeeping first, then GPU ownership
     auto& o=batch.meshes_.back();

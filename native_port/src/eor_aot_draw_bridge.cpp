@@ -26,7 +26,8 @@ class ForwardingBackend final : public native::Backend {
         pair.draw.vertex_shader != draw.vertex_shader ||
         pair.draw.pixel_shader != draw.pixel_shader ||
         pair.draw.first_index != draw.first_index ||
-        pair.draw.index_count != draw.index_count)
+        pair.draw.index_count != draw.index_count ||
+        pair.draw.base_vertex != draw.base_vertex)
       throw std::invalid_argument("EoR command/shader sequence mismatch");
     const auto* vs = bank_.Find(pair.vertex_source_sha256, Stage::Vertex);
     const auto* ps = bank_.Find(pair.pixel_source_sha256, Stage::Pixel);

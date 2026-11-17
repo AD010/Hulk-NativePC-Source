@@ -41,6 +41,8 @@ struct IndexedDraw {
   uint64_t vertex_buffer = 0, index_buffer = 0;
   uint64_t vertex_shader = 0, pixel_shader = 0; // Offline cache IDs.
   uint32_t index_count = 0, first_index = 0;
+  // Signed host vertex offset after verified guest->native rebase.
+  int32_t base_vertex = 0;
 };
 
 // All methods operate on host-native resources and draw calls; no GPU
