@@ -274,7 +274,7 @@ HRESULT STDMETHODCALLTYPE OnReset(IDirect3DDevice9* dev,D3DPRESENT_PARAMETERS* p
   if(FAILED(hr) && changed) {
     *pp=original;
     hr=realReset(dev,pp);
-    Log("[D3D9] Reset forced mode failed hr=0x%08lX; original retry hr=0x%08lX\\r\\n",
+    Log("[D3D9] Reset forced mode failed hr=0x%08lX; original retry hr=0x%08lX\r\n",
         (unsigned long)(unsigned int)firstHr,(unsigned long)(unsigned int)hr);
   }
   if(SUCCEEDED(hr)) {
