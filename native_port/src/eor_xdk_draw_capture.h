@@ -44,6 +44,23 @@ struct Frame {
   uint32_t dropped = 0;
   std::vector<RawDraw> calls;
 };
+// Single-slot frame handoff for the native renderer. Never block guest
+// Present waiting for Vulkan; any overwritten frame is explicitly counted.
+struct DeliveredFrame {
+  Frame frame;
+  uint64_t overwritten_since_take=0;
+};
+class CompletedFrameMailbox {
+ public:
+  void Publish(Frame frame);
+  std::optional<DeliveredFrame> Take();
+  uint64_t TotalOverwritten() const noexcept {return total_overwritten_;}
+  void Reset() noexcept;
+ private:
+  std::optional<Frame> pending_;
+  uint64_t total_overwritten_=0;
+  uint64_t missed_since_take_=0;
+};
 class FrameCapture {
  public:
   static constexpr std::size_t kMaxDraws = 8192;

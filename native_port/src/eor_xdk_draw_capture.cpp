@@ -2,6 +2,7 @@
 #include <bit>
 #include <stdexcept>
 #include <algorithm>
+#include <utility>
 
 namespace hulk::eor::xdk {
 std::optional<IndexedXdkCall> DecodeOriginalIndexedXdkCall(const RawDraw& call) {

@@ -104,6 +104,21 @@ int main() {
   vertex.kind=Kind::DrawVertices;
   vertex.gpr[2]=UINT32_MAX;
   assert(!DecodeOriginalVerticesXdkCall(vertex));
+  CompletedFrameMailbox mailbox;
+  mailbox.Publish(first);
+  mailbox.Publish(Frame{42,0,{a}});
+  assert(mailbox.TotalOverwritten()==1);
+  auto delivered=mailbox.Take();
+  assert(delivered && delivered->frame.sequence==42 &&
+         delivered->overwritten_since_take==1 &&
+         delivered->frame.calls.size()==1);
+  assert(!mailbox.Take());
+  mailbox.Publish(Frame{43,0,{a,b}});
+  delivered=mailbox.Take();
+  assert(delivered && delivered->frame.sequence==43 &&
+         delivered->overwritten_since_take==0);
+  mailbox.Reset();
+  assert(mailbox.TotalOverwritten()==0);
   assert(capture.Finish().sequence==2);
   assert(capture.Finish().calls.empty());
   for(size_t i=0;i<FrameCapture::kMaxDraws+3;++i)capture.Record(a);
