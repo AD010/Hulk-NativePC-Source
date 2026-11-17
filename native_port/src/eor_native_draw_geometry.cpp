@@ -72,6 +72,8 @@ std::vector<aot::BoundIndexedDraw> BindVerifiedGeometryDraws(
     item.effect_hash = src.original_effect_hash;
     item.pass_index = src.original_pass_index;
     item.original_samplers = src.original_sampler_slots;
+    item.original_model_hash = src.original_model_hash;
+    item.original_surface_ordinal = src.original_surface_ordinal;
     out.push_back(std::move(item));
   }
   return out;

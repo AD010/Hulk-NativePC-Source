@@ -34,7 +34,9 @@ class ForwardingBackend final : public native::Backend {
     const auto* pr = reflection_.Find(pair.pixel_source_sha256, Stage::Pixel);
     if (!vs || !ps || !vr || !pr)
       throw std::logic_error("Unknown original Xenos shader or constant layout");
-    return target_.BindOriginalEffect(pair.effect_hash, pair.pass_index) &&
+    return target_.BindOriginalSurface(pair.original_model_hash,
+                                       pair.original_surface_ordinal) &&
+           target_.BindOriginalEffect(pair.effect_hash, pair.pass_index) &&
            target_.BindOriginalConstants(*vr, *pr) &&
            target_.BindVerifiedProgramPair(pair.vertex_source_sha256, *vs,
                                           pair.pixel_source_sha256, *ps) &&
@@ -82,6 +84,9 @@ void ReplayAotScene(const native::FrameGeometry& frame,
   // per unique shader digest per stage for this frame, NOT for every Draw.
   std::map<Digest,std::vector<SpirvImageResource>> vsImageCache,psImageCache;
   for (const auto& value : draws) {
+    if (!value.original_model_hash ||
+        value.original_surface_ordinal == UINT32_MAX)
+      throw std::invalid_argument("Original EoR Draw has no model/surface owner");
     gpu::ValidateOriginalEorSamplers(value.original_samplers);
     // Fail closed for ORIGINAL sampled images that have no resident material
     // ownership. The shader's Vulkan resource name is not its Xenos register.
@@ -121,7 +126,9 @@ void ReplayAotScene(const native::FrameGeometry& frame,
       }
     }
     for (const auto& sampler : value.original_samplers) {
-      if (sampler.original_effect_hash != value.effect_hash ||
+      if (sampler.original_model_hash != value.original_model_hash ||
+          sampler.original_surface_ordinal != value.original_surface_ordinal ||
+          sampler.original_effect_hash != value.effect_hash ||
           sampler.original_pass_index != value.pass_index)
         throw std::invalid_argument("Original shader sampler belongs to a different Draw pass");
     }

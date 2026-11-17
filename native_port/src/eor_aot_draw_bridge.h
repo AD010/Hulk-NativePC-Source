@@ -18,9 +18,17 @@ struct BoundIndexedDraw {
   uint32_t effect_hash = 0; // Original EoR ShaderEffect ID.
   uint32_t pass_index = UINT32_MAX; // Original candidate technique/pass slot.
   std::vector<gpu::VerifiedEorSampler> original_samplers;
+  // Preserve original surface ownership even when different models share a PSO.
+  uint32_t original_model_hash = 0;
+  uint32_t original_surface_ordinal = UINT32_MAX;
 };
 class ShaderBindingBackend : public native::Backend {
  public:
+  // An effect/pass alone is NOT a material owner. Refuse anonymous Draws.
+  virtual bool BindOriginalSurface(uint32_t original_model_hash,
+                                   uint32_t original_surface_ordinal) {
+    return false;
+  }
   // True only after binding original effect material resources and PSO layout.
   // An effect hash alone is not proof of descriptor/vertex layout correctness.
   virtual bool BindOriginalEffect(uint32_t original_effect_hash,

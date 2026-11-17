@@ -65,6 +65,8 @@ struct DiligentEorDirectBackend::State {
   BindConstants bind_constants;
   CompositeOutput composite;
   const NativeEorPassResources* selected=nullptr;
+  uint32_t requested_model=0, requested_surface=UINT32_MAX;
+  bool surface_ready=false;
   aot::ReflectedShader vertex{},pixel{};
   OriginalVulkanPipeline active{};
   // Immutable shader/PSO pairing remains live across Draws and frames;
@@ -242,6 +244,7 @@ bool DiligentEorDirectBackend::BeginScene(native::Size world,uint32_t samples) {
     return false;
   if(!s.scene.Prepare(s.frame,s.format) || !s.scene.BeginScene())return false;
   s.scene_open=true;s.finished=false;s.selected=nullptr;
+  s.requested_model=0;s.requested_surface=UINT32_MAX;s.surface_ready=false;
   s.constants_ready=s.program_ready=s.textures_ready=false;
   return true;
 }
@@ -251,16 +254,35 @@ void DiligentEorDirectBackend::AbortScene() noexcept {
   s.scene.AbortScene();
   s.active={};
   s.selected=nullptr;s.scene_open=s.finished=false;
+  s.requested_model=0;s.requested_surface=UINT32_MAX;s.surface_ready=false;
   s.constants_ready=s.program_ready=s.textures_ready=false;
+}
+bool DiligentEorDirectBackend::BindOriginalSurface(uint32_t model,uint32_t ordinal) {
+  auto& s=*state_;
+  // Every Draw begins from an unbound PSO/constant/sampler state.
+  s.selected=nullptr;s.active={};
+  s.constants_ready=s.program_ready=s.textures_ready=false;
+  s.requested_model=0;s.requested_surface=UINT32_MAX;s.surface_ready=false;
+  if(!s.scene_open || s.finished || !model || ordinal==UINT32_MAX)return false;
+  for(const auto& item:s.passes)
+    if(item.original_model_hash==model && item.original_surface_ordinal==ordinal) {
+      s.requested_model=model;s.requested_surface=ordinal;
+      s.surface_ready=true;return true;
+    }
+  return false;
 }
 bool DiligentEorDirectBackend::BindOriginalEffect(uint32_t effect,uint32_t pass) {
   auto& s=*state_;
-  if(!s.scene_open || s.finished)return false;
+  if(!s.scene_open || s.finished || !s.surface_ready || !effect ||
+     pass==UINT32_MAX)return false;
   s.selected=nullptr;s.active={};
   s.constants_ready=s.program_ready=s.textures_ready=false;
   for(const auto& item:s.passes)
-    if(item.pipeline.original_effect_hash==effect &&
+    if(item.original_model_hash==s.requested_model &&
+       item.original_surface_ordinal==s.requested_surface &&
+       item.pipeline.original_effect_hash==effect &&
        item.pipeline.original_pass_index==pass) {
+      // Duplicate exact surface/pass owners were rejected by the constructor.
       s.selected=&item;return true;
     }
   return false;
@@ -311,32 +333,19 @@ bool DiligentEorDirectBackend::BindOriginalSamplers(
   auto& s=*state_;
   s.textures_ready=false;
   if(!s.program_ready || !s.selected || !s.active.bindings)return false;
-  // Resolve *this draw's* material, not the first mesh that uses the
-  // effect/pass. Reusing PSOs is correct; reusing its previous textures is not.
-  const auto* chosen=static_cast<const NativeEorPassResources*>(nullptr);
-  for(const auto& material:s.passes) {
-    if(material.pipeline.original_effect_hash!=
-           s.selected->pipeline.original_effect_hash ||
-       material.pipeline.original_pass_index!=
-           s.selected->pipeline.original_pass_index ||
-       expected.size()!=material.original_textures.size()) continue;
-    bool matching=true;
-    for(size_t i=0;i<expected.size();++i)
-      if(!Same(expected[i],material.original_textures[i].identity)) {
-        matching=false;break;
-      }
-    if(!matching)continue;
-    // Empty-sampler shaders carry no texture ownership in their shader
-    // variables, so any identical pass with zero samplers is equivalent.
-    if(chosen && !expected.empty())return false;
-    chosen=&material;
-    if(expected.empty())break;
+  // Never search other models with the same effect/technique. The
+  // selected surface is exact even for shaders that sample zero textures.
+  // Shader descriptor order and original material iteration order may differ.
+  const auto& textures=s.selected->original_textures;
+  if(expected.size()!=textures.size())return false;
+  for(const auto& slot:expected) {
+    unsigned matches=0;
+    for(const auto& owned:textures)
+      if(Same(slot,owned.identity))++matches;
+    if(matches!=1)return false;
   }
-  if(!chosen)return false;
   try {
-    BindVerifiedOriginalEorTextures(s.active.bindings.RawPtr(),
-                                   chosen->original_textures);
-    s.selected=chosen;
+    BindVerifiedOriginalEorTextures(s.active.bindings.RawPtr(),textures);
     s.textures_ready=true;
     return true;
   } catch (...) {return false;}
@@ -420,6 +429,7 @@ bool DiligentEorDirectBackend::Composite(native::Rect dest,native::Size output) 
   auto* image=s.scene.ResolvedColorSRV();
   if(!image || !s.composite(image,dest,output))return false;
   s.active={};s.selected=nullptr;s.scene_open=false;
+  s.requested_model=0;s.requested_surface=UINT32_MAX;s.surface_ready=false;
   return true;
 }
 } // namespace hulk::eor::gpu

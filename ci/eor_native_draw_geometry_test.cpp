@@ -83,7 +83,9 @@ int main(){
   const auto good=native::BindVerifiedGeometryDraws(
      std::span<const native::VerifiedDrawSource>(&original,1),models,effects);
   assert(good.size()==1 && good[0].original_samplers.size()==1 &&
-         good[0].original_samplers[0].original_texture_hash==0xBEEF);
+         good[0].original_samplers[0].original_texture_hash==0xBEEF &&
+         good[0].original_model_hash==0xCAFE &&
+         good[0].original_surface_ordinal==0);
   assert(good.size()==1 && good[0].draw.vertex_buffer==1 &&
          good[0].draw.index_buffer==3 && good[0].draw.index_count==3 &&
          good[0].effect_hash==0x1234 && good[0].pass_index==0);

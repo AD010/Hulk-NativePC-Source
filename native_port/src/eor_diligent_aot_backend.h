@@ -72,6 +72,7 @@ class DiligentEorDirectBackend final : public aot::ShaderBindingBackend {
 
   bool BeginScene(native::Size world,uint32_t samples) override;
   void AbortScene() noexcept override;
+  bool BindOriginalSurface(uint32_t model,uint32_t ordinal) override;
   bool BindOriginalEffect(uint32_t effect,uint32_t pass) override;
   bool BindOriginalConstants(const aot::ReflectedShader& vertex,
                              const aot::ReflectedShader& pixel) override;

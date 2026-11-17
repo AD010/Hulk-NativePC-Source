@@ -7,7 +7,8 @@
 using namespace hulk::eor;
 using namespace hulk::eor::aot;
 struct Backend final:ShaderBindingBackend {
-  unsigned begin=0,bind=0,effect=0,constants=0,draw=0,resolve=0,composite=0,abort=0,samplers=0;
+  unsigned begin=0,bind=0,effect=0,constants=0,draw=0,resolve=0,composite=0,abort=0,samplers=0,surfaces=0;
+  std::vector<std::pair<uint32_t,uint32_t>> surface_history;
   bool refuse_samplers=false;
   Digest received_vs{},received_ps{};
   unsigned verified_program_pairs=0;
@@ -20,6 +21,10 @@ struct Backend final:ShaderBindingBackend {
   }
   bool BeginScene(native::Size size,uint32_t) override {
     assert(size.width==2560 && size.height==1600); ++begin;return true;}
+  bool BindOriginalSurface(uint32_t model,uint32_t ordinal) override {
+    ++surfaces;surface_history.emplace_back(model,ordinal);
+    return model!=0 && ordinal!=UINT32_MAX;
+  }
   bool BindOriginalEffect(uint32_t hash, uint32_t pass) override {
     assert(hash == 0x123u && pass == 0u); ++effect; return true;
   }
@@ -103,15 +108,36 @@ int main(){
   entry.vertex_source_sha256.fill(0x11);entry.pixel_source_sha256.fill(0x22);
   entry.effect_hash=0x123;
   entry.pass_index=0;
+  entry.original_model_hash=0xCAFE;
+  entry.original_surface_ordinal=0;
   Backend target;
   std::vector<BoundIndexedDraw> draws{entry};
   ReplayAotScene(geometry,draws,shaders,effects,reflection,target);
   assert(target.samplers==1 && target.verified_program_pairs==1);
+  assert(target.surfaces==1 &&
+         target.surface_history[0]==std::make_pair(0xCAFEu,0u));
   assert(target.received_vs==entry.vertex_source_sha256 &&
          target.received_ps==entry.pixel_source_sha256);
   assert(target.begin==1 && target.bind==1 && target.effect==1 &&
          target.constants==1 && target.draw==1 &&
          target.resolve==1 && target.composite==1);
+  // Shared VS/PS and technique do not make two original models identical.
+  BoundIndexedDraw other=entry;
+  other.original_model_hash=0xBABE;
+  other.original_surface_ordinal=7;
+  Backend shared;
+  draws={entry,other};
+  ReplayAotScene(geometry,draws,shaders,effects,reflection,shared);
+  assert(shared.surfaces==2 && shared.effect==2 && shared.draw==2);
+  assert(shared.surface_history[0]==std::make_pair(0xCAFEu,0u));
+  assert(shared.surface_history[1]==std::make_pair(0xBABEu,7u));
+  other.original_model_hash=0;
+  draws={entry,other};
+  Backend rejected_owner;
+  bool missing_owner=false;
+  try {ReplayAotScene(geometry,draws,shaders,effects,reflection,rejected_owner);}
+  catch(const std::invalid_argument&){missing_owner=true;}
+  assert(missing_owner && rejected_owner.begin==0);
   entry.effect_hash=0x456; // Shader pair exists but belongs to ANOTHER effect.
   draws={entry};
   bool effect_rejected=false;
