@@ -26,6 +26,9 @@ class DiligentMeshUploadBackend final : public model::NativeMeshUploadBackend {
   // 0: decoded XYZ, 1: RAW big-endian Xbox (never bind), 2: native index32,
   // 3: decoded float4 attributes; UINT32_MAX: missing/stale handle.
   uint32_t KindOf(uint64_t handle) const noexcept;
+  // Highest source index in this immutable GPU index buffer; UINT32_MAX
+  // denotes a missing/non-index buffer, not an available vertex index.
+  uint32_t MaxIndexOf(uint64_t handle) const noexcept;
   size_t LiveBufferCount() const noexcept;
  private:
   struct State;
