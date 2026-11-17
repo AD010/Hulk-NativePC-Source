@@ -283,21 +283,14 @@ DiligentEorDirectBackend::DiligentEorDirectBackend(
     for(size_t j=0;j<i;++j) {
       const auto& earlier=state_->passes[j];
       const auto& old=earlier.pipeline;
-      // Shader PSO is shared by many surfaces, but NEVER the material's
-      // texture identity. Reject a duplicate owner and a shared PSO
-      // key whose fixed-function state or host vertex layout differs.
+      // PSOs are keyed by (model, surface, effect, pass); materials that
+      // reuse a source effect may have different fixed-function state.
+      // Reject only a duplicate four-part source owner.
       if(earlier.original_model_hash==owner.original_model_hash &&
          earlier.original_surface_ordinal==owner.original_surface_ordinal &&
          old.original_effect_hash==pass.original_effect_hash &&
          old.original_pass_index==pass.original_pass_index)
         throw std::invalid_argument("Duplicate native EoR surface/material pass");
-      if(old.original_effect_hash==pass.original_effect_hash &&
-         old.original_pass_index==pass.original_pass_index &&
-         (old.original_vertex_shader_sha256!=pass.original_vertex_shader_sha256 ||
-          old.original_pixel_shader_sha256!=pass.original_pixel_shader_sha256 ||
-          !(old.exact_render_state==pass.exact_render_state) ||
-          old.exact_host_input_layout!=pass.exact_host_input_layout))
-        throw std::invalid_argument("Shared native EoR pass has conflicting PSO state");
     }
   }
   for(const auto& [position,resident]:state_->draw_buffers) {
@@ -309,9 +302,11 @@ DiligentEorDirectBackend::DiligentEorDirectBackend(
        !resident.index_count || (resident.index_count%3)!=0 ||
        slots.empty() || slots.size()>16 ||
        slots[0]!=position || state_->meshes.KindOf(position)!=0 ||
-       state_->meshes.KindOf(resident.index_handle)!=2 ||
-       state_->meshes.MaxIndexOf(resident.index_handle)>=resident.vertex_count)
-      throw std::invalid_argument("Missing or out-of-range EoR host mesh vertex/index provenance");
+       state_->meshes.KindOf(resident.index_handle)!=2)
+      throw std::invalid_argument("Missing EoR host mesh vertex/index provenance");
+    // Full-buffer extrema are not valid per-Draw bounds: an indexed
+    // subrange can legitimately use a negative signed baseVertex.
+    // Validate actual windows below in PreflightOriginalScene/DrawIndexed.
     const auto* vb=state_->meshes.FindBuffer(position);
     const auto* ib=state_->meshes.FindBuffer(resident.index_handle);
     if(!vb || !ib ||
@@ -337,18 +332,27 @@ bool DiligentEorDirectBackend::PreflightOriginalScene(
   std::set<State::MaterialKey> needed_materials;
   std::set<std::pair<uint64_t,uint32_t>> captured_calls;
   uint64_t captured_frame=0;
+  uint32_t next_original_ordinal=0;
+  bool saw_captured_draw=false;
+  bool saw_anonymous_draw=false;
   // Pass one: validate the ENTIRE frame's native draw and original material
   // ownership. Do not create a PSO before a later invalid draw is rejected.
   for(const auto& item:draws) {
     const auto& d=item.draw;
     if(d.source_frame) {
-      if(d.source_ordinal==UINT32_MAX ||
+      // Guest Draws must reach native preflight in the complete captured
+      // original order; skipping/reordering one may corrupt resolves/HUD.
+      if(saw_anonymous_draw || d.source_ordinal!=next_original_ordinal ||
          (captured_frame && d.source_frame!=captured_frame) ||
          !captured_calls.emplace(d.source_frame,d.source_ordinal).second)
         return false;
+      if(next_original_ordinal==UINT32_MAX)return false;
+      ++next_original_ordinal;
+      saw_captured_draw=true;
       captured_frame=d.source_frame;
-    } else if(d.source_ordinal!=UINT32_MAX) {
-      return false;
+    } else {
+      if(saw_captured_draw || d.source_ordinal!=UINT32_MAX)return false;
+      saw_anonymous_draw=true;
     }
     if(!d.vertex_buffer || !d.index_buffer || !d.vertex_shader ||
        !d.pixel_shader || !d.index_count || !item.original_model_hash ||

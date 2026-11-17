@@ -110,7 +110,27 @@ void ReplayAotScene(const native::FrameGeometry& frame,
   // SPIR-V descriptor parsing is O(shader word count), so do it only once
   // per unique shader digest per stage for this frame, NOT for every Draw.
   std::map<Digest,std::vector<SpirvImageResource>> vsImageCache,psImageCache;
+  uint64_t captured_frame=0;
+  uint32_t expected_draw_ordinal=0;
+  bool captured_source=false,anonymous_source=false;
   for (const auto& value : draws) {
+    // A real PPC frame is an ordered sequence, not a bag of verified Draws.
+    // Shuffling, truncating the leading Draws, or mixing live and offline
+    // submissions can replace surfaces using the wrong per-instance state.
+    if(value.draw.source_frame) {
+      if(anonymous_source || value.draw.source_ordinal!=expected_draw_ordinal ||
+         (captured_frame && value.draw.source_frame!=captured_frame))
+        throw std::invalid_argument("Captured Xbox source Draw order/frame mismatch");
+      if(expected_draw_ordinal==UINT32_MAX)
+        throw std::invalid_argument("Original EoR Draw ordinal overflow");
+      ++expected_draw_ordinal;
+      captured_source=true;
+      captured_frame=value.draw.source_frame;
+    } else {
+      if(captured_source || value.draw.source_ordinal!=UINT32_MAX)
+        throw std::invalid_argument("Mixed live/anonymous original EoR Draw provenance");
+      anonymous_source=true;
+    }
     if (!value.original_model_hash ||
         value.original_surface_ordinal == UINT32_MAX)
       throw std::invalid_argument("Original EoR Draw has no model/surface owner");

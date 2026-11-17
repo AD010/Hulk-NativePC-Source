@@ -145,6 +145,32 @@ int main(){
   std::vector<BoundIndexedDraw> capturedDraws{captured};
   ReplayAotScene(geometry,capturedDraws,shaders,effects,reflection,bound);
   assert(bound.begin==1 && bound.draw==1);
+  // The source frame is an ordered original PPC command stream: two
+  // legitimate draws numbered 0,1 succeed, but reverse order, gaps,
+  // missing leading draw and mixing offline/captured streams cannot begin.
+  BoundIndexedDraw another=captured;
+  another.draw.source_ordinal=1;
+  std::vector<BoundIndexedDraw> ordered{captured,another};
+  Backend orderedBackend;
+  ReplayAotScene(geometry,ordered,shaders,effects,reflection,orderedBackend);
+  assert(orderedBackend.begin==1 && orderedBackend.draw==2);
+  auto RejectBeforeBegin=[&](std::vector<BoundIndexedDraw> broken) {
+    Backend candidate;
+    bool refused=false;
+    try { ReplayAotScene(geometry,broken,shaders,effects,reflection,candidate); }
+    catch(const std::invalid_argument&) {refused=true;}
+    assert(refused && candidate.begin==0 && candidate.draw==0 &&
+           candidate.preflights==0);
+  };
+  RejectBeforeBegin({another,captured});
+  RejectBeforeBegin({another});
+  auto wrongFrame=another;
+  wrongFrame.draw.source_frame=18;
+  RejectBeforeBegin({captured,wrongFrame});
+  RejectBeforeBegin({captured,entry});
+  RejectBeforeBegin({entry,captured});
+  auto duplicate=captured;
+  RejectBeforeBegin({captured,duplicate});
   captured.draw.guest_vs_matrices->finite_register_mask=0;
   capturedDraws={captured};
   Backend missing_constants;
