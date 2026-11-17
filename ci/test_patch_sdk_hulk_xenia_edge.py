@@ -80,6 +80,22 @@ class PackedMipTests(unittest.TestCase):
         self.assertFalse(1 > max(0, 1))  # 2x1 goes down the square path.
         self.assertTrue(2 > max(0, 1))   # 4x1 remains a wide rectangle.
 
+    def test_partial_packed_tail_cannot_pass_idempotence(self):
+        fixed, changed = patch_mip(MIP_FIXTURE)
+        self.assertTrue(changed)
+        # Regression: old gate accepted a third old-shape branch, or an
+        # unrelated third new-shape branch, as "already patched".
+        variants = [
+            fixed.replace(MIP_SHAPE_NEW, MIP_SHAPE_OLD, 1),
+            fixed.replace(MIP_SHAPE_NEW, MIP_SHAPE_NEW + "\\n" + MIP_SHAPE_NEW, 1),
+            fixed.replace(MIP_SHAPE_INSERT_NEW, MIP_SHAPE_INSERT_OLD, 1),
+            fixed.replace(MIP_MARKER, MIP_MARKER + MIP_MARKER, 1),
+        ]
+        for variant in variants:
+            with self.subTest(variant=variant[:100]):
+                with self.assertRaises(ValueError):
+                    patch_mip(variant)
+
     def test_fails_closed_on_unrecognized_texture_layout(self):
         for src in [MIP_FIXTURE.replace(MIP_ADDR_OLD, ""), MIP_FIXTURE + MIP_MARKER,
                     MIP_FIXTURE.replace("if (log2_width > log2_height)",
