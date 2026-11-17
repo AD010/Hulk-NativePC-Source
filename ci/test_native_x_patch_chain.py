@@ -308,7 +308,7 @@ def run(sha=SHA):
             # #211: inspect the REAL final StateTracker after all 46 patches,
             # not merely the synthetic string-replacement regression.
             for marker in ("HULK/PM4-FIRST-PASS-OWNED-DRAWS-211",
-                           "hulk_owned_draws.emplace_back(scan_);",
+                           "hulk_owned_draws.emplace_back(std::move(draw));",
                            "scan_ = std::move(owned);",
                            "hulk_owned_complete && hulk_owned_draws.size() == expected"):
                 if marker not in state:
