@@ -41,8 +41,10 @@ pwsh -NoProfile -File tools/ghidra/Run-HulkUSA-XdkAudit.ps1 `
   -OutputJson "E:\HulkAudit\hulk_usa_ghidra_xdk_callsites.json"
 ```
 
-This first checks the source SHA and refuses an unknown XEX. The headless
-XEXLoaderWV importer builds an isolated temporary project, the
+This first checks the source SHA and refuses an unknown XEX. The script also
+checks Ghidra's imported-program MD5 against that exact SHA-pinned file, so
+an unrelated already-open PowerPC database cannot masquerade as Hulk USA.
+The headless XEXLoaderWV importer builds an isolated temporary project, the
 `HulkUSA_XDKCallsiteAudit.java` script records verified direct branch
 instruction address, function entry, and return-address `LR=site+4` for
 the ten source-proven XDK wrappers. The script outputs **only original guest
