@@ -239,7 +239,7 @@ def patch_draw(src: str) -> tuple[str, bool]:
         if not complete or (src.count(DRAW_CVAR_NEW) != 1 or
                             src.count(DRAW_INCLUDES_NEW) != 1 or
                             src.count(DRAW_LOGGING_NEW) != 1 or
-                            src.count("HULK/ACTIVE-SHADER-RESOURCE") != 1):
+                            src.count("  // HULK/ACTIVE-SHADER-RESOURCE:") != 1):
             raise ValueError("Partially installed shader resource witness")
         # The anchored original return block is still expected once *inside*
         # the new witness; an extra unpatched block must be rejected.
