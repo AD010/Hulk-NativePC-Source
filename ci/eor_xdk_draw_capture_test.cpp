@@ -28,11 +28,23 @@ int main() {
   constexpr uint32_t device=0x2000;
   W(guest,device+12696,0x82ABCDEF);
   W(guest,device+12692,0x82FEDCBA);
+  W(guest,device+11820,0x82345678);
+  W(guest,device+12436,0x826789AB);
+  W(guest,device+12440,0x82888888);
+  W(guest,device+12456,0x82999999);
+  W(guest,device+12544,0x8200BEEF);
+  W(guest,device+12548,0x8200BABE);
   W(guest,device+1920+11*16,std::bit_cast<uint32_t>(1.5f));
   const auto matrix=CaptureUsaVsMatrices(device,ReadFake,&guest);
   assert(matrix && matrix->original_guest_device==device &&
          matrix->original_vs_guest_object==0x82ABCDEFu &&
-         matrix->original_ps_guest_object==0x82FEDCBAu);
+         matrix->original_ps_guest_object==0x82FEDCBAu &&
+         matrix->original_vertex_declaration_guest_object==0x82345678u &&
+         matrix->original_index_buffer_guest_object==0x826789ABu &&
+         matrix->original_rt0_guest_object==0x82888888u &&
+         matrix->original_depth_guest_object==0x82999999u &&
+         matrix->original_texture_guest_objects[0]==0x8200BEEFu &&
+         matrix->original_texture_guest_objects[1]==0x8200BABEu);
   const auto view=ReadOriginalMatrix(*matrix,11,4);
   assert(view && view->original_register_count==4 &&
          view->values[0]==1.5f && view->values[15]==0.f);

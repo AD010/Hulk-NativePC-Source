@@ -37,20 +37,34 @@ bool ReadGuest(void* state,uint32_t address,std::byte* output,size_t length) noe
   if(offset>UINTPTR_MAX-uintptr_t(guest_base))return false;
   const uintptr_t start=uintptr_t(guest_base)+uintptr_t(offset);
   if(length>UINTPTR_MAX-start)return false;
-  MEMORY_BASIC_INFORMATION info{};
-  if(VirtualQuery(reinterpret_cast<const void*>(start),&info,sizeof(info))!=sizeof(info) ||
-     info.State!=MEM_COMMIT || (info.Protect&PAGE_GUARD))
-    return false;
-  const DWORD protection=info.Protect & 0xffu;
-  if(protection!=PAGE_READONLY && protection!=PAGE_READWRITE &&
-     protection!=PAGE_WRITECOPY && protection!=PAGE_EXECUTE_READ &&
-     protection!=PAGE_EXECUTE_READWRITE && protection!=PAGE_EXECUTE_WRITECOPY)
-    return false;
-  const uintptr_t region=uintptr_t(info.BaseAddress);
-  if(info.RegionSize>UINTPTR_MAX-region)return false;
-  const uintptr_t end=region+info.RegionSize;
-  if(start>end || length>end-start)return false;
-  std::memcpy(output,reinterpret_cast<const void*>(start),length);
+  // A shader/declaration/texture state block may cross two committed
+  // regions with different protections. Walk every region independently,
+  // copying only after verifying that part; never blindly span a gap.
+  uintptr_t cursor=start;
+  size_t remaining=length;
+  auto* destination=output;
+  while(remaining) {
+    MEMORY_BASIC_INFORMATION info{};
+    if(VirtualQuery(reinterpret_cast<const void*>(cursor),&info,
+                    sizeof(info))!=sizeof(info) ||
+       info.State!=MEM_COMMIT || (info.Protect&PAGE_GUARD))
+      return false;
+    const DWORD protection=info.Protect & 0xffu;
+    if(protection!=PAGE_READONLY && protection!=PAGE_READWRITE &&
+       protection!=PAGE_WRITECOPY && protection!=PAGE_EXECUTE_READ &&
+       protection!=PAGE_EXECUTE_READWRITE &&
+       protection!=PAGE_EXECUTE_WRITECOPY)
+      return false;
+    const uintptr_t region=uintptr_t(info.BaseAddress);
+    if(info.RegionSize>UINTPTR_MAX-region)return false;
+    const uintptr_t end=region+info.RegionSize;
+    if(cursor<region || cursor>=end)return false;
+    const auto chunk=std::min<size_t>(remaining,end-cursor);
+    std::memcpy(destination,reinterpret_cast<const void*>(cursor),chunk);
+    destination+=chunk;
+    remaining-=chunk;
+    cursor+=chunk;
+  }
   return true;
 #else
   (void)state;(void)address;(void)output;(void)length;
