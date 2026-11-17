@@ -39,7 +39,20 @@ int main() {
   Add(shader,5,named);
   const auto bindings=InspectSpirvImageResources(shader);
   assert(bindings.size()==1 && bindings[0].exact_variable_name=="g_Diffuse" &&
-         bindings[0].descriptor_set==0 && bindings[0].binding==2);
+         bindings[0].descriptor_set==0 && bindings[0].binding==2 &&
+         bindings[0].spirv_dim==1 && !bindings[0].image_arrayed &&
+         !bindings[0].image_multisampled);
+  // NativeX-like source texture is a 2D array, despite one array layer.
+  auto arrayed=shader;
+  // OpTypeImage Arrayed operand is 5 after the type instruction word.
+  arrayed[5+5]=1;
+  const auto array_bindings=InspectSpirvImageResources(arrayed);
+  assert(array_bindings.size()==1 &&
+         array_bindings[0].spirv_dim==1 &&
+         array_bindings[0].image_arrayed &&
+         !array_bindings[0].image_multisampled);
+  auto multisample=shader;multisample[5+6]=1;
+  assert(InspectSpirvImageResources(multisample)[0].image_multisampled);
   auto bad=shader;bad[0]=0;
   Reject([&]{(void)InspectSpirvImageResources(bad);});
   bad=shader;bad[5]=0;
