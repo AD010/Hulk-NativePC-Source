@@ -335,10 +335,21 @@ bool DiligentEorDirectBackend::PreflightOriginalScene(
   if(s.scene_open || draws.empty())return false;
   std::set<std::pair<uint32_t,uint32_t>> needed;
   std::set<State::MaterialKey> needed_materials;
+  std::set<std::pair<uint64_t,uint32_t>> captured_calls;
+  uint64_t captured_frame=0;
   // Pass one: validate the ENTIRE frame's native draw and original material
   // ownership. Do not create a PSO before a later invalid draw is rejected.
   for(const auto& item:draws) {
     const auto& d=item.draw;
+    if(d.source_frame) {
+      if(d.source_ordinal==UINT32_MAX ||
+         (captured_frame && d.source_frame!=captured_frame) ||
+         !captured_calls.emplace(d.source_frame,d.source_ordinal).second)
+        return false;
+      captured_frame=d.source_frame;
+    } else if(d.source_ordinal!=UINT32_MAX) {
+      return false;
+    }
     if(!d.vertex_buffer || !d.index_buffer || !d.vertex_shader ||
        !d.pixel_shader || !d.index_count || !item.original_model_hash ||
        item.original_surface_ordinal==UINT32_MAX || !item.effect_hash ||

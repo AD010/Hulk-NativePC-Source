@@ -141,7 +141,12 @@ int main(){
   const auto matched=native::MatchCapturedXdkDraws(observed,
     std::span<const native::VerifiedXdkIndexedSubmission>(&verified,1));
   assert(matched.size()==1 && matched[0].original_model_hash==0xCAFE &&
-         matched[0].first_index==0 && matched[0].host_base_vertex==0);
+         matched[0].first_index==0 && matched[0].host_base_vertex==0 &&
+         matched[0].original_frame_sequence==1 &&
+         matched[0].original_call_ordinal==0);
+  const auto tagged=native::BindVerifiedGeometryDraws(matched,models,effects);
+  assert(tagged.size()==1 && tagged[0].draw.source_frame==1 &&
+         tagged[0].draw.source_ordinal==0);
   auto altered=verified;
   altered.original_guest_call.first_index+=1;
   Reject([&]{(void)native::MatchCapturedXdkDraws(observed,

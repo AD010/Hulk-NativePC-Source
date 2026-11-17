@@ -43,6 +43,11 @@ struct IndexedDraw {
   uint32_t index_count = 0, first_index = 0;
   // Signed host vertex offset after verified guest->native rebase.
   int32_t base_vertex = 0;
+  // Exact original frame and captured call ordinal. A model may be
+  // rendered hundreds of times with IDENTICAL buffers/shaders but a
+  // different per-instance World or ViewProj each time.
+  uint64_t source_frame = 0;
+  uint32_t source_ordinal = UINT32_MAX;
 };
 
 // All methods operate on host-native resources and draw calls; no GPU

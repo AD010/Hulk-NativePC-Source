@@ -77,7 +77,8 @@ std::vector<aot::BoundIndexedDraw> BindVerifiedGeometryDraws(
     aot::BoundIndexedDraw item;
     item.draw = {mesh->position_buffer,mesh->index_buffer,
                  src.vertex_shader_id,src.pixel_shader_id,
-                 src.index_count,src.first_index,src.host_base_vertex};
+                 src.index_count,src.first_index,src.host_base_vertex,
+                 src.original_frame_sequence,src.original_call_ordinal};
     item.vertex_source_sha256 = src.vertex_source_sha256;
     item.pixel_source_sha256 = src.pixel_source_sha256;
     item.effect_hash = src.original_effect_hash;
@@ -118,7 +119,10 @@ std::vector<VerifiedDrawSource> MatchCapturedXdkDraws(
       throw std::invalid_argument("Guest Xbox indexed Draw lacks exact source-proven EoR owner");
     // The original Xbox XDK index offset/baseVertex are from guest streams.
     // The host mesh has its OWN rebased indexed geometry and vertex origin.
-    sources.push_back(original);
+    auto tagged=original;
+    tagged.original_frame_sequence=frame.sequence;
+    tagged.original_call_ordinal=static_cast<uint32_t>(i);
+    sources.push_back(std::move(tagged));
   }
   return sources;
 }

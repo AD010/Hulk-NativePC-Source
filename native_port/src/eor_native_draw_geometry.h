@@ -29,6 +29,9 @@ struct VerifiedDrawSource {
   uint32_t index_count = 0;
   // Xbox XDK baseVertex needs explicit source->host rebase first.
   int32_t host_base_vertex = 0;
+  // Resolved at the original XDK hook before Guest memory advances.
+  uint64_t original_frame_sequence = 0;
+  uint32_t original_call_ordinal = UINT32_MAX;
   // Explicit engine ABI, material ownership, converted host vertex layout and
   // fixed-function pass/depth/RT state. Never silently set these to true.
   bool engine_draw_verified = false;
