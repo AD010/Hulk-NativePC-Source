@@ -122,7 +122,8 @@ class OriginalExeVerificationTests(unittest.TestCase):
             original_digest = hashlib.sha256(payload).hexdigest()
             real_digest = hashlib.file_digest
 
-            # Simulate a concurrent writer using a separate descriptor.\n            def external_mutation(stream, algorithm):
+            # Simulate a concurrent writer using a separate descriptor.
+            def external_mutation(stream, algorithm):
                 result = real_digest(stream, algorithm)
                 with path.open("ab") as writer:
                     writer.write(b"X")
