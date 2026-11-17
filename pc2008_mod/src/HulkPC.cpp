@@ -225,13 +225,18 @@ HRESULT STDMETHODCALLTYPE OnCreateDevice(IDirect3D9* api,UINT adapter,
   if(!realCreateDevice)return D3DERR_INVALIDCALL;
   if(!pp||!result)return realCreateDevice(api,adapter,type,window,flags,pp,result);
   const D3DPRESENT_PARAMETERS original=*pp;
-  if(width && height && !pp->Windowed) {
-    pp->BackBufferWidth=width;pp->BackBufferHeight=height;
+  // Capture our own change before calling the driver: a failed CreateDevice
+  // is allowed to modify the caller's presentation parameters.
+  const bool changed=width && height && !pp->Windowed &&
+    (pp->BackBufferWidth!=width || pp->BackBufferHeight!=height);
+  if(changed) {
+    pp->BackBufferWidth=width;
+    pp->BackBufferHeight=height;
   }
   HRESULT hr=realCreateDevice(api,adapter,type,window,flags,pp,result);
-  if(FAILED(hr) && (pp->BackBufferWidth!=original.BackBufferWidth ||
-                    pp->BackBufferHeight!=original.BackBufferHeight)) {
+  if(FAILED(hr) && changed) {
     *pp=original;
+    if(result)*result=nullptr;
     hr=realCreateDevice(api,adapter,type,window,flags,pp,result);
   }
   if(SUCCEEDED(hr) && *result) {
