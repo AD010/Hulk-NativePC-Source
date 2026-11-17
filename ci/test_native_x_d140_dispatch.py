@@ -84,5 +84,37 @@ class D140WindowsDispatchTests(unittest.TestCase):
         self.assertIn("HULK/DIRECT-DMA-SNAPSHOT",builder)
 
 
+    def test_release_cpp_preflight_has_real_unique_inputs(self):
+        # Past releases reached cl.exe only to fail on missing source units.
+        # Fail in the public-only preflight, before any private game material.
+        workflow=(ROOT/".github"/"workflows"/"hulk-free-windows.yml").read_text("utf-8")
+        pattern=r"(?m)^\\s+\\$(\\w+Args)\\s*=\\s*@\\(([\\s\\S]*?)\\)\\s*\\n\\s+& cl\\.exe @\\1\\s*$"
+        invocations=list(re.finditer(pattern,workflow))
+        self.assertGreaterEqual(len(invocations),30)
+        by_name={}
+        for match in invocations:
+            name,body=match.group(1,2)
+            with self.subTest(compiler_list=name):
+                paths=re.findall(
+                    r"'(native_port/src/[^']+\\.cpp|ci/[^']+\\.cpp)'",
+                    body)
+                self.assertTrue(paths)
+                self.assertEqual(len(paths),len(set(paths)),
+                                 "Repeated .cpp object in cl.exe link: "+name)
+                for path in paths:
+                    self.assertTrue((ROOT/path).is_file(),
+                                    "Missing source unit in "+name+": "+path)
+            by_name[name]=set(paths)
+        # OriginalModelAssets calls both functions; earlier MSVC LNK2019
+        # was caused by compiling it without their implementation units.
+        self.assertIn("modelAssetsArgs",by_name)
+        self.assertTrue({
+            "native_port/src/eor_model_surface_materials.cpp",
+            "native_port/src/eor_model_surfaces.cpp",
+            "native_port/src/eor_model_material_refs.cpp",
+            "native_port/src/eor_native_mesh_geometry.cpp",
+        }.issubset(by_name["modelAssetsArgs"]))
+
+
 if __name__ == "__main__":
     unittest.main()
