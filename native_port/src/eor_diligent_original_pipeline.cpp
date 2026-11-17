@@ -17,7 +17,9 @@ OriginalVulkanPipeline CreateOriginalVulkanPipeline(
      pass.exact_host_input_layout.empty() ||
      pass.exact_host_input_layout.size()>DILIGENT_MAX_LAYOUT_ELEMENTS)
     throw std::invalid_argument("Original EoR Vulkan pass ownership/vertex layout unresolved");
-  if(!bank.HasFullArchiveCoverage() ||
+  // Only this exact proven shader pair must be compiled: other original
+  // effects must not block the first real independent native Vulkan scene.
+  if(!bank.size() ||
      original_effects.ShaderCount()!=bank.expected() ||
      !original_effects.HasPair(pass.original_effect_hash,pass.original_pass_index,
                                pass.original_vertex_shader_sha256,

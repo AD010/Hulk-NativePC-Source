@@ -72,8 +72,10 @@ void ReplayAotScene(const native::FrameGeometry& frame,
     throw std::logic_error("Original EoR effect catalog/shader bank mismatch");
   if (reflection.size() != bank.expected())
     throw std::logic_error("Original EoR VS/PS constant reflection is incomplete");
-  if (!bank.HasFullArchiveCoverage())
-    throw std::logic_error("Incomplete original shader archive AOT coverage");
+  // A valid original scene may use a subset of the 5194 shader sources.
+  // Every actual Draw shader is checked below BEFORE any GPU BeginScene.
+  if (!bank.size())
+    throw std::logic_error("No compiled original EoR shader program available");
   if (draws.empty())
     throw std::logic_error("No original EoR material Draw submissions");
   // All program identities must resolve BEFORE beginning an irreversible GPU

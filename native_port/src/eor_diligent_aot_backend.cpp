@@ -89,7 +89,7 @@ DiligentEorDirectBackend::DiligentEorDirectBackend(
         std::move(composite)) : nullptr) {
   if(!state_ || device->GetDeviceInfo().Type != Diligent::RENDER_DEVICE_TYPE_VULKAN ||
      !frame.direct_engine_path_ready || !state_->bind_constants ||
-     !state_->composite || !bank.HasFullArchiveCoverage() ||
+     !state_->composite || !bank.size() ||
      effects.ShaderCount()!=bank.expected() || state_->passes.empty() ||
      state_->draw_buffers.empty())
     throw std::invalid_argument("Original EoR engine Draw/constant/output Vulkan ABI not verified");
