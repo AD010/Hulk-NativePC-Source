@@ -81,6 +81,20 @@ class OriginalExeVerificationTests(unittest.TestCase):
                 ok, _ = self.check(data)
                 self.assertFalse(ok)
 
+    def test_truncated_section_table_rejected_even_with_matching_digest(self):
+        # Synthetic PE has three section headers; the third must be present.
+        data = synthetic_pe()[:420]
+        ok, errors = self.check(data)
+        self.assertFalse(ok)
+        self.assertTrue(any("section table" in e for e in errors))
+
+    def test_impossible_optional_header_length_rejected(self):
+        data = bytearray(synthetic_pe())
+        struct.pack_into("<H", data, 0x40 + 20, 0xFFFF)
+        ok, errors = self.check(bytes(data))
+        self.assertFalse(ok)
+        self.assertTrue(any("section table" in e for e in errors))
+
     def test_missing_path(self):
         with tempfile.TemporaryDirectory() as directory:
             ok, errors = verifier.verify(Path(directory) / "missing.exe")
