@@ -128,6 +128,89 @@ std::vector<VerifiedDrawSource> MatchCapturedXdkDraws(
   }
   return sources;
 }
+OriginalXdkResourceIdentity ResourcesAtDraw(
+    const xdk::OriginalVsMatrices& state) noexcept {
+  return {state.original_guest_device,
+          state.original_vertex_declaration_guest_object,
+          state.original_index_buffer_guest_object,
+          state.original_vs_guest_object,
+          state.original_ps_guest_object,
+          state.original_rt0_guest_object,
+          state.original_depth_guest_object,
+          state.original_texture_guest_objects};
+}
+std::vector<VerifiedDrawSource> ResolveCapturedResourceDraws(
+    const xdk::Frame& frame,
+    std::span<const VerifiedXdkResourceWitness> witnesses,
+    std::span<const model::UploadedOriginalModel* const> residents) {
+  if(!frame.sequence || frame.dropped || frame.calls.empty() ||
+     frame.calls.size()>xdk::FrameCapture::kMaxDraws || witnesses.empty())
+    throw std::invalid_argument("Incomplete original Xbox resource-witness Draw frame");
+  std::vector<VerifiedXdkDrawSubmission> matched;
+  matched.reserve(frame.calls.size());
+  for(const auto& call:frame.calls) {
+    if(!call.observed_vs_matrices)
+      throw std::invalid_argument("Original XDK Draw lacks actual guest shader state");
+    const auto resources=ResourcesAtDraw(*call.observed_vs_matrices);
+    if(!resources.device || resources.device!=call.gpr[0] ||
+       !resources.vertex_shader || !resources.pixel_shader ||
+       !resources.vertex_declaration)
+      throw std::invalid_argument("Original Xbox Draw has incomplete resource ownership");
+    const auto indexed=xdk::DecodeOriginalIndexedXdkCall(call);
+    const auto vertices=xdk::DecodeOriginalVerticesXdkCall(call);
+    if(!indexed && !vertices)
+      throw std::invalid_argument("Unverified original Xbox primitive/Draw method");
+    const VerifiedXdkDrawSubmission* unique=nullptr;
+    for(const auto& candidate:witnesses) {
+      if(!candidate.original_guest_resource_to_material_mapping_verified ||
+         !(candidate.original_resources==resources))
+        continue;
+      bool identical=false;
+      if(indexed) {
+        if(const auto* link=std::get_if<VerifiedXdkIndexedSubmission>(
+               &candidate.original_source_submission)) {
+          const auto& x=link->original_guest_call;
+          identical=x.xdk_function==indexed->xdk_function &&
+                    x.caller_lr==indexed->caller_lr &&
+                    x.guest_device==indexed->guest_device &&
+                    x.primitive==indexed->primitive &&
+                    x.base_vertex==indexed->base_vertex &&
+                    x.first_index==indexed->first_index &&
+                    x.index_count==indexed->index_count;
+        }
+      } else if(const auto* link=std::get_if<VerifiedXdkVerticesSubmission>(
+                     &candidate.original_source_submission)) {
+        const auto& x=link->original_guest_call;
+        identical=x.xdk_function==vertices->xdk_function &&
+                  x.caller_lr==vertices->caller_lr &&
+                  x.guest_device==vertices->guest_device &&
+                  x.primitive==vertices->primitive &&
+                  x.start_vertex==vertices->start_vertex &&
+                  x.vertex_count==vertices->vertex_count;
+      }
+      if(!identical)continue;
+      if(unique)
+        throw std::invalid_argument("Ambiguous original Xbox material/mesh mapping");
+      unique=&candidate.original_source_submission;
+    }
+    if(!unique)
+      throw std::invalid_argument("No verified original Xbox model/material for live Draw");
+    matched.push_back(*unique);
+  }
+  // Revalidate every primitive, real source index/vertex window, shader
+  // identity and owner through the existing mixed PPC native bridge.
+  return MatchCapturedMixedDraws(frame,matched,residents);
+}
+void ReplayCapturedResourceScene(
+    const xdk::Frame& captured,
+    std::span<const VerifiedXdkResourceWitness> verified,
+    const FrameGeometry& frame,
+    std::span<const model::UploadedOriginalModel* const> residents,
+    const aot::ShaderBank& bank,const aot::EffectCatalog& effects,
+    const aot::ReflectionBank& reflection,aot::ShaderBindingBackend& backend) {
+  const auto source=ResolveCapturedResourceDraws(captured,verified,residents);
+  ReplayVerifiedGeometryScene(frame,source,residents,bank,effects,reflection,backend);
+}
 std::vector<VerifiedDrawSource> MatchCapturedMixedDraws(
     const xdk::Frame& frame,
     std::span<const VerifiedXdkDrawSubmission> verified,

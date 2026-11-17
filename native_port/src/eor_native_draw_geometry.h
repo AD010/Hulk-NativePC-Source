@@ -72,6 +72,36 @@ struct VerifiedXdkVerticesSubmission {
 };
 using VerifiedXdkDrawSubmission=
     std::variant<VerifiedXdkIndexedSubmission,VerifiedXdkVerticesSubmission>;
+// True PPC guest object identities observed at the exact Draw. They are
+// not original archive hashes, not Vulkan handles, and must have a proven
+// model/material/technique correspondence before GPU submission.
+struct OriginalXdkResourceIdentity {
+  uint32_t device=0,vertex_declaration=0,index_buffer=0;
+  uint32_t vertex_shader=0,pixel_shader=0,rt0=0,depth=0;
+  std::array<uint32_t,16> textures{};
+  bool operator==(const OriginalXdkResourceIdentity&) const = default;
+};
+OriginalXdkResourceIdentity ResourcesAtDraw(
+    const xdk::OriginalVsMatrices& snapshot) noexcept;
+struct VerifiedXdkResourceWitness {
+  OriginalXdkResourceIdentity original_resources;
+  VerifiedXdkDrawSubmission original_source_submission;
+  bool original_guest_resource_to_material_mapping_verified=false;
+};
+// Resolve the entire captured frame with independently verified original
+// model/mesh/pass witnesses. This does NOT discover missing witnesses.
+// It rejects unrecognized/ambiguous Draws before any GPU scene starts.
+std::vector<VerifiedDrawSource> ResolveCapturedResourceDraws(
+    const xdk::Frame& frame,
+    std::span<const VerifiedXdkResourceWitness> original_witnesses,
+    std::span<const model::UploadedOriginalModel* const> residents);
+void ReplayCapturedResourceScene(
+    const xdk::Frame& frame,
+    std::span<const VerifiedXdkResourceWitness> original_witnesses,
+    const FrameGeometry& output,
+    std::span<const model::UploadedOriginalModel* const> residents,
+    const aot::ShaderBank& shaders,const aot::EffectCatalog& effects,
+    const aot::ReflectionBank& reflection,aot::ShaderBindingBackend& gpu);
 std::vector<VerifiedDrawSource> MatchCapturedMixedDraws(
     const xdk::Frame& frame,
     std::span<const VerifiedXdkDrawSubmission> source_verified,

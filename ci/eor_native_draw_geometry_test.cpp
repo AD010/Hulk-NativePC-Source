@@ -221,5 +221,48 @@ int main(){
   auto up=plain;up.kind=xdk::Kind::DrawVerticesUP;
   Reject([&]{(void)native::MatchCapturedMixedDraws(
       xdk::Frame{2,0,{observed.calls[0],up}},mixed,models);});
+  // Real guest GPU identities independently crosswalk original XDK
+  // objects to the original MODELS/ShaderEffects/sampler source witness.
+  auto runtime=observed;
+  auto live_state=*runtime.calls[0].observed_vs_matrices;
+  live_state.original_vs_guest_object=0x82001111u;
+  live_state.original_ps_guest_object=0x82002222u;
+  live_state.original_vertex_declaration_guest_object=0x82003333u;
+  live_state.original_index_buffer_guest_object=0x82004444u;
+  live_state.original_rt0_guest_object=0x82005555u;
+  live_state.original_depth_guest_object=0x82006666u;
+  live_state.original_texture_guest_objects[0]=0x82007777u;
+  runtime.calls[0].observed_vs_matrices=live_state;
+  native::VerifiedXdkResourceWitness witness{};
+  witness.original_resources=native::ResourcesAtDraw(live_state);
+  witness.original_source_submission=verified;
+  witness.original_guest_resource_to_material_mapping_verified=true;
+  std::vector<native::VerifiedXdkResourceWitness> catalog{witness};
+  const auto recovered=native::ResolveCapturedResourceDraws(runtime,catalog,models);
+  assert(recovered.size()==1 && recovered[0].original_model_hash==0xCAFE &&
+         recovered[0].original_vs_matrices &&
+         xdk::ReadOriginalMatrix(*recovered[0].original_vs_matrices,11,4)
+             ->values[0]==2.0f);
+  // Identical resident meshes and materials may be replayed with a new
+  // per-instance matrix in the next frame without hardcoding their order.
+  auto transformed=runtime;
+  transformed.sequence=3;
+  transformed.calls[0].observed_vs_matrices->c7_through_c25[(11-7)*4]=3.0f;
+  const auto second=native::ResolveCapturedResourceDraws(transformed,catalog,models);
+  assert(second.size()==1 && second[0].original_frame_sequence==3 &&
+         xdk::ReadOriginalMatrix(*second[0].original_vs_matrices,11,4)
+             ->values[0]==3.0f);
+  transformed.calls[0].observed_vs_matrices->
+      original_texture_guest_objects[0]=0x8300BAD0u;
+  Reject([&]{(void)native::ResolveCapturedResourceDraws(transformed,catalog,models);});
+  transformed=runtime;
+  transformed.calls[0].observed_vs_matrices.reset();
+  Reject([&]{(void)native::ResolveCapturedResourceDraws(transformed,catalog,models);});
+  transformed=runtime;
+  catalog.push_back(witness);
+  Reject([&]{(void)native::ResolveCapturedResourceDraws(transformed,catalog,models);});
+  catalog.resize(1);
+  catalog[0].original_guest_resource_to_material_mapping_verified=false;
+  Reject([&]{(void)native::ResolveCapturedResourceDraws(transformed,catalog,models);});
   assert(gpu.next==3);
 }
