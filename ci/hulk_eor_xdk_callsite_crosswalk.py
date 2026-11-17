@@ -41,7 +41,13 @@ def analyze(log: str, hooks: dict[int, str],
     for line in log.splitlines():
         if '[HULK/EOR-XDK-CALLSITE]' not in line:
             continue
+        # Never skip a damaged tagged record to match a later valid one.
+        marker = '[HULK/EOR-XDK-CALLSITE]'
+        if line.count(marker) != 1:
+            raise ValueError("Malformed Hulk XDK caller observation")
         m = LINE.search(line)
+        if m and m.start() != line.index(marker):
+            raise ValueError("Malformed Hulk XDK caller observation")
         # A tagged observation must contain exactly one complete record;
         # a second record or a glued-on numeric suffix is not evidence.
         if m and ('[HULK/EOR-XDK-CALLSITE]' in line[m.end():] or
