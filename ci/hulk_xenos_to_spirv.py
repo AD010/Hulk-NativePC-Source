@@ -16,6 +16,7 @@ import re
 import struct
 import subprocess
 import tempfile
+from hulk_spirv_resource_contract import validate_named_spirv_images
 
 MAX_SHADERS = 16384
 MAX_CONTAINER = 8 << 20
@@ -159,12 +160,13 @@ def compile_private_bank(manifest_path: Path, output_path: Path, *,
                     '-spirv', '-fvk-use-dx-layout']
             if stage == 'VS':
                 args.append('-fvk-invert-y')
-            args += ['-Qstrip_debug', '-Fo', str(spv), str(hlsl)]
+            args += ['-fspv-reflect', '-Fo', str(spv), str(hlsl)]
             checked(args)
             if not spv.is_file():
                 raise RuntimeError('DXC produced no SPIR-V')
             code = spv.read_bytes()
             spirv_info(code, stage)
+            validate_named_spirv_images(code)
             checked([str(spirv_val), '--target-env', 'vulkan1.3', str(spv)])
             converted.append((digest, stage, code))
     output = encode_bank(converted)
