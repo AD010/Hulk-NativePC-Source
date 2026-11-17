@@ -422,11 +422,19 @@ bool DiligentEorDirectBackend::BindOriginalSamplers(
   // Shader descriptor order and original material iteration order may differ.
   const auto& textures=s.selected->original_textures;
   if(expected.size()!=textures.size())return false;
+  // Require a bijection, not merely that each requested sampler exists.
+  // Repeating one valid sampler could otherwise omit another original image
+  // while still passing the size and per-entry identity checks.
+  std::set<size_t> matched_indices;
   for(const auto& slot:expected) {
-    unsigned matches=0;
-    for(const auto& owned:textures)
-      if(Same(slot,owned.identity))++matches;
-    if(matches!=1)return false;
+    size_t match=textures.size();
+    for(size_t i=0;i<textures.size();++i)
+      if(Same(slot,textures[i].identity)) {
+        if(match!=textures.size())return false;
+        match=i;
+      }
+    if(match==textures.size() || !matched_indices.insert(match).second)
+      return false;
   }
   try {
     BindVerifiedOriginalEorTextures(s.active.bindings.RawPtr(),textures);
