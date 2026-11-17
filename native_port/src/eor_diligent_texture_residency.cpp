@@ -13,8 +13,8 @@ struct DiligentOriginalTextureResidency::State {
   Diligent::RefCntAutoPtr<Diligent::IRenderDevice> device;
   const textures::OriginalXboxTextureAssets& assets;
   using Key=std::tuple<uint32_t,OriginalTextureColorSpace,OriginalTextureViewKind>;
-  // Stable pointers to map values remain valid after more texture uploads.
-  std::map<Key,UploadedEorTexture> textures;
+  // Host images can remain bound in materials even after LOD cache eviction.
+  std::map<Key,std::shared_ptr<const UploadedEorTexture>> textures;
 };
 DiligentOriginalTextureResidency::DiligentOriginalTextureResidency(
     Diligent::IRenderDevice* device,
@@ -24,7 +24,7 @@ DiligentOriginalTextureResidency::DiligentOriginalTextureResidency(
     throw std::invalid_argument("Only native Vulkan EoR original texture residency supported");
 }
 DiligentOriginalTextureResidency::~DiligentOriginalTextureResidency() noexcept = default;
-const UploadedEorTexture* DiligentOriginalTextureResidency::Acquire(
+std::shared_ptr<const UploadedEorTexture> DiligentOriginalTextureResidency::Acquire(
     uint32_t hash, OriginalTextureColorSpace space,OriginalTextureViewKind view) {
   if(!hash || space==OriginalTextureColorSpace::Unknown ||
      (view!=OriginalTextureViewKind::Native2D &&
@@ -32,7 +32,7 @@ const UploadedEorTexture* DiligentOriginalTextureResidency::Acquire(
     throw std::invalid_argument("Original EoR material color space/image dimension not proven");
   const State::Key key{hash,space,view};
   const auto old=state_->textures.find(key);
-  if(old!=state_->textures.end())return &old->second;
+  if(old!=state_->textures.end())return old->second;
   // Direct original resource loader verifies the pinned USA IND, LFXT
   // inline extent, real TexStreams mip sizes and source/format layout.
   auto original=state_->assets.LoadHash(hash);
@@ -46,9 +46,10 @@ const UploadedEorTexture* DiligentOriginalTextureResidency::Acquire(
   if(image.original_texture_hash!=hash || !image.SRV() ||
      !image.original_mip_levels || image.view_kind!=view)
     throw std::runtime_error("Original EoR texture upload produced incompatible host SRV");
-  auto [it,inserted]=state_->textures.emplace(key,std::move(image));
+  auto holder=std::make_shared<const UploadedEorTexture>(std::move(image));
+  auto [it,inserted]=state_->textures.emplace(key,std::move(holder));
   if(!inserted)throw std::logic_error("EoR source residency key collision");
-  return &it->second;
+  return it->second;
 }
 std::vector<OriginalDiligentSampler>
 DiligentOriginalTextureResidency::BindMaterial(

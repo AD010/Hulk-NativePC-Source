@@ -5,11 +5,15 @@
 #include "eor_diligent_xenos_textures.h"
 #include "eor_verified_sampler_bindings.h"
 #include <span>
+#include <memory>
 namespace Diligent { struct IShaderResourceBinding; }
 namespace hulk::eor::gpu {
 struct OriginalDiligentSampler {
   VerifiedEorSampler identity{};
-  const UploadedEorTexture* uploaded=nullptr; // must outlive the GPU fence
+  // Keep the physical host image/SRV alive after the residency cache is
+  // cleared or LOD streaming replaces its entries. A raw borrowed pointer
+  // used to dangle in queued original material passes across cache resets.
+  std::shared_ptr<const UploadedEorTexture> uploaded;
   // NativeX fetch shaders use 2D arrays; legacy EoR shaders may use 2D.
   // The caller proves this by current, exact shader-variable reflection.
   OriginalTextureViewKind required_view=OriginalTextureViewKind::Native2D;

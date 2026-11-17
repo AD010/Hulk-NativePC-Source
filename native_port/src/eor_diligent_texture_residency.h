@@ -20,8 +20,9 @@ struct VerifiedNativeMaterialImage {
       OriginalTextureViewKind::Native2D;
 };
 // Render-thread-only host GPU cache; original archive asset provider must
-// outlive the residency object. GPU textures remain live through the caller's
-// completion fences and until Clear() or destruction.
+// outlive this object. Each material holds a strong reference to its host
+// texture until the renderer drops that material AFTER its completion fence.
+// Clear() drops only cache ownership; it cannot invalidate queued samplers.
 class DiligentOriginalTextureResidency final {
  public:
   DiligentOriginalTextureResidency(
@@ -31,7 +32,7 @@ class DiligentOriginalTextureResidency final {
   DiligentOriginalTextureResidency& operator=(const DiligentOriginalTextureResidency&)=delete;
   ~DiligentOriginalTextureResidency() noexcept;
 
-  const UploadedEorTexture* Acquire(
+  std::shared_ptr<const UploadedEorTexture> Acquire(
       uint32_t original_hash,
       OriginalTextureColorSpace source_proven_color_space,
       OriginalTextureViewKind shader_reflected_view);
@@ -42,7 +43,7 @@ class DiligentOriginalTextureResidency final {
       std::span<const VerifiedNativeMaterialImage> source_proven);
 
   std::size_t ResidentCount() const noexcept;
-  void Clear() noexcept; // caller waits for GPU completion first
+  void Clear() noexcept; // material pins survive until the caller releases them
  private:
   struct State;
   std::unique_ptr<State> state_;
