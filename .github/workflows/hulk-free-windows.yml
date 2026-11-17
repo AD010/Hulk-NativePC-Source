@@ -119,6 +119,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Native Vulkan sampled-image descriptor/name preflight failed' }
           python ci/test_patch_sdk_hulk_spirv_scalar.py
           if ($LASTEXITCODE -ne 0) { throw 'Xenia Edge scalar SPIR-V vertex fetch regression failed' }
+          python ci/test_patch_sdk_hulk_index_pool.py
+          if ($LASTEXITCODE -ne 0) { throw 'Xenia Edge converted-index GPU page sizing regression failed' }
           python ci/test_patch_xenosrecomp_hulk_fetch.py
           if ($LASTEXITCODE -ne 0) { throw 'Hulk strict Xenos fetch adapter regression failed' }
           python ci/test_patch_xenosrecomp_hulk_lod.py
