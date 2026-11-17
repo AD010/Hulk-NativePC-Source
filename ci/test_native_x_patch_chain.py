@@ -58,7 +58,7 @@ def commands():
         if "Invoke-HulkNativeXPatch '" not in line:
             continue
         match=re.search(
-            r"^\s+Invoke-HulkNativeXPatch '((?:test_|patch_)patch_native_x_hulk_[a-z0-9_]+\.py)'\s*$",
+            r"^\s+Invoke-HulkNativeXPatch '((?:test_)?patch_native_x_hulk_[a-z0-9_]+\.py)'\s*$",
             line)
         if not match:
             raise RuntimeError("Unparsed NativeX build step: " + line.strip())
