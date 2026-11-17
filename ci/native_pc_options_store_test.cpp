@@ -151,11 +151,15 @@ int main() {
          "Original 3D camera aspect math rejected legitimate resolutions");
   Expect(std::abs(proj_16_9->horizontal_focal_multiplier - 1.0) < 1e-8,
          "Original 16:9 camera must not be modified");
-  Expect(std::abs(proj_16_10->horizontal_focal_multiplier - 10.0/9.0) < 1e-8,
-         "Real 16:10 camera aspect ratio incorrect");
+  Expect(proj_16_10->horizontal_focal_multiplier==1.0 &&
+         std::abs(proj_16_10->vertical_focal_multiplier-0.9)<1e-8,
+         "Real 16:10 must extend vertical FOV without cropping the sides");
   Expect(proj_ultra->horizontal_focal_multiplier < 1.0 &&
-         proj_4_3->horizontal_focal_multiplier > 1.0,
-         "Ultrawide camera must widen; 4:3 must narrow horizontally");
+         proj_ultra->vertical_focal_multiplier==1.0 &&
+         proj_4_3->horizontal_focal_multiplier==1.0 &&
+         std::abs(proj_4_3->vertical_focal_multiplier-0.75)<1e-8 &&
+         proj_4_3->vertical_fov_radians>proj_16_9->vertical_fov_radians,
+         "Ultrawide must expand Hor+, 4:3 must expand Vert+ without cropping");
   Expect(proj_ultra->horizontal_fov_radians >
          proj_16_10->horizontal_fov_radians,
          "Original vertical-FOV-preserving projection would crop ultrawide");

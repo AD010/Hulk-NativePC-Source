@@ -12,17 +12,19 @@ namespace hulk::camera {
 
 struct ProjectionAspect {
   double aspect = 0.0;
-  // Multiply ONLY the true perspective projection's horizontal focal
-  // coefficient M00, after identifying its matrix ABI and 3D camera owner.
+  // Scale only the clip X axis for a wider monitor (Hor+) or clip Y for
+  // a narrower/taller monitor (Vert+); the other coefficient stays 1.
   double horizontal_focal_multiplier = 1.0;
+  double vertical_focal_multiplier = 1.0;
   double horizontal_fov_radians = 0.0;
+  double vertical_fov_radians = 0.0;
   bool host_frame_has_real_3d_extent = false;
 };
 
-// Given an existing game projection with fixed vertical field of view,
-// preserving the Y coefficient, adjust the X coefficient to a new aspect.
-// The 2D HUD, movies, bloom, shadow maps and EDRAM guest descriptors
-// must NOT use this operation.
+// Source-verified perspective FOV report for arbitrary native host aspects.
+ // At wider targets Hor+ preserves vertical FOV; at taller targets Vert+
+ // preserves the original horizontal FOV. Both include the original frame.
+ // Movies/HUD/shadows/reflections and guest EDRAM are never modified.
 inline std::optional<ProjectionAspect> AspectForView(
     double target_width, double target_height, double base_aspect,
     double vertical_fov_radians) noexcept {
@@ -37,14 +39,24 @@ inline std::optional<ProjectionAspect> AspectForView(
   if (!std::isfinite(aspect) || aspect < 0.25 || aspect > 8.0)
     return std::nullopt;
 
-  const double focal_multiplier = base_aspect / aspect;
-  const double horizontal_fov =
-      2.0 * std::atan(std::tan(vertical_fov_radians * 0.5) * aspect);
+  const double base_horizontal =
+      2.0 * std::atan(std::tan(vertical_fov_radians * 0.5) * base_aspect);
+  const bool wider=aspect>=base_aspect;
+  const double x_scale=wider ? base_aspect/aspect : 1.0;
+  const double y_scale=wider ? 1.0 : aspect/base_aspect;
+  const double horizontal_fov=wider ?
+      2.0 * std::atan(std::tan(vertical_fov_radians*0.5)*aspect) :
+      base_horizontal;
+  const double vertical_fov=wider ? vertical_fov_radians :
+      2.0 * std::atan(std::tan(base_horizontal*0.5)/aspect);
   if (!std::isfinite(horizontal_fov) || horizontal_fov <= 0.0 ||
-      horizontal_fov >= 3.14159265358979323846)
+      horizontal_fov >= 3.14159265358979323846 ||
+      !std::isfinite(vertical_fov) || vertical_fov <= 0.0 ||
+      vertical_fov >= 3.14159265358979323846)
     return std::nullopt;
 
-  return ProjectionAspect{aspect, focal_multiplier, horizontal_fov, true};
+  return ProjectionAspect{aspect,x_scale,y_scale,
+                          horizontal_fov,vertical_fov,true};
 }
 
 // Native perspective camera for every host aspect, keeping the original
