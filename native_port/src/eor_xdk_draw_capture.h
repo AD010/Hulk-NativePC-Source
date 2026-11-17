@@ -1,6 +1,7 @@
 // Actual USA XDK call provenance, NOT a fabricated EoR Draw submission.
 // Keep original PPC call-through and memory untouched. Opt-in audit only.
 #pragma once
+#include "eor_xdk_guest_constants.h"
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -15,7 +16,10 @@ enum class Kind : uint8_t { DrawVertices, DrawIndexedVertices, DrawVerticesUP };
 struct RawDraw {
   Kind kind{};
   uint32_t function = 0, lr = 0;
-  std::array<uint32_t, 8> gpr{}; // r3..r10, still UNINTERPRETED PPC arguments.
+  std::array<uint32_t, 8> gpr{}; // r3..r10 from original USA PPC call.
+  // Read BEFORE the guest Draw mutates the XDK device shadow state.
+  // A missing snapshot is not a verified camera or constant ABI.
+  std::optional<OriginalVsMatrices> observed_vs_matrices;
 };
 // Verified USA XDK 2.0.6534 method ABI from the original wrapper:
 // DrawIndexedVertices(dev, prim, baseVertex, startIndex, indexCount).

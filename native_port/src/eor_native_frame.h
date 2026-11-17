@@ -1,6 +1,7 @@
 // Native Edge of Reality render submission contract. No virtual Xenos/PM4 API.
 // This is a host-API-independent boundary for future engine-level draw hooks.
 #pragma once
+#include "eor_xdk_guest_constants.h"
 #include <cstdint>
 #include <span>
 #include <vector>
@@ -48,6 +49,9 @@ struct IndexedDraw {
   // different per-instance World or ViewProj each time.
   uint64_t source_frame = 0;
   uint32_t source_ordinal = UINT32_MAX;
+  // Original immutable guest VS constant snapshot captured at this exact
+  // indexed Draw, for source-correct World/ViewProj per object instance.
+  std::optional<xdk::OriginalVsMatrices> guest_vs_matrices;
 };
 
 // All methods operate on host-native resources and draw calls; no GPU

@@ -5,6 +5,7 @@
 
 namespace hulk::eor::xdk {
 bool CaptureEnabled();
-void CapturePpcDraw(Kind kind, uint32_t guest, const PPCContext& ctx);
+void CapturePpcDraw(Kind kind, uint32_t guest, const PPCContext& ctx,
+                    uint8_t* guest_base);
 void EndPpcHook(native_x_renderer::Call kind);
 }

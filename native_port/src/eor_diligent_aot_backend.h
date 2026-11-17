@@ -64,9 +64,12 @@ std::vector<NativeEorDrawBuffers> PositionOnlyDrawBuffersFromOriginalModels(
     std::span<const model::UploadedOriginalModel* const> residents);
 class DiligentEorDirectBackend final : public aot::ShaderBindingBackend {
  public:
-  // The callback receives the CURRENT source-proven Draw. The same
-  // EoR effect/VS/PS can render different models with different World and
-  // ViewProj registers; a per-pass callback cannot supply the right matrix.
+  // The callback receives the CURRENT source-proven Draw, its actual
+  // original frame and ordinal, and optional c7..c25 BE-decoded VS register
+  // snapshot. This can be bound only when original shader reflection and
+  // the exact SPIR-V constant-buffer variable layout have been validated.
+  // It is NOT itself proof of a 16:10 projection hook or camera ownership.
+  // A per-pass callback cannot supply the right matrix for repeated models.
   using BindConstants = std::function<bool(
       Diligent::IShaderResourceBinding*,
       const aot::ReflectedShader&,const aot::ReflectedShader&,

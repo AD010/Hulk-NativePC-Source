@@ -137,16 +137,27 @@ int main(){
   verified.original_triangle_list_verified=true;
   verified.guest_to_native_index_stream_verified=true;
   verified.original_material_at_draw_verified=true;
+  xdk::OriginalVsMatrices real_at_draw{};
+  real_at_draw.original_guest_device=0x40002880u;
+  real_at_draw.finite_register_mask=(1u<<19)-1u;
+  real_at_draw.c7_through_c25[(11-7)*4]=2.0f;
+  ppc.observed_vs_matrices=real_at_draw;
   const auto observed=xdk::Frame{1,0,{ppc}};
   const auto matched=native::MatchCapturedXdkDraws(observed,
     std::span<const native::VerifiedXdkIndexedSubmission>(&verified,1));
   assert(matched.size()==1 && matched[0].original_model_hash==0xCAFE &&
          matched[0].first_index==0 && matched[0].host_base_vertex==0 &&
          matched[0].original_frame_sequence==1 &&
-         matched[0].original_call_ordinal==0);
+         matched[0].original_call_ordinal==0 &&
+         matched[0].original_vs_matrices &&
+         xdk::ReadOriginalMatrix(*matched[0].original_vs_matrices,11,4)
+            ->values[0]==2.0f);
   const auto tagged=native::BindVerifiedGeometryDraws(matched,models,effects);
   assert(tagged.size()==1 && tagged[0].draw.source_frame==1 &&
-         tagged[0].draw.source_ordinal==0);
+         tagged[0].draw.source_ordinal==0 &&
+         tagged[0].draw.guest_vs_matrices &&
+         xdk::ReadOriginalMatrix(*tagged[0].draw.guest_vs_matrices,11,4)
+            ->values[0]==2.0f);
   auto altered=verified;
   altered.original_guest_call.first_index+=1;
   Reject([&]{(void)native::MatchCapturedXdkDraws(observed,

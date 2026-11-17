@@ -1,11 +1,57 @@
 #include "../native_port/src/eor_xdk_draw_capture.h"
 #include <cassert>
+#include <bit>
+#include <cstring>
+#include <limits>
 #include <stdexcept>
+#include <vector>
 using namespace hulk::eor::xdk;
+namespace {
+struct GuestMemory {
+  std::vector<std::byte> bytes=std::vector<std::byte>(0x6000);
+};
+bool ReadFake(void* state,uint32_t address,std::byte* output,size_t size) noexcept {
+  const auto& data=static_cast<GuestMemory*>(state)->bytes;
+  if(!output || address>data.size() || size>data.size()-address)return false;
+  std::memcpy(output,data.data()+address,size);
+  return true;
+}
+void W(GuestMemory& m,uint32_t address,uint32_t v) {
+  auto* p=m.bytes.data()+address;
+  for(int i=0;i<4;++i)p[i]=std::byte(uint8_t(v>>(24-8*i)));
+}
+}
 int main() {
+  // The original Hulk USA device shadow state has proven BE c7..c25 VS
+  // registers and VS/PS guest object slots. Capture at the actual Draw.
+  GuestMemory guest;
+  constexpr uint32_t device=0x2000;
+  W(guest,device+12696,0x82ABCDEF);
+  W(guest,device+12692,0x82FEDCBA);
+  W(guest,device+1920+11*16,std::bit_cast<uint32_t>(1.5f));
+  const auto matrix=CaptureUsaVsMatrices(device,ReadFake,&guest);
+  assert(matrix && matrix->original_guest_device==device &&
+         matrix->original_vs_guest_object==0x82ABCDEFu &&
+         matrix->original_ps_guest_object==0x82FEDCBAu);
+  const auto view=ReadOriginalMatrix(*matrix,11,4);
+  assert(view && view->original_register_count==4 &&
+         view->values[0]==1.5f && view->values[15]==0.f);
+  const auto world3=ReadOriginalMatrix(*matrix,7,3);
+  assert(world3 && world3->original_register_count==3);
+  assert(!ReadOriginalMatrix(*matrix,7,5));
+  assert(!ReadOriginalMatrix(*matrix,23,4));
+  W(guest,device+1920+7*16,
+    std::bit_cast<uint32_t>(std::numeric_limits<float>::quiet_NaN()));
+  const auto nonfinite=CaptureUsaVsMatrices(device,ReadFake,&guest);
+  assert(nonfinite && !ReadOriginalMatrix(*nonfinite,7,4) &&
+         ReadOriginalMatrix(*nonfinite,11,4));
+  assert(!CaptureUsaVsMatrices(0,ReadFake,&guest));
+  assert(!CaptureUsaVsMatrices(UINT32_MAX,ReadFake,&guest));
+
   FrameCapture capture;
   RawDraw a{Kind::DrawIndexedVertices,0x8288E318u,0x8263BF50u,{3,4,5,6,7,8,9,10}};
   RawDraw b{Kind::DrawVertices,0x8288DF30u,0,{4,5,6,7,8,9,10,11}};
+  a.observed_vs_matrices=*matrix;
   capture.Record(a);
   capture.Record(b);
   Frame first=capture.Finish();
@@ -13,6 +59,9 @@ int main() {
   assert(first.calls.size()==2 && first.calls[0].function==0x8288E318u);
   assert(first.calls[1].gpr[7]==11);
   assert(first.calls[0].lr==0x8263BF50u);
+  assert(first.calls[0].observed_vs_matrices &&
+         ReadOriginalMatrix(*first.calls[0].observed_vs_matrices,11,4)
+             ->values[0]==1.5f);
   // Exact original XDK PPC signature: r3=device, r4=primitive,
   // r5=signed base vertex, r6=start index, r7=index count.
   RawDraw live{Kind::DrawIndexedVertices,0x8288E318u,0x8263BF50u,
