@@ -55,20 +55,20 @@ template<class F> void Reject(F f){
 }
 }
 int main(){
-  const std::string name="building_brick01_ds";
-  const auto th=ResourceHash(name), sh=ResourceHash(name+"_STREAM");
+  const std::string fixture_texture_name="building_brick01_ds";
+  const auto th=ResourceHash(fixture_texture_name), sh=ResourceHash(fixture_texture_name+"_STREAM");
   auto index=Index::Decode(TestIndex(th,sh,true));
   for(size_t offset:{size_t(34),size_t(22)}){
-    const auto record=Texture(name,sh,offset);
+    const auto record=Texture(fixture_texture_name,sh,offset);
     auto link=textures::FindVerifiedOriginalTexStream(record,th,index);
     assert(link && link->original_stream_hash==sh && link->indexed_stream.size==32);
-    assert(link->original_stream_hash_offset==4+name.size()+1+offset);
+    assert(link->original_stream_hash_offset==4+fixture_texture_name.size()+1+offset);
   }
-  auto record=Texture(name,sh,34);
+  auto record=Texture(fixture_texture_name,sh,34);
   Reject([&]{(void)textures::FindVerifiedOriginalTexStream(record,ResourceHash("wrong"),index);});
-  auto broken=record;broken[4+name.size()+1+34]=std::byte(0);
+  auto broken=record;broken[4+fixture_texture_name.size()+1+34]=std::byte(0);
   Reject([&]{(void)textures::FindVerifiedOriginalTexStream(broken,th,index);});
-  broken=record;Replace32(broken,4+name.size()+1+22,sh);
+  broken=record;Replace32(broken,4+fixture_texture_name.size()+1+22,sh);
   Reject([&]{(void)textures::FindVerifiedOriginalTexStream(broken,th,index);});
   broken=record;broken[0]=std::byte('B');
   Reject([&]{(void)textures::FindVerifiedOriginalTexStream(broken,th,index);});
