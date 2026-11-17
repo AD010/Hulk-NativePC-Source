@@ -198,43 +198,73 @@ std::vector<VerifiedDrawSource> ResolveCapturedResourceDraws(
     const auto vertices=xdk::DecodeOriginalVerticesXdkCall(call);
     if(!indexed && !vertices)
       throw std::invalid_argument("Unverified original Xbox primitive/Draw method");
-    const VerifiedXdkDrawSubmission* unique=nullptr;
+    std::optional<VerifiedXdkDrawSubmission> unique;
     for(const auto& candidate:witnesses) {
       if(!candidate.original_guest_resource_to_material_mapping_verified ||
          !SameOriginalResources(candidate.original_resources,resources,
                                 candidate,indexed.has_value()))
         continue;
-      bool identical=false;
+      std::optional<VerifiedXdkDrawSubmission> translated;
       if(indexed) {
         if(const auto* link=std::get_if<VerifiedXdkIndexedSubmission>(
                &candidate.original_source_submission)) {
           const auto& x=link->original_guest_call;
-          identical=x.xdk_function==indexed->xdk_function &&
-                    x.caller_lr==indexed->caller_lr &&
-                    x.guest_device==indexed->guest_device &&
-                    x.primitive==indexed->primitive &&
-                    x.base_vertex==indexed->base_vertex &&
-                    x.first_index==indexed->first_index &&
-                    x.index_count==indexed->index_count;
+          if(x.xdk_function!=indexed->xdk_function ||
+             x.caller_lr!=indexed->caller_lr ||
+             x.guest_device!=indexed->guest_device ||
+             x.primitive!=indexed->primitive ||
+             indexed->primitive!=4u || indexed->index_count%3u)
+            continue;
+          const bool exact=x.base_vertex==indexed->base_vertex &&
+                           x.first_index==indexed->first_index &&
+                           x.index_count==indexed->index_count;
+          if(!exact && !candidate.original_linear_index_stream_verified)
+            continue;
+          auto mapped=*link;
+          if(!exact) {
+            if(!link->guest_to_native_index_stream_verified ||
+               !link->original_triangle_list_verified ||
+               !link->original_material_at_draw_verified)
+              continue;
+            // The witness authenticates the full ORIGINAL index stream,
+            // not just one Draw. Convert *current* guest indices into the
+            // host decoded model's LOCAL index range without truncation.
+            const int64_t host_first=
+                int64_t(link->native_draw.first_index)+
+                (int64_t(indexed->first_index)-int64_t(x.first_index));
+            const int64_t host_base=
+                int64_t(link->native_draw.host_base_vertex)+
+                (int64_t(indexed->base_vertex)-int64_t(x.base_vertex));
+            if(host_first<0 || host_first>UINT32_MAX ||
+               host_first%3 != 0 || host_base<INT32_MIN ||
+               host_base>INT32_MAX)
+              continue;
+            mapped.native_draw.first_index=static_cast<uint32_t>(host_first);
+            mapped.native_draw.index_count=indexed->index_count;
+            mapped.native_draw.host_base_vertex=static_cast<int32_t>(host_base);
+            mapped.original_guest_call=*indexed;
+          }
+          translated=std::move(mapped);
         }
       } else if(const auto* link=std::get_if<VerifiedXdkVerticesSubmission>(
                      &candidate.original_source_submission)) {
         const auto& x=link->original_guest_call;
-        identical=x.xdk_function==vertices->xdk_function &&
-                  x.caller_lr==vertices->caller_lr &&
-                  x.guest_device==vertices->guest_device &&
-                  x.primitive==vertices->primitive &&
-                  x.start_vertex==vertices->start_vertex &&
-                  x.vertex_count==vertices->vertex_count;
+        if(x.xdk_function==vertices->xdk_function &&
+           x.caller_lr==vertices->caller_lr &&
+           x.guest_device==vertices->guest_device &&
+           x.primitive==vertices->primitive &&
+           x.start_vertex==vertices->start_vertex &&
+           x.vertex_count==vertices->vertex_count)
+          translated=*link;
       }
-      if(!identical)continue;
+      if(!translated)continue;
       if(unique)
         throw std::invalid_argument("Ambiguous original Xbox material/mesh mapping");
-      unique=&candidate.original_source_submission;
+      unique=std::move(*translated);
     }
     if(!unique)
       throw std::invalid_argument("No verified original Xbox model/material for live Draw");
-    matched.push_back(*unique);
+    matched.push_back(std::move(*unique));
   }
   // Revalidate every primitive, real source index/vertex window, shader
   // identity and owner through the existing mixed PPC native bridge.

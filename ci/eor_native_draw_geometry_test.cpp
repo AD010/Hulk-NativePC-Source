@@ -254,6 +254,38 @@ int main(){
   assert(second.size()==1 && second[0].original_frame_sequence==3 &&
          xdk::ReadOriginalMatrix(*second[0].original_vs_matrices,11,4)
              ->values[0]==3.0f);
+  // Same source model, shader and resident guest IB, but later XDK Draw
+  // addresses a different triangle in the *verified complete* index stream.
+  // No hardcoded per-frame Draw table is needed once the source stream
+  // identity and linear guest->host mapping are independently proven.
+  auto later=runtime;
+  later.sequence=4;
+  later.calls[0].gpr[3]=123u;  // firstIndex+3 -> host mesh index 3
+  Reject([&]{(void)native::ResolveCapturedResourceDraws(later,catalog,models);});
+  catalog[0].original_linear_index_stream_verified=true;
+  const auto second_triangle=native::ResolveCapturedResourceDraws(
+      later,catalog,models);
+  assert(second_triangle.size()==1 && second_triangle[0].first_index==3 &&
+         second_triangle[0].host_base_vertex==0 &&
+         second_triangle[0].original_call_ordinal==0);
+  const auto uploaded=native::BindVerifiedGeometryDraws(
+      second_triangle,models,effects);
+  assert(uploaded.size()==1 && uploaded[0].draw.first_index==3);
+  // Guest baseVertex -5 is translated from the authenticated guest -2
+  // origin to native -3. This local rebase is in bounds for indices 3..5.
+  later.calls[0].gpr[2]=0xFFFFFFFBu;
+  const auto rebased=native::ResolveCapturedResourceDraws(later,catalog,models);
+  assert(rebased.size()==1 && rebased[0].host_base_vertex==-3);
+  const auto rebased_gpu=native::BindVerifiedGeometryDraws(
+      rebased,models,effects);
+  assert(rebased_gpu.size()==1 && rebased_gpu[0].draw.base_vertex==-3);
+  // An authenticated model does NOT make an out-of-range dynamic index
+  // window valid; only the exact resident mesh's decoded range can pass.
+  later.calls[0].gpr[3]=126u;
+  Reject([&]{const auto bad=native::ResolveCapturedResourceDraws(
+      later,catalog,models);
+      (void)native::BindVerifiedGeometryDraws(bad,models,effects);});
+  catalog[0].original_linear_index_stream_verified=false;
   // Stale XDK slot 15 is irrelevant when original shader reads only slot 0.
   transformed.calls[0].observed_vs_matrices->
       original_texture_guest_objects[15]=0x8300ABCDu;

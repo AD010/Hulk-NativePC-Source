@@ -94,6 +94,12 @@ struct VerifiedXdkResourceWitness {
   uint16_t source_verified_texture_slot_mask=0;
   bool original_xdk_texture_slot_mapping_verified=false;
   bool original_guest_resource_to_material_mapping_verified=false;
+  // Optional SHA/guest-memory verified proof that the original XDK indexed
+  // stream is the SAME complete original source buffer as the host mesh,
+  // with a linear vertex/index origin. Enables repeated DrawIndexedVertices
+  // with different firstIndex/baseVertex/count using the real live values.
+  // Never infer this proof from shared shaders, LR, or resource pointers.
+  bool original_linear_index_stream_verified=false;
 };
 // Resolve the entire captured frame with independently verified original
 // model/mesh/pass witnesses. This does NOT discover missing witnesses.
