@@ -63,15 +63,20 @@ def generate(manifest:Path,output:Path,repo_root:Path)->dict:
     entries=info.get('shader_containers')
     if info.get('bank_version')!=1 or info.get('platform')!='Xbox360' or not isinstance(entries,list) or not 0<len(entries)<=16384:
         raise ValueError('Missing original verified ShaderEffects manifest')
-    found=set();records=[];stats={name:0 for name in MATRICES}
+    found: dict[str, str] = {};records=[];stats={name:0 for name in MATRICES}
     for row in entries:
         ident=row.get('sha256')
         stage=row.get('stage')
         if (not isinstance(ident,str) or len(ident)!=64 or
                 any(c not in '0123456789abcdef' for c in ident) or
-                stage not in ('VS','PS') or ident in found):
+                stage not in ('VS','PS') or
+                (ident in found and found[ident] != stage)):
             raise ValueError('Invalid original shader source identity')
-        found.add(ident)
+        if ident in found:
+            # Duplicate source shader in another material is one reflected
+            # VS/PS module, not a new shader. Avoid duplicate HEORREF1 IDs.
+            continue
+        found[ident] = stage
         original=(manifest.parent/'Xenos'/(ident+'.xenos.bin')).read_bytes()
         if len(original)!=row.get('bytes') or hashlib.sha256(original).hexdigest()!=ident:
             raise ValueError('Original Xenos reflection source mismatch')
