@@ -70,8 +70,8 @@ class D140WindowsDispatchTests(unittest.TestCase):
                         if marker in workflow]
             self.assertEqual(len(selected), 1,
                 "Only a single explicit owner-approved release trigger is allowed")
-            expected = ("  push:\\n    branches: [main]\\n    paths:\\n"
-                        "      - " + selected[0] + "\\npermissions:")
+            expected = ("  push:\n    branches: [main]\n    paths:\n"
+                        "      - " + selected[0] + "\npermissions:")
             self.assertIn(expected, workflow)
             self.assertEqual(len(re.findall(r"(?m)^  push:",workflow)),1)
         self.assertIn("github.ref == 'refs/heads/main'",workflow)
