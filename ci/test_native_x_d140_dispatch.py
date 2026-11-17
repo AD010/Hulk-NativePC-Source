@@ -69,15 +69,16 @@ class D140WindowsDispatchTests(unittest.TestCase):
         self.assertIn("HULK NATIVE GPU upstream fa19ea85",builder)
         self.assertIn("$NativeXCommit = '"+D140+"'",builder)
         lines=[line for line in builder.splitlines()
-               if "Invoke-Checked 'python'" in line and
-               re.search(r"ci/(?:test_)?patch_native_x_hulk_[a-z0-9_]+\.py",line)]
+               if re.search(r"^\s+Invoke-HulkNativeXPatch '(?:test_|patch_)patch_native_x_hulk_[a-z0-9_]+\.py'\s*$",line)]
         self.assertEqual(len(lines),90)
-        patch_lines=[line for line in lines if "'--patch'" in line]
-        test_lines=[line for line in lines if "'--test'" in line]
-        self.assertEqual((len(patch_lines),len(test_lines)),(47,43))
-        self.assertTrue(all("ci/native_x_d140_dispatch.py" in line for line in lines))
-        self.assertTrue(all(", $NxrFull)" in line for line in patch_lines))
-        self.assertTrue(all("$NxrFull)" not in line for line in test_lines))
+        patches=[line for line in lines if "Invoke-HulkNativeXPatch 'patch_" in line]
+        tests=[line for line in lines if "Invoke-HulkNativeXPatch 'test_" in line]
+        self.assertEqual((len(patches),len(tests)),(47,43))
+        self.assertEqual(len(set(lines)),90)
+        self.assertIn("function Invoke-HulkNativeXPatch(",builder)
+        self.assertIn("ci/native_x_d140_dispatch.py",builder)
+        self.assertIn("Invoke-Checked 'python' @($Dispatcher, '--patch', $Script, $NxrFull) $Source",builder)
+        self.assertIn("Invoke-Checked 'python' @($Dispatcher, '--test', $Script) $Source",builder)
         self.assertNotIn("Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_",builder)
         self.assertIn("HULK/TRUE-RESOLVE-SCALE",builder)
         self.assertIn("HULK/DIRECT-DMA-SNAPSHOT",builder)
