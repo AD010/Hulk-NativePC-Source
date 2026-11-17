@@ -37,8 +37,8 @@ scalar result's exponent adjustment. Xenia Edge changed those cases to
 vector operation. This is a **credible class match**, not proof that
 Hulk's specific previous nvgpucomp64.dll exception has this same root cause.
 
-Hulk backport: `ci/patch_sdk_hulk_spirv_scalar.py`, strict
-`ci/test_patch_sdk_hulk_spirv_scalar.py`; SDK shader translator version
+Hulk backport: `ci/patch_sdk_hulk_xenia_edge.py spirv-scalar SDK_ROOT`, covered by
+`ci/test_patch_sdk_hulk_xenia_edge.py`; SDK shader translator version
 14 -> 15 so cached invalid bytecode cannot be reused after the repair.
 Run this AFTER the existing fetch-constant word3 (12 -> 13) and
 computed LOD (13 -> 14) patches.
@@ -53,8 +53,8 @@ The alignment padding is incorrectly multiplied by the maximum index
 conversion bytes instead of ADDED. This affects GPU index pool resource
 allocations, not original index values or shader output.
 
-Hulk backport: `ci/patch_sdk_hulk_index_pool.py`, strict
-`ci/test_patch_sdk_hulk_index_pool.py`; follows the existing CPU index
+Hulk backport: `ci/patch_sdk_hulk_xenia_edge.py index-pool SDK_ROOT`, covered by
+`ci/test_patch_sdk_hulk_xenia_edge.py`; follows the existing CPU index
 cache invalidation patch. No new engine hook or emulated GPU path.
 
 ### Packed mip0 and 2x1 texture tail: Xenia Edge 344fca7 (2026-10-23)
@@ -67,15 +67,15 @@ including level0 is packed at `base_address`, and still categorizes the
 2x1 texture as wider rather than using the square packed layout.
 These are proven upstream Xenos source-address/tiling bugs.
 
-Hulk backport: `ci/patch_sdk_hulk_packed_mip.py`, strict
-`ci/test_patch_sdk_hulk_packed_mip.py`; source-aware and fail-closed.
+Hulk backport: `ci/patch_sdk_hulk_xenia_edge.py packed-mip SDK_ROOT`, covered by
+`ci/test_patch_sdk_hulk_xenia_edge.py`; source-aware and fail-closed.
 This fixes guest fetch/source layout only. The final independent EoR
 renderer must *also* prove the genuine LFXT/TexStreams source byte ranges,
 Xenos subformat/sRGB, shader sampler view, complete high-detail mips,
 and live original per-surface associations. Do not claim that the signs
 are sharper until a new game frame proves the correct sampling.
 
-All 3 scripts are wired in the existing `native_port/BUILD_WINDOWS.ps1`;
+The single staged SDK adapter and consolidated regression suite are wired in the existing `native_port/BUILD_WINDOWS.ps1`;
 the existing single manual `.github/workflows/hulk-free-windows.yml`
 runs their synthetic regression tests before the Release build.
 **Source integration is not evidence that a Windows build/game passes.**
