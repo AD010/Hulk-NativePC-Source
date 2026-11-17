@@ -270,8 +270,14 @@ bool DiligentEorDirectBackend::DrawIndexed(const native::IndexedDraw& draw) {
   if(!index)return false;
   try {
     s.context->SetPipelineState(s.active.pipeline.RawPtr());
-    if(!s.bind_constants(s.active.bindings.RawPtr(),s.vertex,s.pixel))
+    if(!s.bind_constants(s.active.bindings.RawPtr(),s.vertex,s.pixel)) {
+      // Never permit a later draw to reuse constants from an earlier draw
+      // after a partially failed host constant-buffer update.
+      s.constants_ready=false;
+      s.program_ready=false;
+      s.textures_ready=false;
       return false;
+    }
     s.context->CommitShaderResources(s.active.bindings.RawPtr(),
         Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
     s.context->SetVertexBuffers(0,static_cast<Diligent::Uint32>(slots.size()),
