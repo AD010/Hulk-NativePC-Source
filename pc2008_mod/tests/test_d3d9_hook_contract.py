@@ -42,6 +42,15 @@ class D3D9HookContracts(unittest.TestCase):
         self.assertIn("HRESULT hr=firstHr;", body)
         self.assertRegex(body, r"if\(SUCCEEDED\(hr\)\)\s*\{[^}]*activeVS=nullptr;")
 
+    def test_create_device_fallback_survives_driver_parameter_mutation(self):
+        body = SOURCE.rsplit("HRESULT STDMETHODCALLTYPE OnCreateDevice(IDirect3D9* api,", 1)[-1]
+        body = body.split("\nHRESULT STDMETHODCALLTYPE OnReset(", 1)[0]
+        self.assertIn("const D3DPRESENT_PARAMETERS original=*pp;", body)
+        self.assertIn("const bool changed=width && height && !pp->Windowed", body)
+        self.assertIn("if(FAILED(hr) && changed)", body)
+        self.assertIn("*pp=original;", body)
+        self.assertNotIn("if(FAILED(hr) && (pp->BackBufferWidth", body)
+
     def test_reset_fullscreen_override_and_fallback(self):
         body = SOURCE.rsplit("HRESULT STDMETHODCALLTYPE OnReset(IDirect3DDevice9* dev,", 1)[-1]
         body = body.split("\nHRESULT STDMETHODCALLTYPE OnPresent(", 1)[0]
