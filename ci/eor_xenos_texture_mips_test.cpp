@@ -68,6 +68,11 @@ int main() {
   m0.endian=XenosDataEndian::NoSwap;
   SourceMipLayout m1=m0;
   m1.width=4;m1.height=4;m1.source_offset=32;
+  // Each 4x4 BC1 mip is one 8-byte source block. A copied 2x2
+  // storage extent from mip0 would incorrectly claim 32 bytes and
+  // borrow data from the following ARC record.
+  m1.storage_pitch_blocks=1;
+  m1.storage_height_blocks=1;
   auto chain=PrepareExplicitOriginalMips(XenosTextureFormat::BC1,
       std::vector<SourceMipLayout>{m0,m1},linear,{});
   assert(chain.mips.size()==2 && chain.mips[0].blocks.size()==32 &&
