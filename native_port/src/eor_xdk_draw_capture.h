@@ -5,6 +5,9 @@
 #include <cstddef>
 #include <cstdint>
 #include <vector>
+#include <map>
+#include <span>
+#include <tuple>
 
 namespace hulk::eor::xdk {
 enum class Kind : uint8_t { DrawVertices, DrawIndexedVertices, DrawVerticesUP };
@@ -28,6 +31,35 @@ class FrameCapture {
   uint64_t seq_ = 0;
   uint32_t dropped_ = 0;
   std::vector<RawDraw> calls_;
+};
+// Read-only source-proven guest callsite frequency and ABI variability.
+// An LR identifies a callsite lead, NOT an original engine method or layout.
+struct CallsiteEvidenceRecord {
+  Kind kind{};
+  uint32_t xdk_function=0;
+  uint32_t caller_lr=0;
+  uint64_t recorded_draws=0;
+  uint64_t frames_seen=0;
+  uint64_t first_frame=0;
+  uint64_t last_frame=0;
+  uint32_t varying_gpr_mask=0;
+  uint32_t nonzero_gpr_mask=0;
+  std::array<uint32_t,8> first_gpr{};
+};
+class XdkCallsiteEvidence {
+ public:
+  static constexpr std::size_t kMaxCallsites=256;
+  void Observe(const Frame& frame);
+  std::vector<CallsiteEvidenceRecord> HotCallsites(std::size_t count=8) const;
+  uint64_t DroppedDraws() const noexcept {return dropped_draws_;}
+  uint64_t UntrackedCalls() const noexcept {return untracked_calls_;}
+  void Reset() noexcept;
+ private:
+  using Key=std::tuple<Kind,uint32_t,uint32_t>;
+  std::map<Key,CallsiteEvidenceRecord> records_;
+  uint64_t last_sequence_=0;
+  uint64_t dropped_draws_=0;
+  uint64_t untracked_calls_=0;
 };
 // These methods are only called from verified hulk_native_x_profile.ini
 // addresses in the AOT USA wrappers. Raw PPC r3..r10 are not host VB/IB
