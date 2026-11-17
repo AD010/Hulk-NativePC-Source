@@ -72,14 +72,16 @@ def generate(manifest:Path,output:Path,repo_root:Path)->dict:
                 stage not in ('VS','PS') or
                 (ident in found and found[ident] != stage)):
             raise ValueError('Invalid original shader source identity')
-        if ident in found:
-            # Duplicate source shader in another material is one reflected
-            # VS/PS module, not a new shader. Avoid duplicate HEORREF1 IDs.
-            continue
-        found[ident] = stage
+        # Every reference in the original effect manifest must verify its
+        # OWN length, even when another pass reuses the same source SHA.
+        # Otherwise a duplicated/altered record can silently bypass the
+        # provenance checks before creating a Vulkan shader bank.
         original=(manifest.parent/'Xenos'/(ident+'.xenos.bin')).read_bytes()
         if len(original)!=row.get('bytes') or hashlib.sha256(original).hexdigest()!=ident:
             raise ValueError('Original Xenos reflection source mismatch')
+        if ident in found:
+            continue  # Valid shared original source: emit reflection once.
+        found[ident] = stage
         spans=inspect_container(original,stage)
         stats={name:stats[name]+int(binding!=ABSENT) for name,binding in zip(MATRICES,spans)}
         entry=bytearray(bytes.fromhex(ident)+struct.pack('<I',1 if stage=='VS' else 2))
