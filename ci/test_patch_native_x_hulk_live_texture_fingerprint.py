@@ -4,7 +4,8 @@ import unittest
 from patch_native_x_hulk_live_texture_fingerprint import (
     patch,patch_draw,INCLUDES_OLD,BODY_OLD,CVAR_ANCHOR,CVAR,BODY_NEW,
     DRAW_INCLUDES_OLD,DRAW_LOGGING_OLD,DRAW_CVAR_OLD,DRAW_BIND_OLD,
-    DRAW_BIND_NEW,GUEST_VIEW_OLD,GUEST_VIEW_NEW,MIPS_OLD,MIPS_NEW)
+    DRAW_BIND_NEW,DRAW_BIND_OLD_LEGACY,DRAW_BIND_NEW_LEGACY,
+    GUEST_VIEW_OLD,GUEST_VIEW_NEW,MIPS_OLD,MIPS_NEW)
 
 class LiveOriginalGpuTextureIdentityTest(unittest.TestCase):
     def test_real_guest_upload_anchor_and_idempotence(self):
@@ -88,6 +89,26 @@ class LiveOriginalGpuTextureIdentityTest(unittest.TestCase):
             patch_draw(changed.replace("native_x_renderer_hulk_live_texture_id",
                                         "missing_cvar", 1))
  
+    def test_legacy_and_d140_original_shader_view_abi(self):
+        # The preflight checks BF965 and D127 before the actual D140
+        # candidate. Only D140 appends record_.counts[] to the return path.
+        header=(DRAW_LOGGING_OLD+"\\n"+DRAW_INCLUDES_OLD+"\\n"+
+                DRAW_CVAR_OLD+"\\n")
+        legacy,installed=patch_draw(header+DRAW_BIND_OLD_LEGACY+"\\n")
+        self.assertTrue(installed)
+        self.assertIn(DRAW_BIND_NEW_LEGACY,legacy)
+        self.assertNotIn("++record_.counts",legacy)
+        self.assertEqual(patch_draw(legacy),(legacy,False))
+        with self.assertRaises(ValueError):
+            patch_draw(legacy+DRAW_BIND_OLD_LEGACY)
+        modern,installed=patch_draw(header+DRAW_BIND_OLD+"\\n")
+        self.assertTrue(installed)
+        self.assertIn(DRAW_BIND_NEW,modern)
+        self.assertIn("++record_.counts",modern)
+        self.assertEqual(patch_draw(modern),(modern,False))
+        with self.assertRaises(ValueError):
+            patch_draw(modern+DRAW_BIND_OLD)
+
     def test_two_witnesses_separate_original_content(self):
         def fnv(b):
             n=14695981039346656037
