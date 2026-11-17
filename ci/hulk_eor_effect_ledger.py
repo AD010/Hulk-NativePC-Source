@@ -32,7 +32,9 @@ def generate(manifest: Path, destination: Path, source_root: Path) -> dict:
         raise ValueError("Unverified original EoR effect manifest")
     shader_stages: dict[int, dict[str, list[tuple[int, bytes]]]] = defaultdict(
         lambda: {'VS': [], 'PS': []})
-    seen = set()
+    # Original shader containers may be repeated at several effect/pass
+    # locations. Reuse a SINGLE AOT module for the same source SHA/stage.
+    seen: dict[str, str] = {}
     for row in entries:
         effect = row.get('effect')
         stage = row.get('stage')
@@ -41,10 +43,11 @@ def generate(manifest: Path, destination: Path, source_root: Path) -> dict:
         if (not isinstance(effect, int) or effect <= 0 or effect > 0xffffffff or
                 stage not in ('VS', 'PS') or not isinstance(identity, str) or
                 len(identity) != 64 or any(c not in '0123456789abcdef' for c in identity) or
-                identity in seen or not isinstance(relative_offset, int) or
+                (identity in seen and seen[identity] != stage) or
+                not isinstance(relative_offset, int) or
                 relative_offset < 0 or not isinstance(row.get('bytes'), int)):
             raise ValueError("Invalid original EoR stage/digest/offset")
-        seen.add(identity)
+        seen[identity] = stage
         blob = (manifest.parent / 'Xenos' / (identity + '.xenos.bin')).read_bytes()
         if (len(blob) != row['bytes'] or len(blob) > 8 << 20 or
                 hashlib.sha256(blob).hexdigest() != identity):
