@@ -63,6 +63,19 @@ class EorRuntimeCallsiteTests(unittest.TestCase):
             with self.subTest(source=source[:45]), self.assertRaises(ValueError):
                 analyze(source, HOOKS, REVERSE)
 
+    def test_malformed_tagged_observation_cannot_hide_behind_valid_sample(self):
+        malformed = [
+            '[HULK/EOR-XDK-CALLSITE] XDK=0x8288E318 LR=bad kind=1 draws=10 frames=2',
+            '[HULK/EOR-XDK-CALLSITE] XDK=0x8288E318 LR=0x82500024 kind=1 draws=bad frames=2',
+            '[HULK/EOR-XDK-CALLSITE] XDK=0x8288E318 LR=0x82500024 kind=1 draws=10',
+        ]
+        for row in malformed:
+            with self.subTest(row=row), self.assertRaisesRegex(ValueError, 'Malformed'):
+                analyze(trace() + row + '\n', HOOKS, REVERSE)
+        # Untagged unrelated diagnostics remain safely ignored.
+        self.assertEqual(analyze(trace() + 'unrelated GPU diagnostic\n', HOOKS, REVERSE)
+                         ['matched_direct_callsite_count'], 1)
+
     def test_does_not_emit_raw_ppc_registers_or_guest_bytes(self):
         result = analyze(trace(), HOOKS, REVERSE)
         import json
