@@ -54,6 +54,22 @@ int main() {
   damaged[16+40+11*4]=4; // first entry's execution model: Fragment, not Vertex
   Write(p,damaged);Bad([&]{bank.Load(p);});
   assert(bank.Find(one,Stage::Vertex));
+  // The Vulkan module loader explicitly requests EntryPoint="main".
+  // A different entry name or a hidden NUL in interface IDs must fail
+  // source preflight, before any driver PSO compilation.
+  damaged=Bank(2,2);
+  damaged[16+40+13*4]='x'; // first entry name "main" -> "xain"
+  Write(p,damaged);Bad([&]{bank.Load(p);});
+  damaged=Bank(2,2);
+  damaged[16+40+14*4]=1; // missing exact trailing NUL word
+  Write(p,damaged);Bad([&]{bank.Load(p);});
+  // Duplicate OpEntryPoint main in one module is ambiguous even if stage
+  // matches and the driver could otherwise choose one arbitrarily.
+  damaged=Bank(1,1);
+  damaged[16+36]=20; // first module word count: 15 -> 20
+  for(uint32_t value:{0x0005000fu,0u,1u,0x6e69616du,0u})
+    Dword(damaged,value);
+  Write(p,damaged);Bad([&]{bank.Load(p);});
   damaged=Bank(2,2);damaged.pop_back();Write(p,damaged);
   Bad([&]{bank.Load(p);});assert(bank.size()==2);
   damaged=Bank(2,2);damaged[0]='X';Write(p,damaged);Bad([&]{bank.Load(p);});

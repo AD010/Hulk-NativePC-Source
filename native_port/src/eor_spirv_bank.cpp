@@ -26,7 +26,7 @@ uint32_t Read32(std::span<const uint8_t> bytes, size_t& offset) {
 // the offline compiler/validator and an actual EoR material/PSO match.
 void CheckStructure(std::span<const uint32_t> words, Stage stage) {
   bool memory_model = false;
-  bool entry = false;
+  unsigned entry_count = 0;
   const uint32_t required_model = stage == Stage::Vertex ? 0u : 4u;
   for (size_t i = 5; i < words.size();) {
     const uint32_t header = words[i];
@@ -42,22 +42,24 @@ void CheckStructure(std::span<const uint32_t> words, Stage stage) {
       if (count < 4)
         throw std::invalid_argument("Invalid SPIR-V entry point instruction");
       if (words[i + 1] == required_model) {
-        bool terminated = false;
-        // The name starts in word 3, after execution model and function ID.
-        // A missing NUL can merge shader text into the interface ID stream.
-        for (size_t j = i + 3; j < i + count && !terminated; ++j)
-          for (unsigned byte = 0; byte < 4; ++byte)
-            if (((words[j] >> (byte * 8)) & 0xffu) == 0)
-              terminated = true;
-        if (!terminated || words[i + 2] == 0 ||
-            words[i + 2] >= words[3])
-          throw std::invalid_argument("Invalid SPIR-V entry point name or ID");
-        entry = true;
+        // DiligentAotShaderModules uses EntryPoint="main" unconditionally.
+        // The *exact* NUL-terminated string must be "main" (4 bytes + NUL),
+        // not a string terminated inside unrelated OpEntryPoint interface
+        // IDs. Ambiguous duplicate main-stage entrypoints are unsafe.
+        if (count < 5 || words[i + 2] == 0 ||
+            words[i + 2] >= words[3] ||
+            words[i + 3] != 0x6e69616du || words[i + 4] != 0 ||
+            ++entry_count != 1)
+          throw std::invalid_argument(
+              "Original EoR SPIR-V requires one exact main entry point");
+        for (size_t j = i + 5; j < i + count; ++j)
+          if (words[j] == 0 || words[j] >= words[3])
+            throw std::invalid_argument("Invalid original SPIR-V interface ID");
       }
     }
     i += count;
   }
-  if (!memory_model || !entry)
+  if (!memory_model || entry_count != 1)
     throw std::invalid_argument("Missing matching vertex/fragment SPIR-V entry point");
 }
 } // namespace
