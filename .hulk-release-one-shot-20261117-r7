@@ -1,1 +1,0 @@
-2026-11-17 single-user-authorized Windows Release after D140 manual gate update; shader/packed mip index/geometry graphics changes. Must pass existing strict tests and private publication.
