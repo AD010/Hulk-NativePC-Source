@@ -47,7 +47,7 @@ struct DiligentEorDirectBackend::State {
        passes(std::move(passes)),bind_constants(std::move(bind)),
        composite(std::move(present)) {
     for(auto& entry:buffers)
-      if(!draw_buffers.emplace(entry.position_handle,std::move(entry.host_vertex_slots)).second)
+      if(!draw_buffers.emplace(entry.position_handle,std::move(entry)).second)
         throw std::invalid_argument("Duplicate original EoR Draw buffer provenance");
   }
   Diligent::RefCntAutoPtr<Diligent::IRenderDevice> device;
@@ -60,7 +60,7 @@ struct DiligentEorDirectBackend::State {
   native::FrameGeometry frame;
   VerifiedSceneFormat format;
   std::vector<NativeEorPassResources> passes;
-  std::map<uint64_t,std::vector<uint64_t>> draw_buffers;
+  std::map<uint64_t,NativeEorDrawBuffers> draw_buffers;
   BindConstants bind_constants;
   CompositeOutput composite;
   const NativeEorPassResources* selected=nullptr;
@@ -165,13 +165,29 @@ DiligentEorDirectBackend::DiligentEorDirectBackend(
         throw std::invalid_argument("Shared native EoR pass has conflicting PSO state");
     }
   }
-  for(const auto& [position,slots]:state_->draw_buffers) {
-    if(!position || slots.empty() || slots.size()>16 ||
-       slots[0]!=position || state_->meshes.KindOf(position)!=0)
-      throw std::invalid_argument("Missing EoR decoded host position buffer");
-    for(size_t i=1;i<slots.size();++i)
+  for(const auto& [position,resident]:state_->draw_buffers) {
+    const auto& slots=resident.host_vertex_slots;
+    if(!position || resident.position_handle!=position ||
+       !resident.index_handle || resident.vertex_count<3 ||
+       !resident.index_count || (resident.index_count%3)!=0 ||
+       slots.empty() || slots.size()>16 ||
+       slots[0]!=position || state_->meshes.KindOf(position)!=0 ||
+       state_->meshes.KindOf(resident.index_handle)!=2)
+      throw std::invalid_argument("Missing or mismatched EoR host mesh vertex/index provenance");
+    const auto* vb=state_->meshes.FindBuffer(position);
+    const auto* ib=state_->meshes.FindBuffer(resident.index_handle);
+    if(!vb || !ib ||
+       uint64_t(resident.vertex_count)>vb->GetDesc().Size/12u ||
+       uint64_t(resident.index_count)>ib->GetDesc().Size/sizeof(uint32_t))
+      throw std::invalid_argument("EoR mesh residency exceeds GPU buffer allocation");
+    for(size_t i=1;i<slots.size();++i) {
       if(!slots[i] || state_->meshes.KindOf(slots[i])!=3)
         throw std::invalid_argument("Raw Xbox BE vertex bytes cannot bind to host Vulkan");
+      const auto* attributes=state_->meshes.FindBuffer(slots[i]);
+      if(!attributes ||
+         uint64_t(resident.vertex_count)>attributes->GetDesc().Size/(4u*sizeof(float)))
+        throw std::invalid_argument("EoR decoded float4 vertex attributes are truncated");
+    }
   }
 }
 DiligentEorDirectBackend::~DiligentEorDirectBackend() noexcept {AbortScene();}
@@ -289,7 +305,11 @@ bool DiligentEorDirectBackend::DrawIndexed(const native::IndexedDraw& draw) {
     return false;
   auto it=s.draw_buffers.find(draw.vertex_buffer);
   if(it==s.draw_buffers.end())return false;
-  const auto& slots=it->second;
+  const auto& resident=it->second;
+  if(resident.index_handle!=draw.index_buffer ||
+     uint64_t(draw.first_index)+draw.index_count>resident.index_count)
+    return false;
+  const auto& slots=resident.host_vertex_slots;
   const auto& layout=s.selected->pipeline.exact_host_input_layout;
   if(slots.size()!=layout.size() || slots.empty() ||
      slots.size()>DILIGENT_MAX_LAYOUT_ELEMENTS)
@@ -307,7 +327,9 @@ bool DiligentEorDirectBackend::DrawIndexed(const native::IndexedDraw& draw) {
     if(!buffers[i])return false;
   }
   auto* index=s.meshes.FindBuffer(draw.index_buffer);
-  if(!index)return false;
+  if(!index || uint64_t(draw.first_index)+draw.index_count>
+                   index->GetDesc().Size/sizeof(uint32_t))
+    return false;
   try {
     s.context->SetPipelineState(s.active.pipeline.RawPtr());
     if(!s.bind_constants(s.active.bindings.RawPtr(),s.vertex,s.pixel)) {
