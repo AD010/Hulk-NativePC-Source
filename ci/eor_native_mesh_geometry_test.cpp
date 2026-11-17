@@ -26,7 +26,7 @@ static std::vector<std::byte> TestModel() {
  for(int i=0;i<12;++i)b.push_back(std::byte(0));
  b.insert(b.end(),{std::byte(0),std::byte(0),std::byte(6)});
  U32(b,4);
- for(uint16_t x:{0,1,2,0,2,3})U16(b,x);
+ for(int x:{0,1,2,0,2,3})U16(b,static_cast<uint16_t>(x));
  const float verts[4][3]={{-1,0,0},{1,0,0},{1,1,0},{-1,1,0}};
  for(const auto& p:verts) {
   for(float x:p)U32(b,std::bit_cast<uint32_t>(x));
