@@ -38,8 +38,21 @@ class D3D9HookContracts(unittest.TestCase):
     def test_failed_reset_does_not_invalidate_shader(self):
         body = SOURCE.rsplit("HRESULT STDMETHODCALLTYPE OnReset(IDirect3DDevice9* dev,", 1)[-1]
         body = body.split("\nHRESULT STDMETHODCALLTYPE OnPresent(", 1)[0]
-        self.assertIn("const HRESULT hr=realReset(dev,pp);", body)
+        self.assertIn("const HRESULT firstHr=realReset(dev,pp);", body)
+        self.assertIn("HRESULT hr=firstHr;", body)
         self.assertRegex(body, r"if\(SUCCEEDED\(hr\)\)\s*\{[^}]*activeVS=nullptr;")
+
+    def test_reset_fullscreen_override_and_fallback(self):
+        body = SOURCE.rsplit("HRESULT STDMETHODCALLTYPE OnReset(IDirect3DDevice9* dev,", 1)[-1]
+        body = body.split("\\nHRESULT STDMETHODCALLTYPE OnPresent(", 1)[0]
+        self.assertIn("pp && width && height && !pp->Windowed", body)
+        self.assertIn("original=*pp;", body)
+        self.assertIn("pp->BackBufferWidth=width;", body)
+        self.assertIn("pp->BackBufferHeight=height;", body)
+        self.assertRegex(body, r"if\\(FAILED\\(hr\\) && changed\\)\\s*\\{\\s*\\*pp=original;\\s*hr=realReset\\(dev,pp\\);")
+        self.assertLess(body.index("hr=realReset(dev,pp);"),
+                        body.index("if(SUCCEEDED(hr))"))
+        self.assertIn("activeVS=nullptr;", body)
 
     def test_hud_protection_defaults_safe(self):
         self.assertIn('L"ProtectOriginalHUD",1,ini', SOURCE)
