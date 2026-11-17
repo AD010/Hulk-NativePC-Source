@@ -202,6 +202,7 @@ try {
   Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_hulk_engine_input_callgraph.py')) $Source
   Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_hulk_engine_render_callgraph.py')) $Source
   Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_hulk_eor_xdk_callsite_crosswalk.py')) $Source
+  Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_hulk_ghidra_xdk_crosscheck.py')) $Source
   Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/hulk_engine_render_callgraph.py'),
     '--generated', (Join-Path $Source 'generated/default'),
     '--source-xex', $LocalXex,
@@ -220,6 +221,21 @@ try {
       '--profile', (Join-Path $Source 'hulk_native_x_profile.ini'),
       '--log', $env:HULK_EOR_XDK_RUNTIME_LOG,
       '--output', (Join-Path $Source 'out/analysis/hulk_eor_xdk_verified_callsites.json')) $Source
+  }
+  # Optional independently imported XEX Ghidra 12 edge list, produced
+  # locally with tools/ghidra/HulkUSA_XDKCallsiteAudit.java. Three exact
+  # witnesses are required: SHA-pinned XEX, ReXGlue PPC bl, runtime LR.
+  if ($env:HULK_EOR_GHIDRA_EDGES_JSON) {
+    if (-not $env:HULK_EOR_XDK_RUNTIME_LOG) {
+      throw 'Ghidra crosscheck requires HULK_EOR_XDK_RUNTIME_LOG'
+    }
+    if (-not (Test-Path -LiteralPath $env:HULK_EOR_GHIDRA_EDGES_JSON -PathType Leaf)) {
+      throw 'Ghidra USA XEX address-only evidence JSON missing'
+    }
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/hulk_ghidra_xdk_crosscheck.py'),
+      '--ghidra', $env:HULK_EOR_GHIDRA_EDGES_JSON,
+      '--runtime', (Join-Path $Source 'out/analysis/hulk_eor_xdk_verified_callsites.json'),
+      '--output', (Join-Path $Source 'out/analysis/hulk_eor_triple_verified_callsites.json')) $Source
   }
   # Pin the renderer to the reviewed upstream release. D125 fixes an actual
   # NVIDIA/Vulkan crash while minimized by finishing hidden frames. D126 avoids
