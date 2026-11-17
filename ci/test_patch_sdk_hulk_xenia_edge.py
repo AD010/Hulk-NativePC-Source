@@ -43,7 +43,8 @@ class ConvertedIndexPoolTests(unittest.TestCase):
     def test_does_not_guess_new_sdk_layout(self):
         for source in [INDEX_FIXTURE.replace(INDEX_OLD, ""), INDEX_FIXTURE + INDEX_MARKER,
                        INDEX_FIXTURE.replace("* +XE_GPU", "+XE_GPU"),
-                       INDEX_FIXTURE.replace(INDEX_OLD, INDEX_NEW) + "\n// " + INDEX_MARKER]:
+                       INDEX_FIXTURE.replace(INDEX_OLD, INDEX_NEW) + "\n// " + INDEX_MARKER,
+                       INDEX_FIXTURE + "\n" + INDEX_NEW.replace(INDEX_MARKER, "marker-stripped")]:
             with self.assertRaises(ValueError):
                 patch_index(source)
 
