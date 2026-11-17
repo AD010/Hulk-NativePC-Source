@@ -3,3 +3,5 @@ Exact owner-authorized Windows Hulk NativePC Release 2026-11-17; verify visual g
 MSVC test hotfix integrated on main: 4a61e403c28f4cfd5c3b45fedd314b30b0c44be4
 
 Correct 4x4 BC1 one-block source allocation regression: 21c64e9afee972d600d1e50307cdc6e29c109aa4
+
+TexStreams MSVC C4456 /WX fix: e7f10d6aff2ba0bc3baa0452ac4b8a698bf07758
