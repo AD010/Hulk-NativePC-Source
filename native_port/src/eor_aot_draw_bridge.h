@@ -22,6 +22,17 @@ struct BoundIndexedDraw {
   uint32_t original_model_hash = 0;
   uint32_t original_surface_ordinal = UINT32_MAX;
 };
+// Real original guest VS register values at the exact source Draw.
+// These are NOT automatically a Vulkan UBO or a 16:10 camera update:
+ // the backend must still prove its own shader variable byte layout.
+struct OriginalDrawVsMatrices {
+  std::optional<xdk::MatrixRegisters> view_projection;
+  std::optional<xdk::MatrixRegisters> world;
+  std::optional<xdk::MatrixRegisters> previous_world;
+  std::optional<xdk::MatrixRegisters> sky_view_projection;
+};
+std::optional<OriginalDrawVsMatrices> ExtractOriginalDrawVsMatrices(
+    const ReflectedShader& vertex,const native::IndexedDraw& draw) noexcept;
 class ShaderBindingBackend : public native::Backend {
  public:
   // Stage all SOURCE-VERIFIED host pipeline and immutable GPU-buffer

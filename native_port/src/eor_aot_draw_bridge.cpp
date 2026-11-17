@@ -65,6 +65,28 @@ class ForwardingBackend final : public native::Backend {
 };
 }
 
+std::optional<OriginalDrawVsMatrices> ExtractOriginalDrawVsMatrices(
+    const ReflectedShader& vertex,const native::IndexedDraw& draw) noexcept {
+  if(vertex.stage!=Stage::Vertex || !draw.guest_vs_matrices)
+    return std::nullopt;
+  const auto& source=*draw.guest_vs_matrices;
+  if(draw.source_frame && (!source.original_guest_device ||
+                            !source.original_vs_guest_object))
+    return std::nullopt;
+  OriginalDrawVsMatrices result{};
+  auto extract=[&](RegisterSpan span,
+                   std::optional<xdk::MatrixRegisters>& target) noexcept {
+    if(!span.Present())return true;
+    target=xdk::ReadOriginalMatrix(source,span.index,span.count);
+    return target.has_value();
+  };
+  if(!extract(vertex.view_projection,result.view_projection) ||
+     !extract(vertex.world,result.world) ||
+     !extract(vertex.previous_world,result.previous_world) ||
+     !extract(vertex.sky_view_projection,result.sky_view_projection))
+    return std::nullopt;
+  return result;
+}
 void ReplayAotScene(const native::FrameGeometry& frame,
                     std::span<const BoundIndexedDraw> draws,
                     const ShaderBank& bank, const EffectCatalog& effects,
@@ -141,9 +163,19 @@ void ReplayAotScene(const native::FrameGeometry& frame,
         !effects.HasPair(value.effect_hash, value.pass_index,
                          value.vertex_source_sha256, value.pixel_source_sha256))
       throw std::logic_error("Shader programs do not belong to EoR material effect");
-    if (!reflection.Find(value.vertex_source_sha256, Stage::Vertex) ||
-        !reflection.Find(value.pixel_source_sha256, Stage::Pixel))
+    const auto* vs_reflection=reflection.Find(value.vertex_source_sha256,
+                                               Stage::Vertex);
+    const auto* ps_reflection=reflection.Find(value.pixel_source_sha256,
+                                               Stage::Pixel);
+    if (!vs_reflection || !ps_reflection)
       throw std::logic_error("Original shader constant register layout unavailable");
+    // A genuine captured PPC Draw has its own WORLD/ViewProj matrices.
+    // Reject the whole batch BEFORE touching the GPU if any original
+    // required register is missing or non-finite; never use the previous
+    // model's constants or fabricate a 4th World row.
+    if(value.draw.source_frame &&
+       !ExtractOriginalDrawVsMatrices(*vs_reflection,value.draw))
+      throw std::invalid_argument("Captured Xbox USA Draw has unverified VS matrix constants");
     if (!bank.Find(value.vertex_source_sha256, Stage::Vertex) ||
         !bank.Find(value.pixel_source_sha256, Stage::Pixel))
       throw std::logic_error("Uncompiled Xenos shader pair in native EoR draw");

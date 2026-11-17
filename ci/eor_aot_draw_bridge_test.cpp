@@ -116,9 +116,44 @@ int main(){
   entry.pass_index=0;
   entry.original_model_hash=0xCAFE;
   entry.original_surface_ordinal=0;
+  // Verify real c11-c14 ViewProj is attached to the exact original Draw
+  // before Vulkan BeginScene. The test uses synthetic BE-decoded numbers.
+  native::IndexedDraw tagged=entry.draw;
+  tagged.source_frame=17;tagged.source_ordinal=0;
+  tagged.guest_vs_matrices=xdk::OriginalVsMatrices{};
+  tagged.guest_vs_matrices->original_guest_device=0x40002880u;
+  tagged.guest_vs_matrices->original_vs_guest_object=0x82001234u;
+  tagged.guest_vs_matrices->finite_register_mask=(1u<<19)-1u;
+  tagged.guest_vs_matrices->c7_through_c25[(11-7)*4]=2.5f;
+  ReflectedShader view_only;
+  view_only.stage=Stage::Vertex;
+  view_only.view_projection={11,4};
+  const auto real_matrices=ExtractOriginalDrawVsMatrices(view_only,tagged);
+  assert(real_matrices && real_matrices->view_projection &&
+         real_matrices->view_projection->values[0]==2.5f);
+  tagged.guest_vs_matrices->finite_register_mask &= ~(1u<<(11-7));
+  assert(!ExtractOriginalDrawVsMatrices(view_only,tagged));
+  tagged.guest_vs_matrices->finite_register_mask=(1u<<19)-1u;
   Backend target;
   std::vector<BoundIndexedDraw> draws{entry};
   ReplayAotScene(geometry,draws,shaders,effects,reflection,target);
+  // A captured source Draw with missing registers is rejected before any
+  // live GPU render target is cleared or submitted.
+  BoundIndexedDraw captured=entry;
+  captured.draw=tagged;
+  Backend bound;
+  std::vector<BoundIndexedDraw> capturedDraws{captured};
+  ReplayAotScene(geometry,capturedDraws,shaders,effects,reflection,bound);
+  assert(bound.begin==1 && bound.draw==1);
+  captured.draw.guest_vs_matrices->finite_register_mask=0;
+  capturedDraws={captured};
+  Backend missing_constants;
+  bool rejected_constants=false;
+  try {ReplayAotScene(geometry,capturedDraws,shaders,effects,
+                      reflection,missing_constants);}
+  catch(const std::invalid_argument&){rejected_constants=true;}
+  assert(rejected_constants && missing_constants.begin==0 &&
+         missing_constants.draw==0);
   assert(target.samplers==1 && target.verified_program_pairs==1);
   assert(target.preflights==1);
   // Native backend refuses an unresolved actual PSO BEFORE BeginScene,
