@@ -201,11 +201,26 @@ try {
   # Report contains addresses only; no game bytes leave the private runner.
   Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_hulk_engine_input_callgraph.py')) $Source
   Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_hulk_engine_render_callgraph.py')) $Source
+  Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_hulk_eor_xdk_callsite_crosswalk.py')) $Source
   Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/hulk_engine_render_callgraph.py'),
     '--generated', (Join-Path $Source 'generated/default'),
     '--source-xex', $LocalXex,
     '--profile', (Join-Path $Source 'hulk_native_x_profile.ini'),
     '--output', (Join-Path $Source 'out/analysis/hulk_engine_render_callgraph.json')) $Source
+  # When a real Hulk PC owner runtime trace is available, triangulate its
+  # exact PPC LR with genuine USA guest direct-bl callsites. This diagnostic
+  # never interprets r3..r10 as material/camera ABI and never changes GPU state.
+  if ($env:HULK_EOR_XDK_RUNTIME_LOG) {
+    if (-not (Test-Path -LiteralPath $env:HULK_EOR_XDK_RUNTIME_LOG -PathType Leaf)) {
+      throw "HULK_EOR_XDK_RUNTIME_LOG not found"
+    }
+    Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/hulk_eor_xdk_callsite_crosswalk.py'),
+      '--generated', (Join-Path $Source 'generated/default'),
+      '--source-xex', $LocalXex,
+      '--profile', (Join-Path $Source 'hulk_native_x_profile.ini'),
+      '--log', $env:HULK_EOR_XDK_RUNTIME_LOG,
+      '--output', (Join-Path $Source 'out/analysis/hulk_eor_xdk_verified_callsites.json')) $Source
+  }
   # Pin the renderer to the reviewed upstream release. D125 fixes an actual
   # NVIDIA/Vulkan crash while minimized by finishing hidden frames. D126 avoids
   # long pipeline-creation stalls on steady offscreen passes.
