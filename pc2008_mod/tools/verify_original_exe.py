@@ -32,7 +32,7 @@ def verify(path: Path) -> tuple[bool, list[str]]:
                 return False, errors + ["Unexpected or truncated PE header offset"]
             stream.seek(peoff)
             pe = stream.read(0x78)
-        if pe[:4] != b"PE\\0\\0":
+        if pe[:4] != b"PE" + bytes(2):
             errors.append("Missing PE signature")
         machine, sections, timestamp = struct.unpack_from("<HHI", pe, 4)
         optional_size = struct.unpack_from("<H", pe, 20)[0]
