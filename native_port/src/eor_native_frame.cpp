@@ -1,4 +1,5 @@
 #include "eor_native_frame.h"
+#include "native_resolution.h"
 #include <cstdint>
 #include <stdexcept>
 
@@ -13,6 +14,12 @@ void Check(Size v) {
 FrameGeometry PlanFrame(const FrameSetup& s) {
   Check(s.backbuffer);
   Check(s.original_guest);
+  // A user-selected output is a native host pixel count. Enforce the same
+  // safe device budget in the renderer as in the F10 settings writer, so
+  // 8K/portrait/ultrawide all work without accepting impossible 16K^2 RTs.
+  if(!display::IsSupportedHostSize(
+        s.backbuffer.width,s.backbuffer.height))
+    throw std::invalid_argument("Unsupported native host output dimensions");
   if (s.samples != 1 && s.samples != 2 && s.samples != 4 && s.samples != 8)
     throw std::invalid_argument("Unsupported native MSAA sample count");
   // Never claim a wider camera unless its real USA projection update is
@@ -53,6 +60,11 @@ void ReplayNativeScene(const FrameGeometry& frame,
                        std::span<const IndexedDraw> draws, Backend& backend) {
   Check(frame.world);
   Check(frame.backbuffer);
+  if(!display::IsSupportedHostSize(
+         frame.backbuffer.width,frame.backbuffer.height) ||
+     uint64_t(frame.world.width)*frame.world.height>
+          uint64_t(64)*1024*1024)
+    throw std::invalid_argument("Unsafe native EoR viewport pixel budget");
   if (!frame.direct_engine_path_ready)
     throw std::logic_error("Native EoR draw and shader path not verified");
   if (draws.empty())

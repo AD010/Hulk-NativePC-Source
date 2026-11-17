@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <string_view>
+#include "native_camera_projection.h"
 
 namespace hulk::display {
 
@@ -16,7 +17,7 @@ struct WindowPreset {
   uint32_t width, height;
 };
 
-inline constexpr std::array<WindowPreset, 11> kWindowPresets = {{
+inline constexpr std::array<WindowPreset, 17> kWindowPresets = {{
     {"1024x768 (4:3)", 1024, 768},
     {"1280x720 (16:9)", 1280, 720},
     {"1920x1080 (16:9)", 1920, 1080},
@@ -28,6 +29,12 @@ inline constexpr std::array<WindowPreset, 11> kWindowPresets = {{
     {"3440x1440 (ultrawide)", 3440, 1440},
     {"5120x1440 (32:9)", 5120, 1440},
     {"2560x1080 (ultrawide)", 2560, 1080},
+    {"7680x4320 (8K 16:9)", 7680, 4320},
+    {"3840x1600 (24:10)", 3840, 1600},
+    {"5120x2160 (21:9)", 5120, 2160},
+    {"1080x1920 (portrait)", 1080, 1920},
+    {"1440x2560 (portrait)", 1440, 2560},
+    {"1920x1920 (square)", 1920, 1920},
 }};
 
 inline bool IsWindowPreset(uint32_t width, uint32_t height) noexcept {
@@ -36,16 +43,28 @@ inline bool IsWindowPreset(uint32_t width, uint32_t height) noexcept {
   return false;
 }
 
+// Arbitrary host pixel sizes (including square, portrait, 16:10, 21:9,
+ // 32:9 and 8K) are allowed. Guest 1280x720 video mode and native
+ // world/screen GPU resources are NEVER resized based on this selection.
+ // A bounded physical pixel budget avoids a 16Kx16K allocation bomb.
+inline bool IsSupportedHostSize(uint32_t width,uint32_t height) noexcept {
+  return width>=320 && height>=200 &&
+         width<=16384 && height<=16384 &&
+         uint64_t(width)*height<=uint64_t(64)*1024*1024 &&
+         uint64_t(width)*4>=height &&
+         uint64_t(width)<=uint64_t(height)*8;
+}
 // HULK/NATIVE-3D-PIXELS: a REAL nonuniform host raster target for
 // a future validated USA camera-projection hook. Guest EDRAM layout,
 // surfaces, memory addresses, tile pitch and physical dimensions are
 // never rewritten. The viewport fills all swapchain pixels ONLY when
-// the game's 3D camera matrix compensates horizontal focal length.
+// the verified main camera compensates x (Hor+) or y (Vert+) focal length.
 // Drawing with this raster contract before fixing the camera stretches
 // character geometry and is intentionally NOT enabled yet.
 struct FullViewResult {
   double scale_x = 0.0, scale_y = 0.0;
   double projection_x_multiplier = 0.0;
+  double projection_y_multiplier = 0.0;
   uint32_t host_width = 0, host_height = 0;
   bool valid = false;
 };
@@ -54,15 +73,18 @@ inline FullViewResult FullScreen3DContract(
     uint32_t output_w, uint32_t output_h,
     uint32_t guest_w = 1280, uint32_t guest_h = 720) noexcept {
   FullViewResult result;
-  // NativeXRenderer cannot render a guest output below 1x without
-  // an additional downscale stage; reject unsupported raster sizes.
-  if (!output_w || !output_h || !guest_w || !guest_h ||
-      output_w > 16384 || output_h > 16384 ||
-      output_w < guest_w || output_h < guest_h)
+  // This is the INDEPENDENT native renderer, not NativeX/Xenos EDRAM.
+  // Small custom windows and 8K output are both legal when within budget.
+  if (!IsSupportedHostSize(output_w,output_h) ||
+      !guest_w || !guest_h || guest_w>16384 || guest_h>16384)
     return result;
+  const auto aspect=camera::ExpandAspectNoCrop(
+      static_cast<double>(guest_w)/guest_h,output_w,output_h);
+  if(!aspect)return result;
   result.scale_x = static_cast<double>(output_w) / guest_w;
   result.scale_y = static_cast<double>(output_h) / guest_h;
-  result.projection_x_multiplier = result.scale_y / result.scale_x;
+  result.projection_x_multiplier = aspect->clip_x;
+  result.projection_y_multiplier = aspect->clip_y;
   result.host_width = output_w;
   result.host_height = output_h;
   result.valid = true;

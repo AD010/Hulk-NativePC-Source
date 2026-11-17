@@ -96,6 +96,23 @@ int main() {
          std::abs(expanded[8+1]-11.7f)<1e-5f &&
          expanded[4]==11.f &&
          expanded[24]==255.f);
+  // 21:9 and 32:9 must widen horizontal view, NOT crop vertically.
+  const auto wider=aot::ExpandVerifiedOriginalPackedViewProjection(
+      wide_values,wide,11,16.0/9.0,3440,1440,proof);
+  const double factor=(16.0/9.0)/(3440.0/1440.0);
+  assert(wider.size()==wide_values.size() &&
+         std::abs(wider[4]-float(11.0*factor))<1e-5f &&
+         std::abs(wider[8]-float(12.0*factor))<1e-5f &&
+         wider[5]==12.f && wider[0]==7.f && wider[24]==255.f);
+  const auto doublewide=aot::ExpandVerifiedOriginalPackedViewProjection(
+      wide_values,wide,11,16.0/9.0,5120,1440,proof);
+  assert(std::abs(doublewide[4]-5.5f)<1e-5f &&
+         std::abs(doublewide[8]-6.f)<1e-5f &&
+         doublewide[5]==12.f);
+  const auto portrait=aot::ExpandVerifiedOriginalPackedViewProjection(
+      wide_values,wide,11,16.0/9.0,1080,1920,proof);
+  assert(portrait[4]==11.f &&
+         std::abs(portrait[5]-float(12.0*(1080.0/1920.0)/(16.0/9.0)))<1e-5f);
   auto no_camera=proof;
   no_camera.original_main_perspective_view=false;
   Reject([&]{(void)aot::ExpandVerifiedOriginalPackedViewProjection(

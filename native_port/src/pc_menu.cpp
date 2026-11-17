@@ -133,6 +133,11 @@ class PcMenu final : public rex::ui::ImGuiDialog {
               current_w > 0 && current_h > 0
                   ? std::to_string(current_w) + "x" +
                     std::to_string(current_h) : "App default";
+          if (!custom_size_initialized_) {
+            custom_size_[0] = std::max(320, current_w);
+            custom_size_[1] = std::max(200, current_h);
+            custom_size_initialized_ = true;
+          }
           if (ImGui::BeginCombo("Window size (restart)",
                                 current_size.c_str())) {
             for (const auto& mode : display::kWindowPresets) {
@@ -147,16 +152,42 @@ class PcMenu final : public rex::ui::ImGuiDialog {
                 if (saved) {
                   pending_window_width_ = mode.width;
                   pending_window_height_ = mode.height;
+                  custom_size_[0] = static_cast<int>(mode.width);
+                  custom_size_[1] = static_cast<int>(mode.height);
                 }
               }
               if (selected) ImGui::SetItemDefaultFocus();
             }
             ImGui::EndCombo();
           }
+          // Custom values are edited locally and committed as an atomic W/H
+          // pair only when clicked, never on every keystroke or ImGui frame.
+          // This supports arbitrary aspect and real pixel sizes rather than
+          // artificially restricting output to console/16:9 presets.
+          ImGui::InputInt2("Custom width / height", custom_size_);
+          const bool custom_valid = custom_size_[0] > 0 &&
+              custom_size_[1] > 0 &&
+              display::IsSupportedHostSize(
+                  static_cast<uint32_t>(custom_size_[0]),
+                  static_cast<uint32_t>(custom_size_[1]));
+          if (ImGui::Button("Save custom size (restart)")) {
+            last_save_ok_ = custom_valid && options::SaveWindowSize(
+                config_, static_cast<uint32_t>(custom_size_[0]),
+                static_cast<uint32_t>(custom_size_[1]));
+            if (*last_save_ok_) {
+              pending_window_width_ = static_cast<uint32_t>(custom_size_[0]);
+              pending_window_height_ = static_cast<uint32_t>(custom_size_[1]);
+            }
+          }
+          if(!custom_valid)
+            ImGui::TextDisabled("Choose 320..16384 pixels, up to 64M total pixels.");
+          else
+            ImGui::Text("Custom aspect %.3f:1",
+                        double(custom_size_[0])/custom_size_[1]);
           ImGui::TextWrapped(
-              "Fullscreen uses desktop pixels. Windowed sizes are host-only. "
-              "True 16:10/21:9 camera widening needs a verified USA Hulk "
-              "projection hook; the original HUD is not stretched.");
+              "Fullscreen uses desktop resolution. Windowed sizes are host-only. "
+              "16:10, 21:9, 32:9, 4:3, square and portrait are accepted. "
+              "Without a verified USA camera the scene is centered, not stretched.");
           ImGui::Separator();
       const int32_t guest_fps_limit = PendingInt("hulk_guest_swap_fps_cap");
       if (guest_fps_limit == 0) {
@@ -511,6 +542,8 @@ class PcMenu final : public rex::ui::ImGuiDialog {
   std::optional<bool> pending_fullscreen_;
   std::optional<uint32_t> pending_window_width_;
   std::optional<uint32_t> pending_window_height_;
+  int custom_size_[2] = {1280, 720};
+  bool custom_size_initialized_ = false;
   float mouse_x_edit_value_ = 1.0f;
   float mouse_y_edit_value_ = 1.0f;
   bool mouse_x_edit_active_ = false;

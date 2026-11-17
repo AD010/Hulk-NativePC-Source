@@ -50,8 +50,33 @@ int main() {
   const auto row_corrected=hulk::camera::ExpandVerifiedVerticalView(
       proj,16.0/9.0,2560,1600,camera_proof);
   assert(row_corrected && std::abs((*row_corrected)[5]-0.9f)<0.00001f);
+  // The SAME matrix ABI must work at arbitrary monitor aspects:
+  // Hor+ for ultrawide, Vert+ for 4:3, square and portrait.
+  const auto ultra=hulk::camera::AdaptVerifiedMainViewProjection(
+      proj,16.0/9.0,3440,1440,camera_proof);
+  const auto doublewide=hulk::camera::AdaptVerifiedMainViewProjection(
+      proj,16.0/9.0,5120,1440,camera_proof);
+  const auto oldstyle=hulk::camera::AdaptVerifiedMainViewProjection(
+      proj,16.0/9.0,1024,768,camera_proof);
+  const auto square=hulk::camera::AdaptVerifiedMainViewProjection(
+      proj,16.0/9.0,1920,1920,camera_proof);
+  const auto portrait=hulk::camera::AdaptVerifiedMainViewProjection(
+      proj,16.0/9.0,1080,1920,camera_proof);
+  const auto baseline=hulk::camera::AdaptVerifiedMainViewProjection(
+      proj,16.0/9.0,1920,1080,camera_proof);
+  assert(ultra && std::abs((*ultra)[0]-float((16.0/9.0)/(3440.0/1440.0)))<1e-5f
+         && (*ultra)[5]==1.f);
+  assert(doublewide && std::abs((*doublewide)[0]-0.5f)<1e-5f &&
+         (*doublewide)[5]==1.f);
+  assert(oldstyle && (*oldstyle)[0]==1.f &&
+         std::abs((*oldstyle)[5]-0.75f)<1e-5f);
+  assert(square && (*square)[0]==1.f &&
+         std::abs((*square)[5]-0.5625f)<1e-5f);
+  assert(portrait && (*portrait)[0]==1.f &&
+         std::abs((*portrait)[5]-0.31640625f)<1e-5f);
+  assert(baseline && *baseline==proj);
   camera_proof.original_main_perspective_view=false;
-  assert(!hulk::camera::ExpandVerifiedVerticalView(
+  assert(!hulk::camera::AdaptVerifiedMainViewProjection(
       proj,16.0/9.0,2560,1600,camera_proof));
   FrameSetup s{};
   s.backbuffer = {2560, 1600};

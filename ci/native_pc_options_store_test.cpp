@@ -71,8 +71,20 @@ int main() {
   // guest video_mode_width/height or xenos render-target descriptors.
   Expect(hulk::options::SaveWindowSize(config, 2560, 1600),
          "Native 16:10 window preset save failed");
-  Expect(!hulk::options::SaveWindowSize(config, 1234, 999),
-         "Unverified window resolution must be refused");
+  Expect(hulk::options::SaveWindowSize(config, 1234, 999),
+         "Arbitrary valid custom monitor aspect should be saved");
+  Expect(hulk::options::SaveWindowSize(config, 1080, 1920),
+         "Portrait host resolution should be saved");
+  Expect(hulk::options::SaveWindowSize(config, 7680, 4320),
+         "Native 8K host resolution should be saved");
+  Expect(hulk::options::SaveWindowSize(config, 2560, 1600),
+         "Selecting a known resolution after custom edit should work");
+  Expect(!hulk::options::SaveWindowSize(config, 0, 999) &&
+         !hulk::options::SaveWindowSize(config, 1920, 0) &&
+         !hulk::options::SaveWindowSize(config, 1920, 60) &&
+         !hulk::options::SaveWindowSize(config, 16384, 16384) &&
+         !hulk::options::SaveWindowSize(config, 400, 8000),
+         "Unsafe zero, excessive memory or extreme aspect must be refused");
   Expect(!Save(config, "window_width", "1024"),
          "A single window-width update would split the W/H transaction");
   const auto changed = Read(config);
@@ -155,8 +167,9 @@ int main() {
          full_16_10.host_height == 1600 &&
          std::abs(full_16_10.scale_x - 2.0) < 1e-8 &&
          std::abs(full_16_10.scale_y - 20.0/9.0) < 1e-8 &&
-         std::abs(full_16_10.projection_x_multiplier - 10.0/9.0) < 1e-8,
-         "True 2560x1600 host 3D raster/projection compensation changed");
+         std::abs(full_16_10.projection_x_multiplier - 1.0) < 1e-8 &&
+         std::abs(full_16_10.projection_y_multiplier - 0.9) < 1e-8,
+         "16:10 must extend vertical FOV with no side crop or stretched geometry");
   const auto full_16_9 = hulk::display::FullScreen3DContract(3840, 2160);
   Expect(full_16_9.valid &&
          std::abs(full_16_9.projection_x_multiplier - 1.0) < 1e-8,
@@ -164,14 +177,24 @@ int main() {
   const auto full_ultra = hulk::display::FullScreen3DContract(3440, 1440);
   Expect(full_ultra.valid && full_ultra.host_width == 3440 &&
          full_ultra.host_height == 1440 &&
-         full_ultra.projection_x_multiplier < 1.0,
-         "Full 21:9 target needs corresponding wider perspective");
-  Expect(!hulk::display::FullScreen3DContract(1024, 768).valid &&
-         !hulk::display::FullScreen3DContract(0, 1080).valid,
-         "Unsupported sub-native output must not corrupt GPU surfaces");
-  Expect(std::abs(full_16_10.projection_x_multiplier -
-                  proj_16_10->horizontal_focal_multiplier) < 1e-8,
-         "Native raster and camera projection contracts must agree");
+         full_ultra.projection_x_multiplier < 1.0 &&
+         full_ultra.projection_y_multiplier == 1.0,
+         "21:9 must extend horizontal FOV, not crop vertical scene");
+  const auto full_4_3 = hulk::display::FullScreen3DContract(1024, 768);
+  const auto full_32_9 = hulk::display::FullScreen3DContract(5120, 1440);
+  const auto full_portrait=hulk::display::FullScreen3DContract(1080,1920);
+  Expect(full_4_3.valid &&
+         std::abs(full_4_3.projection_y_multiplier - 0.75)<1e-8 &&
+         full_4_3.projection_x_multiplier==1.0 &&
+         full_32_9.valid &&
+         std::abs(full_32_9.projection_x_multiplier-0.5)<1e-8 &&
+         full_portrait.valid &&
+         full_portrait.projection_y_multiplier<0.35 &&
+         full_portrait.projection_x_multiplier==1.0,
+         "All supported aspect formats must expand the missing FOV axis");
+  Expect(!hulk::display::FullScreen3DContract(0, 1080).valid &&
+         !hulk::display::FullScreen3DContract(16384,16384).valid,
+         "Invalid host pixel budget must not allocate GPU render targets");
   const auto fit_16_10 = hulk::display::FitOriginalPicture(2560, 1600);
   Expect(fit_16_10.valid && fit_16_10.width == 2560 &&
          fit_16_10.height == 1440 && fit_16_10.y == 80 &&

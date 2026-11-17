@@ -181,7 +181,8 @@ bool Save(const std::filesystem::path& config_file,
 bool SaveWindowSize(const std::filesystem::path& config_file,
                     uint32_t width, uint32_t height) noexcept {
   try {
-    if (!display::IsWindowPreset(width, height)) return false;
+    if (!display::IsSupportedHostSize(width, height)) return false;
+    // Freeform host output: any validated monitor/custom pixel dimensions.
     // Unlike the generic SDK `resolution` CVar, these two change
     // ONLY the host window, leaving the guest 1280x720 XDK descriptors
     // and PM4 tiling/resolve dimensions exactly as they were.
