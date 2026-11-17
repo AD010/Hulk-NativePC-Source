@@ -82,7 +82,7 @@ elif '--target-env' not in args:
                                           repo_root=folder / 'public')
             self.assertEqual(result['source_shaders'], 2)
             self.assertEqual(result['compiled'], 2)
-            flags = script.with_suffix('.dxc_args').read_text()
+            flags = (folder / 'fake_tool.dxc_args').read_text()
             self.assertIn('-fspv-reflect', flags)
             self.assertNotIn('-Qstrip_debug', flags)
             self.assertFalse(result['runtime_material_binding_verified'])
