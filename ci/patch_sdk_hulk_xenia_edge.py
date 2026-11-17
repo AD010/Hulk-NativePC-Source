@@ -77,9 +77,20 @@ MIP_SHAPE_INSERT_NEW = """  uint32_t packed_mip = mip - packed_mip_base;
 
 def patch_mip(source: str) -> tuple[str, bool]:
     if MIP_MARKER in source:
-        if (source.count(MIP_ADDR_NEW) != 1 or MIP_SHAPE_INSERT_NEW not in source or
-                source.count(MIP_SHAPE_NEW) < 2 or MIP_ADDR_OLD in source):
+        # Idempotence must verify the complete packed-tail transformation.
+        # Merely finding two "is_wide" uses anywhere in the file can hide
+        # a partial edit inside GetPackedMipOffset.
+        if (source.count(MIP_MARKER) != 1 or
+                source.count(MIP_ADDR_NEW) != 1 or MIP_ADDR_OLD in source or
+                source.count(MIP_OFFSET_START) != 1 or
+                source.count(MIP_OFFSET_END) != 1):
             raise ValueError("Partial source-proven Xenos packed-mip fix")
+        _, _, tail = source.partition(MIP_OFFSET_START)
+        block, _, _ = tail.partition(MIP_OFFSET_END)
+        if (block.count(MIP_SHAPE_INSERT_NEW) != 1 or
+                block.count(MIP_SHAPE_NEW) != 2 or
+                MIP_SHAPE_INSERT_OLD in block or MIP_SHAPE_OLD in block):
+            raise ValueError("Partial packed-tail shape transformation")
         return source, False
     if source.count(MIP_ADDR_OLD) != 1 or source.count(MIP_OFFSET_START) != 1 or (
             source.count(MIP_OFFSET_END) != 1):
