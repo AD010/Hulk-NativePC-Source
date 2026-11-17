@@ -290,7 +290,14 @@ bool DiligentEorDirectBackend::DrawIndexed(const native::IndexedDraw& draw) {
         1,draw.first_index);
     s.context->DrawIndexed(command);
     return true;
-  } catch (...) {return false;}
+  } catch (...) {
+    // A Diligent exception can occur after a partial resource/constant bind.
+    // Do not carry that state into another draw without explicit revalidation.
+    s.constants_ready=false;
+    s.program_ready=false;
+    s.textures_ready=false;
+    return false;
+  }
 }
 bool DiligentEorDirectBackend::ResolveScene(native::Size physical) {
   auto& s=*state_;
