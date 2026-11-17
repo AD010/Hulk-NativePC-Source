@@ -1,3 +1,0 @@
-Owner-requested one-shot Hulk NativePC Windows Release: 2026-11-17.
-Includes verified Xenia Edge 09d405f shader scalar, 4ad875 index buffer, 344fca7 packed-mip fixes and original EoR native implementation source.
-Visual acceptance requires the actual game; do not mislabel success as completed engine-native renderer.
