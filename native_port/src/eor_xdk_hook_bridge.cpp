@@ -27,6 +27,7 @@ namespace {
 std::mutex g_mutex;
 FrameCapture g_collector;
 XdkCallsiteEvidence g_callsite_evidence;
+CompletedFrameMailbox g_frames_for_native;
 // ReXGlue's guest base is NOT directly an original Xbox VA; use the same
 // guest high-memory padding convention as native_camera_direct.cpp, and
 // reject inaccessible ranges without reading unverified game memory.
@@ -74,6 +75,10 @@ bool ReadGuest(void* state,uint32_t address,std::byte* output,size_t length) noe
 }
 }
 bool CaptureEnabled() { return REXCVAR_GET(hulk_eor_xdk_capture); }
+std::optional<DeliveredFrame> TakeCompletedPpcFrame() {
+  std::lock_guard lock(g_mutex);
+  return g_frames_for_native.Take();
+}
 void CapturePpcDraw(Kind kind, uint32_t guest, const PPCContext& ctx,
                     uint8_t* guest_base) {
   if (!CaptureEnabled()) return;
@@ -143,6 +148,15 @@ void EndPpcHook(native_x_renderer::Call kind) {
                   sample->function, sample->lr, r[0], r[1], r[2], r[3],
                   r[4], r[5], r[6], r[7]);
     }
+  }
+  // The actual guest Present boundary is the only source of completed
+  // original frames. The native Vulkan consumer receives this real,
+  // immutable PPC Draw/matrix/object snapshot through TakeCompletedPpcFrame.
+  // Keep Xenos as presenter until verified materials and full shader
+  // coverage authorize an independent handoff.
+  {
+    std::lock_guard lock(g_mutex);
+    g_frames_for_native.Publish(std::move(frame));
   }
 }
 }  // namespace hulk::eor::xdk

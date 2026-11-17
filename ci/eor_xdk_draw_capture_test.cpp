@@ -118,7 +118,21 @@ int main() {
   assert(delivered && delivered->frame.sequence==43 &&
          delivered->overwritten_since_take==0);
   mailbox.Reset();
-  assert(mailbox.TotalOverwritten()==0);
+  assert(mailbox.TotalOverwritten()==0 && !mailbox.Take());
+  bool missing_sequence=false;
+  try {mailbox.Publish(Frame{});}
+  catch(const std::invalid_argument&){missing_sequence=true;}
+  assert(missing_sequence);
+  mailbox.Publish(Frame{55,0,{a}});
+  mailbox.Publish(Frame{56,0,{a,b}});
+  mailbox.Publish(Frame{57,0,{a}});
+  assert(mailbox.TotalOverwritten()==2);
+  auto newest=mailbox.Take();
+  assert(newest && newest->frame.sequence==57 &&
+         newest->overwritten_since_take==2 &&
+         newest->frame.calls.size()==1);
+  assert(!mailbox.Take());
+  mailbox.Reset();
   assert(capture.Finish().sequence==2);
   assert(capture.Finish().calls.empty());
   for(size_t i=0;i<FrameCapture::kMaxDraws+3;++i)capture.Record(a);

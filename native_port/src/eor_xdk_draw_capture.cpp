@@ -27,6 +27,29 @@ std::optional<VerticesXdkCall> DecodeOriginalVerticesXdkCall(const RawDraw& call
   return VerticesXdkCall{call.function,call.lr,call.gpr[0],call.gpr[1],
                          call.gpr[2],call.gpr[3]};
 }
+void CompletedFrameMailbox::Publish(Frame frame) {
+  if(!frame.sequence)
+    throw std::invalid_argument("Original XDK frame sequence missing at native handoff");
+  if(pending_) {
+    ++total_overwritten_;
+    ++missed_since_take_;
+  }
+  // Capture transfers its complete per-Draw VS/PS/object-state snapshot
+  // atomically at Present without copying thousands of original matrices.
+  pending_.emplace(std::move(frame));
+}
+std::optional<DeliveredFrame> CompletedFrameMailbox::Take() {
+  if(!pending_)return std::nullopt;
+  DeliveredFrame result{std::move(*pending_),missed_since_take_};
+  pending_.reset();
+  missed_since_take_=0;
+  return result;
+}
+void CompletedFrameMailbox::Reset() noexcept {
+  pending_.reset();
+  missed_since_take_=0;
+  total_overwritten_=0;
+}
 void FrameCapture::Record(const RawDraw& call) {
   if (!call.function) throw std::invalid_argument("Missing verified XDK address");
   if (calls_.size() >= kMaxDraws) {
