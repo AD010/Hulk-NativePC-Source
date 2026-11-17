@@ -50,21 +50,10 @@ EXPERIMENTS=[
 ]
 
 def commands():
-    # Read the exact production order from the only Windows build script.
-    # Hulk's PM4 patches contain DIGITS ("pm4"), so [a-z_]+ silently omitted
-    # essential patches and made #30's preflight fail at gap_draw.
-    names=[]
-    for line in BUILDER.read_text(encoding="utf-8").splitlines():
-        if "Invoke-HulkNativeXPatch '" not in line:
-            continue
-        match=re.search(
-            r"^\s+Invoke-HulkNativeXPatch '((?:test_)?patch_native_x_hulk_[a-z0-9_]+\.py)'\s*$",
-            line)
-        if not match:
-            raise RuntimeError("Unparsed NativeX build step: " + line.strip())
-        names.append("ci/" + match.group(1))
-    if len(names) < 39 or len(names) != len(set(names)):
-        raise RuntimeError(f"NativeX production patch manifest incomplete/duplicated: {len(names)}")
+    # The Windows builder is the only source of stage order. 42 tested
+    # transformations use an atomic helper, six legacy special stages
+    # remain separate because of their source-state dependencies.
+    names = reviewed_patch_plan(BUILDER.read_text(encoding="utf-8"))
     for name in EXPERIMENTS:
         if name not in names:
             raise RuntimeError(f"NativeX patch missing from real Windows build: {name}")
@@ -118,6 +107,7 @@ def checked(args,cwd=ROOT,env=None):
 from native_x_d140_dispatch import (
     D140 as DISPATCH_D140_SHA, check_renderer as check_d140_checkout,
     run_patch as apply_d140_reviewed_patch,
+    reviewed_patch_plan,
 )
 if DISPATCH_D140_SHA != D140_SHA:
     raise RuntimeError("Windows D140 patch dispatcher and audit do not share pin")
