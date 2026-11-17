@@ -4,11 +4,6 @@ on:
   # builds on source edits. Keep this single Release-only workflow available
   # for an explicit final validation through GitHub Actions.
   workflow_dispatch:
-  # One-shot owner-requested November 17 build after source-only test fixes.
-  push:
-    branches: [main]
-    paths:
-      - '.hulk-release-one-shot-20261117-r4'
 permissions:
   contents: write
 concurrency:
