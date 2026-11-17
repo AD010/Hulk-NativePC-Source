@@ -34,6 +34,9 @@ struct NativeEorPassResources {
 // The raw Xbox vertex stream is never usable as a Vulkan vertex buffer.
 struct NativeEorDrawBuffers {
   uint64_t position_handle=0;
+  uint64_t index_handle=0;
+  uint32_t vertex_count=0;
+  uint32_t index_count=0;
   std::vector<uint64_t> host_vertex_slots;
 };
 class DiligentEorDirectBackend final : public aot::ShaderBindingBackend {
