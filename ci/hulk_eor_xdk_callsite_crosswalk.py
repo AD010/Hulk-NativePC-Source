@@ -39,9 +39,11 @@ def analyze(log: str, hooks: dict[int, str],
     # decreasing counts/replayed or inconsistent hook-method types.
     observed: dict[tuple[int, int], dict] = {}
     for line in log.splitlines():
+        if '[HULK/EOR-XDK-CALLSITE]' not in line:
+            continue
         m = LINE.search(line)
         if not m:
-            continue
+            raise ValueError("Malformed Hulk XDK caller observation")
         xdk, lr = int(m[1], 16), int(m[2], 16)
         kind, draws, frames = map(int, m.groups()[2:])
         if xdk not in allowed or (xdk == named.get('DrawVertices') and kind != 0) or (
