@@ -53,6 +53,12 @@ class ShaderBindingBackend : public native::Backend {
   // chronology around Draws (RT/depth binding, ClearF, tiled Resolve,
   // Present). Reject an unhandled command BEFORE BeginScene rather than
   // silently skip it and render corrupt color/depth/HUD.
+  // Whole-frame capability gate also rejects dangerous source command
+  // patterns such as mid-frame Resolve followed by more Draws, duplicate
+  // front-buffer presents or unsupported EDRAM tiling/RT aliases.
+  virtual bool CanReplayOriginalXdkTimeline(const xdk::Frame&) const {
+    return false;
+  }
   virtual bool CanReplayOriginalXdkCommand(
       const xdk::RawCommand&) const {return false;}
   // Called in original source order, on the same renderer thread as Draw.

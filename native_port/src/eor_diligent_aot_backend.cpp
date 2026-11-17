@@ -171,6 +171,9 @@ struct DiligentEorDirectBackend::State {
   bool frame_preflight_ready=false;
   bool scene_open=false,constants_ready=false,program_ready=false;
   bool textures_ready=false,finished=false;
+  bool source_timeline_active=false;
+  bool source_resolve_recorded=false;
+  bool source_present_recorded=false;
 };
 DiligentEorDirectBackend::DiligentEorDirectBackend(
     Diligent::IRenderDevice* device,Diligent::IDeviceContext* context,
@@ -352,6 +355,126 @@ DiligentEorDirectBackend::DiligentEorDirectBackend(
   (void)PrewarmResidentOriginalPipelines(64);
 }
 DiligentEorDirectBackend::~DiligentEorDirectBackend() noexcept {AbortScene();}
+bool DiligentEorDirectBackend::CanReplayOriginalXdkCommand(
+    const xdk::RawCommand& cmd) const {
+  if(!state_)return false;
+  const auto& s=*state_;
+  const auto& original=s.format.original_screen;
+  if(!original.exact_guest_to_native_targets_verified ||
+     !original.guest_device || !original.guest_rt0 ||
+     !original.guest_depth || !original.guest_front_buffer ||
+     cmd.gpr[0]!=original.guest_device)
+    return false;
+  switch(cmd.kind) {
+    case xdk::CommandKind::SetRenderTarget:
+      return cmd.gpr[1]==0 && cmd.gpr[2]==original.guest_rt0;
+    case xdk::CommandKind::SetDepthStencilSurface:
+      return cmd.gpr[1]==original.guest_depth;
+    case xdk::CommandKind::ClearF:
+      return cmd.captured_clear &&
+          xdk::IsOriginalFullTargetClear(
+              *cmd.captured_clear,s.frame.original_guest.width,
+              s.frame.original_guest.height) &&
+          ((cmd.captured_clear->flags & 0x20u)==0 ||
+           s.format.depth==NativeDepthFormat::D24S8);
+    case xdk::CommandKind::Resolve:
+      return original.final_resolve_to_front_buffer_verified &&
+             (cmd.gpr[1]&7u)==0 &&
+             (cmd.gpr[1]&0x300u)==0 &&
+             cmd.gpr[3]==original.guest_front_buffer;
+    case xdk::CommandKind::BeginTiling:
+    case xdk::CommandKind::EndTiling:
+      return original.original_tiling_has_no_host_aliases_verified;
+    case xdk::CommandKind::Present:
+      return original.final_resolve_to_front_buffer_verified &&
+             cmd.gpr[1]==original.guest_front_buffer;
+    default:
+      return false;
+  }
+}
+bool DiligentEorDirectBackend::CanReplayOriginalXdkTimeline(
+    const xdk::Frame& source) const {
+  if(!state_ || !xdk::ValidateOriginalCommandTimeline(source))return false;
+  // This native EoR backend owns ONE verified main RT0/depth and ONE final
+  // resolve. Other original passes (shadows, MRT, chained post-processing)
+  // require distinct native target mappings; rejecting them is safer than
+  // pretending a single host RT is equivalent to all guest EDRAM tiles.
+  bool rt=false,depth=false,cleared=false,drew=false,resolved=false,tiling=false;
+  for(const auto& cmd:source.commands) {
+    if(cmd.draw_ordinal!=UINT32_MAX) {
+      if(!rt || !depth || !cleared || resolved)return false;
+      drew=true;
+      continue;
+    }
+    if(!CanReplayOriginalXdkCommand(cmd))return false;
+    switch(cmd.kind) {
+      case xdk::CommandKind::SetRenderTarget:
+        if(resolved)return false;
+        rt=true;break;
+      case xdk::CommandKind::SetDepthStencilSurface:
+        if(resolved)return false;
+        depth=true;break;
+      case xdk::CommandKind::ClearF:
+        if(resolved || ((cmd.captured_clear->flags&1u) && !rt) ||
+           ((cmd.captured_clear->flags&0x30u) && !depth))
+          return false;
+        cleared=true;break;
+      case xdk::CommandKind::BeginTiling:
+        if(tiling || resolved || !rt)return false;
+        tiling=true;break;
+      case xdk::CommandKind::EndTiling:
+        if(!tiling || resolved)return false;
+        tiling=false;break;
+      case xdk::CommandKind::Resolve:
+        if(!drew || tiling || resolved)return false;
+        resolved=true;break;
+      case xdk::CommandKind::Present:
+        if(!resolved || !drew || tiling)return false;
+        break;
+      default:return false;
+    }
+  }
+  return rt && depth && cleared && drew && resolved && !tiling;
+}
+bool DiligentEorDirectBackend::ReplayOriginalXdkCommand(
+    const xdk::RawCommand& cmd) {
+  if(!state_ || !CanReplayOriginalXdkCommand(cmd))return false;
+  auto& s=*state_;
+  if(cmd.kind==xdk::CommandKind::Present) {
+    // The real native CompositeOutput already presented the resolved image.
+    // This original guest event only acknowledges source swap sequencing.
+    if(!s.finished || s.scene_open || !s.source_resolve_recorded ||
+       s.source_present_recorded)
+      return false;
+    s.source_present_recorded=true;
+    s.source_timeline_active=false;
+    return true;
+  }
+  if(!s.scene_open || s.finished)return false;
+  s.source_timeline_active=true;
+  switch(cmd.kind) {
+    case xdk::CommandKind::SetRenderTarget:
+    case xdk::CommandKind::SetDepthStencilSurface:
+    case xdk::CommandKind::BeginTiling:
+    case xdk::CommandKind::EndTiling:
+      // Host scene is already bound. The exact source target identity and
+      // (when tiled) alias-free mapping were proved in frame preflight.
+      return true;
+    case xdk::CommandKind::ClearF:
+      return cmd.captured_clear &&
+             s.scene.ClearVerifiedOriginalXdk(
+                 *cmd.captured_clear,s.frame.original_guest);
+    case xdk::CommandKind::Resolve:
+      // The real native color+depth target remains resident through
+      // DrawIndexed; physical MSAA resolve is performed by ResolveScene()
+      // immediately after the final source Draw, not against guest EDRAM.
+      if(s.source_resolve_recorded)return false;
+      s.source_resolve_recorded=true;
+      return true;
+    default:return false;
+  }
+}
+
 std::size_t DiligentEorDirectBackend::PrewarmResidentOriginalPipelines(
     std::size_t max_new) {
   if(!state_ || !max_new || state_->scene_open ||
@@ -566,6 +689,9 @@ bool DiligentEorDirectBackend::BeginScene(native::Size world,uint32_t samples) {
   s.frame_preflight_ready=false;
   if(!s.scene.Prepare(s.frame,s.format) || !s.scene.BeginScene())return false;
   s.scene_open=true;s.finished=false;s.selected=nullptr;
+  s.source_timeline_active=false;
+  s.source_resolve_recorded=false;
+  s.source_present_recorded=false;
   s.requested_model=0;s.requested_surface=UINT32_MAX;s.surface_ready=false;
   s.constants_ready=s.program_ready=s.textures_ready=false;
   return true;
@@ -578,6 +704,9 @@ void DiligentEorDirectBackend::AbortScene() noexcept {
   s.selected=nullptr;s.scene_open=s.finished=false;
   s.frame_preflight_ready=false;
   s.packed_constants.clear();
+  s.source_timeline_active=false;
+  s.source_resolve_recorded=false;
+  s.source_present_recorded=false;
   s.requested_model=0;s.requested_surface=UINT32_MAX;s.surface_ready=false;
   s.constants_ready=s.program_ready=s.textures_ready=false;
 }

@@ -14,6 +14,10 @@ struct Backend final:ShaderBindingBackend {
   bool refuse_samplers=false,refuse_preflight=false;
   bool accept_original_timeline=false;
   std::vector<xdk::CommandKind> original_gpu_commands;
+  bool CanReplayOriginalXdkTimeline(const xdk::Frame& source) const override {
+    return accept_original_timeline &&
+           xdk::ValidateOriginalCommandTimeline(source);
+  }
   bool CanReplayOriginalXdkCommand(const xdk::RawCommand&) const override {
     return accept_original_timeline;
   }

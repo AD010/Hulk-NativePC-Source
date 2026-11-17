@@ -4,6 +4,7 @@
 #include "Texture.h"
 #include "TextureView.h"
 #include "RefCntAutoPtr.hpp"
+#include <cmath>
 #include <limits>
 #include <stdexcept>
 #include <utility>
@@ -145,6 +146,41 @@ bool DiligentSceneTargets::BeginScene() {
     state_->context->SetScissorRects(1,&clip,state_->physical.width,state_->physical.height);
     return true;
   } catch (...) {AbortScene();return false;}
+}
+bool DiligentSceneTargets::ClearVerifiedOriginalXdk(
+    const xdk::OriginalXdkClearF& source,native::Size guest) {
+  if(!state_ || !state_->prepared || !state_->bound ||
+     !state_->color || !state_->depth ||
+     !xdk::IsOriginalFullTargetClear(source,guest.width,guest.height))
+    return false;
+  if((source.flags&0x20u) &&
+     state_->formats.depth!=NativeDepthFormat::D24S8)
+    return false; // no stencil plane on an original D32Float depth RT
+  if((source.flags&1u)!=0)
+    for(const float channel:source.color)
+      if(!std::isfinite(channel))return false;
+  try {
+    if(source.flags&1u) {
+      auto* target=state_->color->GetDefaultView(
+          Diligent::TEXTURE_VIEW_RENDER_TARGET);
+      if(!target)return false;
+      state_->context->ClearRenderTarget(
+          target,source.color.data(),
+          Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+    }
+    if(source.flags&0x30u) {
+      auto* depth=state_->depth->GetDefaultView(
+          Diligent::TEXTURE_VIEW_DEPTH_STENCIL);
+      if(!depth)return false;
+      Diligent::CLEAR_DEPTH_STENCIL_FLAGS flags=Diligent::CLEAR_DEPTH_FLAG_NONE;
+      if(source.flags&0x10u)flags|=Diligent::CLEAR_DEPTH_FLAG;
+      if(source.flags&0x20u)flags|=Diligent::CLEAR_STENCIL_FLAG;
+      state_->context->ClearDepthStencil(
+          depth,flags,source.depth,source.stencil,
+          Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+    }
+    return true;
+  } catch (...) {return false;}
 }
 bool DiligentSceneTargets::ResolveScene() {
   if(!state_ || !state_->prepared || !state_->bound || !state_->color || !state_->resolved)return false;

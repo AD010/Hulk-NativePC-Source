@@ -272,7 +272,8 @@ void ReplayAotScene(const native::FrameGeometry& frame,
     const auto& source=*exact_original_timeline;
     if(!xdk::ValidateOriginalCommandTimeline(source) ||
        !captured_source || captured_frame!=source.sequence ||
-       source.calls.size()!=draws.size())
+       source.calls.size()!=draws.size() ||
+       !backend.CanReplayOriginalXdkTimeline(source))
       throw std::invalid_argument(
           "Incomplete original Xbox XDK command timeline for native GPU");
     for(const auto& event:source.commands)

@@ -34,6 +34,23 @@ struct OriginalXdkClearF {
   float depth=1.f;
   uint8_t stencil=0;
 };
+// Single-main-color/depth native Vulkan backend can clear a source RECT
+// only if the RECT spans the ENTIRE original output target. Partial clears
+// need a separate native scissored/quad implementation, not a guessed clear.
+inline bool IsOriginalFullTargetClear(
+    const OriginalXdkClearF& clear,uint32_t original_width,
+    uint32_t original_height) noexcept {
+  if(!original_width || !original_height ||
+     (clear.flags & ~0x31u)!=0 || (clear.flags & 0x31u)==0 ||
+     ((clear.flags&1u)!=0 && !clear.has_color) ||
+     ((clear.flags&0x10u)!=0 &&
+      (!std::isfinite(clear.depth) || clear.depth<0.f || clear.depth>1.f)))
+    return false;
+  if(!clear.has_rect)return true;
+  return clear.rect[0]==0 && clear.rect[1]==0 &&
+         clear.rect[2]==static_cast<int32_t>(original_width) &&
+         clear.rect[3]==static_cast<int32_t>(original_height);
+}
 std::optional<OriginalXdkClearF> CaptureOriginalXdkClearF(
     const std::array<uint32_t,8>& gpr,double depth_f1,
     ReadGuestBytes reader,void* guest_base) noexcept;

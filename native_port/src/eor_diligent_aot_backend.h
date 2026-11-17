@@ -111,6 +111,11 @@ class DiligentEorDirectBackend final : public aot::ShaderBindingBackend {
   std::size_t PrewarmResidentOriginalPipelines(std::size_t max_new);
   bool PreflightOriginalScene(
       std::span<const aot::BoundIndexedDraw> draws) override;
+  bool CanReplayOriginalXdkTimeline(const xdk::Frame& source) const override;
+  bool CanReplayOriginalXdkCommand(
+      const xdk::RawCommand& command) const override;
+  bool ReplayOriginalXdkCommand(
+      const xdk::RawCommand& command) override;
 
   bool BeginScene(native::Size world,uint32_t samples) override;
   void AbortScene() noexcept override;

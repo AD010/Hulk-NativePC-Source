@@ -46,6 +46,14 @@ int main() {
          original_clear->color[2]==0.75f &&
          original_clear->depth==0.625f &&
          original_clear->stencil==0x37u);
+  assert(IsOriginalFullTargetClear(*original_clear,1280,720));
+  assert(!IsOriginalFullTargetClear(*original_clear,1920,1080));
+  auto partial=*original_clear;
+  partial.rect[2]=640;
+  assert(!IsOriginalFullTargetClear(partial,1280,720));
+  partial=*original_clear;
+  partial.flags=0x02u; // native backend cannot assume RT1 is main RT0
+  assert(!IsOriginalFullTargetClear(partial,1280,720));
   auto invalid_args=clear_args;
   invalid_args[3]=0;
   assert(!CaptureOriginalXdkClearF(invalid_args,0.625,ReadFake,&guest));
