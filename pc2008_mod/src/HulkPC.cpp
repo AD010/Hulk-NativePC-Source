@@ -254,9 +254,29 @@ HRESULT STDMETHODCALLTYPE OnCreateDevice(IDirect3D9* api,UINT adapter,
 }
 HRESULT STDMETHODCALLTYPE OnReset(IDirect3DDevice9* dev,D3DPRESENT_PARAMETERS* pp) {
   if(!realReset)return D3DERR_INVALIDCALL;
+  // Apply the same opt-in fullscreen dimensions on Reset as CreateDevice.
+  // A lost device may be reset repeatedly (including when DXVK is in use).
+  // If the requested mode fails, retry the game's untouched parameters.
+  D3DPRESENT_PARAMETERS original{};
+  bool changed=false;
+  if(pp && width && height && !pp->Windowed) {
+    original=*pp;
+    changed=pp->BackBufferWidth!=width || pp->BackBufferHeight!=height;
+    if(changed) {
+      pp->BackBufferWidth=width;
+      pp->BackBufferHeight=height;
+    }
+  }
   // A failed Reset leaves the old device state in place. Invalidate the
   // tracked shader only after a successful reset, not before the call.
-  const HRESULT hr=realReset(dev,pp);
+  const HRESULT firstHr=realReset(dev,pp);
+  HRESULT hr=firstHr;
+  if(FAILED(hr) && changed) {
+    *pp=original;
+    hr=realReset(dev,pp);
+    Log("[D3D9] Reset forced mode failed hr=0x%08lX; original retry hr=0x%08lX\\r\\n",
+        (unsigned long)(unsigned int)firstHr,(unsigned long)(unsigned int)hr);
+  }
   if(SUCCEEDED(hr)) {
     std::lock_guard lock(shaderMutex);
     activeVS=nullptr;
