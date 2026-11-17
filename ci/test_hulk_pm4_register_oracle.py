@@ -31,8 +31,14 @@ class PM4OracleTests(unittest.TestCase):
     def test_type0_and_indirect_fail_closed(self):
         t0 = [(1 << 16) | 0x2000, 0x1234, 0x5678]
         r = replay(t0 + t3(0x3f, [0x2000, 1]) + t3(0x36, [0x40]))
-        self.assertEqual(r['draw_snapshots'][0]['known_watched_registers']['0x2001'], '0x00005678')
+        # The indirect buffer can replace EVERY watched GPU register.
+        # Previously this stale expectation contradicted the oracle's
+        # fail-closed semantics and the separate indirect-invalidates test.
+        snapshot = r['draw_snapshots'][0]
+        self.assertNotIn('0x2001', snapshot['known_watched_registers'])
+        self.assertIn('0x2001', snapshot['unresolved_watched_registers'])
         self.assertFalse(r['complete'])
+        self.assertEqual(r['packet_counters']['type0'], 1)
         self.assertEqual(r['packet_counters']['indirect_packets'], 1)
 
     def test_indirect_invalidates_prior_registers_and_shader_identity(self):
