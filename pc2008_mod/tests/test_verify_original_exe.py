@@ -112,6 +112,28 @@ class OriginalExeVerificationTests(unittest.TestCase):
             self.assertTrue(ok, errors)
             self.assertEqual(len(opened), 1, "hash and PE parse must use one file handle")
 
+    def test_detects_in_place_mutation_during_hashing(self):
+        # Simulate an adversarial/inadvertent rewrite between hashing and
+        # PE parsing. The preflight must not accept the mutated file.
+        payload = synthetic_pe()
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "HULK.EXE"
+            path.write_bytes(payload)
+            original_digest = hashlib.sha256(payload).hexdigest()
+            real_digest = hashlib.file_digest
+
+            # Simulate a concurrent writer using a separate descriptor.\n            def external_mutation(stream, algorithm):
+                result = real_digest(stream, algorithm)
+                with path.open("ab") as writer:
+                    writer.write(b"X")
+                return result
+
+            with patch.object(verifier, "EXPECTED_SHA256", original_digest):
+                with patch.object(verifier.hashlib, "file_digest", external_mutation):
+                    ok, errors = verifier.verify(path)
+            self.assertFalse(ok)
+            self.assertTrue(any("changed during verification" in e for e in errors))
+
     def test_missing_path(self):
         with tempfile.TemporaryDirectory() as directory:
             ok, errors = verifier.verify(Path(directory) / "missing.exe")
