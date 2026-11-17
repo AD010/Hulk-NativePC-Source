@@ -72,6 +72,11 @@ void LoadConfig() {
     wchar_t* slash=wcsrchr(path,L'\\');
     if(!slash)return;
     *(slash+1)=0;
+    // GetModuleFileNameW can return a path almost MAX_PATH characters long.
+    // Both destination buffers must fit the longer log filename; otherwise
+    // wcscat_s invokes the MSVC invalid-parameter handler inside the game.
+    constexpr size_t kLogNameChars = sizeof(L"HulkPC_ASI.log") / sizeof(wchar_t);
+    if(wcslen(path) > MAX_PATH - kLogNameChars) return;
     wcscpy_s(ini,path);wcscat_s(ini,L"HulkPC.ini");
     wcscpy_s(logFile,path);wcscat_s(logFile,L"HulkPC_ASI.log");
     fixAspect=GetPrivateProfileIntW(L"Graphics",L"EnableExperimentalViewProj16x10",0,ini)==1;
