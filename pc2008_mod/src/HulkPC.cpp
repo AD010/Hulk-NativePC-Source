@@ -68,7 +68,11 @@ bool OriginalHulk() noexcept {
 void LoadConfig() {
   std::call_once(configOnce, [] {
     wchar_t path[MAX_PATH]{};
-    if(!GetModuleFileNameW(nullptr,path,MAX_PATH))return;
+    const DWORD pathLength=GetModuleFileNameW(nullptr,path,MAX_PATH);
+    // A truncated executable path must never be treated as an install directory.
+    // GetModuleFileNameW reports nSize on truncation; a suffix could otherwise
+    // resolve to an unrelated HulkPC.ini or log path.
+    if(!pathLength || pathLength>=MAX_PATH)return;
     wchar_t* slash=wcsrchr(path,L'\\');
     if(!slash)return;
     *(slash+1)=0;
