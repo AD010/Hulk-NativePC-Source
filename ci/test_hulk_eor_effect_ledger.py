@@ -38,6 +38,25 @@ class EorPassLedgerTests(unittest.TestCase):
             self.assertEqual(data[16+8:16+40],bytes.fromhex(entries[0]['sha256']))
             self.assertEqual(data[16+40:16+72],bytes.fromhex(entries[2]['sha256']))
             original=data
+            # Identical source VS reused by another effect must not force a
+            # second compiled Vulkan module; the ordinal pass still exists.
+            shared=[dict(row) for row in entries]
+            shared[4]['sha256']=entries[0]['sha256']
+            save(shared)
+            result=generate(manifest,out,src)
+            self.assertEqual(result['ordinal_pair_candidates'],3)
+            shared_output=out.read_bytes()
+            self.assertEqual(shared_output[16+2*72+8:16+2*72+40],
+                             bytes.fromhex(entries[0]['sha256']))
+            # A single original container SHA cannot change from VS to PS.
+            conflicting=[dict(row) for row in entries]
+            conflicting[5]['sha256']=entries[0]['sha256']
+            save(conflicting)
+            with self.assertRaises(ValueError):generate(manifest,out,src)
+            self.assertEqual(out.read_bytes(),shared_output)
+            save(entries)
+            result=generate(manifest,out,src)
+            self.assertEqual(out.read_bytes(),original)
             save(entries[:-1])
             with self.assertRaises(ValueError):generate(manifest,out,src)
             self.assertEqual(out.read_bytes(),original)
