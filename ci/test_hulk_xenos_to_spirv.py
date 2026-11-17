@@ -57,6 +57,7 @@ class OfflineShaderTests(unittest.TestCase):
 import pathlib,sys,struct
 args=sys.argv[1:]
 if '-Fo' in args:
+    pathlib.Path(__file__).with_suffix('.dxc_args').write_text(' '.join(args))
     stage='VS' if 'vs_6_0' in args else 'PS'
     words=[0x07230203,0x10500,0,12,0,0x20011,1,0x3000e,0,1,0x5000f,
            0 if stage=='VS' else 4,1,0x6e69616d,0]
@@ -81,6 +82,9 @@ elif '--target-env' not in args:
                                           repo_root=folder / 'public')
             self.assertEqual(result['source_shaders'], 2)
             self.assertEqual(result['compiled'], 2)
+            flags = script.with_suffix('.dxc_args').read_text()
+            self.assertIn('-fspv-reflect', flags)
+            self.assertNotIn('-Qstrip_debug', flags)
             self.assertFalse(result['runtime_material_binding_verified'])
             self.assertEqual(ADAPTER_MARKER, 'HULK_EOR_XENOSRECOMP_STRICT_LOD2D_V1')
             self.assertEqual(GRADIENT_ADAPTER_MARKER, 'HULK_EOR_XENOSRECOMP_GRAD2D_V1')
