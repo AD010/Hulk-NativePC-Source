@@ -15,6 +15,7 @@
 #include <functional>
 #include <map>
 #include <memory>
+#include <span>
 #include <vector>
 
 namespace Diligent {
@@ -77,7 +78,9 @@ class DiligentEorDirectBackend final : public aot::ShaderBindingBackend {
       const aot::ReflectedShader&,const aot::ReflectedShader&,
       const native::IndexedDraw&,
       const aot::OriginalDrawVsMatrices&,
-      const xdk::OriginalShaderRegisters&)>;
+      const xdk::OriginalShaderRegisters&,
+      std::span<const float> packed_vs,
+      std::span<const float> packed_ps)>;
   using CompositeOutput = std::function<bool(
       Diligent::ITextureView*,
       native::Rect,native::Size)>;

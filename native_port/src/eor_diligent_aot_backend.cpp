@@ -160,6 +160,13 @@ struct DiligentEorDirectBackend::State {
   // Each original pass owns a unique mutable Vulkan descriptor binding.
   std::map<MaterialKey,Diligent::RefCntAutoPtr<Diligent::IShaderResourceBinding>>
       material_bindings;
+  // Per actual guest frame/ordinal, with no shader remapping or inter-Draw
+  // state inheritance. Only source-proven translator-used floats are packed.
+  using DrawKey=std::pair<uint64_t,uint32_t>;
+  struct PackedConstants {
+    std::vector<float> vertex,pixel;
+  };
+  std::map<DrawKey,PackedConstants> packed_constants;
   bool frame_preflight_ready=false;
   bool scene_open=false,constants_ready=false,program_ready=false;
   bool textures_ready=false,finished=false;
@@ -328,7 +335,9 @@ bool DiligentEorDirectBackend::PreflightOriginalScene(
     std::span<const aot::BoundIndexedDraw> draws) {
   auto& s=*state_;
   s.frame_preflight_ready=false;
+  s.packed_constants.clear();
   if(s.scene_open || draws.empty())return false;
+  std::map<State::DrawKey,State::PackedConstants> prepared_constants;
   std::set<State::MaterialKey> needed_materials;
   std::set<std::pair<uint64_t,uint32_t>> captured_calls;
   uint64_t captured_frame=0;
@@ -374,6 +383,27 @@ bool DiligentEorDirectBackend::PreflightOriginalScene(
        selected->pipeline.original_pixel_shader_sha256!=item.pixel_source_sha256 ||
        selected->original_textures.size()!=item.original_samplers.size())
       return false;
+    if(!d.source_frame || !d.guest_shader_constants ||
+       !selected->pipeline.original_vs_float_layout ||
+       !selected->pipeline.original_ps_float_layout)
+      return false;
+    // Pack both stages BEFORE rendering. The shader's own verified register
+    // bitmap determines the exact compacted XeFloatConstants vec4 stream;
+    // never use a stale uniform buffer or a guessed float count.
+    try {
+      State::PackedConstants packed;
+      packed.vertex=aot::PackOriginalXdkFloatConstants(
+          *d.guest_shader_constants,
+          *selected->pipeline.original_vs_float_layout,
+          aot::Stage::Vertex,item.vertex_source_sha256);
+      packed.pixel=aot::PackOriginalXdkFloatConstants(
+          *d.guest_shader_constants,
+          *selected->pipeline.original_ps_float_layout,
+          aot::Stage::Pixel,item.pixel_source_sha256);
+      if(!prepared_constants.emplace(State::DrawKey{d.source_frame,
+                        d.source_ordinal},std::move(packed)).second)
+        return false;
+    } catch (...) {return false;}
     for(const auto& sampler:item.original_samplers) {
       unsigned matches=0;
       for(const auto& owned:selected->original_textures)
@@ -443,6 +473,7 @@ bool DiligentEorDirectBackend::PreflightOriginalScene(
       s.material_bindings.emplace(key,std::move(binding));
     }
   } catch (...) {return false;}
+  s.packed_constants=std::move(prepared_constants);
   s.frame_preflight_ready=true;
   return true;
 }
@@ -466,6 +497,7 @@ void DiligentEorDirectBackend::AbortScene() noexcept {
   s.active={};
   s.selected=nullptr;s.scene_open=s.finished=false;
   s.frame_preflight_ready=false;
+  s.packed_constants.clear();
   s.requested_model=0;s.requested_surface=UINT32_MAX;s.surface_ready=false;
   s.constants_ready=s.program_ready=s.textures_ready=false;
 }
@@ -632,9 +664,13 @@ bool DiligentEorDirectBackend::DrawIndexed(const native::IndexedDraw& draw) {
     // verified values for this exact frame/call before touching GPU state.
     // Shader-specific SPIR-V UBO layouts are an independent provenance gate.
     const auto matrices=aot::ExtractOriginalDrawVsMatrices(s.vertex,draw);
+    const auto packed=s.packed_constants.find({
+        draw.source_frame,draw.source_ordinal});
     if(!matrices || !draw.guest_shader_constants ||
+       packed==s.packed_constants.end() ||
        !s.bind_constants(s.active.bindings.RawPtr(),s.vertex,s.pixel,
-                         draw,*matrices,*draw.guest_shader_constants)) {
+                         draw,*matrices,*draw.guest_shader_constants,
+                         packed->second.vertex,packed->second.pixel)) {
       // Never permit a later draw to reuse constants from an earlier draw
       // after a partially failed host constant-buffer update.
       s.constants_ready=false;

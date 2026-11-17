@@ -2,11 +2,13 @@
 // Direct host Vulkan PSO for a VERIFIED EoR material effect. Xenos PM4, EDRAM,
 // guest register snapshots and speculative shader states are not consulted.
 #include "eor_diligent_spirv_shaders.h"
+#include "eor_native_shader_constants.h"
 #include "eor_effect_catalog.h"
 #include "PipelineState.h"
 #include "ShaderResourceBinding.h"
 #include "RefCntAutoPtr.hpp"
 #include <cstdint>
+#include <optional>
 #include <vector>
 namespace Diligent {
 struct IRenderDevice;
@@ -21,6 +23,11 @@ struct VerifiedOriginalGraphicsPass {
   aot::Digest original_pixel_shader_sha256{};
   Diligent::GraphicsPipelineDesc exact_render_state{};
   std::vector<Diligent::LayoutElement> exact_host_input_layout;
+  // These maps MUST be sourced from the exact analyzed Xenos VS/PS ucode
+  // and its translated SPIR-V XeFloatConstants layout, not inferred from
+  // the camera matrix names or the ShaderEffects pass ID.
+  std::optional<aot::VerifiedOriginalFloatLayout> original_vs_float_layout;
+  std::optional<aot::VerifiedOriginalFloatLayout> original_ps_float_layout;
   bool material_pass_verified=false;
   bool original_render_state_verified=false;
   bool original_host_vertex_layout_verified=false;
