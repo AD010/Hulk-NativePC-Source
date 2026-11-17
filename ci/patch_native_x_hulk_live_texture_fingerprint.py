@@ -211,27 +211,50 @@ DRAW_BIND_NEW = """  // HULK/ACTIVE-SHADER-RESOURCE: actual NativeX shader-view 
   ++record_.counts[std::min<uint32_t>(kept.value.kind, 3)];
   return kept.value.view;"""
 
+# BF965/D127 pre-D140 sources do not carry D140's per-Draw count. The
+# *single source-only patch-chain preflight* intentionally tests them first.
+# Select by exact observed source shape, not by a permissive partial match.
+DRAW_BIND_OLD_LEGACY = """  Count(kept.value.kind);
+  return kept.value.view;"""
+DRAW_BIND_NEW_LEGACY = DRAW_BIND_NEW.replace(
+    "  ++record_.counts[std::min<uint32_t>(kept.value.kind, 3)];\n", "")
+
 def patch_draw(src: str) -> tuple[str, bool]:
     # A partial installation is unsafe: the CVar must resolve uniquely and
     # the cached draw path must remain unchanged outside this observer.
     pairs = (("includes", DRAW_INCLUDES_OLD, DRAW_INCLUDES_NEW),
              ("logging", DRAW_LOGGING_OLD, DRAW_LOGGING_NEW),
-             ("cvar", DRAW_CVAR_OLD, DRAW_CVAR_NEW),
-             ("shader binding", DRAW_BIND_OLD, DRAW_BIND_NEW))
+             ("cvar", DRAW_CVAR_OLD, DRAW_CVAR_NEW))
+    has_d140 = DRAW_BIND_OLD in src
+    has_legacy = DRAW_BIND_OLD_LEGACY in src
+    if has_d140 == has_legacy:
+        # A source with two binding sites must never receive a guessed hook.
+        if "HULK/ACTIVE-SHADER-RESOURCE" not in src:
+            raise ValueError("Ambiguous NativeX source Draw binding")
+    old, new = ((DRAW_BIND_OLD, DRAW_BIND_NEW) if has_d140 else
+                (DRAW_BIND_OLD_LEGACY, DRAW_BIND_NEW_LEGACY))
     if "HULK/ACTIVE-SHADER-RESOURCE" in src:
-        if (src.count(DRAW_BIND_NEW) != 1 or
-            src.count(DRAW_BIND_OLD) != 1 or
-            src.count(DRAW_CVAR_NEW) != 1 or
-            src.count(DRAW_INCLUDES_NEW) != 1 or
-            src.count(DRAW_LOGGING_NEW) != 1):
+        complete = (src.count(DRAW_BIND_NEW) == 1 or
+                    src.count(DRAW_BIND_NEW_LEGACY) == 1)
+        if not complete or (src.count(DRAW_CVAR_NEW) != 1 or
+                            src.count(DRAW_INCLUDES_NEW) != 1 or
+                            src.count(DRAW_LOGGING_NEW) != 1 or
+                            src.count("HULK/ACTIVE-SHADER-RESOURCE") != 1):
             raise ValueError("Partially installed shader resource witness")
+        # The anchored original return block is still expected once *inside*
+        # the new witness; an extra unpatched block must be rejected.
+        if (DRAW_BIND_NEW in src and src.count(DRAW_BIND_OLD) != 1 or
+            DRAW_BIND_NEW_LEGACY in src and src.count(DRAW_BIND_OLD_LEGACY) != 1):
+            raise ValueError("Duplicated original shader view binding")
         return src, False
     for name, before, after in pairs:
         if src.count(before) != 1 or after in src:
-            raise ValueError(f"NativeX D140 active Draw {name} anchor drift")
+            raise ValueError(f"NativeX shader view {name} anchor drift")
+    if src.count(old) != 1:
+        raise ValueError("NativeX original shader resource return ABI changed")
     for _, before, after in pairs:
         src = src.replace(before, after, 1)
-    return src, True
+    return src.replace(old, new, 1), True
 
 def main() -> None:
     if len(sys.argv)!=2:
