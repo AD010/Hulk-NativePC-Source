@@ -13,6 +13,25 @@ int main() {
   assert(first.calls.size()==2 && first.calls[0].function==0x8288E318u);
   assert(first.calls[1].gpr[7]==11);
   assert(first.calls[0].lr==0x8263BF50u);
+  // Exact original XDK PPC signature: r3=device, r4=primitive,
+  // r5=signed base vertex, r6=start index, r7=index count.
+  RawDraw live{Kind::DrawIndexedVertices,0x8288E318u,0x8263BF50u,
+               {0x40002880u,4u,0xFFFFFFFEu,12u,6u,0u,0u,0u}};
+  const auto typed=DecodeOriginalIndexedXdkCall(live);
+  assert(typed && typed->guest_device==0x40002880u &&
+         typed->primitive==4u && typed->base_vertex==-2 &&
+         typed->first_index==12 && typed->index_count==6);
+  live.kind=Kind::DrawVertices;
+  assert(!DecodeOriginalIndexedXdkCall(live));
+  live.kind=Kind::DrawIndexedVertices;
+  live.function=0x8288DF30u;
+  assert(!DecodeOriginalIndexedXdkCall(live));
+  live.function=0x8288E318u;
+  live.gpr[3]=UINT32_MAX;
+  assert(!DecodeOriginalIndexedXdkCall(live));
+  live.gpr[3]=12u;
+  live.gpr[4]=0;
+  assert(!DecodeOriginalIndexedXdkCall(live));
   assert(capture.Finish().sequence==2);
   assert(capture.Finish().calls.empty());
   for(size_t i=0;i<FrameCapture::kMaxDraws+3;++i)capture.Record(a);

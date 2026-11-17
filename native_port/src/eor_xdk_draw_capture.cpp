@@ -1,8 +1,22 @@
 #include "eor_xdk_draw_capture.h"
+#include <bit>
 #include <stdexcept>
 #include <algorithm>
 
 namespace hulk::eor::xdk {
+std::optional<IndexedXdkCall> DecodeOriginalIndexedXdkCall(const RawDraw& call) {
+  // Method 0x8288E318 is the exact SHA-pinned USA XDK DrawIndexedVertices
+  // implementation; the other r8-r10 fields are caller-volatiles, NOT
+  // additional method parameters. Do not treat raw r3 as a Vulkan handle.
+  if(call.kind!=Kind::DrawIndexedVertices || call.function!=0x8288E318u ||
+     !call.gpr[0] || !call.gpr[1] || !call.gpr[4] ||
+     call.lr<0x82000000u || call.lr>=0x84000000u || (call.lr&3u) ||
+     uint64_t(call.gpr[3])+call.gpr[4]>UINT32_MAX)
+    return std::nullopt;
+  return IndexedXdkCall{call.function,call.lr,call.gpr[0],call.gpr[1],
+                        call.gpr[3],call.gpr[4],
+                        std::bit_cast<int32_t>(call.gpr[2])};
+}
 void FrameCapture::Record(const RawDraw& call) {
   if (!call.function) throw std::invalid_argument("Missing verified XDK address");
   if (calls_.size() >= kMaxDraws) {

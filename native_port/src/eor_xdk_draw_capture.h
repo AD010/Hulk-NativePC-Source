@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <vector>
 #include <map>
+#include <optional>
 #include <span>
 #include <tuple>
 
@@ -16,6 +17,16 @@ struct RawDraw {
   uint32_t function = 0, lr = 0;
   std::array<uint32_t, 8> gpr{}; // r3..r10, still UNINTERPRETED PPC arguments.
 };
+// Verified USA XDK 2.0.6534 method ABI from the original wrapper:
+// DrawIndexedVertices(dev, prim, baseVertex, startIndex, indexCount).
+// The primitive enum and guest buffer ownership remain real game state,
+// NOT host Vulkan layout or model identity.
+struct IndexedXdkCall {
+  uint32_t xdk_function=0, caller_lr=0, guest_device=0;
+  uint32_t primitive=0, first_index=0, index_count=0;
+  int32_t base_vertex=0;
+};
+std::optional<IndexedXdkCall> DecodeOriginalIndexedXdkCall(const RawDraw& call);
 struct Frame {
   uint64_t sequence = 0;
   uint32_t dropped = 0;
