@@ -14,10 +14,77 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import struct
 import tempfile
+import zlib
 
 MAGIC = b'HEORMAT2'
+PDB_NAME = re.compile(rb'([A-Za-z0-9_]+_[vf]p\.updb)')
+
+
+def _effect_names(manifest: Path, records: list[dict]) -> dict[int, str]:
+    """Verify actual original effect names by source file digest and EoR CRC32.
+
+    This metadata is never serialized into the public repository. A source
+    archive absent from a synthetic ledger cannot assert PDB technique proof.
+    """
+    found: dict[int, str] = {}
+    for row in records:
+        key, digest, size = row.get('hash'), row.get('sha256'), row.get('bytes')
+        if (not isinstance(key, int) or not 0 < key <= 0xffffffff or
+                not isinstance(digest, str) or len(digest) != 64 or
+                any(c not in '0123456789abcdef' for c in digest) or
+                not isinstance(size, int) or size < 20 or size > (2 << 20) or
+                row.get('private_file') != f'{key}.effect.bin' or
+                key in found):
+            raise ValueError('Invalid original effect source identity')
+        payload = (manifest.parent / row['private_file']).read_bytes()
+        if len(payload) != size or hashlib.sha256(payload).hexdigest() != digest:
+            raise ValueError('Original ShaderEffect source record digest mismatch')
+        end = payload.find(b'\0', 0, 129)
+        if end < 1:
+            raise ValueError('Original ShaderEffect name is unbounded')
+        try:
+            name = payload[:end].decode('ascii')
+        except UnicodeDecodeError as exc:
+            raise ValueError('Non-ASCII source effect name') from exc
+        if (not re.fullmatch(r'[A-Za-z][A-Za-z0-9_]*', name) or
+                (zlib.crc32(name.upper().encode('ascii')) & 0xffffffff) != key):
+            raise ValueError('Original EoR ShaderEffect name/hash mismatch')
+        found[key] = name
+    return found
+
+
+def _shader_technique(blob: bytes, stage: str, effect_name: str) -> str:
+    """Resolve exactly one original XDK debug program's technique by name.
+
+    An ordered VS/PS pair must belong to the SAME authored technique.
+    Merely zipping all VS then all PS is insufficient material evidence.
+    """
+    if len(blob) < 68:
+        raise ValueError('Original shader container too short for debug identity')
+    fields = struct.unpack_from('>9I', blob)
+    flags, virtual, physical = fields[:3]
+    if ((flags & 0xffffff00) != 0x102a1100 or
+            ('VS' if flags & 1 else 'PS') != stage or
+            virtual < 36 or physical == 0 or virtual + physical != len(blob)):
+        raise ValueError('Invalid original Xenos stage/length for technique')
+    candidates = [m.group(1).decode('ascii')
+                  for m in PDB_NAME.finditer(blob[36:virtual])]
+    if len(candidates) != 1:
+        raise ValueError('Missing or ambiguous original shader debug technique')
+    name = candidates[0]
+    suffix = '_vp.updb' if stage == 'VS' else '_fp.updb'
+    prefix = effect_name + '_'
+    if not name.startswith(prefix) or not name.endswith(suffix):
+        raise ValueError('Original shader program belongs to a different EoR effect/stage')
+    tail = name[len(prefix):-len(suffix)]
+    technique, sep, shader = tail.partition('_')
+    if not sep or not technique or not shader:
+        raise ValueError('Missing original authored shader technique/program')
+    return technique
+
 
 def generate(manifest: Path, destination: Path, source_root: Path) -> dict:
     manifest = manifest.resolve()
@@ -30,7 +97,14 @@ def generate(manifest: Path, destination: Path, source_root: Path) -> dict:
     if (info.get('bank_version') != 1 or info.get('platform') != 'Xbox360' or
             not isinstance(entries, list) or not 0 < len(entries) <= 16384):
         raise ValueError("Unverified original EoR effect manifest")
-    shader_stages: dict[int, dict[str, list[tuple[int, bytes]]]] = defaultdict(
+    # Real extracted manifests always include independently source-hashed
+    # effect records. Synthetic callers without records retain candidate
+    # pairing, but cannot claim that techniques were independently proved.
+    records = info.get('records')
+    if records is not None and not isinstance(records, list):
+        raise ValueError('Malformed original ShaderEffects source record ledger')
+    effect_names = _effect_names(manifest, records) if records is not None else {}
+    shader_stages: dict[int, dict[str, list[tuple[int, bytes, str | None]]]] = defaultdict(
         lambda: {'VS': [], 'PS': []})
     # Original shader containers may be repeated at several effect/pass
     # locations. Reuse a SINGLE AOT module for the same source SHA/stage.
@@ -52,8 +126,14 @@ def generate(manifest: Path, destination: Path, source_root: Path) -> dict:
         if (len(blob) != row['bytes'] or len(blob) > 8 << 20 or
                 hashlib.sha256(blob).hexdigest() != identity):
             raise ValueError("Private original Xenos shader container changed")
-        shader_stages[effect][stage].append((relative_offset, bytes.fromhex(identity)))
+        if records is not None and effect not in effect_names:
+            raise ValueError('Original ShaderEffect record for shader is missing')
+        technique = (_shader_technique(blob, stage, effect_names[effect])
+                     if records is not None else None)
+        shader_stages[effect][stage].append(
+            (relative_offset, bytes.fromhex(identity), technique))
     pairs = []
+    proven_techniques = 0
     for effect, stages in shader_stages.items():
         vertex = sorted(stages['VS'])
         pixel = sorted(stages['PS'])
@@ -63,7 +143,12 @@ def generate(manifest: Path, destination: Path, source_root: Path) -> dict:
             raise ValueError("Duplicate original EoR effect shader offset")
         if vertex[-1][0] >= pixel[0][0]:
             raise ValueError("EoR VS/PS archive grouping is not as verified")
-        for ordinal, ((_, vs), (_, ps)) in enumerate(zip(vertex, pixel)):
+        for ordinal, ((_, vs, vs_name), (_, ps, ps_name)) in enumerate(
+                zip(vertex, pixel)):
+            if records is not None:
+                if not vs_name or vs_name != ps_name:
+                    raise ValueError('Original EoR VS/PS source technique names do not match')
+                proven_techniques += 1
             pairs.append((effect, ordinal, vs, ps))
     pairs.sort()
     if len(pairs) * 2 != len(entries):
@@ -90,6 +175,7 @@ def generate(manifest: Path, destination: Path, source_root: Path) -> dict:
             'ordinal_pair_candidates': len(pairs),
             'original_shader_containers': len(entries),
             'all_runtime_passes_verified': False,
+            'source_pdb_technique_pairs_verified': proven_techniques,
             'sha256': hashlib.sha256(output).hexdigest()}
 
 def main():
