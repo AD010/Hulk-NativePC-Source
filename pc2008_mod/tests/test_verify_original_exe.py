@@ -95,6 +95,23 @@ class OriginalExeVerificationTests(unittest.TestCase):
         self.assertFalse(ok)
         self.assertTrue(any("section table" in e for e in errors))
 
+    def test_verifier_opens_executable_only_once(self):
+        payload = synthetic_pe()
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "HULK.EXE"
+            path.write_bytes(payload)
+            real_open = Path.open
+            opened = []
+            def tracked_open(self, *args, **kwargs):
+                if self == path:
+                    opened.append(1)
+                return real_open(self, *args, **kwargs)
+            with patch.object(verifier, "EXPECTED_SHA256", hashlib.sha256(payload).hexdigest()):
+                with patch.object(Path, "open", tracked_open):
+                    ok, errors = verifier.verify(path)
+            self.assertTrue(ok, errors)
+            self.assertEqual(len(opened), 1, "hash and PE parse must use one file handle")
+
     def test_missing_path(self):
         with tempfile.TemporaryDirectory() as directory:
             ok, errors = verifier.verify(Path(directory) / "missing.exe")
