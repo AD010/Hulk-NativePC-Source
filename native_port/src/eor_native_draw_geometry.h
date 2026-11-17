@@ -8,8 +8,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <span>
-#include <string_view>
-#include <vector>
+#include <string>
 #include <vector>
 
 namespace hulk::eor::native {
@@ -17,7 +16,9 @@ struct VerifiedDrawSource {
   uint32_t original_model_hash = 0;
   size_t original_mesh_header_offset = 0;
   uint32_t original_surface_ordinal = UINT32_MAX;
-  std::string_view original_surface_name;
+  // Own the material name: live XDK snapshots and Vulkan submissions can
+  // outlive the source model catalogue's temporary string storage.
+  std::string original_surface_name;
   uint32_t original_effect_hash = 0;
   uint32_t original_pass_index = UINT32_MAX;
   aot::Digest vertex_source_sha256{};

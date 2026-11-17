@@ -60,6 +60,12 @@ int main(){
   original.original_model_hash=0xCAFE;
   original.original_mesh_header_offset=40;
   original.original_surface_ordinal=0;original.original_surface_name="brick";
+  {
+    std::string transient_name="brick";
+    original.original_surface_name=transient_name;
+    transient_name.assign("not_the_original_material");
+    assert(original.original_surface_name=="brick");
+  }
   original.original_effect_hash=0x1234;original.original_pass_index=0;
   original.vertex_source_sha256.fill(0x11);original.pixel_source_sha256.fill(0x22);
   original.vertex_shader_id=101;original.pixel_shader_id=202;
