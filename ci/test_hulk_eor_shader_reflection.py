@@ -52,6 +52,24 @@ class EorShaderReflectionTests(unittest.TestCase):
             self.assertEqual(result['original_matrix_bindings']['ViewProj'],1)
             self.assertFalse(result['camera_abi_verified'])
             saved=data
+            # Several EoR material passes may reuse the same shader source.
+            # Reflection is keyed by unique SHA/stage and emitted just once.
+            repeated=inputs + [dict(inputs[0])]
+            manifest.write_text(json.dumps({'bank_version':1,
+                                            'platform':'Xbox360',
+                                            'shader_containers':repeated}))
+            same=generate(manifest,file,src)
+            self.assertEqual(same['shaders'],2)
+            self.assertEqual(same['original_matrix_bindings']['ViewProj'],1)
+            self.assertEqual(file.read_bytes(),saved)
+            conflict=dict(inputs[0]); conflict['stage']='PS'
+            manifest.write_text(json.dumps({'bank_version':1,
+                                            'platform':'Xbox360',
+                                            'shader_containers':inputs+[conflict]}))
+            with self.assertRaises(ValueError):generate(manifest,file,src)
+            manifest.write_text(json.dumps({'bank_version':1,
+                                            'platform':'Xbox360',
+                                            'shader_containers':inputs}))
             (dest/'Xenos'/(inputs[0]['sha256']+'.xenos.bin')).write_bytes(b'corrupted')
             with self.assertRaises(ValueError):generate(manifest,file,src)
             self.assertEqual(file.read_bytes(),saved)
