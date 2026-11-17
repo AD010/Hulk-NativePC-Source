@@ -22,6 +22,10 @@ struct IShaderResourceBinding;
 }
 namespace hulk::eor::gpu {
 struct NativeEorPassResources {
+  // Original EoR material owner, not only a shared shader/effect pass.
+  // Two surfaces may use identical shaders with DIFFERENT albedo/normal SRVs.
+  uint32_t original_model_hash=0;
+  uint32_t original_surface_ordinal=UINT32_MAX;
   VerifiedOriginalGraphicsPass pipeline;
   std::vector<OriginalDiligentSampler> original_textures;
 };
