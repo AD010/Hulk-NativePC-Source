@@ -4,6 +4,12 @@ on:
   # builds on source edits. Keep this single Release-only workflow available
   # for an explicit final validation through GitHub Actions.
   workflow_dispatch:
+  # ONE-SHOT OWNER-AUTHORIZED BUILD 2026-11-17; this is removed as
+  # soon as the single source-only trigger commit is dispatched.
+  push:
+    branches: [main]
+    paths:
+      - '.hulk-release-one-shot-20261117'
 permissions:
   contents: write
 concurrency:
