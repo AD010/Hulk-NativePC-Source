@@ -234,6 +234,18 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Native EoR fixed-clock and motion vectors failed MSVC compilation' }
           & $temporalTest
           if ($LASTEXITCODE -ne 0) { throw 'EoR fixed timestep/temporal history regression failed' }
+          # Stage-specific real USA shader float c0-c255 constant packing.
+          # This matches the source translator's compacted float bitmap,
+          # never an invented Vulkan UBO binding or cached per-pass matrix.
+          $shaderFloats = Join-Path $env:RUNNER_TEMP 'hulk-eor-original-shader-floats-test.exe'
+          $shaderFloatArgs = @('/nologo','/std:c++20','/EHsc','/W4','/WX','/utf-8',
+                               "/Fe:$shaderFloats",
+                               'native_port/src/eor_native_shader_constants.cpp',
+                               'ci/eor_native_shader_constants_test.cpp')
+          & cl.exe @shaderFloatArgs
+          if ($LASTEXITCODE -ne 0) { throw 'Original EoR VS/PS constant packing failed MSVC compilation' }
+          & $shaderFloats
+          if ($LASTEXITCODE -ne 0) { throw 'Original EoR translated constant register packing regression failed' }
           # Real USA XDK call provenance observer (no guest writes, no GPU redirection).
           python ci/test_gen_native_x_hooks_probe.py
           if ($LASTEXITCODE -ne 0) { throw 'Hulk verified XDK wrapper generator regression failed' }
