@@ -16,6 +16,7 @@ import re
 import struct
 import subprocess
 import tempfile
+from hulk_spirv_resource_contract import validate_named_spirv_images
 
 SHA = re.compile(r"^[0-9a-f]{64}$")
 MAX_INPUT = 2 << 20
@@ -113,7 +114,7 @@ def compile_bank(bank: Path, out: Path, xenos: Path, dxc: Path, common: Path,
                 raise RuntimeError(f"XenosRecomp exit={translate.returncode}")
             cmd = [str(dxc), str(hlsl), "-T", ("vs_6_0" if stage == "VS" else "ps_6_0"),
                    "-HV", "2021", "-all-resources-bound", "-spirv",
-                   "-fvk-use-dx-layout", "-Qstrip_debug", "-Fo", str(spv)]
+                   "-fvk-use-dx-layout", "-fspv-reflect", "-Fo", str(spv)]
             if stage == "VS":
                 cmd.append("-fvk-invert-y")
             result = subprocess.run(cmd, capture_output=True, timeout=120, check=False)
@@ -121,6 +122,7 @@ def compile_bank(bank: Path, out: Path, xenos: Path, dxc: Path, common: Path,
                 raise RuntimeError(f"DXC SPIR-V exit={result.returncode}")
             code = spv.read_bytes()
             _check_spirv(code)
+            validate_named_spirv_images(code)
             return ({"source_sha256": sha, "stage": stage,
                      "source_effect": row["effect"],
                      "spirv_sha256": hashlib.sha256(code).hexdigest(),
