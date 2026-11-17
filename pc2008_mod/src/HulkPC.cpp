@@ -305,9 +305,30 @@ HRESULT STDMETHODCALLTYPE OnPresent(IDirect3DDevice9* dev,const RECT* a,
     const double seconds=double(now.QuadPart-then.QuadPart)/frequency.QuadPart;
     D3DVIEWPORT9 vp{};
     if(seconds>0.01 && SUCCEEDED(dev->GetViewport(&vp))) {
-      Log("[D3D9] fps=%.1f viewport=%ux%u VS=%u PS=%u ViewProjVS=%u\r\n",
-          frames/seconds,vp.Width,vp.Height,vsCount.load(),
-          psCount.load(),viewProjCount.load());
+      // Report actual dimensions rather than assuming the requested fullscreen
+      // mode was accepted. Read-only D3D9 queries also work through DXVK.
+      UINT backWidth=0,backHeight=0,clientWidth=0,clientHeight=0;
+      IDirect3DSurface9* back=nullptr;
+      if(SUCCEEDED(dev->GetBackBuffer(0,0,D3DBACKBUFFER_TYPE_MONO,&back)) && back) {
+        D3DSURFACE_DESC desc{};
+        if(SUCCEEDED(back->GetDesc(&desc))) {
+          backWidth=desc.Width;
+          backHeight=desc.Height;
+        }
+        back->Release();
+      }
+      D3DDEVICE_CREATION_PARAMETERS creation{};
+      if(SUCCEEDED(dev->GetCreationParameters(&creation)) && creation.hFocusWindow) {
+        RECT client{};
+        if(GetClientRect(creation.hFocusWindow,&client)) {
+          clientWidth=UINT(client.right-client.left);
+          clientHeight=UINT(client.bottom-client.top);
+        }
+      }
+      Log("[D3D9] fps=%.1f viewport=%ux%u backbuffer=%ux%u client=%ux%u VS=%u PS=%u ViewProjVS=%u\r\n",
+          frames/seconds,vp.Width,vp.Height,backWidth,backHeight,
+          clientWidth,clientHeight,vsCount.load(),psCount.load(),
+          viewProjCount.load());
     }
     then=now;frames=0;
   }
