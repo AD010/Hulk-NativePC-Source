@@ -9,6 +9,7 @@
 #include "RefCntAutoPtr.hpp"
 #include <algorithm>
 #include <array>
+#include <set>
 #include <stdexcept>
 #include <utility>
 
@@ -34,6 +35,40 @@ bool Same(const VerifiedEorSampler& a,const VerifiedEorSampler& b) {
          a.original_shader_fetch_slot_verified==b.original_shader_fetch_slot_verified &&
          a.original_texture_format_and_mips_verified==b.original_texture_format_and_mips_verified;
 }
+}
+std::vector<NativeEorDrawBuffers> PositionOnlyDrawBuffersFromOriginalModels(
+    std::span<const model::UploadedOriginalModel* const> residents) {
+  if(residents.empty())
+    throw std::invalid_argument("No original Xbox EoR resident models");
+  std::set<uint32_t> unique_models;
+  std::set<uint64_t> unique_positions;
+  std::vector<NativeEorDrawBuffers> result;
+  for(const auto* resident_model:residents) {
+    if(!resident_model || !resident_model->original_resource_hash ||
+       resident_model->original_identity.platform!=model::Platform::Xbox360 ||
+       !unique_models.insert(resident_model->original_resource_hash).second)
+      throw std::invalid_argument("Ambiguous original EoR model residency");
+    for(const auto& mesh:resident_model->meshes.meshes()) {
+      if(!mesh.position_buffer || !mesh.index_buffer ||
+         !mesh.original_vertex_stream_buffer ||
+         mesh.original_vertex_stride<12 || mesh.vertex_count<3 ||
+         !mesh.index_count || mesh.index_count%3 ||
+         !unique_positions.insert(mesh.position_buffer).second)
+        throw std::invalid_argument("Incomplete original EoR GPU mesh allocation");
+      NativeEorDrawBuffers draw;
+      draw.position_handle=mesh.position_buffer;
+      draw.index_handle=mesh.index_buffer;
+      draw.vertex_count=mesh.vertex_count;
+      draw.index_count=mesh.index_count;
+      draw.host_vertex_slots={mesh.position_buffer};
+      draw.original_model_hash=resident_model->original_resource_hash;
+      draw.original_mesh_header_offset=mesh.original_header_offset;
+      result.push_back(std::move(draw));
+    }
+  }
+  if(result.empty())
+    throw std::invalid_argument("No indexed Xbox source geometry resident");
+  return result;
 }
 struct DiligentEorDirectBackend::State {
   State(Diligent::IRenderDevice* d,Diligent::IDeviceContext* c,
@@ -214,6 +249,8 @@ DiligentEorDirectBackend::DiligentEorDirectBackend(
   for(const auto& [position,resident]:state_->draw_buffers) {
     const auto& slots=resident.host_vertex_slots;
     if(!position || resident.position_handle!=position ||
+       !resident.original_model_hash ||
+       resident.original_mesh_header_offset==SIZE_MAX ||
        !resident.index_handle || resident.vertex_count<3 ||
        !resident.index_count || (resident.index_count%3)!=0 ||
        slots.empty() || slots.size()>16 ||
@@ -360,7 +397,8 @@ bool DiligentEorDirectBackend::DrawIndexed(const native::IndexedDraw& draw) {
   auto it=s.draw_buffers.find(draw.vertex_buffer);
   if(it==s.draw_buffers.end())return false;
   const auto& resident=it->second;
-  if(resident.index_handle!=draw.index_buffer ||
+  if(resident.original_model_hash!=s.selected->original_model_hash ||
+     resident.index_handle!=draw.index_buffer ||
      uint64_t(draw.first_index)+draw.index_count>resident.index_count)
     return false;
   const auto& slots=resident.host_vertex_slots;

@@ -8,6 +8,8 @@
 #include "eor_diligent_scene_targets.h"
 #include "eor_diligent_material_textures.h"
 #include "eor_diligent_original_pipeline.h"
+#include "eor_original_model_upload.h"
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <map>
@@ -38,7 +40,15 @@ struct NativeEorDrawBuffers {
   uint32_t vertex_count=0;
   uint32_t index_count=0;
   std::vector<uint64_t> host_vertex_slots;
+  // Exact source model/mesh provenance. Shared effects NEVER imply
+  // that another model's physical index/vertex buffers may be used.
+  uint32_t original_model_hash=0;
+  size_t original_mesh_header_offset=SIZE_MAX;
 };
+// Build real immutable host XYZ/index buffer table from original uploaded
+// Xbox360 models. Other shader input slots must be independently decoded.
+std::vector<NativeEorDrawBuffers> PositionOnlyDrawBuffersFromOriginalModels(
+    std::span<const model::UploadedOriginalModel* const> residents);
 class DiligentEorDirectBackend final : public aot::ShaderBindingBackend {
  public:
   // The callback receives the CURRENT source-proven Draw. The same
