@@ -43,11 +43,11 @@ public class HulkUSA_XDKCallsiteAudit extends GhidraScript {
         return String.format(Locale.ROOT, "0x%08X", value & 0xFFFFFFFFL);
     }
 
-    private static String digest(File original) throws Exception {
+    private static String digest(File original, String algorithm) throws Exception {
         if (!original.isFile() || original.length() < 100000 ||
             original.length() > 128L * 1024 * 1024)
             throw new IllegalArgumentException("Expected original USA default.xex");
-        MessageDigest sha = MessageDigest.getInstance("SHA-256");
+        MessageDigest sha = MessageDigest.getInstance(algorithm);
         try (BufferedInputStream in = new BufferedInputStream(
                 new FileInputStream(original))) {
             byte[] chunk = new byte[65536];
@@ -67,13 +67,21 @@ public class HulkUSA_XDKCallsiteAudit extends GhidraScript {
             throw new IllegalArgumentException(
                 "Arguments: [private USA default.xex] [output address-only JSON]");
         File xex = new File(args[0]);
-        if (!USA_SHA.equals(digest(xex)))
+        if (!USA_SHA.equals(digest(xex, "SHA-256")))
             throw new IllegalArgumentException("This is NOT the pinned USA XEX.");
         if (currentProgram == null ||
             !currentProgram.getLanguage().getProcessor().toString()
                 .toLowerCase(Locale.ROOT).contains("powerpc"))
             throw new IllegalArgumentException(
                 "Import pinned XEX with XEXLoaderWV as PowerPC first.");
+        // A correct private file argument is not enough: Ghidra may still
+        // have ANOTHER program open. Compare its actual imported file MD5
+        // with the same USA XEX whose SHA-256 was pinned above.
+        String importedMd5 = currentProgram.getExecutableMD5();
+        if (importedMd5 == null ||
+            !importedMd5.equalsIgnoreCase(digest(xex, "MD5")))
+            throw new IllegalArgumentException(
+                "Ghidra imported a DIFFERENT executable than pinned USA XEX.");
 
         ArrayList<String> records = new ArrayList<String>();
         HashSet<String> seen = new HashSet<String>();
