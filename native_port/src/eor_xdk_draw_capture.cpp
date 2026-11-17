@@ -17,6 +17,15 @@ std::optional<IndexedXdkCall> DecodeOriginalIndexedXdkCall(const RawDraw& call) 
                         call.gpr[3],call.gpr[4],
                         std::bit_cast<int32_t>(call.gpr[2])};
 }
+std::optional<VerticesXdkCall> DecodeOriginalVerticesXdkCall(const RawDraw& call) {
+  if(call.kind!=Kind::DrawVertices || call.function!=0x8288DF30u ||
+     !call.gpr[0] || !call.gpr[1] || !call.gpr[3] ||
+     call.lr<0x82000000u || call.lr>=0x84000000u || (call.lr&3u) ||
+     uint64_t(call.gpr[2])+call.gpr[3]>UINT32_MAX)
+    return std::nullopt;
+  return VerticesXdkCall{call.function,call.lr,call.gpr[0],call.gpr[1],
+                         call.gpr[2],call.gpr[3]};
+}
 void FrameCapture::Record(const RawDraw& call) {
   if (!call.function) throw std::invalid_argument("Missing verified XDK address");
   if (calls_.size() >= kMaxDraws) {

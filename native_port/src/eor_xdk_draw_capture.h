@@ -31,6 +31,14 @@ struct IndexedXdkCall {
   int32_t base_vertex=0;
 };
 std::optional<IndexedXdkCall> DecodeOriginalIndexedXdkCall(const RawDraw& call);
+// Verified XDK 6534 DrawVertices(dev, prim, startVertex, vertexCount).
+// No UP/inline draw is inferred, and triangle-list topology must be
+// independently matched to real source model/index data.
+struct VerticesXdkCall {
+  uint32_t xdk_function=0, caller_lr=0, guest_device=0;
+  uint32_t primitive=0, start_vertex=0, vertex_count=0;
+};
+std::optional<VerticesXdkCall> DecodeOriginalVerticesXdkCall(const RawDraw& call);
 struct Frame {
   uint64_t sequence = 0;
   uint32_t dropped = 0;

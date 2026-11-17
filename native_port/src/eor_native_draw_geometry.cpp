@@ -128,6 +128,80 @@ std::vector<VerifiedDrawSource> MatchCapturedXdkDraws(
   }
   return sources;
 }
+std::vector<VerifiedDrawSource> MatchCapturedMixedDraws(
+    const xdk::Frame& frame,
+    std::span<const VerifiedXdkDrawSubmission> verified,
+    std::span<const model::UploadedOriginalModel* const> residents) {
+  if(!frame.sequence || frame.dropped || frame.calls.empty() ||
+     frame.calls.size()!=verified.size() ||
+     frame.calls.size()>xdk::FrameCapture::kMaxDraws)
+    throw std::invalid_argument("Original Xbox USA frame lacks a complete exact Draw stream");
+  std::vector<VerifiedDrawSource> result;
+  result.reserve(verified.size());
+  for(size_t i=0;i<verified.size();++i) {
+    VerifiedDrawSource source{};
+    if(const auto* indexed=std::get_if<VerifiedXdkIndexedSubmission>(&verified[i])) {
+      // The existing indexed path enforces the exact original XDK r3..r7
+      // arguments, material identity and original shader provenance.
+      const xdk::Frame single{frame.sequence,0,{frame.calls[i]}};
+      const auto mapped=MatchCapturedXdkDraws(
+          single,std::span<const VerifiedXdkIndexedSubmission>(indexed,1));
+      source=mapped.front();
+    } else {
+      const auto& input=std::get<VerifiedXdkVerticesSubmission>(verified[i]);
+      const auto actual=xdk::DecodeOriginalVerticesXdkCall(frame.calls[i]);
+      const auto& expected=input.original_guest_call;
+      source=input.native_draw;
+      if(!actual || !input.original_triangle_list_verified ||
+         !input.guest_to_native_vertex_stream_verified ||
+         !input.original_material_at_draw_verified ||
+         actual->xdk_function!=expected.xdk_function ||
+         actual->caller_lr!=expected.caller_lr ||
+         actual->guest_device!=expected.guest_device ||
+         actual->primitive!=expected.primitive ||
+         actual->start_vertex!=expected.start_vertex ||
+         actual->vertex_count!=expected.vertex_count ||
+         actual->primitive!=4u || (actual->vertex_count%3u) ||
+         source.index_count!=actual->vertex_count ||
+         uint64_t(input.host_first_vertex)+actual->vertex_count>UINT32_MAX ||
+         !source.engine_draw_verified || !source.mesh_material_verified ||
+         !source.host_vertex_layout_verified || !source.render_state_verified)
+        throw std::invalid_argument("Non-indexed Xbox Draw has no exact triangle-list owner");
+      const model::UploadedNativeMesh* mesh=nullptr;
+      for(const auto* resident:residents)
+        if(resident && resident->original_resource_hash==source.original_model_hash) {
+          for(const auto& candidate:resident->meshes.meshes())
+            if(candidate.original_header_offset==source.original_mesh_header_offset) {
+              if(mesh)throw std::invalid_argument("Ambiguous original native mesh");
+              mesh=&candidate;
+            }
+        }
+      if(!mesh || mesh->host_indices.size()!=mesh->index_count ||
+         uint64_t(source.first_index)+source.index_count>mesh->index_count ||
+         uint64_t(input.host_first_vertex)+source.index_count>mesh->vertex_count)
+        throw std::invalid_argument("Native DrawVertices source index window unavailable");
+      for(uint32_t j=0;j<source.index_count;++j)
+        if(int64_t(mesh->host_indices[source.first_index+j])+
+           source.host_base_vertex!=int64_t(input.host_first_vertex)+j)
+          throw std::invalid_argument("Original DrawVertices is not sequential host triangle-list geometry");
+    }
+    source.original_frame_sequence=frame.sequence;
+    source.original_call_ordinal=static_cast<uint32_t>(i);
+    source.original_vs_matrices=frame.calls[i].observed_vs_matrices;
+    result.push_back(std::move(source));
+  }
+  return result;
+}
+void ReplayCapturedMixedScene(
+    const xdk::Frame& captured,
+    std::span<const VerifiedXdkDrawSubmission> verified,
+    const FrameGeometry& frame,
+    std::span<const model::UploadedOriginalModel* const> residents,
+    const aot::ShaderBank& bank,const aot::EffectCatalog& effects,
+    const aot::ReflectionBank& reflection,aot::ShaderBindingBackend& backend) {
+  auto draws=MatchCapturedMixedDraws(captured,verified,residents);
+  ReplayVerifiedGeometryScene(frame,draws,residents,bank,effects,reflection,backend);
+}
 void ReplayCapturedXdkScene(
     const xdk::Frame& captured,
     std::span<const VerifiedXdkIndexedSubmission> verified,

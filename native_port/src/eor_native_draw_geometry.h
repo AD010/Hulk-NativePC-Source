@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <span>
 #include <string>
+#include <variant>
 #include <vector>
 
 namespace hulk::eor::native {
@@ -56,6 +57,32 @@ struct VerifiedXdkIndexedSubmission {
 std::vector<VerifiedDrawSource> MatchCapturedXdkDraws(
     const xdk::Frame& frame,
     std::span<const VerifiedXdkIndexedSubmission> source_verified);
+
+// Source-proven conversion for the second genuine USA draw ABI:
+// DrawVertices is non-indexed at the XDK boundary, but MAY reuse an original
+// uploaded host indexed triangle-list only if the full native draw window is
+// exactly sequential and its original guest stream mapping is verified.
+struct VerifiedXdkVerticesSubmission {
+  xdk::VerticesXdkCall original_guest_call{};
+  VerifiedDrawSource native_draw{};
+  uint32_t host_first_vertex=0;
+  bool original_triangle_list_verified=false;
+  bool guest_to_native_vertex_stream_verified=false;
+  bool original_material_at_draw_verified=false;
+};
+using VerifiedXdkDrawSubmission=
+    std::variant<VerifiedXdkIndexedSubmission,VerifiedXdkVerticesSubmission>;
+std::vector<VerifiedDrawSource> MatchCapturedMixedDraws(
+    const xdk::Frame& frame,
+    std::span<const VerifiedXdkDrawSubmission> source_verified,
+    std::span<const model::UploadedOriginalModel* const> residents);
+void ReplayCapturedMixedScene(
+    const xdk::Frame& frame,
+    std::span<const VerifiedXdkDrawSubmission> verified_submissions,
+    const FrameGeometry& output,
+    std::span<const model::UploadedOriginalModel* const> residents,
+    const aot::ShaderBank& shaders,const aot::EffectCatalog& effects,
+    const aot::ReflectionBank& reflection,aot::ShaderBindingBackend& gpu);
 
 // Genuine XDK capture to host Vulkan backend, when every exact mapping
 // and sole-presenter GPU/camera resource is provided by the game runtime.

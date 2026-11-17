@@ -81,6 +81,17 @@ int main() {
   live.gpr[3]=12u;
   live.gpr[4]=0;
   assert(!DecodeOriginalIndexedXdkCall(live));
+  RawDraw vertex{Kind::DrawVertices,0x8288DF30u,0x8263BF50u,
+                 {0x40002880u,4u,21u,6u,0u,0u,0u,0u}};
+  const auto nonindexed=DecodeOriginalVerticesXdkCall(vertex);
+  assert(nonindexed && nonindexed->guest_device==0x40002880u &&
+         nonindexed->primitive==4u && nonindexed->start_vertex==21u &&
+         nonindexed->vertex_count==6u);
+  vertex.kind=Kind::DrawIndexedVertices;
+  assert(!DecodeOriginalVerticesXdkCall(vertex));
+  vertex.kind=Kind::DrawVertices;
+  vertex.gpr[2]=UINT32_MAX;
+  assert(!DecodeOriginalVerticesXdkCall(vertex));
   assert(capture.Finish().sequence==2);
   assert(capture.Finish().calls.empty());
   for(size_t i=0;i<FrameCapture::kMaxDraws+3;++i)capture.Record(a);

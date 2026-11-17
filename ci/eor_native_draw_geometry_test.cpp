@@ -173,5 +173,39 @@ int main(){
   ppc.kind=xdk::Kind::DrawVertices;
   Reject([&]{(void)native::MatchCapturedXdkDraws(xdk::Frame{2,0,{ppc}},
     std::span<const native::VerifiedXdkIndexedSubmission>(&verified,1));});
+  // Genuine DrawVertices (PPC r3..r6) can be lowered to the actual
+  // indexed host triangle list only when every vertex is sequential.
+  xdk::RawDraw plain{xdk::Kind::DrawVertices,0x8288DF30u,0x8263BF50u,
+                     {0x40002880u,4u,30u,3u,0u,0u,0u,0u}};
+  const auto vertexCall=xdk::DecodeOriginalVerticesXdkCall(plain);
+  assert(vertexCall);
+  native::VerifiedXdkVerticesSubmission nonindexed{};
+  nonindexed.original_guest_call=*vertexCall;
+  nonindexed.native_draw=original;
+  nonindexed.native_draw.first_index=3;
+  nonindexed.original_triangle_list_verified=true;
+  nonindexed.guest_to_native_vertex_stream_verified=true;
+  nonindexed.original_material_at_draw_verified=true;
+  nonindexed.host_first_vertex=3;
+  std::vector<native::VerifiedXdkDrawSubmission> mixed{verified,nonindexed};
+  const xdk::Frame mixedFrame{2,0,{observed.calls[0],plain}};
+  const auto nativeMixed=native::MatchCapturedMixedDraws(mixedFrame,mixed,models);
+  assert(nativeMixed.size()==2 && nativeMixed[0].original_call_ordinal==0 &&
+         nativeMixed[1].original_call_ordinal==1 &&
+         nativeMixed[1].first_index==3 &&
+         nativeMixed[1].original_model_hash==0xCAFE);
+  auto invalidNonIndexed=nonindexed;
+  invalidNonIndexed.host_first_vertex=2;
+  mixed[1]=invalidNonIndexed;
+  Reject([&]{(void)native::MatchCapturedMixedDraws(mixedFrame,mixed,models);});
+  invalidNonIndexed=nonindexed;
+  invalidNonIndexed.original_triangle_list_verified=false;
+  mixed[1]=invalidNonIndexed;
+  Reject([&]{(void)native::MatchCapturedMixedDraws(mixedFrame,mixed,models);});
+  // A missing original UP/inline geometry cannot be passed as DrawVertices.
+  mixed[1]=nonindexed;
+  auto up=plain;up.kind=xdk::Kind::DrawVerticesUP;
+  Reject([&]{(void)native::MatchCapturedMixedDraws(
+      xdk::Frame{2,0,{observed.calls[0],up}},mixed,models);});
   assert(gpu.next==3);
 }
