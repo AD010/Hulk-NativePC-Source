@@ -62,6 +62,13 @@ class D140WindowsDispatchTests(unittest.TestCase):
         self.assertIn("HULK_PINNED_XEX_SHA256:",workflow)
         self.assertIn("346A73690303F6633BFDAF9850E78793FE07CDBFB8F849B89FBEE320630B11F0",workflow)
 
+    def test_no_leftover_release_dispatch_triggers(self):
+        # A failed Release is never a reason to scatter permanent trigger
+        # markers around the public source tree.
+        leftovers=sorted(path.name for path in ROOT.glob(
+            ".hulk-release-one-shot-*"))
+        self.assertEqual(leftovers,[])
+
     def test_builder_dispatches_every_reviewed_patch_in_original_order(self):
         builder=(ROOT/"native_port"/"BUILD_WINDOWS.ps1").read_text("utf-8")
         starts=builder.find("if ($NativeXLink) {",builder.find("$NativeXCommit"))
