@@ -4,6 +4,11 @@ on:
   # builds on source edits. Keep this single Release-only workflow available
   # for an explicit final validation through GitHub Actions.
   workflow_dispatch:
+  # One-shot USER-AUTHORIZED Hulk visual release 2026-11-17
+  push:
+    branches: [main]
+    paths:
+      - '.hulk-release-one-shot-20261117-r7'
 permissions:
   contents: write
 concurrency:
