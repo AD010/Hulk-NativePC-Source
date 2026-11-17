@@ -25,6 +25,41 @@ int main() {
   // The original Hulk USA device shadow state has proven BE c7..c25 VS
   // registers and VS/PS guest object slots. Capture at the actual Draw.
   GuestMemory guest;
+  // Original USA XDK ClearF captures the source memory BEFORE the actual
+  // PPC method clears the guest targets: r5 RECT*, r6 float4*, f1=Z.
+  const uint32_t clear_rect=0x100u,clear_color=0x140u;
+  for(unsigned i=0;i<4;++i) {
+    W(guest,clear_rect+4*i,(i%2==0 ? (i==0?0u:1280u) :
+                                        (i==1?0u:720u)));
+    W(guest,clear_color+4*i,
+      std::bit_cast<uint32_t>(i==0?0.25f:i==1?0.5f:i==2?0.75f:1.f));
+  }
+  const std::array<uint32_t,8> clear_args{
+      0x40002880u,0x31u,clear_rect,clear_color,0u,0x37u,0u,0u};
+  const auto original_clear=CaptureOriginalXdkClearF(
+      clear_args,0.625,ReadFake,&guest);
+  assert(original_clear && original_clear->flags==0x31u &&
+         original_clear->has_rect && original_clear->has_color &&
+         original_clear->rect[2]==1280 &&
+         original_clear->rect[3]==720 &&
+         original_clear->color[0]==0.25f &&
+         original_clear->color[2]==0.75f &&
+         original_clear->depth==0.625f &&
+         original_clear->stencil==0x37u);
+  auto invalid_args=clear_args;
+  invalid_args[3]=0;
+  assert(!CaptureOriginalXdkClearF(invalid_args,0.625,ReadFake,&guest));
+  invalid_args=clear_args;
+  invalid_args[2]=0x7ffffff0u;
+  assert(!CaptureOriginalXdkClearF(invalid_args,0.625,ReadFake,&guest));
+  invalid_args=clear_args;
+  invalid_args[1]=0x100u;
+  assert(!CaptureOriginalXdkClearF(invalid_args,0.625,ReadFake,&guest));
+  assert(!CaptureOriginalXdkClearF(clear_args,1.5,ReadFake,&guest));
+  W(guest,clear_color,std::bit_cast<uint32_t>(
+      std::numeric_limits<float>::quiet_NaN()));
+  assert(!CaptureOriginalXdkClearF(clear_args,0.625,ReadFake,&guest));
+  W(guest,clear_color,std::bit_cast<uint32_t>(0.25f));
   constexpr uint32_t device=0x2000;
   W(guest,device+12696,0x82ABCDEF);
   W(guest,device+12692,0x82FEDCBA);
@@ -119,9 +154,10 @@ int main() {
   chronology.RecordCommand(RawCommand{
       CommandKind::SetDepthStencilSurface,0x8287F628u,0x8263A004u,
       {3,0x82004321u,0,0,0,0,0,0}});
-  chronology.RecordCommand(RawCommand{
-      CommandKind::ClearF,0x82888C40u,0x8263A008u,
-      {3,1,0x82001300u,0x82001400u,0,0,0,0}});
+  RawCommand checked_clear{CommandKind::ClearF,0x82888C40u,0x8263A008u,
+      clear_args};
+  checked_clear.captured_clear=*original_clear;
+  chronology.RecordCommand(checked_clear);
   chronology.Record(a);
   chronology.RecordCommand(RawCommand{
       CommandKind::BeginTiling,0x8288A900u,0x8263A00Cu,
@@ -140,6 +176,9 @@ int main() {
   assert(full_timeline.sequence==1 && full_timeline.calls.size()==2 &&
          full_timeline.commands.size()==9 &&
          ValidateOriginalCommandTimeline(full_timeline));
+  auto no_color_snapshot=full_timeline;
+  no_color_snapshot.commands[2].captured_clear.reset();
+  assert(!ValidateOriginalCommandTimeline(no_color_snapshot));
   auto invalid_timeline=full_timeline;
   std::swap(invalid_timeline.commands[3],invalid_timeline.commands[5]);
   assert(!ValidateOriginalCommandTimeline(invalid_timeline));

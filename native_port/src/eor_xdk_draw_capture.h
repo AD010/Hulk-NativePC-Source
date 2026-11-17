@@ -23,11 +23,26 @@ enum class CommandKind : uint8_t {
   SetRenderTarget, SetDepthStencilSurface,
   ClearF, Resolve, BeginTiling, EndTiling, Present
 };
+// Source-verified ClearF(dev, flags, rect, color*, Z in f1, stencil).
+// Values are BE-decoded at the REAL PPC call, before guest memory can
+// change. Original bound surfaces still require independent ownership proof.
+struct OriginalXdkClearF {
+  uint32_t flags=0;
+  bool has_rect=false,has_color=false;
+  std::array<int32_t,4> rect{}; // original x0,y0,x1,y1
+  std::array<float,4> color{};
+  float depth=1.f;
+  uint8_t stencil=0;
+};
+std::optional<OriginalXdkClearF> CaptureOriginalXdkClearF(
+    const std::array<uint32_t,8>& gpr,double depth_f1,
+    ReadGuestBytes reader,void* guest_base) noexcept;
 struct RawCommand {
   CommandKind kind=CommandKind::DrawVertices;
   uint32_t function=0, lr=0;
   std::array<uint32_t,8> gpr{};  // original r3..r10
   uint32_t draw_ordinal=UINT32_MAX; // populated only for Draw commands
+  std::optional<OriginalXdkClearF> captured_clear;
 };
 struct RawDraw {
   Kind kind{};

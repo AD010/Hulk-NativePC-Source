@@ -5,6 +5,56 @@
 #include <utility>
 
 namespace hulk::eor::xdk {
+std::optional<OriginalXdkClearF> CaptureOriginalXdkClearF(
+    const std::array<uint32_t,8>& gpr,double f1,
+    ReadGuestBytes reader,void* guest_base) noexcept {
+  // Hulk USA XDK ClearF is not the outer Clear (which calls ClearF):
+  // r3=device, r4=flags RT0..3/DEPTH/STENCIL, r5=RECT*,
+  // r6=float4* color, f1=Z, r8=stencil.
+  if(!reader || !guest_base || !gpr[0] ||
+     (gpr[1] & 0x3fu)==0 || (gpr[1] & ~0x3fu)!=0)
+    return std::nullopt;
+  OriginalXdkClearF out{};
+  out.flags=gpr[1];
+  out.stencil=static_cast<uint8_t>(gpr[5]);
+  if((out.flags & 0x10u) && (!std::isfinite(f1) || f1<0.0 || f1>1.0))
+    return std::nullopt;
+  if(std::isfinite(f1))out.depth=static_cast<float>(f1);
+  const auto be32=[](const std::byte* raw) noexcept -> uint32_t {
+    return (uint32_t(std::to_integer<uint8_t>(raw[0]))<<24)|
+           (uint32_t(std::to_integer<uint8_t>(raw[1]))<<16)|
+           (uint32_t(std::to_integer<uint8_t>(raw[2]))<<8)|
+            uint32_t(std::to_integer<uint8_t>(raw[3]));
+  };
+  if(gpr[2]) {
+    if(gpr[2]&3u || uint64_t(gpr[2])+16>uint64_t(UINT32_MAX)+1)
+      return std::nullopt;
+    std::array<std::byte,16> raw{};
+    if(!reader(guest_base,gpr[2],raw.data(),raw.size()))
+      return std::nullopt;
+    out.has_rect=true;
+    for(size_t i=0;i<4;++i)
+      out.rect[i]=std::bit_cast<int32_t>(be32(raw.data()+4*i));
+    if(out.rect[2]<=out.rect[0] || out.rect[3]<=out.rect[1])
+      return std::nullopt;
+  }
+  if(gpr[3]) {
+    if(gpr[3]&3u || uint64_t(gpr[3])+16>uint64_t(UINT32_MAX)+1)
+      return std::nullopt;
+    std::array<std::byte,16> raw{};
+    if(!reader(guest_base,gpr[3],raw.data(),raw.size()))
+      return std::nullopt;
+    out.has_color=true;
+    for(size_t i=0;i<4;++i) {
+      const float f=std::bit_cast<float>(be32(raw.data()+i*4));
+      if(!std::isfinite(f))return std::nullopt;
+      out.color[i]=f;
+    }
+  }
+  // Any active original color target needs an actual 4-float clear color.
+  if((out.flags & 0x0fu) && !out.has_color)return std::nullopt;
+  return out;
+}
 std::optional<IndexedXdkCall> DecodeOriginalIndexedXdkCall(const RawDraw& call) {
   // Method 0x8288E318 is the exact SHA-pinned USA XDK DrawIndexedVertices
   // implementation; the other r8-r10 fields are caller-volatiles, NOT
@@ -132,7 +182,12 @@ bool ValidateOriginalCommandTimeline(const Frame& frame) noexcept {
          event.lr!=original.lr || event.gpr!=original.gpr)
         return false;
     } else if(event.function!=KnownUsaCommandAddress(event.kind) ||
-              event.draw_ordinal!=UINT32_MAX) {
+              event.draw_ordinal!=UINT32_MAX ||
+              (event.kind==CommandKind::ClearF &&
+               (!event.captured_clear ||
+                event.captured_clear->flags!=event.gpr[1]))) {
+      // An unobserved ClearF color/depth/rect is not a replayable original
+      // Vulkan clear. The observer can still collect the malformed frame.
       return false;
     }
   }

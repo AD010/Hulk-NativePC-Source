@@ -114,12 +114,17 @@ void CapturePpcDraw(Kind kind, uint32_t guest, const PPCContext& ctx,
   g_collector.Record(draw);
 }
 void CapturePpcCommand(CommandKind kind,uint32_t guest,
-                       const PPCContext& ctx) {
+                       const PPCContext& ctx,uint8_t* guest_base) {
   if(!CaptureEnabled())return;
   RawCommand event{kind,guest,static_cast<uint32_t>(ctx.lr),
                    {ctx.r3.u32,ctx.r4.u32,ctx.r5.u32,ctx.r6.u32,
                     ctx.r7.u32,ctx.r8.u32,ctx.r9.u32,ctx.r10.u32},
                    UINT32_MAX};
+  // Copy original guest data while ClearF's pointers still refer to
+  // the actual command arguments. No guest memory writes or RT guessing.
+  if(kind==CommandKind::ClearF)
+    event.captured_clear=CaptureOriginalXdkClearF(
+        event.gpr,ctx.f1.f64,ReadGuest,guest_base);
   std::lock_guard lock(g_mutex);
   g_collector.RecordCommand(event);
 }
