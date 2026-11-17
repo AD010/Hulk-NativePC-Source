@@ -154,6 +154,11 @@ struct DiligentEorDirectBackend::State {
   // Immutable shader/PSO pairing remains live across Draws and frames;
   // no per-draw driver compilation and no guessed shader cache keys.
   std::map<std::pair<uint32_t,uint32_t>,OriginalVulkanPipeline> pipeline_cache;
+  // Reuse shader PSOs across source-identical passes, NEVER their mutable
+  // descriptor sets. Each real model/material/pass owns its own Vulkan SRB.
+  using MaterialKey=std::tuple<uint32_t,uint32_t,uint32_t,uint32_t>;
+  std::map<MaterialKey,Diligent::RefCntAutoPtr<Diligent::IShaderResourceBinding>>
+      material_bindings;
   bool frame_preflight_ready=false;
   bool scene_open=false,constants_ready=false,program_ready=false;
   bool textures_ready=false,finished=false;
@@ -329,6 +334,7 @@ bool DiligentEorDirectBackend::PreflightOriginalScene(
   s.frame_preflight_ready=false;
   if(s.scene_open || draws.empty())return false;
   std::set<std::pair<uint32_t,uint32_t>> needed;
+  std::set<State::MaterialKey> needed_materials;
   // Pass one: validate the ENTIRE frame's native draw and original material
   // ownership. Do not create a PSO before a later invalid draw is rejected.
   for(const auto& item:draws) {
@@ -370,6 +376,9 @@ bool DiligentEorDirectBackend::PreflightOriginalScene(
                                     mesh->second.vertex_count))
       return false;
     needed.emplace(item.effect_hash,item.pass_index);
+    needed_materials.emplace(item.original_model_hash,
+                             item.original_surface_ordinal,
+                             item.effect_hash,item.pass_index);
   }
   // Pass two: compile/link only the ORIGINAL shader techniques that this
   // frame will execute. A PSO failure occurs before BeginScene and never
@@ -388,6 +397,21 @@ bool DiligentEorDirectBackend::PreflightOriginalScene(
       auto pipeline=CreateOriginalVulkanPipeline(
           s.device.RawPtr(),s.shaders,s.bank,s.effects,match->pipeline);
       s.pipeline_cache.emplace(key,std::move(pipeline));
+    }
+    // Pass three: build a distinct shader-resource-binding object for each
+    // original material, before any GPU draw. An SRB is mutable and
+    // must not leak albedo/normal samplers across two models that happen
+    // to use the same compiled VS/PS technique.
+    for(const auto& key:needed_materials) {
+      if(s.material_bindings.contains(key))continue;
+      const auto pipeline=s.pipeline_cache.find(
+          {std::get<2>(key),std::get<3>(key)});
+      if(pipeline==s.pipeline_cache.end() || !pipeline->second.pipeline)
+        return false;
+      Diligent::RefCntAutoPtr<Diligent::IShaderResourceBinding> binding;
+      pipeline->second.pipeline->CreateShaderResourceBinding(&binding,true);
+      if(!binding)return false;
+      s.material_bindings.emplace(key,std::move(binding));
     }
   } catch (...) {return false;}
   s.frame_preflight_ready=true;
@@ -472,20 +496,26 @@ bool DiligentEorDirectBackend::BindVerifiedProgramPair(
      s.bank.Find(vs_id,aot::Stage::Vertex)!=&vs ||
      s.bank.Find(ps_id,aot::Stage::Pixel)!=&ps)
     return false;
-  try {
-    const auto key=std::make_pair(
-        s.selected->pipeline.original_effect_hash,
-        s.selected->pipeline.original_pass_index);
-    auto cached=s.pipeline_cache.find(key);
-    if(cached==s.pipeline_cache.end()) {
-      auto newly_created=CreateOriginalVulkanPipeline(
-          s.device.RawPtr(),s.shaders,s.bank,s.effects,s.selected->pipeline);
-      cached=s.pipeline_cache.emplace(key,std::move(newly_created)).first;
-    }
-    s.active=cached->second;
-    s.program_ready=true;
-    return true;
-  } catch (...) {s.active={};return false;}
+  // This path executes in an open render pass: it must NOT compile a new
+  // PSO or allocate a mutable SRB. Both were already source-preflighted.
+  const auto pipeline=s.pipeline_cache.find({
+      s.selected->pipeline.original_effect_hash,
+      s.selected->pipeline.original_pass_index});
+  const auto binding=s.material_bindings.find({
+      s.selected->original_model_hash,
+      s.selected->original_surface_ordinal,
+      s.selected->pipeline.original_effect_hash,
+      s.selected->pipeline.original_pass_index});
+  if(pipeline==s.pipeline_cache.end() ||
+     binding==s.material_bindings.end() ||
+     !pipeline->second.pipeline || !binding->second) {
+    s.active={};
+    return false;
+  }
+  s.active.pipeline=pipeline->second.pipeline;
+  s.active.bindings=binding->second;
+  s.program_ready=true;
+  return true;
 }
 bool DiligentEorDirectBackend::BindOriginalSamplers(
     std::span<const VerifiedEorSampler> expected) {
