@@ -112,10 +112,17 @@ shader injections and GPU command routing still require source/runtime work.
 
 - Removed all eight failed-run `.hulk-release-one-shot-20261117*` trigger
   files from `main`; the only Actions workflow remains manual-only.
-- The Windows builder no longer duplicates 90 long Python dispatcher commands.
-  `Invoke-HulkNativeXPatch` is the single validated invocation path, in the
-  same order: 43 source-only regression tests and 47 reviewed NativeX
-  transformations. Interleaved shader/target ABI checks remain in place.
+- The Windows builder now uses `Invoke-HulkNativeXCheckedPatch`
+  for 42 atomic test-then-patch units, plus 6 special steps. One
+  `reviewed_patch_plan` parser shared by CI/preflight expands them into
+  the same 43 regression tests and 47 reviewed NativeX transformations.
+  Interleaved shader/target ABI checks remain in place.
+- The three Xenia Edge SDK fixes were consolidated from six independent
+  Python files into `ci/patch_sdk_hulk_xenia_edge.py` with one
+  `ci/test_patch_sdk_hulk_xenia_edge.py` (nine unchanged cases).
+  The adapter is invoked in the same separate index, mip and shader stages.
+  Source-level function bodies were compared against their originals;
+  these refactors are **not** a verified Windows build or frame test.
 - Separate `ci/patch_native_x_hulk_*.py` modules and
   `ci/test_patch_native_x_hulk_*.py` fixtures still exist on purpose: they
   enforce distinct upstream source anchors and isolate regressions. They are
