@@ -253,9 +253,18 @@ HRESULT STDMETHODCALLTYPE OnCreateDevice(IDirect3D9* api,UINT adapter,
   return hr;
 }
 HRESULT STDMETHODCALLTYPE OnReset(IDirect3DDevice9* dev,D3DPRESENT_PARAMETERS* pp) {
-  {std::lock_guard lock(shaderMutex);activeVS=nullptr;}
-  if(pp)Log("[D3D9] Reset %ux%u\r\n",pp->BackBufferWidth,pp->BackBufferHeight);
-  return realReset(dev,pp);
+  if(!realReset)return D3DERR_INVALIDCALL;
+  // A failed Reset leaves the old device state in place. Invalidate the
+  // tracked shader only after a successful reset, not before the call.
+  const HRESULT hr=realReset(dev,pp);
+  if(SUCCEEDED(hr)) {
+    std::lock_guard lock(shaderMutex);
+    activeVS=nullptr;
+  }
+  if(pp)Log("[D3D9] Reset %ux%u windowed=%u hr=0x%08lX\r\n",
+            pp->BackBufferWidth,pp->BackBufferHeight,
+            (unsigned)pp->Windowed,(unsigned long)(unsigned int)hr);
+  return hr;
 }
 HRESULT STDMETHODCALLTYPE OnPresent(IDirect3DDevice9* dev,const RECT* a,
                                     const RECT* b,HWND c,const RGNDATA* d) {
