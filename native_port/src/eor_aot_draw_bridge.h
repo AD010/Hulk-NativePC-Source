@@ -25,8 +25,7 @@ struct BoundIndexedDraw {
 class ShaderBindingBackend : public native::Backend {
  public:
   // An effect/pass alone is NOT a material owner. Refuse anonymous Draws.
-  virtual bool BindOriginalSurface(uint32_t original_model_hash,
-                                   uint32_t original_surface_ordinal) {
+  virtual bool BindOriginalSurface(uint32_t, uint32_t) {
     return false;
   }
   // True only after binding original effect material resources and PSO layout.
