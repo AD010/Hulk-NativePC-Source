@@ -16,6 +16,14 @@ struct IPipelineState;
 struct IShaderResourceBinding;
 }
 namespace hulk::eor::gpu {
+// The native presenter draws a WORLD viewport over every host output but
+// centers ORIGINAL 16:9 console HUD to preserve readable, unstretched UI.
+// Only live-source-verified owners may select a nondefault viewport. Offscreen
+// shadow/reflection/video targets are not equivalent to the main screen.
+enum class VerifiedOriginalViewSpace : uint8_t {
+  Unknown=0, MainPerspective=1, OriginalAspectHud=2,
+  FullOutputPost=3, Offscreen=4
+};
 // This is a NATIVE shader-constant fix, not a mutation of game guest memory.
 // Source evidence must identify the original perspective main 3D view,
 // its c# ViewProj range, matrix multiplication order and guest aspect.
@@ -39,6 +47,11 @@ struct VerifiedOriginalGraphicsPass {
   // Only this verified main perspective pass gets 16:10 clip-space Y
   // correction; shadows, reflections, videos and HUD remain untouched.
   std::optional<VerifiedOriginalMainView> source_main_view;
+  VerifiedOriginalViewSpace original_view_space=VerifiedOriginalViewSpace::Unknown;
+  bool original_view_space_verified=false;
+  // Requires the original HUD's NDC clip coordinates to be observed;
+  // guest-space 720p vertex pixels need separate vertex conversion.
+  bool original_hud_clip_coordinates_verified=false;
   bool material_pass_verified=false;
   bool original_render_state_verified=false;
   bool original_host_vertex_layout_verified=false;

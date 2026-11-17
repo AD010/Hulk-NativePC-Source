@@ -1,5 +1,6 @@
 #include "../native_port/src/eor_native_frame.h"
 #include "../native_port/src/native_camera_projection.h"
+#include "../native_port/src/native_resolution.h"
 #include <array>
 #include <cmath>
 #include <cassert>
@@ -181,6 +182,29 @@ int main() {
   const auto ultrawide = PlanFrame(s);
   assert(ultrawide.world.width == 2560 && ultrawide.composite.left == 440);
   assert(ultrawide.direct_engine_path_ready && !ultrawide.widescreen_camera);
+  s.projection_hook_verified=true;
+  const auto ultra_fov=PlanFrame(s);
+  assert(ultra_fov.world.width==3440 && ultra_fov.world.height==1440 &&
+         ultra_fov.original_guest.width==1280 &&
+         ultra_fov.original_guest.height==720);
+  const auto hud_ultra=hulk::display::FitOriginalPicture(
+      ultra_fov.world.width,ultra_fov.world.height,
+      ultra_fov.original_guest.width,ultra_fov.original_guest.height);
+  assert(hud_ultra.valid && hud_ultra.x==440 && hud_ultra.y==0 &&
+         hud_ultra.width==2560 && hud_ultra.height==1440);
+  s.backbuffer={1080,1920};
+  const auto vertical=PlanFrame(s);
+  const auto hud_vertical=hulk::display::FitOriginalPicture(
+      vertical.world.width,vertical.world.height,
+      vertical.original_guest.width,vertical.original_guest.height);
+  assert(vertical.world.width==1080 && vertical.world.height==1920 &&
+         hud_vertical.valid && hud_vertical.width==1080 &&
+         hud_vertical.height==607 && hud_vertical.y==656);
+  s.backbuffer={1024,768};
+  const auto original_4_3=PlanFrame(s);
+  assert(original_4_3.world.width==1024 && original_4_3.world.height==768);
+  s.backbuffer={16384,16384};
+  MustThrow([&] { (void)PlanFrame(s); });
   s.samples = 3;
   MustThrow([&] { (void)PlanFrame(s); });
   s.samples = 4;

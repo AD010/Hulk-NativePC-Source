@@ -1,5 +1,6 @@
 #include "eor_diligent_aot_backend.h"
 #include "eor_spirv_texture_bindings.h"
+#include "native_resolution.h"
 #include "RenderDevice.h"
 #include "DeviceContext.h"
 #include "Buffer.h"
@@ -207,6 +208,21 @@ DiligentEorDirectBackend::DiligentEorDirectBackend(
   for(size_t i=0;i<state_->passes.size();++i) {
     const auto& owner=state_->passes[i];
     const auto& pass=owner.pipeline;
+    if(frame.widescreen_camera) {
+      // A verified original main perspective may expand into the full
+      // native viewport. The original screen-space HUD must remain at its
+      // own safe 16:9 aspect, and unverified offscreen/tiling passes may NOT
+      // be stretched to the host window just because the output is ultrawide.
+      if(!pass.original_view_space_verified ||
+         pass.original_view_space==VerifiedOriginalViewSpace::Unknown ||
+         pass.original_view_space==VerifiedOriginalViewSpace::Offscreen ||
+         (pass.original_view_space==VerifiedOriginalViewSpace::MainPerspective &&
+          !pass.source_main_view) ||
+         (pass.original_view_space==VerifiedOriginalViewSpace::OriginalAspectHud &&
+          !pass.original_hud_clip_coordinates_verified))
+        throw std::invalid_argument(
+            "Native aspect requires source-verified 3D/HUD/pass viewport ownership");
+    }
     if(!owner.original_model_hash || owner.original_surface_ordinal==UINT32_MAX)
       throw std::invalid_argument("Original EoR material surface provenance missing");
     for(const auto& texture:owner.original_textures)
@@ -401,6 +417,8 @@ bool DiligentEorDirectBackend::PreflightOriginalScene(
           *selected->pipeline.original_ps_float_layout,
           aot::Stage::Pixel,item.pixel_source_sha256);
       if(s.frame.widescreen_camera &&
+         selected->pipeline.original_view_space==
+             VerifiedOriginalViewSpace::MainPerspective &&
          selected->pipeline.source_main_view) {
         const auto& camera=*selected->pipeline.source_main_view;
         packed.vertex=aot::ExpandVerifiedOriginalPackedViewProjection(
@@ -686,6 +704,37 @@ bool DiligentEorDirectBackend::DrawIndexed(const native::IndexedDraw& draw) {
       s.program_ready=false;
       s.textures_ready=false;
       return false;
+    }
+    if(s.frame.widescreen_camera) {
+      // Independent native aspect pass layout: world covers all physical
+      // pixels; verified HUD draws only to the centered original 16:9
+      // host area. Reset state on EVERY draw to prevent a HUD viewport
+      // leaking into the next original 3D draw or vice versa.
+      native::Rect v{0,0,s.frame.world.width,s.frame.world.height};
+      if(s.selected->pipeline.original_view_space==
+           VerifiedOriginalViewSpace::OriginalAspectHud) {
+        const auto fitted=display::FitOriginalPicture(
+            s.frame.world.width,s.frame.world.height,
+            s.frame.original_guest.width,s.frame.original_guest.height);
+        if(!fitted.valid || !fitted.width || !fitted.height)
+          return false;
+        v={fitted.x,fitted.y,fitted.width,fitted.height};
+      }
+      Diligent::Viewport viewport{};
+      viewport.TopLeftX=static_cast<float>(v.left);
+      viewport.TopLeftY=static_cast<float>(v.top);
+      viewport.Width=static_cast<float>(v.width);
+      viewport.Height=static_cast<float>(v.height);
+      viewport.MinDepth=0.f;
+      viewport.MaxDepth=1.f;
+      const Diligent::Rect scissor{
+          static_cast<int>(v.left),static_cast<int>(v.top),
+          static_cast<int>(v.left+v.width),
+          static_cast<int>(v.top+v.height)};
+      s.context->SetViewports(1,&viewport,
+                            s.frame.world.width,s.frame.world.height);
+      s.context->SetScissorRects(1,&scissor,
+                               s.frame.world.width,s.frame.world.height);
     }
     s.context->SetPipelineState(s.active.pipeline.RawPtr());
     s.context->CommitShaderResources(s.active.bindings.RawPtr(),

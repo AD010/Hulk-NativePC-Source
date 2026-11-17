@@ -53,13 +53,15 @@ FrameGeometry PlanFrame(const FrameSetup& s) {
   // This is NOT permission to stretch HUD or fake a wider game camera.
   const bool draw_path_ready =
       s.engine_draw_hook_verified && s.offline_shader_cache_verified;
-  return {world, s.backbuffer, rect, samples, wide, draw_path_ready};
+  return {world, s.backbuffer, rect, samples, wide, draw_path_ready,
+          s.original_guest};
 }
 
 void ReplayNativeScene(const FrameGeometry& frame,
                        std::span<const IndexedDraw> draws, Backend& backend) {
   Check(frame.world);
   Check(frame.backbuffer);
+  Check(frame.original_guest);
   if(!display::IsSupportedHostSize(
          frame.backbuffer.width,frame.backbuffer.height) ||
      uint64_t(frame.world.width)*frame.world.height>

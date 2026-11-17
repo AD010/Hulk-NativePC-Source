@@ -30,6 +30,9 @@ struct FrameGeometry {
   uint32_t samples = 1;
   bool widescreen_camera = false; // Actual USA camera ABI proven for wider 3D
   bool direct_engine_path_ready = false; // Original engine Draw + AOT shaders proven
+  // Original screenshot/HUD design resolution; independent of native
+  // world/RT pixel density, used only for VERIFIED 2D overlay viewport.
+  Size original_guest{1280,720};
 };
 
 // Native Draw requires verified original EoR engine calls and offline
