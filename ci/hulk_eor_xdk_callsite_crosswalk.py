@@ -22,7 +22,7 @@ from hulk_engine_render_callgraph import (
 LINE = re.compile(
     r'\[HULK/EOR-XDK-CALLSITE\]\s+XDK=0x([0-9A-Fa-f]{8})\s+'
     r'LR=0x([0-9A-Fa-f]{8})\s+kind=(\d+)\s+'
-    r'draws=(\d+)\s+frames=(\d+)')
+    r'draws=(\d+)\s+frames=(\d+)(?=\s|$)')
 MAX_TRACE_BYTES = 128 * 1024 * 1024
 MAX_CALLSITES = 256
 
@@ -42,6 +42,11 @@ def analyze(log: str, hooks: dict[int, str],
         if '[HULK/EOR-XDK-CALLSITE]' not in line:
             continue
         m = LINE.search(line)
+        # A tagged observation must contain exactly one complete record;
+        # a second record or a glued-on numeric suffix is not evidence.
+        if m and ('[HULK/EOR-XDK-CALLSITE]' in line[m.end():] or
+                  re.search(r'(?<!\w)(?:XDK|LR|kind|draws|frames)=', line[m.end():])):
+            raise ValueError("Malformed Hulk XDK caller observation")
         if not m:
             raise ValueError("Malformed Hulk XDK caller observation")
         xdk, lr = int(m[1], 16), int(m[2], 16)
