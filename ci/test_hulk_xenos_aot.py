@@ -11,6 +11,15 @@ import unittest
 from unittest.mock import patch
 from hulk_xenos_aot import compile_bank, _check_spirv, _entries
 
+def fake_legal_spirv(stage: str) -> bytes:
+    # Must be a real instruction-framed module: the new native resource
+    # preflight correctly rejects the old invalid 6-word dummy payload.
+    words = [0x07230203, 0x00010500, 0, 16, 0,
+             0x00020011, 1, 0x0003000e, 0, 1,
+             0x0005000f, 4 if stage == "PS" else 0,
+             1, 0x6e69616d, 0]
+    return struct.pack("<" + "I" * len(words), *words)
+
 def bank(root):
     src = root / "bank" / "Xenos"
     src.mkdir(parents=True)
@@ -44,7 +53,7 @@ class AotTests(unittest.TestCase):
                     Path(args[2]).write_text("void main() {}\n")
                 else:
                     Path(args[args.index("-Fo")+1]).write_bytes(
-                        struct.pack("<5I",0x07230203,0x10500,1,42,0)+b"\0"*4)
+                        fake_legal_spirv("PS" if "ps_6_0" in args else "VS"))
                 return type("Result",(),{"returncode":0})()
             with patch("hulk_xenos_aot.subprocess.run",side_effect=run):
                 report=compile_bank(b,out,xenos,dxc,common,repo)
@@ -52,6 +61,8 @@ class AotTests(unittest.TestCase):
             self.assertEqual(report["failed_count"],0)
             self.assertFalse(report["native_renderer_ready"])
             self.assertIn("-fvk-invert-y",calls[1])
+            self.assertIn("-fspv-reflect",calls[1])
+            self.assertNotIn("-Qstrip_debug",calls[1])
             self.assertEqual(json.loads((out/"aot_manifest.json").read_text()),report)
             self.assertTrue((out / (sha+".vs.spv")).is_file())
             raw = (out / "hulk_shader_bank.bin").read_bytes()
@@ -91,7 +102,7 @@ class AotTests(unittest.TestCase):
                     time.sleep(0.03)
                     if "-Fo" in args:
                         Path(args[args.index("-Fo")+1]).write_bytes(
-                            struct.pack("<5I",0x07230203,0x10500,1,42,0)+b"\0"*4)
+                            fake_legal_spirv("PS" if "ps_6_0" in args else "VS"))
                     else:
                         Path(args[2]).write_text("void main() {}\n")
                     return type("Result",(),{"returncode":0})()
