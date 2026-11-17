@@ -17,6 +17,7 @@ import struct
 import subprocess
 import tempfile
 from hulk_spirv_resource_contract import validate_named_spirv_images
+from hulk_xenos_to_spirv import spirv_info
 
 SHA = re.compile(r"^[0-9a-f]{64}$")
 MAX_INPUT = 2 << 20
@@ -122,6 +123,9 @@ def compile_bank(bank: Path, out: Path, xenos: Path, dxc: Path, common: Path,
                 raise RuntimeError(f"DXC SPIR-V exit={result.returncode}")
             code = spv.read_bytes()
             _check_spirv(code)
+            # The incremental compiler must obey the SAME stage and
+            # instruction-extent contract as the complete private AOT bank.
+            spirv_info(code, stage)
             validate_named_spirv_images(code)
             return ({"source_sha256": sha, "stage": stage,
                      "source_effect": row["effect"],
