@@ -143,6 +143,23 @@ class ShaderScalarFetchTests(unittest.TestCase):
         self.assertNotIn(SCALAR_EXPO_OLD, shader)
         self.assertEqual(patch_scalar(shader, header), (shader, header, False))
 
+    def test_scalar_idempotence_rejects_partial_fetch_case(self):
+        shader, header, changed = patch_scalar(SCALAR_SOURCE, SCALAR_VERSION_OLD)
+        self.assertTrue(changed)
+        self.assertEqual(patch_scalar(shader, header), (shader, header, False))
+        # The old global-count check accepted a missing real normalization
+        # when a decoy occurrence was added elsewhere in the file.
+        damaged = shader.replace(
+            "normalized_mul_op, result_type, result",
+            "spv::OpVectorTimesScalar, result_type, result", 1)
+        damaged += "\\n// normalized_mul_op\\n"
+        with self.assertRaises(ValueError):
+            patch_scalar(damaged, header)
+        # A second cache version declaration must not masquerade as a
+        # uniquely reviewed SDK header.
+        with self.assertRaises(ValueError):
+            patch_scalar(shader, header + "\\n" + SCALAR_VERSION_NEW)
+
     def test_wrong_or_partially_patched_sdk_fails(self):
         for source, header in [
             (SCALAR_SOURCE, "    static constexpr uint32_t kVersion = 11;"),
