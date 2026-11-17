@@ -29,7 +29,8 @@ def patch_index(source: str) -> tuple[str, bool]:
                 INDEX_OLD in source):
             raise ValueError("Partial converted-index page fix")
         return source, False
-    if source.count(INDEX_OLD) != 1 or "kMinRequiredConvertedIndexBufferSize" not in source:
+    if (source.count(INDEX_OLD) != 1 or INDEX_NEW in source or
+            "kMinRequiredConvertedIndexBufferSize" not in source):
         raise ValueError("Pinned ReXGlue primitive pool expression changed")
     return source.replace(INDEX_OLD, INDEX_NEW, 1), True
 
