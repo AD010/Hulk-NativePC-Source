@@ -34,12 +34,14 @@ EXPO_OLD = """    if (instr.attributes.exp_adjust) {
           builder_->makeFloatConstant(std::ldexp(1.0f, instr.attributes.exp_adjust)));
     }"""
 EXPO_NEW = """    if (instr.attributes.exp_adjust) {
-      // Re-evaluate actual output type after format conversion. The result
-      // can be scalar even in a shader containing other vector fetches.
+      // The original Xenos float result is still at the fetch format's
+      // used component width here (result padding happens AFTER exp_adjust).
+      // Use the verified source's known component count: SpvBuilder has no
+      // isVectorType method in this pinned glslang API.
       const spv::Id adjusted_type = builder_->getTypeId(result);
       result = builder_->createNoContractionBinOp(
-          builder_->isVectorType(adjusted_type) ? spv::OpVectorTimesScalar
-                                                : spv::OpFMul,
+          used_format_component_count > 1 ? spv::OpVectorTimesScalar
+                                          : spv::OpFMul,
           adjusted_type, result,
           builder_->makeFloatConstant(std::ldexp(1.0f, instr.attributes.exp_adjust)));
     }"""
