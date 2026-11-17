@@ -6,7 +6,13 @@
 namespace hulk::eor::aot {
 namespace {
 enum class TypeKind { Other, Image, SampledImage, Sampler, Alias };
-struct Type { TypeKind kind=TypeKind::Other;uint32_t base=0; };
+struct Type {
+  TypeKind kind=TypeKind::Other;
+  uint32_t base=0;
+  uint32_t dim=UINT32_MAX;
+  bool arrayed=false;
+  bool multisampled=false;
+};
 struct Variable { uint32_t pointer=0;uint32_t id=0; };
 std::string Name(std::span<const uint32_t> words) {
   std::string result;
@@ -25,13 +31,13 @@ std::string Name(std::span<const uint32_t> words) {
     throw std::invalid_argument("Unnamed original SPIR-V image resource");
   return result;
 }
-bool HasImageType(uint32_t id, const std::map<uint32_t,Type>& types) {
+const Type* FindImageType(uint32_t id, const std::map<uint32_t,Type>& types) {
   for(unsigned depth=0;depth<16;++depth) {
     const auto it=types.find(id);
-    if(it==types.end())return false;
-    if(it->second.kind==TypeKind::Image ||
-       it->second.kind==TypeKind::SampledImage)return true;
-    if(it->second.kind!=TypeKind::Alias)return false;
+    if(it==types.end())return nullptr;
+    if(it->second.kind==TypeKind::Image)return &it->second;
+    if(it->second.kind!=TypeKind::Alias &&
+       it->second.kind!=TypeKind::SampledImage)return nullptr;
     id=it->second.base;
   }
   throw std::invalid_argument("Cyclic/deep original shader image type chain");
@@ -62,8 +68,14 @@ std::vector<SpirvImageResource> InspectSpirvImageResources(
       const auto id=operand(1);
       if(!id || id>=shader[3] || types.contains(id))
         throw std::invalid_argument("Duplicate/unbounded original SPIR-V type id");
-      if(op==25) types.emplace(id,Type{TypeKind::Image,0});
-      else if(op==26) types.emplace(id,Type{TypeKind::Sampler,0});
+      if(op==25) {
+        // Image type declarations must carry Dim, Arrayed, and MS;
+        // never infer a 2D view from the material texture dimensions.
+        if(words<9 || operand(5)>1 || operand(6)>1)
+          throw std::invalid_argument("Malformed original SPIR-V image shape");
+        types.emplace(id,Type{TypeKind::Image,0,
+                    operand(3),operand(5)!=0,operand(6)!=0});
+      } else if(op==26) types.emplace(id,Type{TypeKind::Sampler,0});
       else if(op==27 || op==28 || op==29) {
         types.emplace(id,Type{op==27?TypeKind::SampledImage:TypeKind::Alias,operand(2)});
       } else { // OpTypePointer = (result, storage class, pointee).
@@ -93,14 +105,16 @@ std::vector<SpirvImageResource> InspectSpirvImageResources(
   std::vector<SpirvImageResource> result;
   std::set<std::pair<uint32_t,uint32_t>> occupied;
   for(const auto& variable:vars) {
-    if(!HasImageType(variable.pointer,types))continue;
+    const auto* image=FindImageType(variable.pointer,types);
+    if(!image)continue;
     const auto name=names.find(variable.id);
     const auto set=sets.find(variable.id);
     const auto bind=bindings.find(variable.id);
     if(name==names.end() || set==sets.end() || bind==bindings.end() ||
        !occupied.emplace(set->second,bind->second).second)
       throw std::invalid_argument("Original AOT SPIR-V image descriptor lacks unique binding/name");
-    result.push_back({Name(name->second),set->second,bind->second});
+    result.push_back({Name(name->second),set->second,bind->second,
+                      image->dim,image->arrayed,image->multisampled});
   }
   return result;
 }
