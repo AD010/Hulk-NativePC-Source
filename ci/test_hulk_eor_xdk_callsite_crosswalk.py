@@ -68,6 +68,8 @@ class EorRuntimeCallsiteTests(unittest.TestCase):
             '[HULK/EOR-XDK-CALLSITE] XDK=0x8288E318 LR=bad kind=1 draws=10 frames=2',
             '[HULK/EOR-XDK-CALLSITE] XDK=0x8288E318 LR=0x82500024 kind=1 draws=bad frames=2',
             '[HULK/EOR-XDK-CALLSITE] XDK=0x8288E318 LR=0x82500024 kind=1 draws=10',
+            '[HULK/EOR-XDK-CALLSITE] XDK=0x8288E318 LR=0x82500024 kind=1 draws=10 frames=2frames=3',
+            trace().strip() + ' [HULK/EOR-XDK-CALLSITE] XDK=0x8288E318 LR=bad kind=1 draws=2 frames=1',
         ]
         for row in malformed:
             with self.subTest(row=row), self.assertRaisesRegex(ValueError, 'Malformed'):
