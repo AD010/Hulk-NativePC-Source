@@ -53,6 +53,32 @@ int main() {
          !array_bindings[0].image_multisampled);
   auto multisample=shader;multisample[5+6]=1;
   assert(InspectSpirvImageResources(multisample)[0].image_multisampled);
+  // The original material/SRB path addresses image variables by their
+  // exact names. A second descriptor with the same name is ambiguous even
+  // when the set and binding decorations are distinct.
+  auto duplicate_name=shader;
+  Add(duplicate_name,59,{3,5,0});
+  Add(duplicate_name,71,{5,33,3});
+  Add(duplicate_name,71,{5,34,0});
+  std::vector<uint32_t> alias_name{5};
+  alias_name.insert(alias_name.end(),text.begin(),text.end());
+  Add(duplicate_name,5,alias_name);
+  Reject([&]{(void)InspectSpirvImageResources(duplicate_name);});
+  // An image descriptor array cannot be represented by a single Vulkan SRV
+  // without verifying its original array cardinality and per-index ownership.
+  auto array_descriptor=shader;
+  Add(array_descriptor,21,{6,32,0}); // uint32 type
+  Add(array_descriptor,43,{6,7,2});  // length constant 2
+  Add(array_descriptor,28,{8,1,7});  // array[2] of Image
+  Add(array_descriptor,32,{9,0,8});  // UniformConstant pointer to image array
+  Add(array_descriptor,59,{9,10,0});
+  Add(array_descriptor,71,{10,33,3});
+  Add(array_descriptor,71,{10,34,0});
+  std::vector<uint32_t> arr_name{10};
+  const auto arr_text=Text("g_Layers");
+  arr_name.insert(arr_name.end(),arr_text.begin(),arr_text.end());
+  Add(array_descriptor,5,arr_name);
+  Reject([&]{(void)InspectSpirvImageResources(array_descriptor);});
   auto bad=shader;bad[0]=0;
   Reject([&]{(void)InspectSpirvImageResources(bad);});
   bad=shader;bad[5]=0;

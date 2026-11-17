@@ -5,7 +5,7 @@
 #include <utility>
 namespace hulk::eor::aot {
 namespace {
-enum class TypeKind { Other, Image, SampledImage, Sampler, Alias };
+enum class TypeKind { Other, Image, SampledImage, Sampler, Alias, Array };
 struct Type {
   TypeKind kind=TypeKind::Other;
   uint32_t base=0;
@@ -36,6 +36,9 @@ const Type* FindImageType(uint32_t id, const std::map<uint32_t,Type>& types) {
     const auto it=types.find(id);
     if(it==types.end())return nullptr;
     if(it->second.kind==TypeKind::Image)return &it->second;
+    if(it->second.kind==TypeKind::Array)
+      throw std::invalid_argument(
+          "Original AOT shader uses an array of GPU image descriptors without verified array bindings");
     if(it->second.kind!=TypeKind::Alias &&
        it->second.kind!=TypeKind::SampledImage)return nullptr;
     id=it->second.base;
@@ -77,7 +80,7 @@ std::vector<SpirvImageResource> InspectSpirvImageResources(
                     operand(3),operand(5)!=0,operand(6)!=0});
       } else if(op==26) types.emplace(id,Type{TypeKind::Sampler,0});
       else if(op==27 || op==28 || op==29) {
-        types.emplace(id,Type{op==27?TypeKind::SampledImage:TypeKind::Alias,operand(2)});
+        types.emplace(id,Type{op==27?TypeKind::SampledImage:TypeKind::Array,operand(2)});
       } else { // OpTypePointer = (result, storage class, pointee).
         (void)operand(2);
         types.emplace(id,Type{TypeKind::Alias,operand(3)});
@@ -104,6 +107,7 @@ std::vector<SpirvImageResource> InspectSpirvImageResources(
   }
   std::vector<SpirvImageResource> result;
   std::set<std::pair<uint32_t,uint32_t>> occupied;
+  std::set<std::string> unique_image_names;
   for(const auto& variable:vars) {
     const auto* image=FindImageType(variable.pointer,types);
     if(!image)continue;
@@ -113,7 +117,14 @@ std::vector<SpirvImageResource> InspectSpirvImageResources(
     if(name==names.end() || set==sets.end() || bind==bindings.end() ||
        !occupied.emplace(set->second,bind->second).second)
       throw std::invalid_argument("Original AOT SPIR-V image descriptor lacks unique binding/name");
-    result.push_back({Name(name->second),set->second,bind->second,
+    // Diligent resolves a texture variable by NAME at the verified stage.
+    // Two distinct image descriptors with the same name can bind the wrong
+    // material even if their SPIR-V set/binding numbers differ.
+    auto exact_name=Name(name->second);
+    if(!unique_image_names.insert(exact_name).second)
+      throw std::invalid_argument(
+          "Ambiguous duplicated original SPIR-V image resource variable name");
+    result.push_back({std::move(exact_name),set->second,bind->second,
                       image->dim,image->arrayed,image->multisampled});
   }
   return result;
