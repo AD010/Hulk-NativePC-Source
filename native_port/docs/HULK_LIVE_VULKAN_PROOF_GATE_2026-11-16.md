@@ -91,3 +91,21 @@ byte range evidence: see
 `HULK_USA_ALL_TEXTURES_BYTE_AUDIT_2026-11-16.md`.
 The **on-screen NativeX renderer still does not call** the new host asset
 uploader, so no actual Vulkan game image improvement can yet be claimed.
+
+## 2026-11-17: decouple camera FOV gate from genuine host Draw readiness
+
+The original EoR host frame planner now permits a native GPU frame with the
+**source-verified EoR engine Draw hook and original offline shaders** even when
+the Xbox USA camera ABI is not yet verified. The scene is physically drawn
+at host density inside an original-aspect viewport (e.g. 2560x1440 inside
+a 2560x1600 display with 80-pixel top/bottom bars), not upscaled from a
+1280x720 guest render target. A real, verified camera hook is still required
+to use the entire 16:10 screen without distortion. This does not alter HUD,
+projection constants, game draws, or Xenos renderer settings.
+
+**Current runtime remains blocked:** `eor_xdk_hook_bridge.cpp` only observes
+actual USA PPC calls, while no validated call-to-model/surface/pass/VS/PS/
+constant mapping has been connected to `ReplayVerifiedGeometryScene`.
+Consequently the new frame-planning condition cannot activate unsupported
+Vulkan Draws or prove visual improvements in the actual game. Existing
+single manual Windows Release workflow remains untouched.

@@ -40,6 +40,29 @@ int main() {
   assert(!legacy.direct_engine_path_ready);
   MustThrow([&] { FakeBackend b; ReplayNativeScene(legacy,
                  std::vector<IndexedDraw>{{1, 2, 3, 4, 6, 0}}, b); });
+  // Missing USA camera ABI must NOT block a fully verified native Draw
+  // path. Keep original 16:9 geometry, rasterized at full host density,
+  // with letterbox bars instead of stretched HUD/3D or fabricated FOV.
+  s.engine_draw_hook_verified = true;
+  s.offline_shader_cache_verified = true;
+  const auto letterboxed = PlanFrame(s);
+  assert(letterboxed.direct_engine_path_ready && !letterboxed.widescreen_camera);
+  assert(letterboxed.world.width == 2560 && letterboxed.world.height == 1440);
+  assert(letterboxed.composite.left == 0 && letterboxed.composite.top == 80);
+  FakeBackend letterbox_gpu;
+  ReplayNativeScene(letterboxed,
+                    std::vector<IndexedDraw>{{1, 2, 3, 4, 6, 0}},
+                    letterbox_gpu);
+  assert(letterbox_gpu.scene.height == 1440 &&
+         letterbox_gpu.resolved.height == 1440 &&
+         letterbox_gpu.rectangle.top == 80 &&
+         letterbox_gpu.aborts == 0 && letterbox_gpu.draw_number == 1);
+  s.offline_shader_cache_verified = false;
+  assert(!PlanFrame(s).direct_engine_path_ready);
+  s.offline_shader_cache_verified = true;
+  s.engine_draw_hook_verified = false;
+  assert(!PlanFrame(s).direct_engine_path_ready);
+  s.engine_draw_hook_verified = true;
   s.projection_hook_verified = true;
   s.engine_draw_hook_verified = true;
   s.offline_shader_cache_verified = true;
@@ -110,6 +133,7 @@ int main() {
   s.projection_hook_verified = false;
   const auto ultrawide = PlanFrame(s);
   assert(ultrawide.world.width == 2560 && ultrawide.composite.left == 440);
+  assert(ultrawide.direct_engine_path_ready && !ultrawide.widescreen_camera);
   s.samples = 3;
   MustThrow([&] { (void)PlanFrame(s); });
   s.samples = 4;

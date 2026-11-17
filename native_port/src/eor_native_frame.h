@@ -26,13 +26,15 @@ struct FrameGeometry {
   Size backbuffer;
   Rect composite;                     // Host output rectangle, centered.
   uint32_t samples = 1;
-  bool widescreen_camera = false;
-  bool direct_engine_path_ready = false;
+  bool widescreen_camera = false; // Actual USA camera ABI proven for wider 3D
+  bool direct_engine_path_ready = false; // Original engine Draw + AOT shaders proven
 };
 
-// Native mode becomes eligible only after the USA camera, native EoR draw
-// source and offline shaders are separately verified. A 720p guest may still
-// be used for game logic, but must never silently dictate host RT size.
+// Native Draw requires verified original EoR engine calls and offline
+// shader provenance. The optional USA camera hook ONLY unlocks a wider 3D
+// viewport: without it, native geometry keeps original guest aspect ratio
+// inside a centered, high-resolution letterboxed host scene. A 720p guest
+// may still run game logic but never dictate host RT pixel density.
 FrameGeometry PlanFrame(const FrameSetup& setup);
 
 struct IndexedDraw {

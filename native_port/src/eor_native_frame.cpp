@@ -40,9 +40,13 @@ FrameGeometry PlanFrame(const FrameSetup& s) {
     while (samples > 1 && pixels > s.max_scene_color_samples / samples)
       samples /= 2;
   }
-  return {world, s.backbuffer, rect, samples, wide,
-          s.engine_draw_hook_verified && s.offline_shader_cache_verified &&
-          s.projection_hook_verified};
+  // The engine Draw path and its offline shader provenance do not depend
+  // on changing the original camera projection. Without a proven USA
+  // projection hook we rasterize in the original aspect and letterbox.
+  // This is NOT permission to stretch HUD or fake a wider game camera.
+  const bool draw_path_ready =
+      s.engine_draw_hook_verified && s.offline_shader_cache_verified;
+  return {world, s.backbuffer, rect, samples, wide, draw_path_ready};
 }
 
 void ReplayNativeScene(const FrameGeometry& frame,
@@ -50,7 +54,7 @@ void ReplayNativeScene(const FrameGeometry& frame,
   Check(frame.world);
   Check(frame.backbuffer);
   if (!frame.direct_engine_path_ready)
-    throw std::logic_error("Native EoR draw, shader and camera path not verified");
+    throw std::logic_error("Native EoR draw and shader path not verified");
   if (draws.empty())
     throw std::logic_error("No real EoR draw calls captured");
   if (frame.samples != 1 && frame.samples != 2 &&
