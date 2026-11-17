@@ -3,7 +3,9 @@
 // IMPORTANT: not called by the game until a real XEX projection ABI is found.
 #pragma once
 
+#include <array>
 #include <cmath>
+#include <cstdint>
 #include <optional>
 
 namespace hulk::camera {
@@ -45,4 +47,55 @@ inline std::optional<ProjectionAspect> AspectForView(
   return ProjectionAspect{aspect, focal_multiplier, horizontal_fov, true};
 }
 
+// Perspective camera correction for verified original main-view matrices.
+// Preserving horizontal FOV when moving from 16:9 to taller 16:10 exposes
+// MORE vertical scene rather than cropping the sides or stretching the HUD.
+// Applying this to a view-projection product requires verified multiplication
+// convention. Never modify 2D UI, shadow, reflection or movie matrices.
+enum class ClipMatrixConvention : uint8_t {
+  Unknown=0, ColumnVector=1, RowVector=2
+};
+struct SourceCameraProof {
+  bool original_main_perspective_view=false;
+  bool original_horizontal_fov_verified=false;
+  bool original_view_projection_abi_verified=false;
+  ClipMatrixConvention convention=ClipMatrixConvention::Unknown;
+};
+inline std::optional<std::array<float,16>> ExpandVerifiedVerticalView(
+    const std::array<float,16>& original,
+    double original_aspect,
+    uint32_t output_width,uint32_t output_height,
+    const SourceCameraProof& proof) noexcept {
+  if(!proof.original_main_perspective_view ||
+     !proof.original_horizontal_fov_verified ||
+     !proof.original_view_projection_abi_verified ||
+     proof.convention==ClipMatrixConvention::Unknown ||
+     !output_width || !output_height ||
+     !std::isfinite(original_aspect) ||
+     original_aspect<0.5 || original_aspect>4.5)
+    return std::nullopt;
+  const double target=double(output_width)/output_height;
+  if(!std::isfinite(target) || target<0.5 || target>4.5)
+    return std::nullopt;
+  const double scale=target/original_aspect;
+  if(!std::isfinite(scale) || scale<=0.0)
+    return std::nullopt;
+  for(const auto x:original)
+    if(!std::isfinite(x))return std::nullopt;
+  auto matrix=original;
+  // Clip y, NOT the guest render-target height or the shader's texture UV.
+  // Column-vector: clip_y = M[1,*] dot position -> scale row 1.
+  // Row-vector:    clip_y = position dot M[*,1] -> scale column 1.
+  for(size_t i=0;i<4;++i) {
+    const size_t at=proof.convention==ClipMatrixConvention::ColumnVector ?
+         4+i : 4*i+1;
+    const double corrected=double(matrix[at])*scale;
+    if(!std::isfinite(corrected) ||
+       corrected>double(3.402823466e38f) ||
+       corrected<-double(3.402823466e38f))
+      return std::nullopt;
+    matrix[at]=static_cast<float>(corrected);
+  }
+  return matrix;
+}
 }  // namespace hulk::camera

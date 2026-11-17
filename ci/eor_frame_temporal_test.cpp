@@ -16,6 +16,42 @@ int main() {
     assert(b.simulation_steps==2 && !b.must_catch_up_before_present);
   }
   assert(thirty.TotalTicks()==120);
+  // Step execution is now directly bound to an ORIGINAL world callback
+  // when its USA ABI, timestep units and job completion barrier are proven.
+  timing::VerifiedHavokRuntime verified{true,true,true,true};
+  uint64_t executed=0;
+  timing::NativeHavokTickRunner live(verified,[&](double dt){
+    assert(Near(dt,1.0/60.0));++executed;return true;
+  });
+  for(int i=0;i<60;++i) {
+    const auto state=live.AdvanceAndRun(1.0/30.0);
+    assert(state.simulation_steps==2 &&
+           !state.must_catch_up_before_present);
+  }
+  assert(executed==120 && live.CompletedTicks()==120);
+  live.ResetAfterOriginalWorldReset();
+  assert(live.CompletedTicks()==0 && Near(live.QueuedSeconds(),0));
+  timing::NativeHavokTickRunner highRefresh(verified,[&](double dt){
+    assert(Near(dt,1.0/60.0));return true;
+  });
+  for(int i=0;i<120;++i)
+    highRefresh.AdvanceAndRun(1.0/120.0);
+  assert(highRefresh.CompletedTicks()==60);
+  timing::NativeHavokTickRunner failure(verified,[](double){return false;});
+  bool failed_world=false;
+  try{failure.AdvanceAndRun(1.0/60.0);}
+  catch(const std::runtime_error&){failed_world=true;}
+  assert(failed_world && failure.Faulted() && failure.CompletedTicks()==0);
+  bool fail_again=false;
+  try{failure.CatchUpAndRun();}catch(const std::logic_error&){fail_again=true;}
+  assert(fail_again);
+  auto no_proof=verified;
+  no_proof.original_step_function_abi_verified=false;
+  bool missing_abi=false;
+  try{timing::NativeHavokTickRunner unavailable(no_proof,
+         [](double){return true;});}
+  catch(const std::invalid_argument&){missing_abi=true;}
+  assert(missing_abi);
   timing::FixedStepScheduler one_twenty(60);
   for(int i=0;i<120;i++) {
     auto b=one_twenty.Advance(1.0/120.0);

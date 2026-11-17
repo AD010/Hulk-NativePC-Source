@@ -3,6 +3,7 @@
 #include <cmath>
 #include <limits>
 #include <stdexcept>
+#include <utility>
 namespace hulk::eor::timing {
 namespace { constexpr double kEpsilon = 1e-10; }
 FixedStepScheduler::FixedStepScheduler(double hz, uint32_t max_steps)
@@ -35,5 +36,61 @@ StepBatch FixedStepScheduler::Drain() {
   // A presenter must skip interpolation while must_catch_up_before_present.
   return {steps, step_, unfinished ? 0.0 : accumulated_ / step_,
           accumulated_, unfinished};
+}
+NativeHavokTickRunner::NativeHavokTickRunner(
+    VerifiedHavokRuntime proof,OriginalWorldStep callback,
+    double hz,uint32_t budget)
+    :step_world_(std::move(callback)),fixed_dt_(1.0/hz),budget_(budget) {
+  if(!proof.original_world_identity_verified ||
+     !proof.original_step_function_abi_verified ||
+     !proof.original_world_units_verified ||
+     !proof.original_job_completion_barrier_verified ||
+     !step_world_ || !std::isfinite(hz) || hz<15.0 || hz>240.0 ||
+     !budget || budget>1024)
+    throw std::invalid_argument("Original Hulk USA Havok world/step ABI is unverified");
+}
+void NativeHavokTickRunner::ResetAfterOriginalWorldReset() noexcept {
+  pending_=0.0;
+  total_ticks_=0;
+  faulted_=false;
+}
+StepBatch NativeHavokTickRunner::AdvanceAndRun(double elapsed) {
+  if(faulted_ || !std::isfinite(elapsed) || elapsed<0.0 || elapsed>10.0 ||
+     pending_>std::numeric_limits<double>::max()-elapsed)
+    throw std::invalid_argument("Unusable native Havok clock or elapsed time");
+  pending_+=elapsed;
+  return Run();
+}
+StepBatch NativeHavokTickRunner::CatchUpAndRun() {
+  if(faulted_)
+    throw std::logic_error("Cannot resubmit a partially failed native Havok world step");
+  return Run();
+}
+StepBatch NativeHavokTickRunner::Run() {
+  constexpr double epsilon=1e-10;
+  uint32_t dispatched=0;
+  while(dispatched<budget_ && pending_+epsilon>=fixed_dt_) {
+    if(total_ticks_==UINT64_MAX)
+      throw std::overflow_error("Native original Havok fixed tick overflow");
+    bool completed=false;
+    try {completed=step_world_(fixed_dt_);}
+    catch (...) {
+      faulted_=true;
+      throw;
+    }
+    if(!completed) {
+      // Never silently consume an unexecuted physics step or retry a
+      // potentially half-updated hkpWorld. Requires original world reset.
+      faulted_=true;
+      throw std::runtime_error("Source-verified original Havok step did not complete");
+    }
+    pending_=std::max(0.0,pending_-fixed_dt_);
+    if(pending_<epsilon)pending_=0.0;
+    ++total_ticks_;
+    ++dispatched;
+  }
+  const bool behind=pending_+epsilon>=fixed_dt_;
+  return {dispatched,fixed_dt_,behind?0.0:pending_/fixed_dt_,
+          pending_,behind};
 }
 } // namespace hulk::eor::timing

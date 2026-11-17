@@ -1,6 +1,7 @@
 #pragma once
 // EoR/Havok fixed-step transition contract: solver invocation needs verified USA ABI.
 #include <cstdint>
+#include <functional>
 namespace hulk::eor::timing {
 struct StepBatch {
   uint32_t simulation_steps = 0;
@@ -24,5 +25,34 @@ class FixedStepScheduler {
   double accumulated_ = 0.0;
   uint32_t budget_ = 8;
   uint64_t total_ticks_ = 0;
+};
+// A usable native Havok 60Hz step scheduler with transactional callback
+// dispatch. Source-proven ORIGINAL hkpWorld and stepDeltaTime ABIs are required
+// before enabling this in Hulk USA; a generic packfile is not such proof.
+struct VerifiedHavokRuntime {
+  bool original_world_identity_verified=false;
+  bool original_step_function_abi_verified=false;
+  bool original_world_units_verified=false;
+  bool original_job_completion_barrier_verified=false;
+};
+class NativeHavokTickRunner {
+ public:
+  using OriginalWorldStep=std::function<bool(double fixed_dt_seconds)>;
+  NativeHavokTickRunner(VerifiedHavokRuntime proof,OriginalWorldStep step,
+                        double physics_hz=60.0,uint32_t per_batch_budget=8);
+  StepBatch AdvanceAndRun(double real_elapsed_seconds);
+  StepBatch CatchUpAndRun();
+  void ResetAfterOriginalWorldReset() noexcept;
+  bool Faulted() const noexcept {return faulted_;}
+  uint64_t CompletedTicks() const noexcept {return total_ticks_;}
+  double QueuedSeconds() const noexcept {return pending_;}
+ private:
+  StepBatch Run();
+  OriginalWorldStep step_world_;
+  double fixed_dt_=1.0/60.0;
+  double pending_=0.0;
+  uint32_t budget_=8;
+  uint64_t total_ticks_=0;
+  bool faulted_=false;
 };
 } // namespace hulk::eor::timing

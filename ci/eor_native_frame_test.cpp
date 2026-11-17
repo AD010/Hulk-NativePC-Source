@@ -1,4 +1,7 @@
 #include "../native_port/src/eor_native_frame.h"
+#include "../native_port/src/native_camera_projection.h"
+#include <array>
+#include <cmath>
 #include <cassert>
 #include <stdexcept>
 #include <vector>
@@ -31,6 +34,25 @@ template<class F> void MustThrow(F f) {
   assert(found);
 }
 int main() {
+  // Actual 16:10 camera rewrite is enabled only when source validation
+  // proves the original 3D view and its matrix multiplication ABI.
+  // Preserve original horizontal FOV: 16:9 -> 16:10 scales clip-Y by 0.9,
+  // without stretching HUD, changing guest EDRAM or cropping scene sides.
+  std::array<float,16> proj{1,0,0,0, 0,1,0,0,
+                            0,0,1,0, 0,0,0,1};
+  hulk::camera::SourceCameraProof camera_proof{
+      true,true,true,hulk::camera::ClipMatrixConvention::ColumnVector};
+  const auto corrected=hulk::camera::ExpandVerifiedVerticalView(
+      proj,16.0/9.0,2560,1600,camera_proof);
+  assert(corrected && std::abs((*corrected)[5]-0.9f)<0.00001f &&
+         (*corrected)[0]==1.0f && (*corrected)[15]==1.0f);
+  camera_proof.convention=hulk::camera::ClipMatrixConvention::RowVector;
+  const auto row_corrected=hulk::camera::ExpandVerifiedVerticalView(
+      proj,16.0/9.0,2560,1600,camera_proof);
+  assert(row_corrected && std::abs((*row_corrected)[5]-0.9f)<0.00001f);
+  camera_proof.original_main_perspective_view=false;
+  assert(!hulk::camera::ExpandVerifiedVerticalView(
+      proj,16.0/9.0,2560,1600,camera_proof));
   FrameSetup s{};
   s.backbuffer = {2560, 1600};
   s.samples = 4;
