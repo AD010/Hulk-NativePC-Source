@@ -58,11 +58,10 @@ template<class F> void Reject(
   try { f(); } catch(const std::invalid_argument&) { caught=true; }
   if(!caught) {
     std::fprintf(stderr,
-        "EoR original TexStreams negative fixture unexpectedly accepted at line %u\\n",
+        "EoR original TexStreams negative fixture unexpectedly accepted at line %u\n",
         caller.line());
   }
   assert(caught);
-}
 }
 }
 int main(){
