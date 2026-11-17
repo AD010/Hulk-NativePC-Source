@@ -132,7 +132,14 @@ bool DiligentSceneTargets::BeginScene() {
     if(!rtv || !dsv)return false;
     state_->context->SetRenderTargets(1,&rtv,dsv,Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
     state_->bound=true;
-    const Diligent::Viewport viewport{state_->physical.width,state_->physical.height};
+    // Diligent's viewport constructor takes (left,top,width,height).
+    // Passing just physical width/height must never be interpreted as a
+    // top-left coordinate and lose the real screen-sized Vulkan viewport.
+    const Diligent::Viewport viewport{
+        0.f,0.f,
+        static_cast<float>(state_->physical.width),
+        static_cast<float>(state_->physical.height),
+        0.f,1.f};
     state_->context->SetViewports(1,&viewport,state_->physical.width,state_->physical.height);
     const Diligent::Rect clip{0,0,int(state_->physical.width),int(state_->physical.height)};
     state_->context->SetScissorRects(1,&clip,state_->physical.width,state_->physical.height);

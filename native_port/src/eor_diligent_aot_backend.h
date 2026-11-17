@@ -102,6 +102,13 @@ class DiligentEorDirectBackend final : public aot::ShaderBindingBackend {
   DiligentEorDirectBackend(const DiligentEorDirectBackend&)=delete;
   DiligentEorDirectBackend& operator=(const DiligentEorDirectBackend&)=delete;
   ~DiligentEorDirectBackend() noexcept override;
+  // Sonic/Blue Dragon-style asset-load pipeline prewarming. Uses ONLY
+  // resident original model/material owners and exact AOT shader SHA+PSO
+  // state; no effect-name guesses or all-game brute-force compilation.
+  // The constructor prewarms an initial bounded batch; callers uploading
+  // more models can request further batches BEFORE the next GPU scene.
+  // Returns the number of newly cached verified owner-specific pipelines.
+  std::size_t PrewarmResidentOriginalPipelines(std::size_t max_new);
   bool PreflightOriginalScene(
       std::span<const aot::BoundIndexedDraw> draws) override;
 

@@ -205,6 +205,7 @@ int main() {
   assert(original_4_3.world.width==1024 && original_4_3.world.height==768);
   s.backbuffer={16384,16384};
   MustThrow([&] { (void)PlanFrame(s); });
+  s.backbuffer={1920,1080};  // isolate invalid MSAA from invalid 16K^2
   s.samples = 3;
   MustThrow([&] { (void)PlanFrame(s); });
   s.samples = 4;

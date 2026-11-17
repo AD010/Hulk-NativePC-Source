@@ -345,8 +345,61 @@ DiligentEorDirectBackend::DiligentEorDirectBackend(
         throw std::invalid_argument("EoR decoded float4 vertex attributes are truncated");
     }
   }
+  // Load-stage AOT pipeline preparation as used by Sonic/Blue Dragon:
+  // shaders for the resident models are compiled BEFORE the first game
+  // frame, never in the middle of an indexed Draw. Keep a bounded startup
+  // batch; the full scene preflight compiles any remaining source passes.
+  (void)PrewarmResidentOriginalPipelines(64);
 }
 DiligentEorDirectBackend::~DiligentEorDirectBackend() noexcept {AbortScene();}
+std::size_t DiligentEorDirectBackend::PrewarmResidentOriginalPipelines(
+    std::size_t max_new) {
+  if(!state_ || !max_new || state_->scene_open ||
+     state_->frame_preflight_ready)return 0;
+  auto& s=*state_;
+  std::set<uint32_t> resident_models;
+  for(const auto& [_,mesh]:s.draw_buffers)
+    resident_models.insert(mesh.original_model_hash);
+  std::size_t warmed=0;
+  for(const auto& owner:s.passes) {
+    if(warmed>=max_new)break;
+    if(!resident_models.contains(owner.original_model_hash))continue;
+    const State::MaterialKey key{
+        owner.original_model_hash,owner.original_surface_ordinal,
+        owner.pipeline.original_effect_hash,
+        owner.pipeline.original_pass_index};
+    if(s.pipeline_cache.contains(key) &&
+       s.material_bindings.contains(key))continue;
+    try {
+      if(!s.pipeline_cache.contains(key)) {
+        // Original material/VS/PS/host-vertex-layout identity is verified
+        // during construction; shared shader techniques never override a
+        // different surface's fixed-function Vulkan state.
+        auto pipeline=CreateOriginalVulkanPipeline(
+            s.device.RawPtr(),s.shaders,s.bank,s.effects,owner.pipeline);
+        s.pipeline_cache.emplace(key,std::move(pipeline));
+      }
+      if(!s.material_bindings.contains(key)) {
+        const auto it=s.pipeline_cache.find(key);
+        if(it==s.pipeline_cache.end() || !it->second.bindings)
+          throw std::runtime_error("Verified EoR prewarm lacks original SRB");
+        // Reuse the SRB created by the original Vulkan pipeline itself:
+        // allocating it AGAIN in Preflight costs driver time and descriptor
+        // space. Prebind all source-verified texture/mip SRVs at asset load.
+        auto binding=it->second.bindings;
+        BindVerifiedOriginalEorTextures(binding.RawPtr(),
+                                         owner.original_textures);
+        s.material_bindings.emplace(key,std::move(binding));
+        ++warmed;
+      }
+    } catch (...) {
+      s.material_bindings.erase(key);
+      s.pipeline_cache.erase(key);
+      break; // Never let optional prewarm break guest game initialization.
+    }
+  }
+  return warmed;
+}
 bool DiligentEorDirectBackend::PreflightOriginalScene(
     std::span<const aot::BoundIndexedDraw> draws) {
   auto& s=*state_;
@@ -490,11 +543,11 @@ bool DiligentEorDirectBackend::PreflightOriginalScene(
           original=&material;
         }
       if(!original)return false;
-      Diligent::RefCntAutoPtr<Diligent::IShaderResourceBinding> binding;
-      pipeline->second.pipeline->CreateShaderResourceBinding(&binding,true);
-      if(!binding)return false;
-      // Bind source-identical SRVs BEFORE BeginScene. Missing GPU variables
-      // and mip resources cannot leave a half-drawn world or stale signage.
+      // CreateOriginalVulkanPipeline ALREADY creates one mutable SRB for
+      // this exact original material owner. Reuse it rather than paying for
+      // a second per-material Vulkan descriptor allocation on first frame.
+      if(!pipeline->second.bindings)return false;
+      auto binding=pipeline->second.bindings;
       BindVerifiedOriginalEorTextures(binding.RawPtr(),
                                        original->original_textures);
       s.material_bindings.emplace(key,std::move(binding));
@@ -720,13 +773,10 @@ bool DiligentEorDirectBackend::DrawIndexed(const native::IndexedDraw& draw) {
           return false;
         v={fitted.x,fitted.y,fitted.width,fitted.height};
       }
-      Diligent::Viewport viewport{};
-      viewport.TopLeftX=static_cast<float>(v.left);
-      viewport.TopLeftY=static_cast<float>(v.top);
-      viewport.Width=static_cast<float>(v.width);
-      viewport.Height=static_cast<float>(v.height);
-      viewport.MinDepth=0.f;
-      viewport.MaxDepth=1.f;
+      const Diligent::Viewport viewport{
+          static_cast<float>(v.left),static_cast<float>(v.top),
+          static_cast<float>(v.width),static_cast<float>(v.height),
+          0.f,1.f};
       const Diligent::Rect scissor{
           static_cast<int>(v.left),static_cast<int>(v.top),
           static_cast<int>(v.left+v.width),
