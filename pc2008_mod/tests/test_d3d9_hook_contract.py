@@ -44,7 +44,7 @@ class D3D9HookContracts(unittest.TestCase):
 
     def test_reset_fullscreen_override_and_fallback(self):
         body = SOURCE.rsplit("HRESULT STDMETHODCALLTYPE OnReset(IDirect3DDevice9* dev,", 1)[-1]
-        body = body.split("\\nHRESULT STDMETHODCALLTYPE OnPresent(", 1)[0]
+        body = body.split("\nHRESULT STDMETHODCALLTYPE OnPresent(", 1)[0]
         self.assertIn("pp && width && height && !pp->Windowed", body)
         self.assertIn("original=*pp;", body)
         self.assertIn("pp->BackBufferWidth=width;", body)
