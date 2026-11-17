@@ -154,9 +154,22 @@ SCALAR_EXPO_NEW = """    if (instr.attributes.exp_adjust) {
 
 def patch_scalar(shader: str, header: str) -> tuple[str, str, bool]:
     if SCALAR_MARKER in shader or SCALAR_VERSION_NEW in header:
-        if (SCALAR_MARKER not in shader or SCALAR_VERSION_NEW not in header or
-                shader.count("normalized_mul_op") != 4 or
-                shader.count(SCALAR_EXPO_NEW) != 1):
+        # Validate the transformed fetch case itself, not unrelated text
+        # elsewhere in the translator (which could mask a partial edit).
+        before, sep, rest = shader.partition(SCALAR_START)
+        block, stop, after = rest.partition(SCALAR_END)
+        if (not sep or not stop or shader.count(SCALAR_START) != 1 or
+                shader.count(SCALAR_END) != 1 or
+                shader.count(SCALAR_MARKER) != 1 or
+                header.count(SCALAR_VERSION_NEW) != 1 or
+                SCALAR_VERSION_OLD in header or
+                block.count(SCALAR_MARKER) != 1 or
+                block.count("normalized_mul_op, result_type, result") != 3 or
+                block.count("const spv::Op normalized_mul_op") != 1 or
+                SCALAR_NORMALIZE in block or
+                block.count("spv::OpVectorTimesScalar, result_type, result") != 0 or
+                shader.count(SCALAR_EXPO_NEW) != 1 or
+                SCALAR_EXPO_OLD in shader):
             raise ValueError("Partially patched ReXGlue scalar vertex fetch")
         return shader, header, False
     if header.count(SCALAR_VERSION_OLD) != 1 or shader.count(SCALAR_START) != 1 or shader.count(SCALAR_END) != 1:
