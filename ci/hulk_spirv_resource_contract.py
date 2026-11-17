@@ -25,7 +25,7 @@ def validate_named_spirv_images(data: bytes) -> int:
     bound = words[3]
     image_types: set[int] = set()
     aliases: dict[int, int] = {}
-    names: dict[int, str] = {}
+    names: dict[int, bytes] = {}
     sets: dict[int, int] = {}
     bindings: dict[int, int] = {}
     uniform_constants: list[tuple[int, int]] = []
@@ -60,11 +60,10 @@ def validate_named_spirv_images(data: bytes) -> int:
             if b"\0" not in raw:
                 raise ValueError("Nonterminated SPIR-V resource name")
             raw = raw.split(b"\0", 1)[0]
-            # The native Diligent shader variable API requires a stable,
-            # printable current-module symbol (no generated fallback name).
-            if not raw or len(raw) > 128 or any(c < 33 or c > 126 or c in (47, 92) for c in raw):
-                raise ValueError("Unsafe SPIR-V shader variable name")
-            names[args[0]] = raw.decode("ascii")
+            # Non-resource OpName entries may include arbitrary compiler
+            # names. Validate only the sampled-image variables actually
+            # used by the native EoR Diligent resource-binding interface.
+            names[args[0]] = raw
         elif op == 71:  # OpDecorate(target, decoration, literal)
             if len(args) >= 3 and args[1] in (33, 34):
                 target = bindings if args[1] == 33 else sets
@@ -94,10 +93,16 @@ def validate_named_spirv_images(data: bytes) -> int:
             continue
         if ident not in names or ident not in bindings or ident not in sets:
             raise ValueError("Original EoR sampled image lost native descriptor/name")
+        raw = names[ident]
+        # Diligent's exact resource variable lookup must use the *current*
+        # module's printable name, without inventing a fallback.
+        if not raw or len(raw) > 128 or any(c < 33 or c > 126 or c in (47, 92) for c in raw):
+            raise ValueError("Unsafe sampled-image shader variable name")
+        symbol = raw.decode("ascii")
         pair = (sets[ident], bindings[ident])
-        if pair in occupied or names[ident] in symbol_keys:
+        if pair in occupied or symbol in symbol_keys:
             raise ValueError("Duplicate EoR sampled image descriptor or symbol")
         occupied.add(pair)
-        symbol_keys.add(names[ident])
+        symbol_keys.add(symbol)
         found += 1
     return found
