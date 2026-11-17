@@ -222,5 +222,75 @@ int main(){
   catch(const std::runtime_error&){refused=true;}
   assert(refused && missing_resource.begin==1 && missing_resource.abort==1 &&
          missing_resource.draw==0 && missing_resource.resolve==0);
+  // A partially compiled original shader bank must be usable for an exact
+  // source-verified scene; the full effect and register-reflection ledgers
+  // are still required. Absent shader variants can never be substituted.
+  std::vector<uint8_t> subsetBytes{'H','E','O','R','S','P','V','1'};
+  I32(subsetBytes,4);I32(subsetBytes,2);
+  Add(subsetBytes,0x11,1);Add(subsetBytes,0x22,2);
+  auto subsetPath=std::filesystem::temp_directory_path()/
+                  "hulk_eor_subset_shader_test.bin";
+  {std::ofstream out(subsetPath,std::ios::binary);
+   out.write(reinterpret_cast<const char*>(subsetBytes.data()),subsetBytes.size());}
+  ShaderBank subsetShaders;subsetShaders.Load(subsetPath);
+  std::filesystem::remove(subsetPath);
+  assert(subsetShaders.expected()==4 && subsetShaders.size()==2 &&
+         !subsetShaders.HasFullArchiveCoverage());
+
+  std::vector<uint8_t> fullEffects{'H','E','O','R','M','A','T','2'};
+  I32(fullEffects,2);I32(fullEffects,2);
+  for(uint32_t effect:{0x123u,0xABCDu}) {
+    I32(fullEffects,effect);I32(fullEffects,0);
+    for(int i=0;i<32;++i)fullEffects.push_back(effect==0x123u?0x11:0x33);
+    for(int i=0;i<32;++i)fullEffects.push_back(effect==0x123u?0x22:0x44);
+  }
+  auto effectsPath=std::filesystem::temp_directory_path()/
+                   "hulk_eor_subset_effects_test.bin";
+  {std::ofstream out(effectsPath,std::ios::binary);
+   out.write(reinterpret_cast<const char*>(fullEffects.data()),fullEffects.size());}
+  EffectCatalog completeEffects;completeEffects.Load(effectsPath);
+  std::filesystem::remove(effectsPath);
+  assert(completeEffects.ShaderCount()==4);
+
+  std::vector<uint8_t> fullReflection{'H','E','O','R','R','E','F','1'};
+  I32(fullReflection,4);I32(fullReflection,1);
+  for(uint8_t id:{uint8_t(0x11),uint8_t(0x22),uint8_t(0x33),uint8_t(0x44)}) {
+    for(int i=0;i<32;++i)fullReflection.push_back(id);
+    const bool vertex=id==0x11 || id==0x33;
+    I32(fullReflection,vertex?1u:2u);
+    I32(fullReflection,vertex?11u:UINT32_MAX);
+    I32(fullReflection,vertex?4u:0u);
+    for(int i=0;i<3;++i){I32(fullReflection,UINT32_MAX);I32(fullReflection,0);}
+  }
+  auto reflectionPath=std::filesystem::temp_directory_path()/
+                      "hulk_eor_subset_reflection_test.bin";
+  {std::ofstream out(reflectionPath,std::ios::binary);
+   out.write(reinterpret_cast<const char*>(fullReflection.data()),fullReflection.size());}
+  ReflectionBank completeReflection;completeReflection.Load(reflectionPath);
+  std::filesystem::remove(reflectionPath);
+
+  BoundIndexedDraw subsetDraw{{1,2,3,4,12,0},{},{}};
+  subsetDraw.vertex_source_sha256.fill(0x11);
+  subsetDraw.pixel_source_sha256.fill(0x22);
+  subsetDraw.effect_hash=0x123;subsetDraw.pass_index=0;
+  subsetDraw.original_model_hash=0xCAFE;subsetDraw.original_surface_ordinal=0;
+  std::vector<BoundIndexedDraw> subsetDraws{subsetDraw};
+  Backend subsetBackend;
+  ReplayAotScene(geometry,subsetDraws,subsetShaders,completeEffects,
+                 completeReflection,subsetBackend);
+  assert(subsetBackend.begin==1 && subsetBackend.draw==1 &&
+         subsetBackend.composite==1);
+  auto missingVariant=subsetDraw;
+  missingVariant.effect_hash=0xABCD;
+  missingVariant.vertex_source_sha256.fill(0x33);
+  missingVariant.pixel_source_sha256.fill(0x44);
+  subsetDraws={missingVariant};
+  Backend noFallback;
+  bool missingWasRejected=false;
+  try {ReplayAotScene(geometry,subsetDraws,subsetShaders,completeEffects,
+                      completeReflection,noFallback);}
+  catch(const std::logic_error&){missingWasRejected=true;}
+  assert(missingWasRejected && noFallback.begin==0 && noFallback.draw==0);
+
 }
 
