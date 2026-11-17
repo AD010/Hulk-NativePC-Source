@@ -483,9 +483,9 @@ try {
     # never from recycled XDK command memory on a second scan.
     Invoke-HulkNativeXPatch 'test_patch_native_x_hulk_gap_owned_draws.py'
     Invoke-HulkNativeXPatch 'patch_native_x_hulk_gap_owned_draws.py'
-    # Preserve known-buildable NativeX pipeline scheduling. The optional
-    # wait-all experiment stays source-only until independently proven
-    # against this pinned Diligent/Vulkan build and a real Hulk frame.
+    # Preserve bounded, reviewed NativeX pipeline scheduling. The old
+    # unhooked wait-all probe was unused and has been removed from main.
+    # Do not introduce per-Draw multi-second waits or unverified branches.
   }
   Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_gen_native_x_hooks_probe.py')) $Source
   Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_hulk_present_hook_profile.py')) $Source
