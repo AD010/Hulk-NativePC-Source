@@ -84,7 +84,9 @@ int main(){
   auto view=textures::ValidateOriginalTexStreamEnvelope(payload);
   assert(view.size()==28 && view.front()==std::byte(0x7e));
   auto malformed=payload;
-  Replace32(malformed,0,28);
+  // The valid 32-byte source record already declares a 28-byte body.
+  // Changing 28 to 28 was a no-op and could never be rejected.
+  Replace32(malformed,0,27);
   Reject([&]{(void)textures::ValidateOriginalTexStreamEnvelope(malformed);});
   Reject([&]{(void)textures::ValidateOriginalTexStreamEnvelope(
       std::span<const std::byte>(payload).first(4));});
