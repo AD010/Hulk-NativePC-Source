@@ -41,3 +41,24 @@ native_port/*.map
 *.xcp
 *.pak
 *.dat
+
+# Keep each of the two builds out of the public source checkout.
+pc2008_mod/build/
+pc2008_mod/out/
+pc2008_mod/release/
+**/CMakeFiles/
+**/CMakeCache.txt
+**/.vs/
+**/*.VC.db
+
+# Private owner game outputs, GPU captures, memory dumps and release packages.
+*.exe
+*.dll
+*.rdc
+*.dmp
+*.mdmp
+*.7z
+*.rar
+
+# Do not reintroduce the disposable failed Actions trigger files.
+.hulk-release-one-shot-*
