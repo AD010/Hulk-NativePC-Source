@@ -124,12 +124,14 @@ try {
   Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_sdk_hulk_index_cache.py'), $Sdk) $Source
   # Xenia Edge 4ad875: add (do not multiply) SIMD co-alignment bytes
   # when sizing converted-index pages; avoid 16x GPU index pool waste.
-  Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_sdk_hulk_index_pool.py'), $Sdk) $Source
-  Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_sdk_hulk_index_pool.py'), $Sdk) $Source
+  # One synthetic-only test suite for all three Xenia Edge source adapters.
+  # Each staged patch checks the CURRENT pinned SDK source before mutation.
+  Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_sdk_hulk_xenia_edge.py')) $Source
+  Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_sdk_hulk_xenia_edge.py'), 'index-pool', $Sdk) $Source
   # Xenia Edge 344fca7: exact Xenos packed mip0 page and 2x1 tail
   # addressing, also used by the Legacy/NativeX GPU texture utility.
-  Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_sdk_hulk_packed_mip.py'), $Sdk) $Source
-  Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_sdk_hulk_packed_mip.py'), $Sdk) $Source
+
+  Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_sdk_hulk_xenia_edge.py'), 'packed-mip', $Sdk) $Source
   # Hulk original city: locate real low/high LOD archive ranges, no rendering changes.
   Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_sdk_hulk_world_stream_trace.py')) $Source
   Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_sdk_hulk_world_stream_trace.py'), $Sdk) $Source
@@ -151,8 +153,8 @@ try {
   # Xenia Edge 09d405f: one-component Xenos vertex fetches are scalar
   # SPIR-V OpFMul, not OpVectorTimesScalar. The latter can crash NVIDIA.
   # Keep the pinned SDK and invalidate the original translator cache.
-  Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_sdk_hulk_spirv_scalar.py'), $Sdk) $Source
-  Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_sdk_hulk_spirv_scalar.py'), $Sdk) $Source
+
+  Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_sdk_hulk_xenia_edge.py'), 'spirv-scalar', $Sdk) $Source
   # FPS control must be a real registered SDK cvar/limiter, not just
   # decorative F10 buttons. Validate the source patch before game codegen.
   Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_sdk_hulk_fps_probe.py')) $Source
