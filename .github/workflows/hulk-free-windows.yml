@@ -98,6 +98,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Read-only real guest thread/affinity CPU probe SDK patch regression failed' }
           python ci/test_hulk_pc_menu.py
           if ($LASTEXITCODE -ne 0) { throw 'Native PC menu regression failed' }
+          # Check actual linked native EoR EXE units and the independent
+          # model/geometry MSVC link command before downloading private XEX.
+          python ci/test_hulk_native_eor_link_coverage.py
+          if ($LASTEXITCODE -ne 0) { throw 'EoR EXE source manifest or native model adapter link dependencies incomplete' }
           # Synthetic-only PM4/header/shader-family test: no private XEX
           # and no game shader bytes are loaded into the source workspace.
           python tools/audit_hulk_shader_pm4_overlap.py --test

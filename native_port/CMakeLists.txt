@@ -53,6 +53,7 @@ set(INCREDIBLEHULK_SOURCES
     src/eor_motion_vectors.cpp
     src/eor_native_frame.cpp
     src/eor_spirv_bank.cpp
+    src/eor_native_shader_constants.cpp
     src/eor_spirv_texture_bindings.cpp
     src/eor_aot_draw_bridge.cpp
     src/eor_native_draw_geometry.cpp
