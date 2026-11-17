@@ -116,6 +116,34 @@ class D140WindowsDispatchTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 reviewed_patch_plan(bad)
 
+    def test_xenia_edge_sdk_backports_use_one_reviewed_module(self):
+        # Three GPU bug fixes, each applied at its original dependency stage:
+        # index pool, packed mip, then scalar SPIR-V after fetch/LOD fixes.
+        # The old six per-fix files and their noisy CI invocations are gone.
+        builder=(ROOT/"native_port"/"BUILD_WINDOWS.ps1").read_text("utf-8")
+        workflow=(ROOT/".github"/"workflows"/"hulk-free-windows.yml").read_text("utf-8")
+        patch=ROOT/"ci"/"patch_sdk_hulk_xenia_edge.py"
+        tests=ROOT/"ci"/"test_patch_sdk_hulk_xenia_edge.py"
+        self.assertTrue(patch.is_file() and tests.is_file())
+        self.assertEqual(builder.count("ci/patch_sdk_hulk_xenia_edge.py"),3)
+        self.assertEqual(builder.count("ci/test_patch_sdk_hulk_xenia_edge.py"),1)
+        self.assertEqual(workflow.count("ci/test_patch_sdk_hulk_xenia_edge.py"),1)
+        self.assertLess(builder.index("'index-pool', $Sdk"),
+                        builder.index("'packed-mip', $Sdk"))
+        self.assertLess(builder.index("'packed-mip', $Sdk"),
+                        builder.index("'spirv-scalar', $Sdk"))
+        for old in ("index_pool", "packed_mip", "spirv_scalar"):
+            for kind in ("patch", "test_patch"):
+                obsolete=ROOT/"ci"/("{}_sdk_hulk_{}.py".format(kind,old))
+                self.assertFalse(obsolete.exists(), "Superseded SDK patch: "+str(obsolete))
+        source=patch.read_text("utf-8")
+        checks=tests.read_text("utf-8")
+        for name in ("patch_index", "patch_mip", "patch_scalar",
+                     "apply_index", "apply_mip", "apply_scalar"):
+            self.assertIn("def "+name+"(",source)
+        self.assertEqual(len(re.findall(r"(?m)^class \w+Tests\(unittest\.TestCase\):",checks)),3)
+        self.assertEqual(len(re.findall(r"(?m)^\s+def test_\w+\(",checks)),9)
+
     def test_release_cpp_preflight_has_real_unique_inputs(self):
         # Past releases reached cl.exe only to fail on missing source units.
         # Fail in the public-only preflight, before any private game material.
