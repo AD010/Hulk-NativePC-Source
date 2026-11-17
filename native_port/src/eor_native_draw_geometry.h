@@ -7,6 +7,7 @@
 #include "eor_xdk_draw_capture.h"
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <span>
 #include <string>
 #include <variant>
@@ -34,6 +35,7 @@ struct VerifiedDrawSource {
   uint64_t original_frame_sequence = 0;
   uint32_t original_call_ordinal = UINT32_MAX;
   std::optional<xdk::OriginalVsMatrices> original_vs_matrices;
+  std::shared_ptr<const xdk::OriginalShaderRegisters> original_shader_constants;
   // Explicit engine ABI, material ownership, converted host vertex layout and
   // fixed-function pass/depth/RT state. Never silently set these to true.
   bool engine_draw_verified = false;

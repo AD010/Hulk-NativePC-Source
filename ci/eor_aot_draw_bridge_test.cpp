@@ -2,6 +2,7 @@
 #include <cassert>
 #include <filesystem>
 #include <fstream>
+#include <memory>
 #include <stdexcept>
 #include <vector>
 #include <utility>
@@ -125,12 +126,26 @@ int main(){
   tagged.guest_vs_matrices->original_vs_guest_object=0x82001234u;
   tagged.guest_vs_matrices->finite_register_mask=(1u<<19)-1u;
   tagged.guest_vs_matrices->c7_through_c25[(11-7)*4]=2.5f;
+  auto original_constants=std::make_shared<xdk::OriginalShaderRegisters>();
+  for(uint32_t reg=11;reg<15;++reg)
+    original_constants->finite_vertex[reg/64]|=uint64_t(1)<<(reg%64);
+  original_constants->vertex[11*4]=2.5f;
+  original_constants->pixel[0]=0.125f;
+  original_constants->finite_pixel[0]|=1u;
+  tagged.guest_shader_constants=original_constants;
   ReflectedShader view_only;
   view_only.stage=Stage::Vertex;
   view_only.view_projection={11,4};
   const auto real_matrices=ExtractOriginalDrawVsMatrices(view_only,tagged);
   assert(real_matrices && real_matrices->view_projection &&
          real_matrices->view_projection->values[0]==2.5f);
+  assert(ValidateCapturedOriginalShaderRegisters(view_only,tagged));
+  auto conflicting_full=std::make_shared<xdk::OriginalShaderRegisters>(
+      *original_constants);
+  conflicting_full->vertex[11*4]=3.5f;
+  tagged.guest_shader_constants=conflicting_full;
+  assert(!ValidateCapturedOriginalShaderRegisters(view_only,tagged));
+  tagged.guest_shader_constants=original_constants;
   tagged.guest_vs_matrices->finite_register_mask &= ~(1u<<(11-7));
   assert(!ExtractOriginalDrawVsMatrices(view_only,tagged));
   tagged.guest_vs_matrices->finite_register_mask=(1u<<19)-1u;
@@ -145,6 +160,17 @@ int main(){
   std::vector<BoundIndexedDraw> capturedDraws{captured};
   ReplayAotScene(geometry,capturedDraws,shaders,effects,reflection,bound);
   assert(bound.begin==1 && bound.draw==1);
+  auto wrong_full=captured;
+  auto corrupted=std::make_shared<xdk::OriginalShaderRegisters>(
+      *original_constants);
+  corrupted->vertex[11*4]=1.f;
+  wrong_full.draw.guest_shader_constants=corrupted;
+  Backend conflicting;
+  bool mismatch_refused=false;
+  try{ReplayAotScene(geometry,std::span<const BoundIndexedDraw>(&wrong_full,1),
+                     shaders,effects,reflection,conflicting);}
+  catch(const std::invalid_argument&){mismatch_refused=true;}
+  assert(mismatch_refused && conflicting.begin==0 && conflicting.draw==0);
   // The source frame is an ordered original PPC command stream: two
   // legitimate draws numbered 0,1 succeed, but reverse order, gaps,
   // missing leading draw and mixing offline/captured streams cannot begin.

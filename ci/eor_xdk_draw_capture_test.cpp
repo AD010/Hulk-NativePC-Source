@@ -59,11 +59,45 @@ int main() {
          ReadOriginalMatrix(*nonfinite,11,4));
   assert(!CaptureUsaVsMatrices(0,ReadFake,&guest));
   assert(!CaptureUsaVsMatrices(UINT32_MAX,ReadFake,&guest));
+  // The verified USA +1920 VS and +6016 PS banks contain 256 registers
+  // EACH. Original pixel-lighting inputs must not be guessed from VS c7..25.
+  W(guest,device+1920+255*16,std::bit_cast<uint32_t>(42.0f));
+  W(guest,device+6016+0*16,std::bit_cast<uint32_t>(0.125f));
+  W(guest,device+6016+127*16,std::bit_cast<uint32_t>(2.5f));
+  W(guest,device+6016+255*16,std::bit_cast<uint32_t>(99.0f));
+  OriginalShaderRegisters complete;
+  assert(CaptureUsaAllShaderRegisters(device,ReadFake,&guest,complete));
+  auto last_vs=ReadOriginalShaderFloat4(
+      complete,OriginalShaderStage::Vertex,255);
+  auto first_ps=ReadOriginalShaderFloat4(
+      complete,OriginalShaderStage::Pixel,0);
+  auto middle_ps=ReadOriginalShaderFloat4(
+      complete,OriginalShaderStage::Pixel,127);
+  auto last_ps=ReadOriginalShaderFloat4(
+      complete,OriginalShaderStage::Pixel,255);
+  assert(last_vs && (*last_vs)[0]==42.f);
+  assert(first_ps && (*first_ps)[0]==0.125f);
+  assert(middle_ps && (*middle_ps)[0]==2.5f);
+  assert(last_ps && (*last_ps)[0]==99.f);
+  assert(!ReadOriginalShaderFloat4(
+      complete,OriginalShaderStage::Pixel,256));
+  auto bad_reg=complete;
+  bad_reg.finite_pixel[1]=0;
+  assert(!ReadOriginalShaderFloat4(
+      bad_reg,OriginalShaderStage::Pixel,127));
+  W(guest,device+6016+7*16,
+    std::bit_cast<uint32_t>(std::numeric_limits<float>::quiet_NaN()));
+  assert(CaptureUsaAllShaderRegisters(device,ReadFake,&guest,complete));
+  assert(!ReadOriginalShaderFloat4(complete,OriginalShaderStage::Pixel,7));
+  assert(ReadOriginalShaderFloat4(complete,OriginalShaderStage::Vertex,255));
+  assert(!CaptureUsaAllShaderRegisters(UINT32_MAX,ReadFake,&guest,complete));
+  assert(!CaptureUsaAllShaderRegisters(0,ReadFake,&guest,complete));
 
   FrameCapture capture;
   RawDraw a{Kind::DrawIndexedVertices,0x8288E318u,0x8263BF50u,{3,4,5,6,7,8,9,10}};
   RawDraw b{Kind::DrawVertices,0x8288DF30u,0,{4,5,6,7,8,9,10,11}};
   a.observed_vs_matrices=*matrix;
+  a.observed_shader_constants=std::make_shared<OriginalShaderRegisters>(complete);
   capture.Record(a);
   capture.Record(b);
   Frame first=capture.Finish();
@@ -74,6 +108,10 @@ int main() {
   assert(first.calls[0].observed_vs_matrices &&
          ReadOriginalMatrix(*first.calls[0].observed_vs_matrices,11,4)
              ->values[0]==1.5f);
+  assert(first.calls[0].observed_shader_constants &&
+         ReadOriginalShaderFloat4(
+             *first.calls[0].observed_shader_constants,
+             OriginalShaderStage::Pixel,255)->at(0)==99.0f);
   // Exact original XDK PPC signature: r3=device, r4=primitive,
   // r5=signed base vertex, r6=start index, r7=index count.
   RawDraw live{Kind::DrawIndexedVertices,0x8288E318u,0x8263BF50u,

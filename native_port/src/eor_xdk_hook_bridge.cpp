@@ -9,6 +9,8 @@
 #include <cstdint>
 #include <limits>
 #include <mutex>
+#include <memory>
+#include <new>
 #include <utility>
 #ifdef _WIN32
 #ifndef WIN32_LEAN_AND_MEAN
@@ -90,9 +92,24 @@ void CapturePpcDraw(Kind kind, uint32_t guest, const PPCContext& ctx,
   // at +1920; capture the 3D World/ViewProj/Previous/Sky registers before
   // the original Draw executes. Do not infer original EoR model identity,
   // camera owner, or SPIR-V UBO layout from these register values.
-  if(kind==Kind::DrawIndexedVertices || kind==Kind::DrawVertices)
+  if(kind==Kind::DrawIndexedVertices || kind==Kind::DrawVertices) {
     draw.observed_vs_matrices=CaptureUsaVsMatrices(
         ctx.r3.u32,ReadGuest,guest_base);
+    if(draw.observed_vs_matrices) {
+      // Only while explicit diagnostic capture is active. Store all
+      // 256 original vertex AND pixel float4 registers, not just camera:
+      // later source-proven native SPIR-V material declarations can read
+      // exact per-Draw shader parameters without another guest memory read.
+      try {
+        auto constants=std::make_shared<OriginalShaderRegisters>();
+        if(CaptureUsaAllShaderRegisters(ctx.r3.u32,ReadGuest,
+                                        guest_base,*constants))
+          draw.observed_shader_constants=std::move(constants);
+      } catch (const std::bad_alloc&) {
+        // Never crash game logic on a diagnostic snapshot allocation.
+      }
+    }
+  }
   std::lock_guard lock(g_mutex);
   g_collector.Record(draw);
 }

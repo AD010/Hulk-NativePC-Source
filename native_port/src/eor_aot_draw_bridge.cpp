@@ -1,5 +1,6 @@
 #include "eor_aot_draw_bridge.h"
 #include "eor_spirv_texture_bindings.h"
+#include <bit>
 #include <stdexcept>
 #include <map>
 #include <vector>
@@ -86,6 +87,29 @@ std::optional<OriginalDrawVsMatrices> ExtractOriginalDrawVsMatrices(
      !extract(vertex.sky_view_projection,result.sky_view_projection))
     return std::nullopt;
   return result;
+}
+bool ValidateCapturedOriginalShaderRegisters(
+    const ReflectedShader& vertex,const native::IndexedDraw& draw) noexcept {
+  if(vertex.stage!=Stage::Vertex || !draw.guest_vs_matrices ||
+     !draw.guest_shader_constants)return false;
+  const auto& actual=*draw.guest_shader_constants;
+  const auto& original=*draw.guest_vs_matrices;
+  for(const auto span:{vertex.view_projection,vertex.world,
+                       vertex.previous_world,vertex.sky_view_projection}) {
+    if(!span.Present())continue;
+    const auto source=xdk::ReadOriginalMatrix(original,span.index,span.count);
+    if(!source)return false;
+    for(uint32_t r=0;r<span.count;++r) {
+      const auto full=xdk::ReadOriginalShaderFloat4(
+          actual,xdk::OriginalShaderStage::Vertex,span.index+r);
+      if(!full)return false;
+      for(uint32_t k=0;k<4;++k)
+        if(std::bit_cast<uint32_t>((*full)[k]) !=
+           std::bit_cast<uint32_t>(source->values[r*4+k]))
+          return false;
+    }
+  }
+  return true;
 }
 void ReplayAotScene(const native::FrameGeometry& frame,
                     std::span<const BoundIndexedDraw> draws,
@@ -194,8 +218,10 @@ void ReplayAotScene(const native::FrameGeometry& frame,
     // required register is missing or non-finite; never use the previous
     // model's constants or fabricate a 4th World row.
     if(value.draw.source_frame &&
-       !ExtractOriginalDrawVsMatrices(*vs_reflection,value.draw))
-      throw std::invalid_argument("Captured Xbox USA Draw has unverified VS matrix constants");
+       (!ExtractOriginalDrawVsMatrices(*vs_reflection,value.draw) ||
+        !ValidateCapturedOriginalShaderRegisters(*vs_reflection,value.draw)))
+      throw std::invalid_argument(
+          "Captured Xbox USA Draw has mismatched/missing full VS/PS source constants");
     if (!bank.Find(value.vertex_source_sha256, Stage::Vertex) ||
         !bank.Find(value.pixel_source_sha256, Stage::Pixel))
       throw std::logic_error("Uncompiled Xenos shader pair in native EoR draw");

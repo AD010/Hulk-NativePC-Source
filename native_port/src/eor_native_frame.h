@@ -3,6 +3,7 @@
 #pragma once
 #include "eor_xdk_guest_constants.h"
 #include <cstdint>
+#include <memory>
 #include <span>
 #include <vector>
 
@@ -52,6 +53,9 @@ struct IndexedDraw {
   // Original immutable guest VS constant snapshot captured at this exact
   // indexed Draw, for source-correct World/ViewProj per object instance.
   std::optional<xdk::OriginalVsMatrices> guest_vs_matrices;
+  // Complete immutable VS/PS float4 banks captured on the SAME PPC Draw.
+  // Shared through native staging without copying 8 KiB per handoff.
+  std::shared_ptr<const xdk::OriginalShaderRegisters> guest_shader_constants;
 };
 
 // All methods operate on host-native resources and draw calls; no GPU

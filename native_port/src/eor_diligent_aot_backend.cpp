@@ -632,9 +632,9 @@ bool DiligentEorDirectBackend::DrawIndexed(const native::IndexedDraw& draw) {
     // verified values for this exact frame/call before touching GPU state.
     // Shader-specific SPIR-V UBO layouts are an independent provenance gate.
     const auto matrices=aot::ExtractOriginalDrawVsMatrices(s.vertex,draw);
-    if(!matrices ||
+    if(!matrices || !draw.guest_shader_constants ||
        !s.bind_constants(s.active.bindings.RawPtr(),s.vertex,s.pixel,
-                         draw,*matrices)) {
+                         draw,*matrices,*draw.guest_shader_constants)) {
       // Never permit a later draw to reuse constants from an earlier draw
       // after a partially failed host constant-buffer update.
       s.constants_ready=false;

@@ -76,7 +76,8 @@ class DiligentEorDirectBackend final : public aot::ShaderBindingBackend {
       Diligent::IShaderResourceBinding*,
       const aot::ReflectedShader&,const aot::ReflectedShader&,
       const native::IndexedDraw&,
-      const aot::OriginalDrawVsMatrices&)>;
+      const aot::OriginalDrawVsMatrices&,
+      const xdk::OriginalShaderRegisters&)>;
   using CompositeOutput = std::function<bool(
       Diligent::ITextureView*,
       native::Rect,native::Size)>;

@@ -33,6 +33,13 @@ struct OriginalDrawVsMatrices {
 };
 std::optional<OriginalDrawVsMatrices> ExtractOriginalDrawVsMatrices(
     const ReflectedShader& vertex,const native::IndexedDraw& draw) noexcept;
+// Compare the exact c7-c25 original XDK matrix shadow against the full
+// 256*float4 VS capture from the SAME original PPC Draw. A shader cannot
+// silently bind the previous object's World/ViewProj while PS parameters
+// are taken from the current Draw. Full PS values remain accessible to
+// the verified Vulkan uniform binder for exact source register reads.
+bool ValidateCapturedOriginalShaderRegisters(
+    const ReflectedShader& vertex,const native::IndexedDraw& draw) noexcept;
 class ShaderBindingBackend : public native::Backend {
  public:
   // Stage all SOURCE-VERIFIED host pipeline and immutable GPU-buffer

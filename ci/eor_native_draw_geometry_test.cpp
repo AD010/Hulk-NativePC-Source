@@ -156,6 +156,10 @@ int main(){
   real_at_draw.finite_register_mask=(1u<<19)-1u;
   real_at_draw.c7_through_c25[(11-7)*4]=2.0f;
   ppc.observed_vs_matrices=real_at_draw;
+  auto complete_constants=std::make_shared<xdk::OriginalShaderRegisters>();
+  complete_constants->finite_vertex[0]|=uint64_t(1)<<11;
+  complete_constants->vertex[11*4]=2.f;
+  ppc.observed_shader_constants=complete_constants;
   const auto observed=xdk::Frame{1,0,{ppc}};
   const auto matched=native::MatchCapturedXdkDraws(observed,
     std::span<const native::VerifiedXdkIndexedSubmission>(&verified,1));
@@ -164,12 +168,14 @@ int main(){
          matched[0].original_frame_sequence==1 &&
          matched[0].original_call_ordinal==0 &&
          matched[0].original_vs_matrices &&
+         matched[0].original_shader_constants==complete_constants &&
          xdk::ReadOriginalMatrix(*matched[0].original_vs_matrices,11,4)
             ->values[0]==2.0f);
   const auto tagged=native::BindVerifiedGeometryDraws(matched,models,effects);
   assert(tagged.size()==1 && tagged[0].draw.source_frame==1 &&
          tagged[0].draw.source_ordinal==0 &&
          tagged[0].draw.guest_vs_matrices &&
+         tagged[0].draw.guest_shader_constants==complete_constants &&
          xdk::ReadOriginalMatrix(*tagged[0].draw.guest_vs_matrices,11,4)
             ->values[0]==2.0f);
   auto altered=verified;

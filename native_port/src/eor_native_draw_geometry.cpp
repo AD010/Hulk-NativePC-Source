@@ -79,7 +79,7 @@ std::vector<aot::BoundIndexedDraw> BindVerifiedGeometryDraws(
                  src.vertex_shader_id,src.pixel_shader_id,
                  src.index_count,src.first_index,src.host_base_vertex,
                  src.original_frame_sequence,src.original_call_ordinal,
-                 src.original_vs_matrices};
+                 src.original_vs_matrices,src.original_shader_constants};
     item.vertex_source_sha256 = src.vertex_source_sha256;
     item.pixel_source_sha256 = src.pixel_source_sha256;
     item.effect_hash = src.original_effect_hash;
@@ -125,6 +125,7 @@ std::vector<VerifiedDrawSource> MatchCapturedXdkDraws(
     tagged.original_frame_sequence=frame.sequence;
     tagged.original_call_ordinal=static_cast<uint32_t>(i);
     tagged.original_vs_matrices=frame.calls[i].observed_vs_matrices;
+    tagged.original_shader_constants=frame.calls[i].observed_shader_constants;
     sources.push_back(std::move(tagged));
   }
   return sources;
@@ -341,6 +342,7 @@ std::vector<VerifiedDrawSource> MatchCapturedMixedDraws(
     source.original_frame_sequence=frame.sequence;
     source.original_call_ordinal=static_cast<uint32_t>(i);
     source.original_vs_matrices=frame.calls[i].observed_vs_matrices;
+    source.original_shader_constants=frame.calls[i].observed_shader_constants;
     result.push_back(std::move(source));
   }
   return result;

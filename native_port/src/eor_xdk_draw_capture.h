@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <vector>
 #include <map>
+#include <memory>
 #include <optional>
 #include <span>
 #include <tuple>
@@ -20,6 +21,11 @@ struct RawDraw {
   // Read BEFORE the guest Draw mutates the XDK device shadow state.
   // A missing snapshot is not a verified camera or constant ABI.
   std::optional<OriginalVsMatrices> observed_vs_matrices;
+  // Optional immutable full 256*float4 VS and PS banks. A shared pointer
+  // avoids copying 8 KiB of guest data during mailbox/frame handoff.
+  // Required for arbitrary original lighting/material constants, separate
+  // from the c7..c25 camera/transform reflection.
+  std::shared_ptr<const OriginalShaderRegisters> observed_shader_constants;
 };
 // Verified USA XDK 2.0.6534 method ABI from the original wrapper:
 // DrawIndexedVertices(dev, prim, baseVertex, startIndex, indexCount).
