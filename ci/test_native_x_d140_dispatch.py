@@ -5,7 +5,7 @@ import re
 import tempfile
 import unittest
 from unittest.mock import patch
-from native_x_d140_dispatch import D140, D135, checked_patch_path, check_renderer, run_patch
+from native_x_d140_dispatch import D140, D135, checked_patch_path, check_renderer, run_patch, reviewed_patch_plan
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
@@ -75,13 +75,22 @@ class D140WindowsDispatchTests(unittest.TestCase):
         self.assertGreater(starts,0)
         self.assertIn("HULK NATIVE GPU upstream fa19ea85",builder)
         self.assertIn("$NativeXCommit = '"+D140+"'",builder)
-        lines=[line for line in builder.splitlines()
-               if re.search(r"^\s+Invoke-HulkNativeXPatch '(?:test_)?patch_native_x_hulk_[a-z0-9_]+\.py'\s*$",line)]
-        self.assertEqual(len(lines),90)
-        patches=[line for line in lines if "Invoke-HulkNativeXPatch 'patch_" in line]
-        tests=[line for line in lines if "Invoke-HulkNativeXPatch 'test_" in line]
+        stages=reviewed_patch_plan(builder)
+        self.assertEqual(len(stages),90)
+        self.assertEqual(len(set(stages)),90)
+        patches=[stage for stage in stages if stage.startswith("ci/patch_")]
+        tests=[stage for stage in stages if stage.startswith("ci/test_")]
         self.assertEqual((len(patches),len(tests)),(47,43))
-        self.assertEqual(len(set(lines)),90)
+        self.assertTrue(all((ROOT/stage).is_file() for stage in stages))
+        checked=re.findall(
+            r"(?m)^\s+Invoke-HulkNativeXCheckedPatch "
+            r"'patch_native_x_hulk_[a-z0-9_]+\.py'\s*$",builder)
+        direct=re.findall(
+            r"(?m)^\s+Invoke-HulkNativeXPatch "
+            r"'(?:test_)?patch_native_x_hulk_[a-z0-9_]+\.py'\s*$",builder)
+        self.assertEqual((len(checked),len(direct)),(42,6))
+        self.assertIn("function Invoke-HulkNativeXCheckedPatch(",builder)
+        self.assertIn('Invoke-HulkNativeXPatch ("test_" + $ScriptName)',builder)
         self.assertIn("function Invoke-HulkNativeXPatch(",builder)
         self.assertIn("ci/native_x_d140_dispatch.py",builder)
         self.assertIn("Invoke-Checked 'python' @($Dispatcher, '--patch', $Script, $NxrFull) $Source",builder)
@@ -90,6 +99,22 @@ class D140WindowsDispatchTests(unittest.TestCase):
         self.assertIn("HULK/TRUE-RESOLVE-SCALE",builder)
         self.assertIn("HULK/DIRECT-DMA-SNAPSHOT",builder)
 
+
+    def test_atomic_native_x_source_plan_rejects_unreviewed_edits(self):
+        builder=(ROOT/"native_port"/"BUILD_WINDOWS.ps1").read_text("utf-8")
+        for bad in (
+            builder.replace(
+                "Invoke-HulkNativeXCheckedPatch 'patch_native_x_hulk_heap_guard.py'",
+                "Invoke-HulkNativeXCheckedPatch 'test_patch_native_x_hulk_heap_guard.py'",1),
+            builder.replace(
+                "Invoke-HulkNativeXCheckedPatch 'patch_native_x_hulk_heap_guard.py'",
+                "Invoke-HulkNativeXCheckedPatch 'patch_native_x_hulk_heap_guard_typo.py'",1),
+            builder.replace(
+                "Invoke-HulkNativeXCheckedPatch 'patch_native_x_hulk_heap_guard.py'\n",
+                "",1),
+        ):
+            with self.assertRaises(ValueError):
+                reviewed_patch_plan(bad)
 
     def test_release_cpp_preflight_has_real_unique_inputs(self):
         # Past releases reached cl.exe only to fail on missing source units.
