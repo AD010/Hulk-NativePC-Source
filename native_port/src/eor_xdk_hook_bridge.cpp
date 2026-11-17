@@ -13,6 +13,7 @@ namespace hulk::eor::xdk {
 namespace {
 std::mutex g_mutex;
 FrameCapture g_collector;
+XdkCallsiteEvidence g_callsite_evidence;
 }
 bool CaptureEnabled() { return REXCVAR_GET(hulk_eor_xdk_capture); }
 void CapturePpcDraw(Kind kind, uint32_t guest, const PPCContext& ctx) {
@@ -27,9 +28,16 @@ void CapturePpcDraw(Kind kind, uint32_t guest, const PPCContext& ctx) {
 void EndPpcHook(native_x_renderer::Call kind) {
   if (kind != native_x_renderer::Call::kPresent || !CaptureEnabled()) return;
   Frame frame;
+  std::vector<CallsiteEvidenceRecord> hot;
+  uint64_t untracked=0;
   {
     std::lock_guard lock(g_mutex);
     frame = g_collector.Finish();
+    g_callsite_evidence.Observe(frame);
+    if(frame.sequence<=5 || frame.sequence%600==0) {
+      hot=g_callsite_evidence.HotCallsites(8);
+      untracked=g_callsite_evidence.UntrackedCalls();
+    }
   }
   if (frame.sequence <= 5 || frame.sequence % 600 == 0) {
     uint32_t indexed = 0, verts = 0, up = 0;
@@ -44,6 +52,16 @@ void EndPpcHook(native_x_renderer::Call kind) {
                 "indexed={} vertices={} UP={} dropped={}; "
                 "native EoR vertex/index/shader identity NOT decoded",
                 frame.sequence, indexed, verts, up, frame.dropped);
+    for (const auto& site: hot) {
+      REXLOG_INFO("[HULK/EOR-XDK-CALLSITE] XDK=0x{:08X} LR=0x{:08X} "
+                  "kind={} draws={} frames={} first={} last={} "
+                  "varying_r3_r10_mask=0x{:02X} nonzero_mask=0x{:02X} "
+                  "untracked={}; guest ABI and EoR engine owner UNVERIFIED",
+                  site.xdk_function,site.caller_lr,static_cast<unsigned>(site.kind),
+                  site.recorded_draws,site.frames_seen,site.first_frame,
+                  site.last_frame,site.varying_gpr_mask,site.nonzero_gpr_mask,
+                  untracked);
+    }
     // Representative REAL PPC arguments, not invented engine structure
     // offsets. One sample per reported frame is enough for an ABI oracle.
     // Never log original game memory, shader contents or raw GPU buffers.
