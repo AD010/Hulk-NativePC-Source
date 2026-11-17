@@ -152,13 +152,13 @@ class ShaderScalarFetchTests(unittest.TestCase):
         damaged = shader.replace(
             "normalized_mul_op, result_type, result",
             "spv::OpVectorTimesScalar, result_type, result", 1)
-        damaged += "\\n// normalized_mul_op\\n"
+        damaged += "\n// normalized_mul_op\n"
         with self.assertRaises(ValueError):
             patch_scalar(damaged, header)
         # A second cache version declaration must not masquerade as a
         # uniquely reviewed SDK header.
         with self.assertRaises(ValueError):
-            patch_scalar(shader, header + "\\n" + SCALAR_VERSION_NEW)
+            patch_scalar(shader, header + "\n" + SCALAR_VERSION_NEW)
 
     def test_wrong_or_partially_patched_sdk_fails(self):
         for source, header in [
