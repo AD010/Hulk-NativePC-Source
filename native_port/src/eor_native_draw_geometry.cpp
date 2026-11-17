@@ -104,7 +104,8 @@ std::vector<VerifiedDrawSource> MatchCapturedXdkDraws(
     const auto& proven=verified[i];
     const auto& expected=proven.original_guest_call;
     const auto& original=proven.native_draw;
-    if(!actual || !proven.original_triangle_list_verified ||
+    if(!actual || actual->primitive!=4u ||
+       actual->index_count%3u || !proven.original_triangle_list_verified ||
        !proven.guest_to_native_index_stream_verified ||
        !proven.original_material_at_draw_verified ||
        expected.xdk_function!=actual->xdk_function ||

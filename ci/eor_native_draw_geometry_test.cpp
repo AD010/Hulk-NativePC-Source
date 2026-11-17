@@ -182,6 +182,16 @@ int main(){
   altered=verified;altered.guest_to_native_index_stream_verified=false;
   Reject([&]{(void)native::MatchCapturedXdkDraws(observed,
     std::span<const native::VerifiedXdkIndexedSubmission>(&altered,1));});
+  // Capturing a PPC XDK Draw doesn't authorize treating strips/lines
+  // or non-triangle counts as an original host triangle list.
+  auto non_triangle=observed;
+  non_triangle.calls[0].gpr[1]=3u;
+  Reject([&]{(void)native::MatchCapturedXdkDraws(non_triangle,
+    std::span<const native::VerifiedXdkIndexedSubmission>(&verified,1));});
+  non_triangle=observed;
+  non_triangle.calls[0].gpr[4]=4u;
+  Reject([&]{(void)native::MatchCapturedXdkDraws(non_triangle,
+    std::span<const native::VerifiedXdkIndexedSubmission>(&verified,1));});
   Reject([&]{(void)native::MatchCapturedXdkDraws(xdk::Frame{1,1,{ppc}},
     std::span<const native::VerifiedXdkIndexedSubmission>(&verified,1));});
   ppc.kind=xdk::Kind::DrawVertices;
