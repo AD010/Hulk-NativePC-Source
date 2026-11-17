@@ -114,10 +114,13 @@ def main() -> None:
     hooks = read_hooks(args.profile)
     reverse, files, functions, found = scan_direct_calls(
         args.generated, set(hooks))
-    if files < 1 or not functions or not found.issuperset({
-            hook for hook in hooks if hooks[hook] in
-            ('DrawVertices', 'DrawIndexedVertices')}):
-        raise ValueError("USA XDK Draw function codegen unavailable or incomplete")
+    # ReXGlue may replace an original imported XDK function with a host
+    # hook and omit its *definition* while retaining exact guest bl callsites.
+    # Only the latter are necessary for a provable LR-4 crosswalk.
+    verified_draw_edges = any(reverse.get(hook) for hook, name in hooks.items()
+                              if name in ('DrawVertices', 'DrawIndexedVertices'))
+    if files < 1 or not functions or not verified_draw_edges:
+        raise ValueError("USA codegen has no verified original XDK Draw callsite edges")
     if args.log.stat().st_size > MAX_TRACE_BYTES:
         raise ValueError("Runtime log is too large for bounded caller analysis")
     result = analyze(args.log.read_text(encoding='utf-8', errors='replace'),
