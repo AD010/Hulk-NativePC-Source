@@ -60,6 +60,10 @@ def reviewed_patch_plan(builder: str) -> list[str]:
     if (len(steps) != len(set(steps)) or
             sum(x.startswith("ci/test_") for x in steps) != 43):
         raise ValueError("Duplicate patch or missing original Xenos regression")
+    missing = [name for name in steps if not (ROOT / name).is_file()]
+    if missing:
+        raise ValueError("NativeX reviewed patch/test source missing: " +
+                         ", ".join(missing[:5]))
     return steps
 
 def checked_patch_path(path: str) -> Path:
