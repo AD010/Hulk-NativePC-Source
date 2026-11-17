@@ -14,7 +14,7 @@ try { Start-Transcript -Path $BuildLog -Force | Out-Null } catch { Write-Warning
 # One validated entrypoint for 90 ordered NativeX patch/test stages.
 # Preserve source ABI checks and in-between C++ render-target guards.
 function Invoke-HulkNativeXPatch(
-    [ValidatePattern('^(test_|patch_)patch_native_x_hulk_[a-z0-9_]+[.]py$')]
+    [ValidatePattern('^(test_)?patch_native_x_hulk_[a-z0-9_]+[.]py$')]
     [string]$ScriptName) {
   $CiDir = Join-Path (Split-Path $Source -Parent) 'ci'
   $Script = Join-Path $CiDir $ScriptName
