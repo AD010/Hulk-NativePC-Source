@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <array>
 #include <set>
+#include <tuple>
 #include <stdexcept>
 #include <utility>
 
@@ -35,6 +36,52 @@ bool Same(const VerifiedEorSampler& a,const VerifiedEorSampler& b) {
          a.original_shader_fetch_slot_verified==b.original_shader_fetch_slot_verified &&
          a.original_texture_format_and_mips_verified==b.original_texture_format_and_mips_verified;
 }
+}
+std::vector<NativeEorPassResources> AcquireVerifiedNativeMaterialPasses(
+    std::span<const VerifiedNativeMaterialPass> verified,
+    DiligentOriginalTextureResidency& residency) {
+  if(verified.empty())
+    throw std::invalid_argument("No original source-proven EoR material passes");
+  std::set<std::tuple<uint32_t,uint32_t,uint32_t,uint32_t>> keys;
+  // Validate every material/pass owner BEFORE the first original GPU image
+  // allocation; never replace a missing Texture with a synthetic SRV.
+  for(const auto& p:verified) {
+    const auto& pass=p.original_pipeline;
+    if(!p.original_model_hash || p.original_surface_ordinal==UINT32_MAX ||
+       !pass.original_effect_hash || pass.original_pass_index==UINT32_MAX ||
+       !pass.material_pass_verified || !pass.original_render_state_verified ||
+       !pass.original_host_vertex_layout_verified ||
+       !keys.emplace(p.original_model_hash,p.original_surface_ordinal,
+                     pass.original_effect_hash,pass.original_pass_index).second)
+      throw std::invalid_argument("Ambiguous or unverified original EoR material pass");
+    std::vector<VerifiedEorSampler> identifiers;
+    identifiers.reserve(p.original_images.size());
+    for(const auto& image:p.original_images) {
+      const auto& owner=image.original_binding;
+      if(owner.original_model_hash!=p.original_model_hash ||
+         owner.original_surface_ordinal!=p.original_surface_ordinal ||
+         owner.original_effect_hash!=pass.original_effect_hash ||
+         owner.original_pass_index!=pass.original_pass_index ||
+         image.source_proven_color_space==OriginalTextureColorSpace::Unknown)
+        throw std::invalid_argument("Original EoR texture has wrong surface/PSO owner");
+      identifiers.push_back(owner);
+    }
+    ValidateOriginalEorSamplers(identifiers);
+  }
+  std::vector<NativeEorPassResources> ready;
+  ready.reserve(verified.size());
+  for(const auto& p:verified) {
+    NativeEorPassResources gpu;
+    gpu.original_model_hash=p.original_model_hash;
+    gpu.original_surface_ordinal=p.original_surface_ordinal;
+    gpu.pipeline=p.original_pipeline;
+    // This loads original pinned-USA TexStreams mips directly into resident
+    // Diligent/Vulkan SRVs. Each descriptor retains ownership across cache
+    // eviction and through the caller's GPU completion fence.
+    gpu.original_textures=residency.BindMaterial(p.original_images);
+    ready.push_back(std::move(gpu));
+  }
+  return ready;
 }
 std::vector<NativeEorDrawBuffers> PositionOnlyDrawBuffersFromOriginalModels(
     std::span<const model::UploadedOriginalModel* const> residents) {

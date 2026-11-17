@@ -8,6 +8,7 @@
 #include "eor_diligent_scene_targets.h"
 #include "eor_diligent_material_textures.h"
 #include "eor_diligent_original_pipeline.h"
+#include "eor_diligent_texture_residency.h"
 #include "eor_original_model_upload.h"
 #include <cstddef>
 #include <cstdint>
@@ -31,6 +32,18 @@ struct NativeEorPassResources {
   VerifiedOriginalGraphicsPass pipeline;
   std::vector<OriginalDiligentSampler> original_textures;
 };
+// Actual original material pass and its precise per-shader image declarations.
+// Passes are built from source-verified original resource ownership, never
+// from nearby indexed texture candidate hashes.
+struct VerifiedNativeMaterialPass {
+  uint32_t original_model_hash=0;
+  uint32_t original_surface_ordinal=UINT32_MAX;
+  VerifiedOriginalGraphicsPass original_pipeline;
+  std::vector<VerifiedNativeMaterialImage> original_images;
+};
+std::vector<NativeEorPassResources> AcquireVerifiedNativeMaterialPasses(
+    std::span<const VerifiedNativeMaterialPass> verified,
+    DiligentOriginalTextureResidency& textures);
 // Slot 0 MUST be decoded float3 positions, additional slots MUST be
 // float4 attributes uploaded only after genuine original BE decoding.
 // The raw Xbox vertex stream is never usable as a Vulkan vertex buffer.
