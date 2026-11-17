@@ -236,6 +236,8 @@ int main(){
   native::VerifiedXdkResourceWitness witness{};
   witness.original_resources=native::ResourcesAtDraw(live_state);
   witness.original_source_submission=verified;
+  witness.source_verified_texture_slot_mask=1u;
+  witness.original_xdk_texture_slot_mapping_verified=true;
   witness.original_guest_resource_to_material_mapping_verified=true;
   std::vector<native::VerifiedXdkResourceWitness> catalog{witness};
   const auto recovered=native::ResolveCapturedResourceDraws(runtime,catalog,models);
@@ -252,6 +254,11 @@ int main(){
   assert(second.size()==1 && second[0].original_frame_sequence==3 &&
          xdk::ReadOriginalMatrix(*second[0].original_vs_matrices,11,4)
              ->values[0]==3.0f);
+  // Stale XDK slot 15 is irrelevant when original shader reads only slot 0.
+  transformed.calls[0].observed_vs_matrices->
+      original_texture_guest_objects[15]=0x8300ABCDu;
+  const auto untouched=native::ResolveCapturedResourceDraws(transformed,catalog,models);
+  assert(untouched.size()==1);
   transformed.calls[0].observed_vs_matrices->
       original_texture_guest_objects[0]=0x8300BAD0u;
   Reject([&]{(void)native::ResolveCapturedResourceDraws(transformed,catalog,models);});
@@ -263,6 +270,12 @@ int main(){
   Reject([&]{(void)native::ResolveCapturedResourceDraws(transformed,catalog,models);});
   catalog.resize(1);
   catalog[0].original_guest_resource_to_material_mapping_verified=false;
+  Reject([&]{(void)native::ResolveCapturedResourceDraws(transformed,catalog,models);});
+  catalog[0]=witness;
+  catalog[0].source_verified_texture_slot_mask=0;
+  Reject([&]{(void)native::ResolveCapturedResourceDraws(transformed,catalog,models);});
+  catalog[0]=witness;
+  catalog[0].original_xdk_texture_slot_mapping_verified=false;
   Reject([&]{(void)native::ResolveCapturedResourceDraws(transformed,catalog,models);});
   assert(gpu.next==3);
 }

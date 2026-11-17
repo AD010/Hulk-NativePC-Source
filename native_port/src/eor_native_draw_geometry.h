@@ -86,6 +86,13 @@ OriginalXdkResourceIdentity ResourcesAtDraw(
 struct VerifiedXdkResourceWitness {
   OriginalXdkResourceIdentity original_resources;
   VerifiedXdkDrawSubmission original_source_submission;
+  // Only shader-read, source-proven guest texture slots participate in
+  // material identity. XDK retains unrelated textures in unused slots;
+  // comparing all 16 falsely rejects valid Draws on every state change.
+  // This mask is an independently verified ORIGINAL XDK SetTexture slot
+  // mapping, not a guess from Xenos fetch index or archive hash.
+  uint16_t source_verified_texture_slot_mask=0;
+  bool original_xdk_texture_slot_mapping_verified=false;
   bool original_guest_resource_to_material_mapping_verified=false;
 };
 // Resolve the entire captured frame with independently verified original

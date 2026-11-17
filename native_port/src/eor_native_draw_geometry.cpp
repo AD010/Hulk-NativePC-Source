@@ -139,6 +139,44 @@ OriginalXdkResourceIdentity ResourcesAtDraw(
           state.original_depth_guest_object,
           state.original_texture_guest_objects};
 }
+namespace {
+bool SameOriginalResources(
+    const OriginalXdkResourceIdentity& expected,
+    const OriginalXdkResourceIdentity& observed,
+    const VerifiedXdkResourceWitness& evidence,
+    bool indexed) noexcept {
+  if(expected.device!=observed.device ||
+     expected.vertex_declaration!=observed.vertex_declaration ||
+     expected.vertex_shader!=observed.vertex_shader ||
+     expected.pixel_shader!=observed.pixel_shader ||
+     expected.rt0!=observed.rt0 ||
+     expected.depth!=observed.depth ||
+     (indexed && expected.index_buffer!=observed.index_buffer))
+    return false;
+  const auto* original=std::get_if<VerifiedXdkIndexedSubmission>(
+      &evidence.original_source_submission);
+  const auto& native_draw=original?original->native_draw:
+      std::get<VerifiedXdkVerticesSubmission>(
+          evidence.original_source_submission).native_draw;
+  if(!native_draw.original_sampler_slots.empty() &&
+     (!evidence.original_xdk_texture_slot_mapping_verified ||
+      !evidence.source_verified_texture_slot_mask))
+    return false;
+  // No texture-bearing material may be identified from an unproven XDK
+  // texture slot mask; never silently resolve a sampler using nearby hashes.
+  if(evidence.source_verified_texture_slot_mask &&
+     !evidence.original_xdk_texture_slot_mapping_verified)
+    return false;
+  for(uint32_t slot=0;slot<16;++slot) {
+    if(!(evidence.source_verified_texture_slot_mask & (uint16_t(1u)<<slot)))
+      continue;
+    if(!expected.textures[slot] ||
+       expected.textures[slot]!=observed.textures[slot])
+      return false;
+  }
+  return true;
+}
+}
 std::vector<VerifiedDrawSource> ResolveCapturedResourceDraws(
     const xdk::Frame& frame,
     std::span<const VerifiedXdkResourceWitness> witnesses,
@@ -163,7 +201,8 @@ std::vector<VerifiedDrawSource> ResolveCapturedResourceDraws(
     const VerifiedXdkDrawSubmission* unique=nullptr;
     for(const auto& candidate:witnesses) {
       if(!candidate.original_guest_resource_to_material_mapping_verified ||
-         !(candidate.original_resources==resources))
+         !SameOriginalResources(candidate.original_resources,resources,
+                                candidate,indexed.has_value()))
         continue;
       bool identical=false;
       if(indexed) {
