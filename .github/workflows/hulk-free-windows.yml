@@ -513,6 +513,10 @@ jobs:
                                "/Fe:$modelAssetsTest",
                                'native_port/src/eor_archive.cpp',
                                'native_port/src/eor_model_resource.cpp',
+                               'native_port/src/eor_model_material_refs.cpp',
+                               'native_port/src/eor_model_surfaces.cpp',
+                               'native_port/src/eor_model_surface_materials.cpp',
+                               'native_port/src/eor_native_mesh_geometry.cpp',
                                'native_port/src/eor_original_model_assets.cpp',
                                'ci/eor_original_model_assets_test.cpp')
           & cl.exe @modelAssetsArgs
