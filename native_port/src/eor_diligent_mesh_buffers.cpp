@@ -23,6 +23,7 @@ struct DiligentMeshUploadBackend::State {
     uint32_t kind=UINT32_MAX;
     uint32_t maximum_index=UINT32_MAX;
     uint32_t minimum_index=UINT32_MAX;
+    std::vector<uint32_t> immutable_indices;
   };
   std::map<uint64_t,Entry> live;
   uint64_t next_handle = 1;
@@ -69,12 +70,19 @@ uint64_t DiligentMeshUploadBackend::UploadOriginalVertexStream(std::span<const s
 uint64_t DiligentMeshUploadBackend::UploadIndices(std::span<const uint32_t> v) {
   if (v.empty() || v.size() > kMaxUploadBytes / sizeof(uint32_t) ||
       v.size()%3 != 0)return 0;
+  // Snapshot BEFORE GPU allocation; failure cannot leak a live handle.
+  // The complete immutable mirror is used only for exact indexed windows,
+  // not shader/texture emulation or guessed original Xbox streams.
+  std::vector<uint32_t> mirror;
+  try { mirror.assign(v.begin(),v.end()); }
+  catch (...) { return 0; }
   const auto limits=std::minmax_element(v.begin(),v.end());
   const auto handle=Create(v.data(),v.size_bytes(),2);
   if (handle) {
     auto& record=state_->live.at(handle);
     record.minimum_index=*limits.first;
     record.maximum_index=*limits.second;
+    record.immutable_indices=std::move(mirror);
   }
   return handle;
 }
@@ -107,6 +115,21 @@ uint32_t DiligentMeshUploadBackend::MinIndexOf(uint64_t handle) const noexcept {
   const auto it=state_->live.find(handle);
   return it==state_->live.end() || it->second.kind!=2 ?
       UINT32_MAX : it->second.minimum_index;
+}
+bool DiligentMeshUploadBackend::IndexWindowInRange(
+    uint64_t handle,uint32_t first,uint32_t count,
+    int32_t base,uint32_t vertex_count) const noexcept {
+  const auto it=state_->live.find(handle);
+  if(it==state_->live.end() || it->second.kind!=2 ||
+     !count || count%3 || first%3 || vertex_count<3)
+    return false;
+  const auto& indices=it->second.immutable_indices;
+  if(first>indices.size() || count>indices.size()-first)
+    return false;
+  const auto bounds=std::minmax_element(indices.begin()+first,
+                                         indices.begin()+first+count);
+  return int64_t(*bounds.first)+base>=0 &&
+         int64_t(*bounds.second)+base<vertex_count;
 }
 size_t DiligentMeshUploadBackend::LiveBufferCount() const noexcept {return state_->live.size();}
 } // namespace hulk::eor::gpu

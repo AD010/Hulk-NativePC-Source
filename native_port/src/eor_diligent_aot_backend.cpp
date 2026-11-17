@@ -448,11 +448,11 @@ bool DiligentEorDirectBackend::DrawIndexed(const native::IndexedDraw& draw) {
      resident.index_handle!=draw.index_buffer ||
      uint64_t(draw.first_index)+draw.index_count>resident.index_count)
     return false;
-  const auto low=s.meshes.MinIndexOf(draw.index_buffer);
-  const auto high=s.meshes.MaxIndexOf(draw.index_buffer);
-  if(low==UINT32_MAX || high==UINT32_MAX ||
-     int64_t(low)+draw.base_vertex<0 ||
-     int64_t(high)+draw.base_vertex>=resident.vertex_count)
+  // The signed base applies to THIS Draw's immutable index window, not
+  // the whole source buffer (which may also contain other meshes).
+  if(!s.meshes.IndexWindowInRange(draw.index_buffer,draw.first_index,
+                                  draw.index_count,draw.base_vertex,
+                                  resident.vertex_count))
     return false;
   const auto& slots=resident.host_vertex_slots;
   const auto& layout=s.selected->pipeline.exact_host_input_layout;

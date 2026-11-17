@@ -30,6 +30,10 @@ class DiligentMeshUploadBackend final : public model::NativeMeshUploadBackend {
   // denotes a missing/non-index buffer, not an available vertex index.
   uint32_t MaxIndexOf(uint64_t handle) const noexcept;
   uint32_t MinIndexOf(uint64_t handle) const noexcept;
+  // Actual immutable index window, not the global index-buffer extrema.
+  // Verifies a signed base against the owning mesh's vertex count.
+  bool IndexWindowInRange(uint64_t handle,uint32_t first,uint32_t count,
+                          int32_t base,uint32_t vertex_count) const noexcept;
   size_t LiveBufferCount() const noexcept;
  private:
   struct State;

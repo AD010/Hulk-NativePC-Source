@@ -64,6 +64,7 @@ UploadedNativeMeshBatch UploadNativeIndexedMeshes(std::span<const NativeIndexedM
                                           m.triangle_list_indices.end());
     rec.min_index=*limits.first;
     rec.max_index=*limits.second;
+    rec.host_indices=m.triangle_list_indices;
     rec.original_attribute_declarations=m.original_attribute_declarations;
     batch.meshes_.push_back(std::move(rec)); // bookkeeping first, then GPU ownership
     auto& o=batch.meshes_.back();

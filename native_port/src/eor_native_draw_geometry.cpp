@@ -1,4 +1,5 @@
 #include "eor_native_draw_geometry.h"
+#include <algorithm>
 #include <limits>
 #include <stdexcept>
 
@@ -55,9 +56,17 @@ std::vector<aot::BoundIndexedDraw> BindVerifiedGeometryDraws(
         !mesh->original_vertex_stream_buffer || mesh->vertex_count < 3 ||
         mesh->original_vertex_stride < 12 || mesh->original_vertex_stride > 192 ||
         uint64_t(src.first_index)+src.index_count > mesh->index_count ||
-        int64_t(mesh->min_index)+src.host_base_vertex < 0 ||
-        int64_t(mesh->max_index)+src.host_base_vertex >= mesh->vertex_count)
+        mesh->host_indices.size()!=mesh->index_count)
       throw std::invalid_argument("Unmatched or out-of-bounds EoR indexed GPU geometry");
+    // Validate the *indexed subrange* for this Draw. A single source mesh
+    // can contain multiple independently rebased objects. Checking its
+    // global minimum/maximum incorrectly rejects valid negative bases
+    // and creates missing geometry; checking no bounds risks corrupt draws.
+    const auto first=mesh->host_indices.begin()+src.first_index;
+    const auto range=std::minmax_element(first,first+src.index_count);
+    if(int64_t(*range.first)+src.host_base_vertex < 0 ||
+       int64_t(*range.second)+src.host_base_vertex >= mesh->vertex_count)
+      throw std::invalid_argument("Source-proven EoR Draw index window exceeds host vertices");
     gpu::ValidateOriginalEorSamplers(src.original_sampler_slots);
     for (const auto& sampler:src.original_sampler_slots)
       if (sampler.original_model_hash!=src.original_model_hash ||

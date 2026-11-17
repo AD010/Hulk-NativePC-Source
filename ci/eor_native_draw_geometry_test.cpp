@@ -100,8 +100,8 @@ int main(){
   check([](auto& v){v.original_effect_hash=0xABCD;});
   check([](auto& v){v.original_pass_index=1;});
   check([](auto& v){v.pixel_source_sha256.fill(0x33);});
-  check([](auto& v){v.first_index=3;});
-  check([](auto& v){v.index_count=6;});
+  check([](auto& v){v.first_index=6;});
+  check([](auto& v){v.index_count=9;});
   check([](auto& v){v.index_count=2;});
   check([](auto& v){v.host_base_vertex=1;});
   check([](auto& v){v.host_base_vertex=-1;});

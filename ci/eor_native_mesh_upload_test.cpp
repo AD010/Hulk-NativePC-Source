@@ -43,6 +43,8 @@ int main(){
    assert(a.meshes()[0].position_buffer==1&&a.meshes()[0].original_vertex_stream_buffer==2&&a.meshes()[0].index_buffer==3);
    assert(a.meshes()[1].index_buffer==6);
    assert(a.meshes()[0].original_vertex_stride==24);
+   assert((a.meshes()[0].host_indices==std::vector<uint32_t>{0,1,2}));
+   assert(a.meshes()[0].min_index==0 && a.meshes()[0].max_index==2);
    assert(a.meshes()[0].original_attribute_declarations[0][0]==std::byte(0xab));
    assert(success.raw.size()==72&&success.raw[0]==std::byte(0x7f));
    assert(success.positions[0].x==-1.f&&success.indices[2]==2);
