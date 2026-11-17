@@ -10,61 +10,98 @@ namespace {
 class ForwardingBackend final : public native::Backend {
  public:
   ForwardingBackend(std::span<const BoundIndexedDraw> draws,
-                    const ShaderBank& bank, const ReflectionBank& reflection,
-                    ShaderBindingBackend& target)
-      : draws_(draws), bank_(bank), reflection_(reflection), target_(target) {}
-  bool BeginScene(native::Size size, uint32_t samples) override {
+                    const ShaderBank& bank,const ReflectionBank& reflection,
+                    ShaderBindingBackend& target,const xdk::Frame* source)
+      :draws_(draws),bank_(bank),reflection_(reflection),
+       target_(target),source_(source){}
+  bool BeginScene(native::Size size,uint32_t samples) override {
     return target_.BeginScene(size,samples);
   }
-  void AbortScene() noexcept override { target_.AbortScene(); }
+  void AbortScene() noexcept override {target_.AbortScene();}
   bool DrawIndexed(const native::IndexedDraw& draw) override {
-    if (position_ >= draws_.size())
+    if(position_>=draws_.size())
       throw std::logic_error("EoR draw/compiled shader pairing overflow");
-    const auto& pair = draws_[position_++];
-    // Prevent original shader identity from being paired with another draw.
-    if (pair.draw.vertex_buffer != draw.vertex_buffer ||
-        pair.draw.index_buffer != draw.index_buffer ||
-        pair.draw.vertex_shader != draw.vertex_shader ||
-        pair.draw.pixel_shader != draw.pixel_shader ||
-        pair.draw.first_index != draw.first_index ||
-        pair.draw.index_count != draw.index_count ||
-        pair.draw.base_vertex != draw.base_vertex ||
-        pair.draw.source_frame != draw.source_frame ||
-        pair.draw.source_ordinal != draw.source_ordinal)
+    const auto& pair=draws_[position_];
+    if(!ReplayBeforeDraw(draw))return false;
+    ++position_;
+    if(pair.draw.vertex_buffer!=draw.vertex_buffer ||
+       pair.draw.index_buffer!=draw.index_buffer ||
+       pair.draw.vertex_shader!=draw.vertex_shader ||
+       pair.draw.pixel_shader!=draw.pixel_shader ||
+       pair.draw.first_index!=draw.first_index ||
+       pair.draw.index_count!=draw.index_count ||
+       pair.draw.base_vertex!=draw.base_vertex ||
+       pair.draw.source_frame!=draw.source_frame ||
+       pair.draw.source_ordinal!=draw.source_ordinal)
       throw std::invalid_argument("EoR command/shader sequence mismatch");
-    const auto* vs = bank_.Find(pair.vertex_source_sha256, Stage::Vertex);
-    const auto* ps = bank_.Find(pair.pixel_source_sha256, Stage::Pixel);
-    const auto* vr = reflection_.Find(pair.vertex_source_sha256, Stage::Vertex);
-    const auto* pr = reflection_.Find(pair.pixel_source_sha256, Stage::Pixel);
-    if (!vs || !ps || !vr || !pr)
+    const auto* vs=bank_.Find(pair.vertex_source_sha256,Stage::Vertex);
+    const auto* ps=bank_.Find(pair.pixel_source_sha256,Stage::Pixel);
+    const auto* vr=reflection_.Find(pair.vertex_source_sha256,Stage::Vertex);
+    const auto* pr=reflection_.Find(pair.pixel_source_sha256,Stage::Pixel);
+    if(!vs || !ps || !vr || !pr)
       throw std::logic_error("Unknown original Xenos shader or constant layout");
     return target_.BindOriginalSurface(pair.original_model_hash,
                                        pair.original_surface_ordinal) &&
-           target_.BindOriginalEffect(pair.effect_hash, pair.pass_index) &&
-           target_.BindOriginalConstants(*vr, *pr) &&
-           target_.BindVerifiedProgramPair(pair.vertex_source_sha256, *vs,
-                                          pair.pixel_source_sha256, *ps) &&
+           target_.BindOriginalEffect(pair.effect_hash,pair.pass_index) &&
+           target_.BindOriginalConstants(*vr,*pr) &&
+           target_.BindVerifiedProgramPair(pair.vertex_source_sha256,*vs,
+                                           pair.pixel_source_sha256,*ps) &&
            target_.BindOriginalSamplers(pair.original_samplers) &&
            target_.DrawIndexed(draw);
   }
   bool ResolveScene(native::Size size) override {
-    if (position_ != draws_.size())
-      throw std::logic_error("Incomplete original shader-paired EoR Draw sequence");
+    if(position_!=draws_.size())
+      throw std::logic_error("Incomplete source shader-paired Draw sequence");
+    if(source_) {
+      const auto& events=source_->commands;
+      while(cursor_+1<events.size()) {
+        const auto& event=events[cursor_++];
+        if(event.draw_ordinal!=UINT32_MAX ||
+           !target_.ReplayOriginalXdkCommand(event))
+          return false;
+      }
+      if(cursor_+1!=events.size() ||
+         events[cursor_].kind!=xdk::CommandKind::Present)
+        return false;
+    }
     return target_.ResolveScene(size);
   }
-  bool Composite(native::Rect rect, native::Size size) override {
-    if (position_ != draws_.size())
-      throw std::logic_error("Incomplete original shader-paired EoR Draw sequence");
-    return target_.Composite(rect,size);
+  bool Composite(native::Rect rect,native::Size size) override {
+    if(position_!=draws_.size())
+      throw std::logic_error("Incomplete source shader-paired Draw sequence");
+    if(!target_.Composite(rect,size))return false;
+    if(!source_)return true;
+    const auto& terminal=source_->commands[cursor_++];
+    return target_.ReplayOriginalXdkCommand(terminal) &&
+           cursor_==source_->commands.size();
   }
  private:
+  bool ReplayBeforeDraw(const native::IndexedDraw& draw) {
+    if(!source_)return true;
+    const auto& events=source_->commands;
+    while(cursor_<events.size()) {
+      const auto& event=events[cursor_++];
+      if(event.draw_ordinal!=UINT32_MAX) {
+        return event.draw_ordinal==position_ &&
+               draw.source_frame==source_->sequence &&
+               draw.source_ordinal==event.draw_ordinal &&
+               position_<source_->calls.size();
+      }
+      // The actual XDK render-target/clear/resolve commands cannot vanish
+      // when the original Draw list is converted to host indexed geometry.
+      if(event.kind==xdk::CommandKind::Present ||
+         !target_.ReplayOriginalXdkCommand(event))
+        return false;
+    }
+    return false;
+  }
   std::span<const BoundIndexedDraw> draws_;
   const ShaderBank& bank_;
   const ReflectionBank& reflection_;
   ShaderBindingBackend& target_;
-  size_t position_ = 0;
-};
-}
+  const xdk::Frame* source_=nullptr;
+  size_t position_=0,cursor_=0;
+};}
 
 std::optional<OriginalDrawVsMatrices> ExtractOriginalDrawVsMatrices(
     const ReflectedShader& vertex,const native::IndexedDraw& draw) noexcept {
@@ -115,7 +152,8 @@ void ReplayAotScene(const native::FrameGeometry& frame,
                     std::span<const BoundIndexedDraw> draws,
                     const ShaderBank& bank, const EffectCatalog& effects,
                     const ReflectionBank& reflection,
-                    ShaderBindingBackend& backend) {
+                    ShaderBindingBackend& backend,
+                    const xdk::Frame* exact_original_timeline) {
   if (effects.EffectCount() == 0 ||
       effects.ShaderCount() != bank.expected())
     throw std::logic_error("Original EoR effect catalog/shader bank mismatch");
@@ -227,12 +265,29 @@ void ReplayAotScene(const native::FrameGeometry& frame,
       throw std::logic_error("Uncompiled Xenos shader pair in native EoR draw");
     commands.push_back(value.draw);
   }
+  // The live EoR Vulkan presenter must replay the COMPLETE source
+  // RT/ClearF/Resolve/Tiling/Present chronology. A backend which cannot
+  // reproduce even one source command is rejected before BeginScene.
+  if(exact_original_timeline) {
+    const auto& source=*exact_original_timeline;
+    if(!xdk::ValidateOriginalCommandTimeline(source) ||
+       !captured_source || captured_frame!=source.sequence ||
+       source.calls.size()!=draws.size())
+      throw std::invalid_argument(
+          "Incomplete original Xbox XDK command timeline for native GPU");
+    for(const auto& event:source.commands)
+      if(event.draw_ordinal==UINT32_MAX &&
+         !backend.CanReplayOriginalXdkCommand(event))
+        throw std::invalid_argument(
+            "Native Vulkan has no source-proven RT/Clear/Resolve/Present handler");
+  }
   // Shader/texture source validation above is complete. Vulkan prepares
   // actual PSOs and validates native geometry before opening any GPU scene;
   // a driver compile failure is no longer allowed halfway through a frame.
   if (!backend.PreflightOriginalScene(draws))
     throw std::runtime_error("Source-proven native Vulkan frame PSO/resource preflight failed");
-  ForwardingBackend forward(draws,bank,reflection,backend);
+  ForwardingBackend forward(draws,bank,reflection,backend,
+                            exact_original_timeline);
   native::ReplayNativeScene(frame,commands,forward);
 }
 }  // namespace hulk::eor::aot

@@ -290,7 +290,11 @@ void ReplayCapturedResourceScene(
   if(!xdk::ValidateOriginalCommandTimeline(captured))
     throw std::invalid_argument("Incomplete source RT/Draw/Resolve/Present timeline");
   const auto source=ResolveCapturedResourceDraws(captured,verified,residents);
-  ReplayVerifiedGeometryScene(frame,source,residents,bank,effects,reflection,backend);
+  const auto commands=BindVerifiedGeometryDraws(source,residents,effects);
+  // Unlike the Draw-only legacy bridge, replay the true original
+  // RT/Clear/Draw/Resolve/Present sequence through the native GPU.
+  // An unknown source command rejects the FULL frame in preflight.
+  aot::ReplayAotScene(frame,commands,bank,effects,reflection,backend,&captured);
 }
 std::vector<VerifiedDrawSource> MatchCapturedMixedDraws(
     const xdk::Frame& frame,

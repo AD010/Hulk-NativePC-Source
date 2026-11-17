@@ -49,6 +49,16 @@ class ShaderBindingBackend : public native::Backend {
   virtual bool PreflightOriginalScene(std::span<const BoundIndexedDraw>) {
     return true;
   }
+  // Full independent presentation must honor the ORIGINAL PPC XDK GPU
+  // chronology around Draws (RT/depth binding, ClearF, tiled Resolve,
+  // Present). Reject an unhandled command BEFORE BeginScene rather than
+  // silently skip it and render corrupt color/depth/HUD.
+  virtual bool CanReplayOriginalXdkCommand(
+      const xdk::RawCommand&) const {return false;}
+  // Called in original source order, on the same renderer thread as Draw.
+  // Does NOT magically transform guest surface pointers into host views.
+  virtual bool ReplayOriginalXdkCommand(
+      const xdk::RawCommand&) {return false;}
   // An effect/pass alone is NOT a material owner. Refuse anonymous Draws.
   virtual bool BindOriginalSurface(uint32_t, uint32_t) {
     return false;
@@ -87,5 +97,6 @@ class ShaderBindingBackend : public native::Backend {
 void ReplayAotScene(const native::FrameGeometry& frame,
                     std::span<const BoundIndexedDraw> draws,
                     const ShaderBank& bank, const EffectCatalog& effects,
-                    const ReflectionBank& reflection, ShaderBindingBackend& backend);
+                    const ReflectionBank& reflection, ShaderBindingBackend& backend,
+                    const xdk::Frame* exact_original_timeline=nullptr);
 }  // namespace hulk::eor::aot

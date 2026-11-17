@@ -12,6 +12,16 @@ struct Backend final:ShaderBindingBackend {
   unsigned begin=0,bind=0,effect=0,constants=0,draw=0,resolve=0,composite=0,abort=0,samplers=0,surfaces=0;
   std::vector<std::pair<uint32_t,uint32_t>> surface_history;
   bool refuse_samplers=false,refuse_preflight=false;
+  bool accept_original_timeline=false;
+  std::vector<xdk::CommandKind> original_gpu_commands;
+  bool CanReplayOriginalXdkCommand(const xdk::RawCommand&) const override {
+    return accept_original_timeline;
+  }
+  bool ReplayOriginalXdkCommand(const xdk::RawCommand& call) override {
+    if(!accept_original_timeline)return false;
+    original_gpu_commands.push_back(call.kind);
+    return true;
+  }
   unsigned preflights=0;
   bool PreflightOriginalScene(std::span<const BoundIndexedDraw> draws) override {
     ++preflights;
@@ -160,6 +170,58 @@ int main(){
   std::vector<BoundIndexedDraw> capturedDraws{captured};
   ReplayAotScene(geometry,capturedDraws,shaders,effects,reflection,bound);
   assert(bound.begin==1 && bound.draw==1);
+  // Actual original RT0 -> ClearF -> indexed Draw -> Resolve -> Present
+  // must be replayed in ORDER on the same backend. The previous bridge
+  // silently discarded every non-Draw XDK GPU command.
+  xdk::RawDraw real_call{xdk::Kind::DrawIndexedVertices,
+       0x8288E318u,0x8263BF50u,{3,4,5,6,7,8,9,10}};
+  xdk::RawCommand rt{xdk::CommandKind::SetRenderTarget,
+       0x8287F2C0u,0x8263A000u,{3,0,0x82001234u,0,0,0,0,0}};
+  xdk::RawCommand clr{xdk::CommandKind::ClearF,
+       0x82888C40u,0x8263A004u,{3,1,0,0x82002000u,0,0,0,0}};
+  clr.captured_clear=xdk::OriginalXdkClearF{};
+  clr.captured_clear->flags=1;
+  clr.captured_clear->has_color=true;
+  clr.captured_clear->color={0.25f,0.5f,0.75f,1.f};
+  xdk::RawCommand original_draw{xdk::CommandKind::DrawIndexedVertices,
+       real_call.function,real_call.lr,real_call.gpr,0u};
+  xdk::RawCommand resolve{xdk::CommandKind::Resolve,
+       0x828897F8u,0x8263A008u,{3,1,0,0x82003000u,0,0,0,0}};
+  xdk::RawCommand present{xdk::CommandKind::Present,
+       0x82880778u,0x8263A00Cu,{3,0x82004000u,0,0,0,0,0,0}};
+  xdk::Frame source_frame{};
+  source_frame.sequence=17;
+  source_frame.calls={real_call};
+  source_frame.commands={rt,clr,original_draw,resolve,present};
+  assert(xdk::ValidateOriginalCommandTimeline(source_frame));
+  Backend chronological;
+  chronological.accept_original_timeline=true;
+  ReplayAotScene(geometry,capturedDraws,shaders,effects,reflection,
+                 chronological,&source_frame);
+  assert(chronological.begin==1 && chronological.draw==1 &&
+         chronological.resolve==1 && chronological.composite==1 &&
+         chronological.original_gpu_commands==
+             std::vector<xdk::CommandKind>({
+                xdk::CommandKind::SetRenderTarget,
+                xdk::CommandKind::ClearF,
+                xdk::CommandKind::Resolve,
+                xdk::CommandKind::Present}));
+  Backend cannot_present;
+  bool rejected_original=false;
+  try{ReplayAotScene(geometry,capturedDraws,shaders,effects,reflection,
+                     cannot_present,&source_frame);}
+  catch(const std::invalid_argument&){rejected_original=true;}
+  assert(rejected_original && cannot_present.begin==0 &&
+         cannot_present.preflights==0);
+  auto missing_original_clear=source_frame;
+  missing_original_clear.commands[1].captured_clear.reset();
+  Backend invalid_original;
+  invalid_original.accept_original_timeline=true;
+  rejected_original=false;
+  try{ReplayAotScene(geometry,capturedDraws,shaders,effects,reflection,
+                     invalid_original,&missing_original_clear);}
+  catch(const std::invalid_argument&){rejected_original=true;}
+  assert(rejected_original && invalid_original.begin==0);
   auto wrong_full=captured;
   auto corrupted=std::make_shared<xdk::OriginalShaderRegisters>(
       *original_constants);
