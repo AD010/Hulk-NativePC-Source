@@ -99,6 +99,10 @@ try {
   # when sizing converted-index pages; avoid 16x GPU index pool waste.
   Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_sdk_hulk_index_pool.py'), $Sdk) $Source
   Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_sdk_hulk_index_pool.py'), $Sdk) $Source
+  # Xenia Edge 344fca7: exact Xenos packed mip0 page and 2x1 tail
+  # addressing, also used by the Legacy/NativeX GPU texture utility.
+  Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_sdk_hulk_packed_mip.py'), $Sdk) $Source
+  Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_sdk_hulk_packed_mip.py'), $Sdk) $Source
   # Hulk original city: locate real low/high LOD archive ranges, no rendering changes.
   Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_sdk_hulk_world_stream_trace.py')) $Source
   Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_sdk_hulk_world_stream_trace.py'), $Sdk) $Source
