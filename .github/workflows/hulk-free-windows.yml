@@ -1,4 +1,4 @@
-name: Hulk NativePC - Free Public Windows Builder
+name: Hulk NativePC - Manual Windows Release
 on:
   # User-requested release gate: do not start more experimental Windows
   # builds on source edits. Keep this single Release-only workflow available
