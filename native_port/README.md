@@ -9,9 +9,9 @@ MIT copyright notices in the repository root and this directory.
 ## Canonical build and delivery
 
 - **Single GitHub Actions workflow:** `.github/workflows/hulk-free-windows.yml`
-  (relative to the repository root). Runs only on manual dispatch in its
-  normal state; the one-off, owner-authorized release triggers are removed
-  after each run is registered. Windows x64 Release only.
+  (relative to the repository root). **Manual dispatch only**; source
+  pushes, pull requests and schedules cannot trigger a build. There is no
+  temporary one-shot push exception. Windows x64 Release only.
 - **Build on Windows:** `BUILD_WINDOWS.cmd -GameRoot "X:\\path\\to\\owned\\game"`
   from this directory. Visual Studio C++/LLVM, CMake, Ninja, Python and
   the original USA game inputs are required. Add `-NativeXLink` to build
@@ -107,3 +107,29 @@ registered-gradient Hulk adapter markers before accepting shader output.
 This is original shader source adaptation, not verified Vulkan PSO binding;
 the 24 dynamic-flow shaders, all EoR material descriptors, game-time
 shader injections and GPU command routing still require source/runtime work.
+
+## Cleanup and quality gate (2026-11-17)
+
+- Removed all eight failed-run `.hulk-release-one-shot-20261117*` trigger
+  files from `main`; the only Actions workflow remains manual-only.
+- The Windows builder no longer duplicates 90 long Python dispatcher commands.
+  `Invoke-HulkNativeXPatch` is the single validated invocation path, in the
+  same order: 43 source-only regression tests and 47 reviewed NativeX
+  transformations. Interleaved shader/target ABI checks remain in place.
+- Separate `ci/patch_native_x_hulk_*.py` modules and
+  `ci/test_patch_native_x_hulk_*.py` fixtures still exist on purpose: they
+  enforce distinct upstream source anchors and isolate regressions. They are
+  *not* 90 individual game builds. Do not merge unrelated GPU state hooks into
+  one massive file or delete a module until all imports, the dispatcher,
+  regression checks and pinned-source compatibility have been migrated.
+- The last repeated Windows CI attempts **failed**. Build #44065859493
+  passed the original TexStreams regression and stopped with a model archive
+  linker error: missing implementations for original surface materials and
+  native indexed meshes. Its test link command now includes those real source
+  files, but has **not** been rerun. No new ZIP or visual improvement is
+  claimed.
+- Before any next Release: run source-only Python checks, test *all* relevant
+  EoR C++ modules with `/W4 /WX` and their complete link dependencies,
+  verify pinned USA XEX/private input constraints, and only then run one
+  manually approved Windows Release. Successful compilation alone does not
+  demonstrate correct game pixels; live gameplay/RenderDoc remains mandatory.
