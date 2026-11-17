@@ -69,7 +69,7 @@ class D140WindowsDispatchTests(unittest.TestCase):
         self.assertIn("HULK NATIVE GPU upstream fa19ea85",builder)
         self.assertIn("$NativeXCommit = '"+D140+"'",builder)
         lines=[line for line in builder.splitlines()
-               if re.search(r"^\s+Invoke-HulkNativeXPatch '(?:test_|patch_)patch_native_x_hulk_[a-z0-9_]+\.py'\s*$",line)]
+               if re.search(r"^\s+Invoke-HulkNativeXPatch '(?:test_)?patch_native_x_hulk_[a-z0-9_]+\.py'\s*$",line)]
         self.assertEqual(len(lines),90)
         patches=[line for line in lines if "Invoke-HulkNativeXPatch 'patch_" in line]
         tests=[line for line in lines if "Invoke-HulkNativeXPatch 'test_" in line]
