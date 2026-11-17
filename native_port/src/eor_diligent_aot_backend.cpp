@@ -332,7 +332,7 @@ bool DiligentEorDirectBackend::DrawIndexed(const native::IndexedDraw& draw) {
     return false;
   try {
     s.context->SetPipelineState(s.active.pipeline.RawPtr());
-    if(!s.bind_constants(s.active.bindings.RawPtr(),s.vertex,s.pixel)) {
+    if(!s.bind_constants(s.active.bindings.RawPtr(),s.vertex,s.pixel,draw)) {
       // Never permit a later draw to reuse constants from an earlier draw
       // after a partially failed host constant-buffer update.
       s.constants_ready=false;
