@@ -49,7 +49,7 @@ class D3D9HookContracts(unittest.TestCase):
         self.assertIn("original=*pp;", body)
         self.assertIn("pp->BackBufferWidth=width;", body)
         self.assertIn("pp->BackBufferHeight=height;", body)
-        self.assertRegex(body, r"if\\(FAILED\\(hr\\) && changed\\)\\s*\\{\\s*\\*pp=original;\\s*hr=realReset\\(dev,pp\\);")
+        self.assertRegex(body, r"if\(FAILED\(hr\) && changed\)\s*\{\s*\*pp=original;\s*hr=realReset\(dev,pp\);")
         self.assertLess(body.index("hr=realReset(dev,pp);"),
                         body.index("if(SUCCEEDED(hr))"))
         self.assertIn("activeVS=nullptr;", body)
