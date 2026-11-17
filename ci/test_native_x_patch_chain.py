@@ -55,12 +55,14 @@ def commands():
     # essential patches and made #30's preflight fail at gap_draw.
     names=[]
     for line in BUILDER.read_text(encoding="utf-8").splitlines():
-        if "Invoke-Checked 'python'" not in line or "patch_native_x_hulk_" not in line:
+        if "Invoke-HulkNativeXPatch '" not in line:
             continue
-        match=re.search(r"'(ci/(?:test_)?patch_native_x_hulk_[a-z0-9_]+\.py)'", line)
+        match=re.search(
+            r"^\s+Invoke-HulkNativeXPatch '((?:test_|patch_)patch_native_x_hulk_[a-z0-9_]+\.py)'\s*$",
+            line)
         if not match:
             raise RuntimeError("Unparsed NativeX build step: " + line.strip())
-        names.append(match.group(1))
+        names.append("ci/" + match.group(1))
     if len(names) < 39 or len(names) != len(set(names)):
         raise RuntimeError(f"NativeX production patch manifest incomplete/duplicated: {len(names)}")
     for name in EXPERIMENTS:
