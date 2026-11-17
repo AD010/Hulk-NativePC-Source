@@ -36,7 +36,7 @@ class D3D9HookContracts(unittest.TestCase):
                         body.index("VirtualProtect(thunk"))
 
     def test_failed_reset_does_not_invalidate_shader(self):
-        body = SOURCE.split("HRESULT STDMETHODCALLTYPE OnReset(IDirect3DDevice9* dev,", 1)[-1]
+        body = SOURCE.rsplit("HRESULT STDMETHODCALLTYPE OnReset(IDirect3DDevice9* dev,", 1)[-1]
         body = body.split("\nHRESULT STDMETHODCALLTYPE OnPresent(", 1)[0]
         self.assertIn("const HRESULT hr=realReset(dev,pp);", body)
         self.assertRegex(body, r"if\(SUCCEEDED\(hr\)\)\s*\{[^}]*activeVS=nullptr;")
