@@ -41,9 +41,13 @@ struct NativeEorDrawBuffers {
 };
 class DiligentEorDirectBackend final : public aot::ShaderBindingBackend {
  public:
+  // The callback receives the CURRENT source-proven Draw. The same
+  // EoR effect/VS/PS can render different models with different World and
+  // ViewProj registers; a per-pass callback cannot supply the right matrix.
   using BindConstants = std::function<bool(
       Diligent::IShaderResourceBinding*,
-      const aot::ReflectedShader&,const aot::ReflectedShader&)>;
+      const aot::ReflectedShader&,const aot::ReflectedShader&,
+      const native::IndexedDraw&)>;
   using CompositeOutput = std::function<bool(
       Diligent::ITextureView*,
       native::Rect,native::Size)>;
