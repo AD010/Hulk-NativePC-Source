@@ -62,6 +62,12 @@ class EorShaderReflectionTests(unittest.TestCase):
             self.assertEqual(same['shaders'],2)
             self.assertEqual(same['original_matrix_bindings']['ViewProj'],1)
             self.assertEqual(file.read_bytes(),saved)
+            malformed=dict(inputs[0]);malformed['bytes']=len(fake('VS'))+1
+            manifest.write_text(json.dumps({'bank_version':1,
+                                            'platform':'Xbox360',
+                                            'shader_containers':inputs+[malformed]}))
+            with self.assertRaises(ValueError):generate(manifest,file,src)
+            self.assertEqual(file.read_bytes(),saved)
             conflict=dict(inputs[0]); conflict['stage']='PS'
             manifest.write_text(json.dumps({'bank_version':1,
                                             'platform':'Xbox360',
