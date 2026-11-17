@@ -41,6 +41,11 @@ def verify(path: Path) -> tuple[bool, list[str]]:
         image_size = struct.unpack_from("<I", pe, 80)[0]
         if machine != 0x14C or magic != 0x10B or optional_size < 0x60 or not sections:
             errors.append("Not the expected PE32/i386 executable")
+        # The section table must fit entirely inside the file. A plausible
+        # COFF header alone is not sufficient evidence of a valid PE image.
+        section_table_end = peoff + 24 + optional_size + sections * 40
+        if section_table_end > size or section_table_end < peoff:
+            errors.append("Truncated PE optional header or section table")
         if timestamp != EXPECTED_TIMESTAMP or entry != EXPECTED_ENTRY or image_size != EXPECTED_IMAGE_SIZE:
             errors.append("PE identity mismatch (timestamp/entry point/image size)")
     except (OSError, ValueError, struct.error) as exc:
