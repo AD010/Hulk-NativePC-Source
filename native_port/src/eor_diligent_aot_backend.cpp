@@ -216,8 +216,9 @@ DiligentEorDirectBackend::DiligentEorDirectBackend(
        !resident.index_count || (resident.index_count%3)!=0 ||
        slots.empty() || slots.size()>16 ||
        slots[0]!=position || state_->meshes.KindOf(position)!=0 ||
-       state_->meshes.KindOf(resident.index_handle)!=2)
-      throw std::invalid_argument("Missing or mismatched EoR host mesh vertex/index provenance");
+       state_->meshes.KindOf(resident.index_handle)!=2 ||
+       state_->meshes.MaxIndexOf(resident.index_handle)>=resident.vertex_count)
+      throw std::invalid_argument("Missing or out-of-range EoR host mesh vertex/index provenance");
     const auto* vb=state_->meshes.FindBuffer(position);
     const auto* ib=state_->meshes.FindBuffer(resident.index_handle);
     if(!vb || !ib ||
