@@ -6,8 +6,10 @@
 #pragma once
 #include "eor_spirv_bank.h"
 #include "eor_xdk_guest_constants.h"
+#include "native_camera_projection.h"
 #include <array>
 #include <cstdint>
+#include <span>
 #include <vector>
 
 namespace hulk::eor::aot {
@@ -28,4 +30,14 @@ std::vector<float> PackOriginalXdkFloatConstants(
     const xdk::OriginalShaderRegisters& captured,
     const VerifiedOriginalFloatLayout& source_shader_layout,
     Stage expected_stage,const Digest& expected_original_shader_sha256);
+// Perform a true 16:10 VIEWPROJ rewrite in the NATIVE (not XEX/PM4)
+// shader constant stream. Requires proved original main-perspective camera,
+// shader matrix-vector convention and the original source register bitmap.
+// All other (UI/shadow/sky/reflection) Draws retain original constants.
+std::vector<float> ExpandVerifiedOriginalPackedViewProjection(
+    std::span<const float> original_packed_vs,
+    const VerifiedOriginalFloatLayout& source_shader_layout,
+    uint32_t original_view_projection_c0,
+    double guest_aspect,uint32_t target_width,uint32_t target_height,
+    const camera::SourceCameraProof& source_camera);
 } // namespace hulk::eor::aot

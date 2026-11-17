@@ -42,4 +42,43 @@ std::vector<float> PackOriginalXdkFloatConstants(
     throw std::logic_error("Incomplete original shader float4 packing");
   return packed;
 }
+std::vector<float> ExpandVerifiedOriginalPackedViewProjection(
+    std::span<const float> source,
+    const VerifiedOriginalFloatLayout& layout,
+    uint32_t c0,double guest_aspect,uint32_t width,uint32_t height,
+    const camera::SourceCameraProof& camera_proof) {
+  if(layout.stage!=Stage::Vertex ||
+     !layout.original_ucode_register_map_verified ||
+     !layout.translated_spirv_float_buffer_layout_verified ||
+     c0>252 || source.size()!=
+        size_t(layout.translated_ubo_float4_count)*4)
+    throw std::invalid_argument(
+        "Original EoR VS ViewProj compacted register layout unverified");
+  std::array<size_t,4> offsets{};
+  std::array<float,16> original{};
+  for(uint32_t row=0;row<4;++row) {
+    const uint32_t reg=c0+row;
+    const uint64_t bit=uint64_t(1)<<(reg%64);
+    if(!(layout.original_register_bitmap[reg/64]&bit))
+      throw std::invalid_argument("Original ViewProj source register absent");
+    size_t compact=0;
+    for(uint32_t group=0;group<reg/64;++group)
+      compact+=std::popcount(layout.original_register_bitmap[group]);
+    compact+=std::popcount(layout.original_register_bitmap[reg/64]&(bit-1));
+    if(compact>=layout.translated_ubo_float4_count)
+      throw std::invalid_argument("Source shader packed VS index invalid");
+    offsets[row]=compact*4;
+    for(uint32_t col=0;col<4;++col)
+      original[row*4+col]=source[offsets[row]+col];
+  }
+  const auto corrected=camera::ExpandVerifiedVerticalView(
+      original,guest_aspect,width,height,camera_proof);
+  if(!corrected)
+    throw std::invalid_argument("Original Hulk main-view projection proof absent");
+  std::vector<float> out(source.begin(),source.end());
+  for(uint32_t row=0;row<4;++row)
+    for(uint32_t col=0;col<4;++col)
+      out[offsets[row]+col]=(*corrected)[row*4+col];
+  return out;
+}
 } // namespace hulk::eor::aot

@@ -16,6 +16,14 @@ struct IPipelineState;
 struct IShaderResourceBinding;
 }
 namespace hulk::eor::gpu {
+// This is a NATIVE shader-constant fix, not a mutation of game guest memory.
+// Source evidence must identify the original perspective main 3D view,
+// its c# ViewProj range, matrix multiplication order and guest aspect.
+struct VerifiedOriginalMainView {
+  camera::SourceCameraProof source_proof;
+  uint32_t original_view_projection_first_register=UINT32_MAX;
+  double original_guest_aspect=0.0;
+};
 struct VerifiedOriginalGraphicsPass {
   uint32_t original_effect_hash=0;
   uint32_t original_pass_index=UINT32_MAX;
@@ -28,6 +36,9 @@ struct VerifiedOriginalGraphicsPass {
   // the camera matrix names or the ShaderEffects pass ID.
   std::optional<aot::VerifiedOriginalFloatLayout> original_vs_float_layout;
   std::optional<aot::VerifiedOriginalFloatLayout> original_ps_float_layout;
+  // Only this verified main perspective pass gets 16:10 clip-space Y
+  // correction; shadows, reflections, videos and HUD remain untouched.
+  std::optional<VerifiedOriginalMainView> source_main_view;
   bool material_pass_verified=false;
   bool original_render_state_verified=false;
   bool original_host_vertex_layout_verified=false;

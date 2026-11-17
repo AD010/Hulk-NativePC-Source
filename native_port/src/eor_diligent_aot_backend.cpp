@@ -400,6 +400,15 @@ bool DiligentEorDirectBackend::PreflightOriginalScene(
           *d.guest_shader_constants,
           *selected->pipeline.original_ps_float_layout,
           aot::Stage::Pixel,item.pixel_source_sha256);
+      if(s.frame.widescreen_camera &&
+         selected->pipeline.source_main_view) {
+        const auto& camera=*selected->pipeline.source_main_view;
+        packed.vertex=aot::ExpandVerifiedOriginalPackedViewProjection(
+            packed.vertex,*selected->pipeline.original_vs_float_layout,
+            camera.original_view_projection_first_register,
+            camera.original_guest_aspect,
+            s.frame.world.width,s.frame.world.height,camera.source_proof);
+      }
       if(!prepared_constants.emplace(State::DrawKey{d.source_frame,
                         d.source_ordinal},std::move(packed)).second)
         return false;

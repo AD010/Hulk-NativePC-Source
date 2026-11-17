@@ -1,5 +1,6 @@
 #include "../native_port/src/eor_native_shader_constants.h"
 #include <cassert>
+#include <cmath>
 #include <cstdint>
 #include <stdexcept>
 #include <vector>
@@ -73,6 +74,39 @@ int main() {
   truncated.finite_vertex[0] &= ~(uint64_t(1)<<11);
   Reject([&]{(void)aot::PackOriginalXdkFloatConstants(
       truncated,vs,aot::Stage::Vertex,source);});
+  // Pure native wide-aspect projection: correct only the verified
+  // original main-view c11..c14 matrix inside its packed VS shader UBO.
+  Put(captured,xdk::OriginalShaderStage::Vertex,12,12.f);
+  Put(captured,xdk::OriginalShaderStage::Vertex,13,13.f);
+  Put(captured,xdk::OriginalShaderStage::Vertex,14,14.f);
+  auto wide=vs;
+  wide.original_register_bitmap[0] |=
+      (uint64_t(1)<<12)|(uint64_t(1)<<13)|(uint64_t(1)<<14);
+  wide.translated_ubo_float4_count=7;
+  const auto wide_values=aot::PackOriginalXdkFloatConstants(
+      captured,wide,aot::Stage::Vertex,source);
+  const hulk::camera::SourceCameraProof proof{
+      true,true,true,hulk::camera::ClipMatrixConvention::RowVector};
+  const auto expanded=aot::ExpandVerifiedOriginalPackedViewProjection(
+      wide_values,wide,11,16.0/9.0,2560,1600,proof);
+  // Original bitmap order: c7,c11,c12,c13,c14,c21,c255.
+  assert(expanded.size()==wide_values.size() &&
+         expanded[0]==7.f &&
+         std::abs(expanded[4+1]-10.8f)<1e-5f &&
+         std::abs(expanded[8+1]-11.7f)<1e-5f &&
+         expanded[4]==11.f &&
+         expanded[24]==255.f);
+  auto no_camera=proof;
+  no_camera.original_main_perspective_view=false;
+  Reject([&]{(void)aot::ExpandVerifiedOriginalPackedViewProjection(
+      wide_values,wide,11,16.0/9.0,2560,1600,no_camera);});
+  auto missing_row=wide;
+  missing_row.original_register_bitmap[0] &= ~(uint64_t(1)<<14);
+  missing_row.translated_ubo_float4_count=6;
+  Reject([&]{(void)aot::ExpandVerifiedOriginalPackedViewProjection(
+      wide_values,missing_row,11,16.0/9.0,2560,1600,proof);});
+  Reject([&]{(void)aot::ExpandVerifiedOriginalPackedViewProjection(
+      wide_values,wide,11,16.0/9.0,2560,0,proof);});
   invalid=vs;
   invalid.original_register_bitmap={};
   invalid.translated_ubo_float4_count=0;
