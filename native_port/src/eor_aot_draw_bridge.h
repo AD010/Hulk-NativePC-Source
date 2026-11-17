@@ -24,6 +24,13 @@ struct BoundIndexedDraw {
 };
 class ShaderBindingBackend : public native::Backend {
  public:
+  // Stage all SOURCE-VERIFIED host pipeline and immutable GPU-buffer
+  // dependencies BEFORE BeginScene. A Diligent/driver PSO failure must not
+  // happen after the first geometry Draw has modified a live render target.
+  // Legacy test backends may opt out; production Vulkan overrides this.
+  virtual bool PreflightOriginalScene(std::span<const BoundIndexedDraw>) {
+    return true;
+  }
   // An effect/pass alone is NOT a material owner. Refuse anonymous Draws.
   virtual bool BindOriginalSurface(uint32_t, uint32_t) {
     return false;

@@ -10,7 +10,12 @@ using namespace hulk::eor::aot;
 struct Backend final:ShaderBindingBackend {
   unsigned begin=0,bind=0,effect=0,constants=0,draw=0,resolve=0,composite=0,abort=0,samplers=0,surfaces=0;
   std::vector<std::pair<uint32_t,uint32_t>> surface_history;
-  bool refuse_samplers=false;
+  bool refuse_samplers=false,refuse_preflight=false;
+  unsigned preflights=0;
+  bool PreflightOriginalScene(std::span<const BoundIndexedDraw> draws) override {
+    ++preflights;
+    return !refuse_preflight && !draws.empty();
+  }
   Digest received_vs{},received_ps{};
   unsigned verified_program_pairs=0;
   bool BindVerifiedProgramPair(const Digest& vs_id,const Blob& vs,
@@ -115,6 +120,16 @@ int main(){
   std::vector<BoundIndexedDraw> draws{entry};
   ReplayAotScene(geometry,draws,shaders,effects,reflection,target);
   assert(target.samplers==1 && target.verified_program_pairs==1);
+  assert(target.preflights==1);
+  // Native backend refuses an unresolved actual PSO BEFORE BeginScene,
+  // never presenting a partially rendered frame.
+  Backend no_pso;
+  no_pso.refuse_preflight=true;
+  bool preflight_rejected=false;
+  try { ReplayAotScene(geometry,draws,shaders,effects,reflection,no_pso); }
+  catch(const std::runtime_error&) { preflight_rejected=true; }
+  assert(preflight_rejected && no_pso.preflights==1 &&
+         no_pso.begin==0 && no_pso.draw==0);
   assert(target.surfaces==1 &&
          target.surface_history[0]==std::make_pair(0xCAFEu,0u));
   assert(target.received_vs==entry.vertex_source_sha256 &&

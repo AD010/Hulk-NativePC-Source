@@ -92,6 +92,8 @@ class DiligentEorDirectBackend final : public aot::ShaderBindingBackend {
   DiligentEorDirectBackend(const DiligentEorDirectBackend&)=delete;
   DiligentEorDirectBackend& operator=(const DiligentEorDirectBackend&)=delete;
   ~DiligentEorDirectBackend() noexcept override;
+  bool PreflightOriginalScene(
+      std::span<const aot::BoundIndexedDraw> draws) override;
 
   bool BeginScene(native::Size world,uint32_t samples) override;
   void AbortScene() noexcept override;

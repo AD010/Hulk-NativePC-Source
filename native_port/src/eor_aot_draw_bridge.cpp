@@ -147,6 +147,11 @@ void ReplayAotScene(const native::FrameGeometry& frame,
       throw std::logic_error("Uncompiled Xenos shader pair in native EoR draw");
     commands.push_back(value.draw);
   }
+  // Shader/texture source validation above is complete. Vulkan prepares
+  // actual PSOs and validates native geometry before opening any GPU scene;
+  // a driver compile failure is no longer allowed halfway through a frame.
+  if (!backend.PreflightOriginalScene(draws))
+    throw std::runtime_error("Source-proven native Vulkan frame PSO/resource preflight failed");
   ForwardingBackend forward(draws,bank,reflection,backend);
   native::ReplayNativeScene(frame,commands,forward);
 }

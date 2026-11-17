@@ -154,6 +154,7 @@ struct DiligentEorDirectBackend::State {
   // Immutable shader/PSO pairing remains live across Draws and frames;
   // no per-draw driver compilation and no guessed shader cache keys.
   std::map<std::pair<uint32_t,uint32_t>,OriginalVulkanPipeline> pipeline_cache;
+  bool frame_preflight_ready=false;
   bool scene_open=false,constants_ready=false,program_ready=false;
   bool textures_ready=false,finished=false;
 };
@@ -322,10 +323,83 @@ DiligentEorDirectBackend::DiligentEorDirectBackend(
   }
 }
 DiligentEorDirectBackend::~DiligentEorDirectBackend() noexcept {AbortScene();}
+bool DiligentEorDirectBackend::PreflightOriginalScene(
+    std::span<const aot::BoundIndexedDraw> draws) {
+  auto& s=*state_;
+  s.frame_preflight_ready=false;
+  if(s.scene_open || draws.empty())return false;
+  std::set<std::pair<uint32_t,uint32_t>> needed;
+  // Pass one: validate the ENTIRE frame's native draw and original material
+  // ownership. Do not create a PSO before a later invalid draw is rejected.
+  for(const auto& item:draws) {
+    const auto& d=item.draw;
+    if(!d.vertex_buffer || !d.index_buffer || !d.vertex_shader ||
+       !d.pixel_shader || !d.index_count || !item.original_model_hash ||
+       item.original_surface_ordinal==UINT32_MAX || !item.effect_hash ||
+       item.pass_index==UINT32_MAX)
+      return false;
+    const NativeEorPassResources* selected=nullptr;
+    for(const auto& material:s.passes) {
+      if(material.original_model_hash==item.original_model_hash &&
+         material.original_surface_ordinal==item.original_surface_ordinal &&
+         material.pipeline.original_effect_hash==item.effect_hash &&
+         material.pipeline.original_pass_index==item.pass_index) {
+        selected=&material;
+        break;
+      }
+    }
+    if(!selected ||
+       selected->pipeline.original_vertex_shader_sha256!=item.vertex_source_sha256 ||
+       selected->pipeline.original_pixel_shader_sha256!=item.pixel_source_sha256 ||
+       selected->original_textures.size()!=item.original_samplers.size())
+      return false;
+    for(const auto& sampler:item.original_samplers) {
+      unsigned matches=0;
+      for(const auto& owned:selected->original_textures)
+        if(Same(sampler,owned.identity))++matches;
+      if(matches!=1)return false;
+    }
+    const auto mesh=s.draw_buffers.find(d.vertex_buffer);
+    if(mesh==s.draw_buffers.end() ||
+       mesh->second.original_model_hash!=item.original_model_hash ||
+       mesh->second.index_handle!=d.index_buffer ||
+       mesh->second.host_vertex_slots.size()!=
+           selected->pipeline.exact_host_input_layout.size() ||
+       !s.meshes.IndexWindowInRange(d.index_buffer,d.first_index,
+                                    d.index_count,d.base_vertex,
+                                    mesh->second.vertex_count))
+      return false;
+    needed.emplace(item.effect_hash,item.pass_index);
+  }
+  // Pass two: compile/link only the ORIGINAL shader techniques that this
+  // frame will execute. A PSO failure occurs before BeginScene and never
+  // leaves earlier 3D objects partially submitted (red/yellow flashes).
+  try {
+    for(const auto& key:needed) {
+      if(s.pipeline_cache.contains(key))continue;
+      const NativeEorPassResources* match=nullptr;
+      for(const auto& material:s.passes)
+        if(material.pipeline.original_effect_hash==key.first &&
+           material.pipeline.original_pass_index==key.second) {
+          match=&material;
+          break;
+        }
+      if(!match)return false;
+      auto pipeline=CreateOriginalVulkanPipeline(
+          s.device.RawPtr(),s.shaders,s.bank,s.effects,match->pipeline);
+      s.pipeline_cache.emplace(key,std::move(pipeline));
+    }
+  } catch (...) {return false;}
+  s.frame_preflight_ready=true;
+  return true;
+}
 bool DiligentEorDirectBackend::BeginScene(native::Size world,uint32_t samples) {
   auto& s=*state_;
-  if(s.scene_open || !Same(world,s.frame.world) || samples!=s.frame.samples)
+  if(s.scene_open || !s.frame_preflight_ready ||
+     !Same(world,s.frame.world) || samples!=s.frame.samples)
     return false;
+  // Consume the provenance gate before touching any Vulkan render targets.
+  s.frame_preflight_ready=false;
   if(!s.scene.Prepare(s.frame,s.format) || !s.scene.BeginScene())return false;
   s.scene_open=true;s.finished=false;s.selected=nullptr;
   s.requested_model=0;s.requested_surface=UINT32_MAX;s.surface_ready=false;
@@ -338,6 +412,7 @@ void DiligentEorDirectBackend::AbortScene() noexcept {
   s.scene.AbortScene();
   s.active={};
   s.selected=nullptr;s.scene_open=s.finished=false;
+  s.frame_preflight_ready=false;
   s.requested_model=0;s.requested_surface=UINT32_MAX;s.surface_ready=false;
   s.constants_ready=s.program_ready=s.textures_ready=false;
 }
