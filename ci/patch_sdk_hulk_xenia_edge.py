@@ -25,7 +25,8 @@ INDEX_NEW = """      // HULK/XENIA-EDGE-INDEX-PAGE-4AD875: SIMD is padding, not 
 
 def patch_index(source: str) -> tuple[str, bool]:
     if INDEX_MARKER in source:
-        if source.count(INDEX_NEW) != 1 or INDEX_OLD in source:
+        if (source.count(INDEX_MARKER) != 1 or source.count(INDEX_NEW) != 1 or
+                INDEX_OLD in source):
             raise ValueError("Partial converted-index page fix")
         return source, False
     if source.count(INDEX_OLD) != 1 or "kMinRequiredConvertedIndexBufferSize" not in source:
