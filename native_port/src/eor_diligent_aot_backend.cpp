@@ -185,6 +185,11 @@ bool DiligentEorDirectBackend::BindOriginalEffect(uint32_t effect,uint32_t pass)
 bool DiligentEorDirectBackend::BindOriginalConstants(
     const aot::ReflectedShader& vs,const aot::ReflectedShader& ps) {
   auto& s=*state_;
+  // A failed constant rebind must not leave the previous draw's verified
+  // constants, program or samplers eligible for a subsequent DrawIndexed.
+  s.constants_ready=false;
+  s.program_ready=false;
+  s.textures_ready=false;
   if(!s.selected || vs.stage!=aot::Stage::Vertex || ps.stage!=aot::Stage::Pixel)
     return false;
   s.vertex=vs;s.pixel=ps;
