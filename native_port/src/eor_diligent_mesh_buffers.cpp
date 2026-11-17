@@ -3,6 +3,7 @@
 #include "Buffer.h"
 #include "RefCntAutoPtr.hpp"
 #include <limits>
+#include <algorithm>
 #include <cmath>
 #include <map>
 #include <stdexcept>
@@ -20,6 +21,7 @@ struct DiligentMeshUploadBackend::State {
   struct Entry {
     Diligent::RefCntAutoPtr<Diligent::IBuffer> buffer;
     uint32_t kind=UINT32_MAX;
+    uint32_t maximum_index=UINT32_MAX;
   };
   std::map<uint64_t,Entry> live;
   uint64_t next_handle = 1;
@@ -64,8 +66,12 @@ uint64_t DiligentMeshUploadBackend::UploadOriginalVertexStream(std::span<const s
   return Create(v.data(),v.size_bytes(),1);
 }
 uint64_t DiligentMeshUploadBackend::UploadIndices(std::span<const uint32_t> v) {
-  if (v.size() > kMaxUploadBytes / sizeof(uint32_t)) return 0;
-  return Create(v.data(),v.size_bytes(),2);
+  if (v.empty() || v.size() > kMaxUploadBytes / sizeof(uint32_t) ||
+      v.size()%3 != 0)return 0;
+  const auto highest=*std::max_element(v.begin(),v.end());
+  const auto handle=Create(v.data(),v.size_bytes(),2);
+  if (handle)state_->live.at(handle).maximum_index=highest;
+  return handle;
 }
 uint64_t DiligentMeshUploadBackend::UploadDecodedAttributes(
     std::span<const model::HostAttribute> values) {
@@ -86,6 +92,11 @@ Diligent::IBuffer* DiligentMeshUploadBackend::FindBuffer(uint64_t handle) const 
 uint32_t DiligentMeshUploadBackend::KindOf(uint64_t handle) const noexcept {
   const auto it=state_->live.find(handle);
   return it==state_->live.end()?UINT32_MAX:it->second.kind;
+}
+uint32_t DiligentMeshUploadBackend::MaxIndexOf(uint64_t handle) const noexcept {
+  const auto it=state_->live.find(handle);
+  return it==state_->live.end() || it->second.kind!=2?
+      UINT32_MAX:it->second.maximum_index;
 }
 size_t DiligentMeshUploadBackend::LiveBufferCount() const noexcept {return state_->live.size();}
 } // namespace hulk::eor::gpu
