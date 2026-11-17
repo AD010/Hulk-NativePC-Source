@@ -58,10 +58,21 @@ class D140WindowsDispatchTests(unittest.TestCase):
         # Never permit generic push/PR/schedule triggers or other branches.
         self.assertNotRegex(workflow,r"(?m)^  (?:pull_request|schedule|workflow_run):")
         if re.search(r"(?m)^  push:", workflow):
-            self.assertIn("One-shot USER-AUTHORIZED D140 integration build",workflow)
-            self.assertRegex(workflow,
-                r"(?m)^  push:\n    branches: \[main\]\n    paths:\n"
-                r"      - native_port/docs/HULK_D140_LOG201_VISUAL_PERFORMANCE_2026-11-14\.md$")
+            # Exactly ONE previously approved dispatch file. No wildcards,
+            # generic source pushes or other branches, even during release.
+            authorized = {
+                "One-shot USER-AUTHORIZED D140 integration build":
+                    "native_port/docs/HULK_D140_LOG201_VISUAL_PERFORMANCE_2026-11-14.md",
+                "One-shot USER-AUTHORIZED Hulk visual release 2026-11-17":
+                    "'.hulk-release-one-shot-20261117-r7'",
+            }
+            selected = [path for marker, path in authorized.items()
+                        if marker in workflow]
+            self.assertEqual(len(selected), 1,
+                "Only a single explicit owner-approved release trigger is allowed")
+            expected = ("  push:\\n    branches: [main]\\n    paths:\\n"
+                        "      - " + selected[0] + "\\npermissions:")
+            self.assertIn(expected, workflow)
             self.assertEqual(len(re.findall(r"(?m)^  push:",workflow)),1)
         self.assertIn("github.ref == 'refs/heads/main'",workflow)
         self.assertIn("github.repository == 'AD010/Hulk-NativePC-Source'",workflow)
