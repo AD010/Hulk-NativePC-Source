@@ -52,28 +52,11 @@ class D140WindowsDispatchTests(unittest.TestCase):
         # migration-branch edit into a private Windows build/release.
         workflow=(ROOT/".github"/"workflows"/"hulk-free-windows.yml").read_text("utf-8")
         self.assertRegex(workflow,r"(?m)^  workflow_dispatch:\s*$")
-        # GitHub connector cannot call workflow_dispatch. One user-approved
-        # release may be dispatched from a narrowly-scoped docs-only push.
-        # The workflow is restored to manual-only as soon as the run starts.
-        # Never permit generic push/PR/schedule triggers or other branches.
-        self.assertNotRegex(workflow,r"(?m)^  (?:pull_request|schedule|workflow_run):")
-        if re.search(r"(?m)^  push:", workflow):
-            # Exactly ONE previously approved dispatch file. No wildcards,
-            # generic source pushes or other branches, even during release.
-            authorized = {
-                "One-shot USER-AUTHORIZED D140 integration build":
-                    "native_port/docs/HULK_D140_LOG201_VISUAL_PERFORMANCE_2026-11-14.md",
-                "One-shot USER-AUTHORIZED Hulk visual release 2026-11-17":
-                    "'.hulk-release-one-shot-20261117-r8'",
-            }
-            selected = [path for marker, path in authorized.items()
-                        if marker in workflow]
-            self.assertEqual(len(selected), 1,
-                "Only a single explicit owner-approved release trigger is allowed")
-            expected = ("  push:\n    branches: [main]\n    paths:\n"
-                        "      - " + selected[0] + "\npermissions:")
-            self.assertIn(expected, workflow)
-            self.assertEqual(len(re.findall(r"(?m)^  push:",workflow)),1)
+        # No temporary push escape hatch: source edits must NEVER start
+        # an expensive release. Require an explicit manual dispatch after
+        # all independent source tests and toolchain checks pass.
+        self.assertNotRegex(
+            workflow, r"(?m)^  (?:push|pull_request|schedule|workflow_run):")
         self.assertIn("github.ref == 'refs/heads/main'",workflow)
         self.assertIn("github.repository == 'AD010/Hulk-NativePC-Source'",workflow)
         self.assertIn("HULK_PINNED_XEX_SHA256:",workflow)
