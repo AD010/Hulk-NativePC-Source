@@ -4,6 +4,8 @@
 #include <bit>
 #include <cmath>
 #include <cassert>
+#include <cstdio>
+#include <source_location>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
@@ -50,8 +52,17 @@ std::vector<std::byte> Texture(std::string name,uint32_t ref,size_t rel){
   Replace32(v,pos,ref);
   return v;
 }
-template<class F> void Reject(F f){
-  bool caught=false;try{f();}catch(const std::invalid_argument&){caught=true;}assert(caught);
+template<class F> void Reject(
+    F f, std::source_location caller = std::source_location::current()) {
+  bool caught=false;
+  try { f(); } catch(const std::invalid_argument&) { caught=true; }
+  if(!caught) {
+    std::fprintf(stderr,
+        "EoR original TexStreams negative fixture unexpectedly accepted at line %u\\n",
+        caller.line());
+  }
+  assert(caught);
+}
 }
 }
 int main(){
