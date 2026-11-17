@@ -73,6 +73,17 @@ class D3D9HookContracts(unittest.TestCase):
         self.assertNotIn('LoadLibraryW(L"d3d9.dll")', SOURCE)
         self.assertNotRegex(SOURCE, r'(?:CopyFile|MoveFile|DeleteFile)[AW]?\s*\(')
 
+    def test_present_diagnostics_measure_actual_dimensions(self):
+        body = SOURCE.rsplit("HRESULT STDMETHODCALLTYPE OnPresent(IDirect3DDevice9* dev,", 1)[-1]
+        body = body.split("\nHRESULT STDMETHODCALLTYPE OnCreateVS(", 1)[0]
+        for required in ("GetBackBuffer(0,0,D3DBACKBUFFER_TYPE_MONO,&back)",
+                         "back->GetDesc(&desc)", "back->Release()",
+                         "GetCreationParameters(&creation)",
+                         "GetClientRect(creation.hFocusWindow,&client)",
+                         "backbuffer=%ux%u client=%ux%u"):
+            with self.subTest(required=required):
+                self.assertIn(required, body)
+
     def test_experimental_profiles_explicitly_opt_out(self):
         for name in ("HulkPC_2560x1600_HorPlus.ini",
                      "HulkPC_2560x1600_NoFov.ini"):
