@@ -119,5 +119,37 @@ int main(){
   Reject([&]{std::vector<const model::UploadedOriginalModel*> nil{nullptr};
             (void)native::BindVerifiedGeometryDraws(
                 std::span<const native::VerifiedDrawSource>(&original,1),nil,effects);});
+  // Synthetic values, actual USA DrawIndexedVertices PPC argument layout.
+  // Guest index origin 120 differs from local index origin 0 after rebase.
+  xdk::RawDraw ppc{xdk::Kind::DrawIndexedVertices,0x8288E318u,0x8263BF50u,
+                   {0x40002880u,4u,0xFFFFFFFEu,120u,3u,0u,0u,0u}};
+  const auto typed=xdk::DecodeOriginalIndexedXdkCall(ppc);
+  assert(typed && typed->base_vertex==-2 && typed->first_index==120);
+  native::VerifiedXdkIndexedSubmission verified{};
+  verified.original_guest_call=*typed;
+  verified.native_draw=original;
+  verified.original_triangle_list_verified=true;
+  verified.guest_to_native_index_stream_verified=true;
+  verified.original_material_at_draw_verified=true;
+  const auto observed=xdk::Frame{1,0,{ppc}};
+  const auto matched=native::MatchCapturedXdkDraws(observed,
+    std::span<const native::VerifiedXdkIndexedSubmission>(&verified,1));
+  assert(matched.size()==1 && matched[0].original_model_hash==0xCAFE &&
+         matched[0].first_index==0 && matched[0].host_base_vertex==0);
+  auto altered=verified;
+  altered.original_guest_call.first_index+=1;
+  Reject([&]{(void)native::MatchCapturedXdkDraws(observed,
+    std::span<const native::VerifiedXdkIndexedSubmission>(&altered,1));});
+  altered=verified;altered.original_guest_call.base_vertex=0;
+  Reject([&]{(void)native::MatchCapturedXdkDraws(observed,
+    std::span<const native::VerifiedXdkIndexedSubmission>(&altered,1));});
+  altered=verified;altered.guest_to_native_index_stream_verified=false;
+  Reject([&]{(void)native::MatchCapturedXdkDraws(observed,
+    std::span<const native::VerifiedXdkIndexedSubmission>(&altered,1));});
+  Reject([&]{(void)native::MatchCapturedXdkDraws(xdk::Frame{1,1,{ppc}},
+    std::span<const native::VerifiedXdkIndexedSubmission>(&verified,1));});
+  ppc.kind=xdk::Kind::DrawVertices;
+  Reject([&]{(void)native::MatchCapturedXdkDraws(xdk::Frame{2,0,{ppc}},
+    std::span<const native::VerifiedXdkIndexedSubmission>(&verified,1));});
   assert(gpu.next==3);
 }

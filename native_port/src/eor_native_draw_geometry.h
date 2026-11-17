@@ -4,6 +4,7 @@
 // Caller must obtain all binding evidence from verified original game state.
 #include "eor_original_model_upload.h"
 #include "eor_aot_draw_bridge.h"
+#include "eor_xdk_draw_capture.h"
 #include <cstddef>
 #include <cstdint>
 #include <span>
@@ -37,6 +38,29 @@ struct VerifiedDrawSource {
   // engine Draw, never inferred from adjacent textures in MODELS.ARC.
   std::vector<gpu::VerifiedEorSampler> original_sampler_slots;
 };
+
+// Per-Draw mapping: original USA PPC XDK method -> independently verified
+// native EoR model/mesh/technique. Callsite alone is not material identity.
+struct VerifiedXdkIndexedSubmission {
+  xdk::IndexedXdkCall original_guest_call{};
+  VerifiedDrawSource native_draw{};
+  bool original_triangle_list_verified=false;
+  bool guest_to_native_index_stream_verified=false;
+  bool original_material_at_draw_verified=false;
+};
+std::vector<VerifiedDrawSource> MatchCapturedXdkDraws(
+    const xdk::Frame& frame,
+    std::span<const VerifiedXdkIndexedSubmission> source_verified);
+
+// Genuine XDK capture to host Vulkan backend, when every exact mapping
+// and sole-presenter GPU/camera resource is provided by the game runtime.
+void ReplayCapturedXdkScene(
+    const xdk::Frame& frame,
+    std::span<const VerifiedXdkIndexedSubmission> verified_submissions,
+    const FrameGeometry& output,
+    std::span<const model::UploadedOriginalModel* const> residents,
+    const aot::ShaderBank& shaders,const aot::EffectCatalog& effects,
+    const aot::ReflectionBank& reflection,aot::ShaderBindingBackend& gpu);
 
 // Build a native DrawIndexed batch only from real resident GPU buffers and
 // exact per-mesh/per-material original engine mapping. No draw is submitted

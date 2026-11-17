@@ -387,6 +387,7 @@ jobs:
                               'native_port/src/eor_spirv_texture_bindings.cpp',
                            'native_port/src/eor_aot_draw_bridge.cpp',
                               'native_port/src/eor_native_draw_geometry.cpp',
+                              'native_port/src/eor_xdk_draw_capture.cpp',
                               'ci/eor_native_draw_geometry_test.cpp')
           & cl.exe @nativeDrawArgs
           if ($LASTEXITCODE -ne 0) { throw 'EoR native material/mesh Draw bridge MSVC compile failed' }

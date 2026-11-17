@@ -80,6 +80,49 @@ std::vector<aot::BoundIndexedDraw> BindVerifiedGeometryDraws(
   }
   return out;
 }
+std::vector<VerifiedDrawSource> MatchCapturedXdkDraws(
+    const xdk::Frame& frame,
+    std::span<const VerifiedXdkIndexedSubmission> verified) {
+  if(!frame.sequence || frame.dropped || frame.calls.empty() ||
+     frame.calls.size()!=verified.size())
+    throw std::invalid_argument("Original Xbox XDK frame has missing/unmapped Draws");
+  std::vector<VerifiedDrawSource> sources;
+  sources.reserve(frame.calls.size());
+  for(size_t i=0;i<frame.calls.size();++i) {
+    const auto actual=xdk::DecodeOriginalIndexedXdkCall(frame.calls[i]);
+    const auto& proven=verified[i];
+    const auto& expected=proven.original_guest_call;
+    const auto& original=proven.native_draw;
+    if(!actual || !proven.original_triangle_list_verified ||
+       !proven.guest_to_native_index_stream_verified ||
+       !proven.original_material_at_draw_verified ||
+       expected.xdk_function!=actual->xdk_function ||
+       expected.caller_lr!=actual->caller_lr ||
+       expected.guest_device!=actual->guest_device ||
+       expected.primitive!=actual->primitive ||
+       expected.base_vertex!=actual->base_vertex ||
+       expected.first_index!=actual->first_index ||
+       expected.index_count!=actual->index_count ||
+       original.index_count!=actual->index_count ||
+       !original.engine_draw_verified || !original.mesh_material_verified ||
+       !original.host_vertex_layout_verified || !original.render_state_verified)
+      throw std::invalid_argument("Guest Xbox indexed Draw lacks exact source-proven EoR owner");
+    // The original Xbox XDK index offset/baseVertex are from guest streams.
+    // The host mesh has its OWN rebased indexed geometry and vertex origin.
+    sources.push_back(original);
+  }
+  return sources;
+}
+void ReplayCapturedXdkScene(
+    const xdk::Frame& captured,
+    std::span<const VerifiedXdkIndexedSubmission> verified,
+    const FrameGeometry& frame,
+    std::span<const model::UploadedOriginalModel* const> residents,
+    const aot::ShaderBank& bank,const aot::EffectCatalog& effects,
+    const aot::ReflectionBank& reflection,aot::ShaderBindingBackend& backend) {
+  auto draws=MatchCapturedXdkDraws(captured,verified);
+  ReplayVerifiedGeometryScene(frame,draws,residents,bank,effects,reflection,backend);
+}
 void ReplayVerifiedGeometryScene(
     const FrameGeometry& frame,
     std::span<const VerifiedDrawSource> sources,
