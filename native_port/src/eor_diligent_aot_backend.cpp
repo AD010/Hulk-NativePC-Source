@@ -423,9 +423,23 @@ bool DiligentEorDirectBackend::PreflightOriginalScene(
       const auto pipeline=s.pipeline_cache.find(key);
       if(pipeline==s.pipeline_cache.end() || !pipeline->second.pipeline)
         return false;
+      const NativeEorPassResources* original=nullptr;
+      for(const auto& material:s.passes)
+        if(material.original_model_hash==std::get<0>(key) &&
+           material.original_surface_ordinal==std::get<1>(key) &&
+           material.pipeline.original_effect_hash==std::get<2>(key) &&
+           material.pipeline.original_pass_index==std::get<3>(key)) {
+          if(original)return false;
+          original=&material;
+        }
+      if(!original)return false;
       Diligent::RefCntAutoPtr<Diligent::IShaderResourceBinding> binding;
       pipeline->second.pipeline->CreateShaderResourceBinding(&binding,true);
       if(!binding)return false;
+      // Bind source-identical SRVs BEFORE BeginScene. Missing GPU variables
+      // and mip resources cannot leave a half-drawn world or stale signage.
+      BindVerifiedOriginalEorTextures(binding.RawPtr(),
+                                       original->original_textures);
       s.material_bindings.emplace(key,std::move(binding));
     }
   } catch (...) {return false;}
@@ -558,11 +572,19 @@ bool DiligentEorDirectBackend::BindOriginalSamplers(
     if(match==textures.size() || !matched_indices.insert(match).second)
       return false;
   }
-  try {
-    BindVerifiedOriginalEorTextures(s.active.bindings.RawPtr(),textures);
-    s.textures_ready=true;
-    return true;
-  } catch (...) {return false;}
+  // All original GPU image variables and mip SRVs were actually bound
+  // during PreflightOriginalScene. No Diligent Set() or GPU allocations
+  // are allowed on the live Draw path.
+  const auto found=s.material_bindings.find({
+      s.selected->original_model_hash,
+      s.selected->original_surface_ordinal,
+      s.selected->pipeline.original_effect_hash,
+      s.selected->pipeline.original_pass_index});
+  if(found==s.material_bindings.end() ||
+     found->second.RawPtr()!=s.active.bindings.RawPtr())
+    return false;
+  s.textures_ready=true;
+  return true;
 }
 bool DiligentEorDirectBackend::DrawIndexed(const native::IndexedDraw& draw) {
   auto& s=*state_;
