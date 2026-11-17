@@ -5,6 +5,7 @@ This tool never modifies the game, installs hooks, or uploads executable data.
 """
 import argparse
 import hashlib
+import os
 from pathlib import Path
 import struct
 import sys
@@ -18,20 +19,27 @@ EXPECTED_IMAGE_SIZE = 0x81B000
 def verify(path: Path) -> tuple[bool, list[str]]:
     errors = []
     try:
+        # Hash and parse the same open file, not two separately resolved paths.
         with path.open("rb") as stream:
+            before = os.fstat(stream.fileno())
             digest = hashlib.file_digest(stream, "sha256").hexdigest()
-        if digest.lower() != EXPECTED_SHA256:
-            errors.append("SHA256 mismatch: unsupported HULK.EXE; no patching allowed")
-        with path.open("rb") as stream:
+            if digest.lower() != EXPECTED_SHA256:
+                errors.append("SHA256 mismatch: unsupported HULK.EXE; no patching allowed")
+            stream.seek(0)
             dos = stream.read(64)
             if len(dos) != 64 or dos[:2] != b"MZ":
                 return False, errors + ["Missing DOS MZ header"]
             peoff = struct.unpack_from("<I", dos, 0x3C)[0]
-            size = path.stat().st_size
+            size = before.st_size
             if peoff != 0x40 or peoff + 0x78 > size:
                 return False, errors + ["Unexpected or truncated PE header offset"]
             stream.seek(peoff)
             pe = stream.read(0x78)
+            after = os.fstat(stream.fileno())
+            if (before.st_size, before.st_mtime_ns, before.st_ctime_ns) != (
+                after.st_size, after.st_mtime_ns, after.st_ctime_ns
+            ):
+                return False, errors + ["Executable changed during verification"]
         if pe[:4] != b"PE" + bytes(2):
             errors.append("Missing PE signature")
         machine, sections, timestamp = struct.unpack_from("<HHI", pe, 4)
