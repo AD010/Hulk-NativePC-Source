@@ -159,24 +159,30 @@ bool DiligentSceneTargets::ClearVerifiedOriginalXdk(
   if((source.flags&1u)!=0)
     for(const float channel:source.color)
       if(!std::isfinite(channel))return false;
+  // Depth is consumed only by depth clears; stencil-only clears remain valid.
+  if((source.flags&0x10u) &&
+     (!std::isfinite(source.depth) || source.depth<0.f || source.depth>1.f))
+    return false;
+  // Validate both attachments before the first GPU clear so a missing depth
+  // view cannot turn a combined original clear into a partial color clear.
+  auto* color_view=(source.flags&1u) ?
+      state_->color->GetDefaultView(Diligent::TEXTURE_VIEW_RENDER_TARGET) : nullptr;
+  auto* depth_view=(source.flags&0x30u) ?
+      state_->depth->GetDefaultView(Diligent::TEXTURE_VIEW_DEPTH_STENCIL) : nullptr;
+  if(((source.flags&1u) && !color_view) ||
+     ((source.flags&0x30u) && !depth_view))return false;
   try {
     if(source.flags&1u) {
-      auto* target=state_->color->GetDefaultView(
-          Diligent::TEXTURE_VIEW_RENDER_TARGET);
-      if(!target)return false;
       state_->context->ClearRenderTarget(
-          target,source.color.data(),
+          color_view,source.color.data(),
           Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
     }
     if(source.flags&0x30u) {
-      auto* depth=state_->depth->GetDefaultView(
-          Diligent::TEXTURE_VIEW_DEPTH_STENCIL);
-      if(!depth)return false;
       Diligent::CLEAR_DEPTH_STENCIL_FLAGS flags=Diligent::CLEAR_DEPTH_FLAG_NONE;
       if(source.flags&0x10u)flags|=Diligent::CLEAR_DEPTH_FLAG;
       if(source.flags&0x20u)flags|=Diligent::CLEAR_STENCIL_FLAG;
       state_->context->ClearDepthStencil(
-          depth,flags,source.depth,source.stencil,
+          depth_view,flags,source.depth,source.stencil,
           Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
     }
     return true;
