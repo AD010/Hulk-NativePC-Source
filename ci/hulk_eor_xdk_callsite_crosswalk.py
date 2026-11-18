@@ -65,7 +65,7 @@ def analyze(log: str, hooks: dict[int, str],
         if xdk not in allowed or (xdk == named.get('DrawVertices') and kind != 0) or (
                 xdk == named.get('DrawIndexedVertices') and kind != 1):
             raise ValueError("Runtime Hulk XDK caller conflicts with verified USA profile")
-        if not (0x82000000 <= lr < 0x84000000 and
+        if not (0x82000000 <= lr < 0x84000000 and lr % 4 == 0 and
                 0 < draws <= 10**9 and 0 < frames <= 10**9 and frames <= draws):
             raise ValueError("Invalid guest caller or cumulative sample count")
         key = (xdk, lr)
