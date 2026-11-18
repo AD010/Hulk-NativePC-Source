@@ -48,8 +48,10 @@ def audit(data):
 
 
 
-def section_for_offset(data, pe_offset, optional_size, section_count, offset):
+def section_for_offset(data, pe_offset, optional_size, section_count, offset, token_length=1):
     """Identify the PE section containing a raw file offset, without reading payloads."""
+    if token_length < 1 or offset < 0 or token_length > len(data) - offset:
+        return '<headers-or-overlay>'
     table = pe_offset + 24 + optional_size
     for index in range(section_count):
         entry = table + index * 40
@@ -60,7 +62,7 @@ def section_for_offset(data, pe_offset, optional_size, section_count, offset):
         # The entire matched token, not merely its first byte, must fit.
         if (raw_size and raw_start < len(data) and
                 raw_size <= len(data) - raw_start and
-                raw_start <= offset < raw_start + raw_size):
+                raw_start <= offset and token_length <= raw_start + raw_size - offset):
             # Section names are display-only and never interpreted as paths.
             return name.decode('ascii', errors='backslashreplace') or '<unnamed>'
     return '<headers-or-overlay>'
@@ -102,7 +104,7 @@ def main(argv=None):
         return 2
     for name, hits in audit(data).items():
         print(name + ': ' + ', '.join(
-            f'{enc}@0x{offset:X} [{section_for_offset(data, pe_offset, optional_size, section_count, offset)}]'
+            f'{enc}@0x{offset:X} [{section_for_offset(data, pe_offset, optional_size, section_count, offset, len(('-' + name).encode('utf-16le' if enc == 'utf16le' else 'ascii')))}]'
             for enc, offset in hits))
     print('String occurrences only; no runtime or D3D9 behavior verified.')
     return 0
