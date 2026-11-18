@@ -29,6 +29,11 @@ MAX_CALLSITES = 256
 
 def analyze(log: str, hooks: dict[int, str],
             reverse: dict[int, list[tuple[int, int]]]) -> dict:
+    # A duplicated method name would make the reverse map silently select
+    # one address and misattribute observations to a different XDK hook.
+    for method in ('DrawVertices', 'DrawIndexedVertices'):
+        if sum(name == method for name in hooks.values()) > 1:
+            raise ValueError('Ambiguous verified Hulk USA original XDK draw hooks')
     named = {v: k for k, v in hooks.items()}
     allowed = {named[n] for n in ('DrawVertices', 'DrawIndexedVertices')
                if n in named}
