@@ -850,7 +850,7 @@ bool DiligentEorDirectBackend::DrawIndexed(const native::IndexedDraw& draw) {
   const auto& slots=resident.host_vertex_slots;
   const auto& layout=s.selected->pipeline.exact_host_input_layout;
   if(slots.size()!=layout.size() || slots.empty() ||
-     slots.size()>DILIGENT_MAX_LAYOUT_ELEMENTS)
+     slots.size()>DILIGENT_MAX_LAYOUT_ELEMENTS || slots.size()>16)
     return false;
   // Every bound slot must be source-decoded; no unconverted BE attributes,
   // missing slots, or silent host default vertex layout.
