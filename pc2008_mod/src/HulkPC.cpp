@@ -40,9 +40,10 @@ SetVSFn realSetVS{};
 SetVSConstFn realVSConst{};
 SamplerFn realSampler{};
 SetTextureFn realSetTexture{};
-// Only POINT requests need reevaluation when the engine binds a new texture.
+// Sampler requests must be reapplied when a texture of another type is bound.
 std::mutex mipMutex;
 bool mipPointRequested[16]{};
+bool minLinearRequested[16]{};
 struct ShaderInfo {
   UINT view = 0, world = 0;
   WORD matrixClass = 0;
@@ -322,7 +323,9 @@ HRESULT STDMETHODCALLTYPE OnReset(IDirect3DDevice9* dev,D3DPRESENT_PARAMETERS* p
   }
   if(SUCCEEDED(hr)) {
     {std::lock_guard lock(shaderMutex);activeVS=nullptr;}
-    {std::lock_guard lock(mipMutex);std::fill_n(mipPointRequested,16,false);}
+    {std::lock_guard lock(mipMutex);
+     std::fill_n(mipPointRequested,16,false);
+     std::fill_n(minLinearRequested,16,false);}
   }
   if(pp)Log("[D3D9] Reset %ux%u windowed=%u hr=0x%08lX\r\n",
             pp->BackBufferWidth,pp->BackBufferHeight,
@@ -426,12 +429,18 @@ HRESULT STDMETHODCALLTYPE OnSetTexture(IDirect3DDevice9* dev,DWORD stage,
                                        IDirect3DBaseTexture9* texture) {
   if(!realSetTexture)return D3DERR_INVALIDCALL;
   const HRESULT hr=realSetTexture(dev,stage,texture);
-  if(SUCCEEDED(hr) && forceTrilinearMip && stage<16 && realSampler) {
-    bool point=false;
-    {std::lock_guard lock(mipMutex);point=mipPointRequested[stage];}
-    // Reapply the engine's POINT request after binding. This also restores
-    // POINT for an unsupported texture after a previously supported one.
-    if(point)OnSampler(dev,stage,D3DSAMP_MIPFILTER,D3DTEXF_POINT);
+  if(SUCCEEDED(hr) && stage<16 && realSampler) {
+    bool point=false,linear=false;
+    {std::lock_guard lock(mipMutex);
+     point=mipPointRequested[stage];
+     linear=minLinearRequested[stage];}
+    // Reapply after binding: capability checks depend on the bound texture.
+    // This also restores the game's LINEAR min filter when the next texture
+    // cannot use the anisotropic override from a previous texture.
+    if(forceTrilinearMip && point)
+      OnSampler(dev,stage,D3DSAMP_MIPFILTER,D3DTEXF_POINT);
+    if(anisotropy && linear)
+      OnSampler(dev,stage,D3DSAMP_MINFILTER,D3DTEXF_LINEAR);
   }
   return hr;
 }
@@ -441,7 +450,9 @@ HRESULT STDMETHODCALLTYPE OnSampler(IDirect3DDevice9* dev,DWORD sampler,
   // Track only successful engine requests. Failed SetSamplerState calls must
   // not poison the remembered state used by the next SetTexture bind.
   const bool trackMip=type==D3DSAMP_MIPFILTER && sampler<16;
+  const bool trackMin=type==D3DSAMP_MINFILTER && sampler<16;
   const bool pointRequested=value==D3DTEXF_POINT;
+  const bool linearRequested=value==D3DTEXF_LINEAR;
   // Preserve NONE (no mip sampling) and MIN/MAG filters. Use the capability
   // for the actual bound texture kind rather than requiring every texture
   // class to support linear mip filtering. GetTexture returns an AddRef'd
@@ -479,14 +490,18 @@ HRESULT STDMETHODCALLTYPE OnSampler(IDirect3DDevice9* dev,DWORD sampler,
         bound->Release();
       }
       if(supported && SUCCEEDED(realSampler(dev,sampler,D3DSAMP_MAXANISOTROPY,maximum)) &&
-         SUCCEEDED(realSampler(dev,sampler,type,D3DTEXF_ANISOTROPIC)))
+         SUCCEEDED(realSampler(dev,sampler,type,D3DTEXF_ANISOTROPIC))) {
+        std::lock_guard lock(mipMutex);
+        minLinearRequested[sampler]=true;
         return D3D_OK;
+      }
     }
   }
   const HRESULT hr=realSampler(dev,sampler,type,value);
-  if(SUCCEEDED(hr) && trackMip) {
+  if(SUCCEEDED(hr) && (trackMip || trackMin)) {
     std::lock_guard lock(mipMutex);
-    mipPointRequested[sampler]=pointRequested;
+    if(trackMip)mipPointRequested[sampler]=pointRequested;
+    if(trackMin)minLinearRequested[sampler]=linearRequested;
   }
   return hr;
 }
