@@ -56,6 +56,10 @@ class AuditTests(unittest.TestCase):
         self.assertEqual(check(2, 4, 256), 2)
         self.assertEqual(check(2, 0, 256), 0)
 
+    def test_missing_executable_is_rejected_without_traceback(self):
+        with tempfile.TemporaryDirectory() as folder:
+            self.assertEqual(mod.main([str(Path(folder) / 'missing-HULK.EXE')]), 2)
+
     def test_empty_input(self):
         self.assertEqual(mod.audit(b''), {})
 
