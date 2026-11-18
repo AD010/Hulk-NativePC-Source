@@ -495,11 +495,22 @@ HRESULT STDMETHODCALLTYPE OnSampler(IDirect3DDevice9* dev,DWORD sampler,
         }
         bound->Release();
       }
-      if(supported && SUCCEEDED(realSampler(dev,sampler,D3DSAMP_MAXANISOTROPY,maximum)) &&
-         SUCCEEDED(realSampler(dev,sampler,type,D3DTEXF_ANISOTROPIC))) {
-        std::lock_guard lock(mipMutex);
-        minLinearRequested[sampler]=true;
-        return D3D_OK;
+      if(supported) {
+        // A failed anisotropic MIN filter must not leave MAXANISOTROPY
+        // modified behind the game's back. Save and restore that state on
+        // failure; if it cannot be queried, use the original MIN filter.
+        DWORD previousMaximum=0;
+        if(SUCCEEDED(dev->GetSamplerState(sampler,D3DSAMP_MAXANISOTROPY,
+                                          &previousMaximum))) {
+          if(SUCCEEDED(realSampler(dev,sampler,D3DSAMP_MAXANISOTROPY,maximum))) {
+            if(SUCCEEDED(realSampler(dev,sampler,type,D3DTEXF_ANISOTROPIC))) {
+              std::lock_guard lock(mipMutex);
+              minLinearRequested[sampler]=true;
+              return D3D_OK;
+            }
+            realSampler(dev,sampler,D3DSAMP_MAXANISOTROPY,previousMaximum);
+          }
+        }
       }
     }
   }
