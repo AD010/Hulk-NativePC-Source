@@ -46,7 +46,14 @@ bool DiligentEorHostOutput::CompositeAndPresent(
   auto* target=chain->GetCurrentBackBufferRTV();
   if(!target)return false;
   const auto& original=source->GetTexture()->GetDesc();
-  if(!original.Width || !original.Height || original.SampleCount!=1)
+  // A guest 720p image is NOT a native 1440p/1600p EoR scene. The
+  // preflight contract requires exact source pixels, a real resolved
+  // 1x color SRV and a host-sized destination before we touch the
+  // backbuffer. Never fall back to an upscale during Vulkan handoff.
+  if(original.SampleCount!=1 ||
+     source->GetDesc().ViewType!=Diligent::TEXTURE_VIEW_SHADER_RESOURCE ||
+     !native::HasExactNativeCompositePixels(
+         {original.Width,original.Height},dest,output))
     return false;
   try {
     // Preserve correct margins when a source-verified main-view FOV or
@@ -62,10 +69,10 @@ bool DiligentEorHostOutput::CompositeAndPresent(
     const native_x_renderer::Blitter::Rect to{
         static_cast<int32_t>(dest.left),
         static_cast<int32_t>(dest.top),dest.width,dest.height};
+    // Exact physical pixel copy only. kColorScaled is prohibited: it
+    // masks source/guest RT mismatches as blurry high-resolution output.
     blitter_->Copy(context,source,
-       original.Width==dest.width && original.Height==dest.height ?
-           native_x_renderer::Blitter::Source::kColor :
-           native_x_renderer::Blitter::Source::kColorScaled,
+       native_x_renderer::Blitter::Source::kColor,
        from,rtv,to);
     // The same sole host Vulkan device owns both the source EoR scene and
     // output swapchain. No PM4 copy, Xenos EDRAM or competing VkSurface.

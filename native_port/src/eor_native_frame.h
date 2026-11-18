@@ -11,6 +11,21 @@ namespace hulk::eor::native {
 struct Size { uint32_t width = 0, height = 0; };
 struct Rect { uint32_t left = 0, top = 0, width = 0, height = 0; };
 
+// A native EoR frame must reach the host swapchain at its REAL scene
+// pixel density. The original 1280x720 guest surface cannot silently
+// become a 2560x1440/2560x1600 host scene through a blit or stretch.
+// Letterboxing is allowed: the verified native source must exactly fill
+// the destination rectangle, with bounds checked in 64-bit arithmetic.
+constexpr bool HasExactNativeCompositePixels(
+    Size source, Rect destination, Size host) noexcept {
+  return source.width && source.height &&
+         source.width == destination.width &&
+         source.height == destination.height &&
+         host.width && host.height &&
+         uint64_t(destination.left) + destination.width <= host.width &&
+         uint64_t(destination.top) + destination.height <= host.height;
+}
+
 struct FrameSetup {
   Size backbuffer;                    // Actual host swapchain extent.
   Size original_guest{1280, 720};   // Historical layout only, NEVER a host RT.

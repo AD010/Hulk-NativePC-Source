@@ -97,6 +97,21 @@ int main() {
   assert(letterboxed.direct_engine_path_ready && !letterboxed.widescreen_camera);
   assert(letterboxed.world.width == 2560 && letterboxed.world.height == 1440);
   assert(letterboxed.composite.left == 0 && letterboxed.composite.top == 80);
+  // Strict host handoff: 1280x720 must never masquerade as a full
+  // 2560x1440 native EoR image. An exact-size 16:9 native scene and
+  // its black-bar destination are valid without a camera ABI guess.
+  assert(HasExactNativeCompositePixels(
+      letterboxed.world,letterboxed.composite,letterboxed.backbuffer));
+  assert(!HasExactNativeCompositePixels(
+      {1280,720},letterboxed.composite,letterboxed.backbuffer));
+  assert(!HasExactNativeCompositePixels(
+      {2560,1600},letterboxed.composite,letterboxed.backbuffer));
+  assert(!HasExactNativeCompositePixels(
+      {0,1440},letterboxed.composite,letterboxed.backbuffer));
+  assert(!HasExactNativeCompositePixels(
+      letterboxed.world,{0,161,2560,1440},letterboxed.backbuffer));
+  assert(!HasExactNativeCompositePixels(
+      letterboxed.world,{UINT32_MAX,80,2560,1440},letterboxed.backbuffer));
   FakeBackend letterbox_gpu;
   ReplayNativeScene(letterboxed,
                     std::vector<IndexedDraw>{{1, 2, 3, 4, 6, 0}},
@@ -117,6 +132,8 @@ int main() {
   const auto native = PlanFrame(s);
   assert(native.world.width == 2560 && native.world.height == 1600);
   assert(native.composite.top == 0 && native.direct_engine_path_ready);
+  assert(HasExactNativeCompositePixels(
+      native.world,native.composite,native.backbuffer));
   const std::vector<IndexedDraw> real{{1, 2, 3, 4, 6, 0}, {5, 6, 7, 8, 24, 6}};
   FakeBackend b;
   ReplayNativeScene(native, real, b);
