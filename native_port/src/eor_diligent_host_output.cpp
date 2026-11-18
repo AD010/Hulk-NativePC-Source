@@ -61,9 +61,10 @@ bool DiligentEorHostOutput::CompositeAndPresent(
     auto* rtv=target;
     context->SetRenderTargets(
         1,&rtv,nullptr,Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
-    const float black[4]={0.f,0.f,0.f,1.f};
-    context->ClearRenderTarget(
-        rtv,black,Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+    // The validated source covers every physical backbuffer pixel.
+    // Do not clear the swapchain before the exact-size copy: a redundant
+    // full-screen GPU write wastes bandwidth on every destruction-heavy
+    // frame and can introduce a black flash if the copy fails.
     const native_x_renderer::Blitter::Rect from{
         0,0,original.Width,original.Height};
     const native_x_renderer::Blitter::Rect to{
