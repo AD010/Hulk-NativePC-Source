@@ -76,6 +76,19 @@ class AuditTests(unittest.TestCase):
         self.assertEqual(mod.section_for_offset(data, pe_offset, optional_size, 1, 320), '<headers-or-overlay>')
         self.assertEqual(mod.section_for_offset(data, pe_offset, optional_size, 1, 128), '<headers-or-overlay>')
 
+    def test_invalid_section_extents_are_not_trusted(self):
+        data = bytearray(512)
+        pe_offset, optional_size = 0x80, 0x60
+        entry = pe_offset + 24 + optional_size
+        data[entry:entry + 8] = b'.rdata\\0\\0'
+        data[entry + 20:entry + 24] = (480).to_bytes(4, 'little')
+        data[entry + 16:entry + 20] = (64).to_bytes(4, 'little')
+        self.assertEqual(mod.section_for_offset(data, pe_offset, optional_size, 1, 490),
+                         '<headers-or-overlay>')
+        data[entry + 16:entry + 20] = (32).to_bytes(4, 'little')
+        self.assertEqual(mod.section_for_offset(data, pe_offset, optional_size, 1, 490),
+                         '.rdata')
+
     def test_missing_executable_is_rejected_without_traceback(self):
         with tempfile.TemporaryDirectory() as folder:
             self.assertEqual(mod.main([str(Path(folder) / 'missing-HULK.EXE')]), 2)
