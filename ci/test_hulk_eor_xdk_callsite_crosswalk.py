@@ -71,6 +71,7 @@ class EorRuntimeCallsiteTests(unittest.TestCase):
             trace(draws=0),
             trace(draws=2, frames=3),
             trace(draws=8, frames=2) + trace(draws=7, frames=3),
+            trace(draws=8, frames=2) + trace(draws=8, frames=3),  # no new draws
             '[HULK/EOR-XDK-PROVENANCE] frame=2 actual calls=90',
         ]:
             with self.subTest(source=source[:45]), self.assertRaises(ValueError):
