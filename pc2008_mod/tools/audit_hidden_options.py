@@ -56,7 +56,11 @@ def section_for_offset(data, pe_offset, optional_size, section_count, offset):
         name = data[entry:entry + 8].split(b'\0', 1)[0]
         raw_size = int.from_bytes(data[entry + 16:entry + 20], 'little')
         raw_start = int.from_bytes(data[entry + 20:entry + 24], 'little')
-        if raw_size and raw_start <= offset < raw_start + raw_size:
+        # A corrupt section entry must not claim bytes outside the file.
+        # The entire matched token, not merely its first byte, must fit.
+        if (raw_size and raw_start < len(data) and
+                raw_size <= len(data) - raw_start and
+                raw_start <= offset < raw_start + raw_size):
             # Section names are display-only and never interpreted as paths.
             return name.decode('ascii', errors='backslashreplace') or '<unnamed>'
     return '<headers-or-overlay>'
