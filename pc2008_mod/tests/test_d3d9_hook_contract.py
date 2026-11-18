@@ -87,9 +87,9 @@ class D3D9HookContracts(unittest.TestCase):
     def test_shader_reflection_second_read_is_bounded(self):
         # D3D9 GetFunction may update its byte-count output on the second call.
         # Never parse a reported length larger than the allocated vector.
-        body = SOURCE.split("ShaderInfo ReadCtab(", 1)[1].split("\\nHRESULT STDMETHODCALLTYPE OnCreateDevice(", 1)[0]
+        body = SOURCE.split("ShaderInfo ReadCtab(", 1)[1].split("\nHRESULT STDMETHODCALLTYPE OnCreateDevice(", 1)[0]
         self.assertIn("const UINT allocated=bytes;", body)
-        self.assertRegex(body, r"bytes>allocated\\s*\\|\\|\\s*bytes<44")
+        self.assertRegex(body, r"bytes>allocated\s*\|\|\s*bytes<44")
         self.assertIn("(bytes&3u)", body)
 
     def test_experimental_profiles_explicitly_opt_out(self):
