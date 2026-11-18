@@ -83,43 +83,48 @@ int main() {
   s.backbuffer = {2560, 1600};
   s.samples = 4;
   const auto legacy = PlanFrame(s);
-  assert(legacy.world.width == 2560 && legacy.world.height == 1440);
-  assert(legacy.composite.left == 0 && legacy.composite.top == 80);
+  assert(legacy.world.width == 2560 && legacy.world.height == 1600);
+  assert(legacy.composite.left == 0 && legacy.composite.top == 0);
   assert(!legacy.direct_engine_path_ready);
   MustThrow([&] { FakeBackend b; ReplayNativeScene(legacy,
                  std::vector<IndexedDraw>{{1, 2, 3, 4, 6, 0}}, b); });
-  // Missing USA camera ABI must NOT block a fully verified native Draw
-  // path. Keep original 16:9 geometry, rasterized at full host density,
-  // with letterbox bars instead of stretched HUD/3D or fabricated FOV.
+  // Without the original USA camera ABI a requested 16:10 host cannot
+  // be accepted as a native, full-screen gameplay frame. Do NOT present
+  // an Xbox-aspect 2560x1440 rectangle with artificial black bars.
   s.engine_draw_hook_verified = true;
   s.offline_shader_cache_verified = true;
-  const auto letterboxed = PlanFrame(s);
-  assert(letterboxed.direct_engine_path_ready && !letterboxed.widescreen_camera);
-  assert(letterboxed.world.width == 2560 && letterboxed.world.height == 1440);
-  assert(letterboxed.composite.left == 0 && letterboxed.composite.top == 80);
-  // Strict host handoff: 1280x720 must never masquerade as a full
-  // 2560x1440 native EoR image. An exact-size 16:9 native scene and
-  // its black-bar destination are valid without a camera ABI guess.
-  assert(HasExactNativeCompositePixels(
-      letterboxed.world,letterboxed.composite,letterboxed.backbuffer));
-  assert(!HasExactNativeCompositePixels(
-      {1280,720},letterboxed.composite,letterboxed.backbuffer));
-  assert(!HasExactNativeCompositePixels(
-      {2560,1600},letterboxed.composite,letterboxed.backbuffer));
-  assert(!HasExactNativeCompositePixels(
-      {0,1440},letterboxed.composite,letterboxed.backbuffer));
-  assert(!HasExactNativeCompositePixels(
-      letterboxed.world,{0,161,2560,1440},letterboxed.backbuffer));
-  assert(!HasExactNativeCompositePixels(
-      letterboxed.world,{UINT32_MAX,80,2560,1440},letterboxed.backbuffer));
-  FakeBackend letterbox_gpu;
-  ReplayNativeScene(letterboxed,
-                    std::vector<IndexedDraw>{{1, 2, 3, 4, 6, 0}},
-                    letterbox_gpu);
-  assert(letterbox_gpu.scene.height == 1440 &&
-         letterbox_gpu.resolved.height == 1440 &&
-         letterbox_gpu.rectangle.top == 80 &&
-         letterbox_gpu.aborts == 0 && letterbox_gpu.draw_number == 1);
+  const auto no_camera = PlanFrame(s);
+  assert(!no_camera.direct_engine_path_ready &&
+         !no_camera.widescreen_camera);
+  assert(no_camera.world.width == 2560 &&
+         no_camera.world.height == 1600 &&
+         no_camera.composite.top == 0);
+  assert(HasFullNativeCompositePixels(
+      no_camera.world,no_camera.composite,no_camera.backbuffer));
+  assert(!HasFullNativeCompositePixels(
+      {1280,720},no_camera.composite,no_camera.backbuffer));
+  assert(!HasFullNativeCompositePixels(
+      {2560,1440},{0,80,2560,1440},no_camera.backbuffer));
+  MustThrow([&] { FakeBackend b; ReplayNativeScene(no_camera,
+                 std::vector<IndexedDraw>{{1,2,3,4,6,0}}, b); });
+  // 16:9 needs no aspect correction: it is still rendered 1:1 at the
+  // selected host size, rather than inheriting a 720p EDRAM backbuffer.
+  s.backbuffer = {1920,1080};
+  const auto native_original_aspect = PlanFrame(s);
+  assert(native_original_aspect.direct_engine_path_ready);
+  assert(HasFullNativeCompositePixels(
+      native_original_aspect.world,native_original_aspect.composite,
+      native_original_aspect.backbuffer));
+  FakeBackend original_aspect_gpu;
+  ReplayNativeScene(native_original_aspect,
+                    std::vector<IndexedDraw>{{1,2,3,4,6,0}},
+                    original_aspect_gpu);
+  assert(original_aspect_gpu.scene.width==1920 &&
+         original_aspect_gpu.scene.height==1080 &&
+         original_aspect_gpu.rectangle.left==0 &&
+         original_aspect_gpu.rectangle.top==0 &&
+         original_aspect_gpu.aborts==0);
+  s.backbuffer = {2560,1600};
   s.offline_shader_cache_verified = false;
   assert(!PlanFrame(s).direct_engine_path_ready);
   s.offline_shader_cache_verified = true;
@@ -132,9 +137,20 @@ int main() {
   const auto native = PlanFrame(s);
   assert(native.world.width == 2560 && native.world.height == 1600);
   assert(native.composite.top == 0 && native.direct_engine_path_ready);
-  assert(HasExactNativeCompositePixels(
+  assert(HasFullNativeCompositePixels(
       native.world,native.composite,native.backbuffer));
   const std::vector<IndexedDraw> real{{1, 2, 3, 4, 6, 0}, {5, 6, 7, 8, 24, 6}};
+  auto barred = native;
+  barred.world = {2560,1440};
+  barred.composite = {0,80,2560,1440};
+  FakeBackend barred_backend;
+  MustThrow([&] { ReplayNativeScene(barred,real,barred_backend); });
+  assert(barred_backend.order.empty());
+  auto unverified_camera = native;
+  unverified_camera.widescreen_camera = false;
+  FakeBackend unverified_backend;
+  MustThrow([&] { ReplayNativeScene(unverified_camera,real,unverified_backend); });
+  assert(unverified_backend.order.empty());
   FakeBackend b;
   ReplayNativeScene(native, real, b);
   assert((b.order == std::vector<std::string>{"BeginScene","DrawIndexed","DrawIndexed","ResolveScene","Composite"}));
@@ -197,8 +213,8 @@ int main() {
   s.backbuffer = {3440, 1440};
   s.projection_hook_verified = false;
   const auto ultrawide = PlanFrame(s);
-  assert(ultrawide.world.width == 2560 && ultrawide.composite.left == 440);
-  assert(ultrawide.direct_engine_path_ready && !ultrawide.widescreen_camera);
+  assert(ultrawide.world.width == 3440 && ultrawide.composite.left == 0);
+  assert(!ultrawide.direct_engine_path_ready && !ultrawide.widescreen_camera);
   s.projection_hook_verified=true;
   const auto ultra_fov=PlanFrame(s);
   assert(ultra_fov.world.width==3440 && ultra_fov.world.height==1440 &&
@@ -218,8 +234,14 @@ int main() {
          hud_vertical.valid && hud_vertical.width==1080 &&
          hud_vertical.height==607 && hud_vertical.y==656);
   s.backbuffer={1024,768};
+  s.projection_hook_verified=false;
+  const auto unverified_4_3=PlanFrame(s);
+  assert(!unverified_4_3.direct_engine_path_ready &&
+         unverified_4_3.composite.left==0);
+  s.projection_hook_verified=true;
   const auto original_4_3=PlanFrame(s);
-  assert(original_4_3.world.width==1024 && original_4_3.world.height==768);
+  assert(original_4_3.direct_engine_path_ready &&
+         original_4_3.world.width==1024 && original_4_3.world.height==768);
   s.backbuffer={16384,16384};
   MustThrow([&] { (void)PlanFrame(s); });
   s.backbuffer={1920,1080};  // isolate invalid MSAA from invalid 16K^2

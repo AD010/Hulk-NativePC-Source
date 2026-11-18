@@ -14,8 +14,8 @@ struct Rect { uint32_t left = 0, top = 0, width = 0, height = 0; };
 // A native EoR frame must reach the host swapchain at its REAL scene
 // pixel density. The original 1280x720 guest surface cannot silently
 // become a 2560x1440/2560x1600 host scene through a blit or stretch.
-// Letterboxing is allowed: the verified native source must exactly fill
-// the destination rectangle, with bounds checked in 64-bit arithmetic.
+// Exact pixel-copy verification is separate from the production requirement
+// that the entire host viewport be native 3D pixels (no letterbox fallback).
 constexpr bool HasExactNativeCompositePixels(
     Size source, Rect destination, Size host) noexcept {
   return source.width && source.height &&
@@ -24,6 +24,17 @@ constexpr bool HasExactNativeCompositePixels(
          host.width && host.height &&
          uint64_t(destination.left) + destination.width <= host.width &&
          uint64_t(destination.top) + destination.height <= host.height;
+}
+
+// Only full-viewport, one-source-pixel-per-host-pixel frames may reach
+// the independent Hulk presentation path. A valid smaller rectangle is
+// diagnostic geometry, NOT a deliverable native Windows render mode.
+constexpr bool HasFullNativeCompositePixels(
+    Size source, Rect destination, Size host) noexcept {
+  return HasExactNativeCompositePixels(source,destination,host) &&
+         destination.left==0 && destination.top==0 &&
+         destination.width==host.width &&
+         destination.height==host.height;
 }
 
 struct FrameSetup {
@@ -41,7 +52,7 @@ struct FrameSetup {
 struct FrameGeometry {
   Size world;                         // Physically rasterized scene pixels.
   Size backbuffer;
-  Rect composite;                     // Host output rectangle, centered.
+  Rect composite;                     // Always full host output, no bars.
   uint32_t samples = 1;
   bool widescreen_camera = false; // Actual USA camera ABI proven for wider 3D
   bool direct_engine_path_ready = false; // Original engine Draw + AOT shaders proven
@@ -51,10 +62,10 @@ struct FrameGeometry {
 };
 
 // Native Draw requires verified original EoR engine calls and offline
-// shader provenance. The optional USA camera hook ONLY unlocks a wider 3D
-// viewport: without it, native geometry keeps original guest aspect ratio
-// inside a centered, high-resolution letterboxed host scene. A 720p guest
-// may still run game logic but never dictate host RT pixel density.
+// shader provenance. Non-source aspects additionally require a verified USA
+// 3D camera rewrite; without it the output is NOT ready, rather than
+// letterboxing or stretching the original Xbox viewport. All output
+// attachments always match the full user-selected physical host resolution.
 FrameGeometry PlanFrame(const FrameSetup& setup);
 
 struct IndexedDraw {

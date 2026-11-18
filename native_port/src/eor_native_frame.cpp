@@ -22,37 +22,28 @@ FrameGeometry PlanFrame(const FrameSetup& s) {
     throw std::invalid_argument("Unsupported native host output dimensions");
   if (s.samples != 1 && s.samples != 2 && s.samples != 4 && s.samples != 8)
     throw std::invalid_argument("Unsupported native MSAA sample count");
-  // Never claim a wider camera unless its real USA projection update is
-  // verified; letterbox the native-rasterized 16:9 scene in that case.
+  // The independent renderer always creates a full-host-resolution scene.
+  // It must not letterbox the 16:9 Xbox image inside a 16:10/ultrawide host,
+  // nor stretch the camera without the verified original USA projection ABI.
+  // Same-as-source aspect needs no camera rewrite; every other aspect does.
   const bool wide = s.projection_hook_verified;
-  Size world = s.backbuffer;
-  Rect rect{0, 0, world.width, world.height};
-  if (!wide) {
-    const uint64_t x = uint64_t(s.backbuffer.height) * s.original_guest.width;
-    const uint64_t y = uint64_t(s.backbuffer.width) * s.original_guest.height;
-    if (x > y) {
-      world.height = uint32_t(y / s.original_guest.width);
-    } else {
-      world.width = uint32_t(x / s.original_guest.height);
-    }
-    if (!world.width || !world.height)
-      throw std::invalid_argument("Guest aspect cannot fit host surface");
-    rect = {(s.backbuffer.width - world.width) / 2u,
-            (s.backbuffer.height - world.height) / 2u,
-            world.width, world.height};
-  }
+  const bool source_aspect_matches =
+      uint64_t(s.backbuffer.width) * s.original_guest.height ==
+      uint64_t(s.backbuffer.height) * s.original_guest.width;
+  const Size world = s.backbuffer;
+  const Rect rect{0, 0, world.width, world.height};
   uint32_t samples = s.samples;
   if (s.max_scene_color_samples) {
     const uint64_t pixels = uint64_t(world.width) * world.height;
     while (samples > 1 && pixels > s.max_scene_color_samples / samples)
       samples /= 2;
   }
-  // The engine Draw path and its offline shader provenance do not depend
-  // on changing the original camera projection. Without a proven USA
-  // projection hook we rasterize in the original aspect and letterbox.
-  // This is NOT permission to stretch HUD or fake a wider game camera.
+  // A non-source aspect cannot become a deliverable native frame until
+  // its source-proven USA camera matrices and screen-space passes are ready.
+  // No 720p scaling, fake FOV, cropping or black-bar fallback.
   const bool draw_path_ready =
-      s.engine_draw_hook_verified && s.offline_shader_cache_verified;
+      s.engine_draw_hook_verified && s.offline_shader_cache_verified &&
+      (wide || source_aspect_matches);
   return {world, s.backbuffer, rect, samples, wide, draw_path_ready,
           s.original_guest};
 }
@@ -74,13 +65,13 @@ void ReplayNativeScene(const FrameGeometry& frame,
   if (frame.samples != 1 && frame.samples != 2 &&
       frame.samples != 4 && frame.samples != 8)
     throw std::invalid_argument("Unsupported native MSAA sample count");
-  if (frame.composite.left > frame.backbuffer.width ||
-      frame.composite.top > frame.backbuffer.height ||
-      frame.composite.width != frame.world.width ||
-      frame.composite.height != frame.world.height ||
-      uint64_t(frame.composite.left) + frame.composite.width > frame.backbuffer.width ||
-      uint64_t(frame.composite.top) + frame.composite.height > frame.backbuffer.height)
-    throw std::invalid_argument("Invalid host-native composite bounds");
+  if (!HasFullNativeCompositePixels(
+          frame.world, frame.composite, frame.backbuffer))
+    throw std::invalid_argument("Native EoR must fill the entire host viewport");
+  if (!frame.widescreen_camera &&
+      uint64_t(frame.backbuffer.width) * frame.original_guest.height !=
+      uint64_t(frame.backbuffer.height) * frame.original_guest.width)
+    throw std::invalid_argument("Unverified USA camera aspect conversion");
   // HULK/EOR-PREFLIGHT: validate the ENTIRE command batch before beginning
   // a host GPU scene. Previously, a bad draw late in a frame threw AFTER
   // BeginScene and earlier draws, leaving a partially submitted render pass

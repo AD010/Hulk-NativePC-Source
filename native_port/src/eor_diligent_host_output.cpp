@@ -52,12 +52,12 @@ bool DiligentEorHostOutput::CompositeAndPresent(
   // backbuffer. Never fall back to an upscale during Vulkan handoff.
   if(original.SampleCount!=1 ||
      source->GetDesc().ViewType!=Diligent::TEXTURE_VIEW_SHADER_RESOURCE ||
-     !native::HasExactNativeCompositePixels(
+     !native::HasFullNativeCompositePixels(
          {original.Width,original.Height},dest,output))
     return false;
   try {
-    // Preserve correct margins when a source-verified main-view FOV or
-    // original HUD overlay is not yet available at this output aspect.
+    // Only a full native source may reach the host. HUD/camera provenance
+    // must be verified earlier, not hidden behind black-bar margins.
     auto* rtv=target;
     context->SetRenderTargets(
         1,&rtv,nullptr,Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
