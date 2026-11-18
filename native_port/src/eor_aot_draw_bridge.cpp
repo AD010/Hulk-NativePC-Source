@@ -282,6 +282,11 @@ void ReplayAotScene(const native::FrameGeometry& frame,
         throw std::invalid_argument(
             "Native Vulkan has no source-proven RT/Clear/Resolve/Present handler");
   }
+  // A captured live USA Draw must never bypass its original RT/depth/resolve
+  // chronology. Anonymous offline scenes remain usable for unit tests.
+  if(captured_source && !exact_original_timeline)
+    throw std::invalid_argument(
+        "Live original EoR Draw requires exact XDK frame timeline");
   // Shader/texture source validation above is complete. Vulkan prepares
   // actual PSOs and validates native geometry before opening any GPU scene;
   // a driver compile failure is no longer allowed halfway through a frame.
