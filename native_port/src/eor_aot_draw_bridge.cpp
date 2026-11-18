@@ -22,8 +22,8 @@ class ForwardingBackend final : public native::Backend {
     if(position_>=draws_.size())
       throw std::logic_error("EoR draw/compiled shader pairing overflow");
     const auto& pair=draws_[position_];
-    if(!ReplayBeforeDraw(draw))return false;
-    ++position_;
+    // Reject mismatched source geometry BEFORE replaying any guest XDK
+    // render-target or clear events into the live Vulkan context.
     if(pair.draw.vertex_buffer!=draw.vertex_buffer ||
        pair.draw.index_buffer!=draw.index_buffer ||
        pair.draw.vertex_shader!=draw.vertex_shader ||
@@ -34,6 +34,8 @@ class ForwardingBackend final : public native::Backend {
        pair.draw.source_frame!=draw.source_frame ||
        pair.draw.source_ordinal!=draw.source_ordinal)
       throw std::invalid_argument("EoR command/shader sequence mismatch");
+    if(!ReplayBeforeDraw(draw))return false;
+    ++position_;
     const auto* vs=bank_.Find(pair.vertex_source_sha256,Stage::Vertex);
     const auto* ps=bank_.Find(pair.pixel_source_sha256,Stage::Pixel);
     const auto* vr=reflection_.Find(pair.vertex_source_sha256,Stage::Vertex);
