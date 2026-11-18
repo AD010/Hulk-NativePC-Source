@@ -29,6 +29,7 @@ using CreatePSFn = HRESULT (STDMETHODCALLTYPE*)(IDirect3DDevice9*,const DWORD*,I
 using SetVSFn = HRESULT (STDMETHODCALLTYPE*)(IDirect3DDevice9*,IDirect3DVertexShader9*);
 using SetVSConstFn = HRESULT (STDMETHODCALLTYPE*)(IDirect3DDevice9*,UINT,const float*,UINT);
 using SamplerFn = HRESULT (STDMETHODCALLTYPE*)(IDirect3DDevice9*,DWORD,D3DSAMPLERSTATETYPE,DWORD);
+using SetTextureFn = HRESULT (STDMETHODCALLTYPE*)(IDirect3DDevice9*,DWORD,IDirect3DBaseTexture9*);
 Create9 realCreate9{};
 CreateDeviceFn realCreateDevice{};
 PresentFn realPresent{};
@@ -38,6 +39,10 @@ CreatePSFn realCreatePS{};
 SetVSFn realSetVS{};
 SetVSConstFn realVSConst{};
 SamplerFn realSampler{};
+SetTextureFn realSetTexture{};
+// Only POINT requests need reevaluation when the engine binds a new texture.
+std::mutex mipMutex;
+bool mipPointRequested[16]{};
 struct ShaderInfo {
   UINT view = 0, world = 0;
   WORD matrixClass = 0;
@@ -201,6 +206,7 @@ HRESULT STDMETHODCALLTYPE OnCreatePS(IDirect3DDevice9*,const DWORD*,IDirect3DPix
 HRESULT STDMETHODCALLTYPE OnSetVS(IDirect3DDevice9*,IDirect3DVertexShader9*);
 HRESULT STDMETHODCALLTYPE OnVSConstants(IDirect3DDevice9*,UINT,const float*,UINT);
 HRESULT STDMETHODCALLTYPE OnSampler(IDirect3DDevice9*,DWORD,D3DSAMPLERSTATETYPE,DWORD);
+HRESULT STDMETHODCALLTYPE OnSetTexture(IDirect3DDevice9*,DWORD,IDirect3DBaseTexture9*);
 
 IDirect3D9* WINAPI OnCreate9(UINT sdk) {
   if(!realCreate9)return nullptr;
@@ -274,6 +280,7 @@ HRESULT STDMETHODCALLTYPE OnCreateDevice(IDirect3D9* api,UINT adapter,
     ReplaceVtable(*result,94,&OnVSConstants,realVSConst);
     ReplaceVtable(*result,106,&OnCreatePS,realCreatePS);
     ReplaceVtable(*result,69,&OnSampler,realSampler);
+    ReplaceVtable(*result,65,&OnSetTexture,realSetTexture);
     Log("[D3D9] trilinear mip: requested=%u caps 2D=%u cube=%u volume=%u\r\n",
         (unsigned)forceTrilinearMip,(unsigned)!!mipLinearCaps2D,
         (unsigned)!!mipLinearCapsCube,(unsigned)!!mipLinearCapsVolume);
@@ -310,8 +317,8 @@ HRESULT STDMETHODCALLTYPE OnReset(IDirect3DDevice9* dev,D3DPRESENT_PARAMETERS* p
         (unsigned long)(unsigned int)firstHr,(unsigned long)(unsigned int)hr);
   }
   if(SUCCEEDED(hr)) {
-    std::lock_guard lock(shaderMutex);
-    activeVS=nullptr;
+    {std::lock_guard lock(shaderMutex);activeVS=nullptr;}
+    {std::lock_guard lock(mipMutex);std::fill(std::begin(mipPointRequested),std::end(mipPointRequested),false);}
   }
   if(pp)Log("[D3D9] Reset %ux%u windowed=%u hr=0x%08lX\r\n",
             pp->BackBufferWidth,pp->BackBufferHeight,
@@ -411,9 +418,26 @@ HRESULT STDMETHODCALLTYPE OnVSConstants(IDirect3DDevice9* dev,UINT reg,
     return realVSConst(dev,reg,changed.data(),count);
   } catch(...) {return realVSConst(dev,reg,data,count);}
 }
+HRESULT STDMETHODCALLTYPE OnSetTexture(IDirect3DDevice9* dev,DWORD stage,
+                                       IDirect3DBaseTexture9* texture) {
+  if(!realSetTexture)return D3DERR_INVALIDCALL;
+  const HRESULT hr=realSetTexture(dev,stage,texture);
+  if(SUCCEEDED(hr) && forceTrilinearMip && stage<16 && realSampler) {
+    bool point=false;
+    {std::lock_guard lock(mipMutex);point=mipPointRequested[stage];}
+    // Reapply the engine's POINT request after binding. This also restores
+    // POINT for an unsupported texture after a previously supported one.
+    if(point)OnSampler(dev,stage,D3DSAMP_MIPFILTER,D3DTEXF_POINT);
+  }
+  return hr;
+}
 HRESULT STDMETHODCALLTYPE OnSampler(IDirect3DDevice9* dev,DWORD sampler,
                                     D3DSAMPLERSTATETYPE type,DWORD value) {
   if(!realSampler)return D3DERR_INVALIDCALL;
+  if(type==D3DSAMP_MIPFILTER && sampler<16) {
+    const bool point=value==D3DTEXF_POINT;
+    {std::lock_guard lock(mipMutex);mipPointRequested[sampler]=point;}
+  }
   // Preserve NONE (no mip sampling) and MIN/MAG filters. Use the capability
   // for the actual bound texture kind rather than requiring every texture
   // class to support linear mip filtering. GetTexture returns an AddRef'd
