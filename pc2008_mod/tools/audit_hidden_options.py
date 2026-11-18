@@ -60,7 +60,21 @@ def main(argv=None):
         print('REFUSED: invalid DOS header', file=sys.stderr)
         return 2
     pe_offset = int.from_bytes(data[0x3c:0x40], 'little')
-    if pe_offset < 0x40 or pe_offset + 26 > len(data) or data[pe_offset:pe_offset+4] != b'PE\0\0' or int.from_bytes(data[pe_offset+4:pe_offset+6], 'little') != 0x14c or int.from_bytes(data[pe_offset+24:pe_offset+26], 'little') != 0x10b:
+    # Validate the COFF header and the *declared* optional-header extent.
+    # Merely seeing PE\\0\\0, i386 and a PE32 magic at +24 is insufficient:
+    # a truncated/forged header can otherwise be accepted.
+    coff_end = pe_offset + 24
+    if pe_offset < 0x40 or coff_end > len(data) or data[pe_offset:pe_offset+4] != b'PE\\0\\0':
+        print('REFUSED: invalid PE signature or COFF header', file=sys.stderr)
+        return 2
+    machine = int.from_bytes(data[pe_offset+4:pe_offset+6], 'little')
+    section_count = int.from_bytes(data[pe_offset+6:pe_offset+8], 'little')
+    optional_size = int.from_bytes(data[pe_offset+20:pe_offset+22], 'little')
+    optional_end = coff_end + optional_size
+    if (machine != 0x14c or optional_size < 2 or
+            optional_end > len(data) or
+            int.from_bytes(data[coff_end:coff_end+2], 'little') != 0x10b or
+            optional_end + section_count * 40 > len(data)):
         print('REFUSED: not a valid PE32 i386 image', file=sys.stderr)
         return 2
     for name, hits in audit(data).items():
