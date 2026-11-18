@@ -181,6 +181,16 @@ bool ValidateOriginalCommandTimeline(const Frame& frame) noexcept {
          event.function!=original.function ||
          event.lr!=original.lr || event.gpr!=original.gpr)
         return false;
+      // Agreement between two observer copies is not XDK provenance.
+      // Validate the verified USA 6534 function, PPC caller LR, device,
+      // count and bounds for the SAME original Draw. UP has no proven
+      // engine-level geometry/vertex pointer ownership and stays observe-only.
+      if((original.kind==Kind::DrawIndexedVertices &&
+          !DecodeOriginalIndexedXdkCall(original)) ||
+         (original.kind==Kind::DrawVertices &&
+          !DecodeOriginalVerticesXdkCall(original)) ||
+         original.kind==Kind::DrawVerticesUP)
+        return false;
     } else if(event.function!=KnownUsaCommandAddress(event.kind) ||
               event.draw_ordinal!=UINT32_MAX ||
               (event.kind==CommandKind::ClearF &&

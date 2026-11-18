@@ -138,7 +138,8 @@ int main() {
 
   FrameCapture capture;
   RawDraw a{Kind::DrawIndexedVertices,0x8288E318u,0x8263BF50u,{3,4,5,6,7,8,9,10}};
-  RawDraw b{Kind::DrawVertices,0x8288DF30u,0,{4,5,6,7,8,9,10,11}};
+  RawDraw b{Kind::DrawVertices,0x8288DF30u,0x8263BF54u,
+            {4,5,6,7,8,9,10,11}};
   a.observed_vs_matrices=*matrix;
   a.observed_shader_constants=std::make_shared<OriginalShaderRegisters>(complete);
   capture.Record(a);
@@ -184,6 +185,29 @@ int main() {
   assert(full_timeline.sequence==1 && full_timeline.calls.size()==2 &&
          full_timeline.commands.size()==9 &&
          ValidateOriginalCommandTimeline(full_timeline));
+  // A self-consistent copied timeline may still encode the WRONG PPC
+  // function or invalid Draw ABI. Never authorize independent replay from
+  // ordinal/argument equality alone.
+  auto bad_draw_abi=full_timeline;
+  bad_draw_abi.calls[0].function=0x8288E31Cu;
+  bad_draw_abi.commands[3].function=0x8288E31Cu;
+  assert(!ValidateOriginalCommandTimeline(bad_draw_abi));
+  bad_draw_abi=full_timeline;
+  bad_draw_abi.calls[1].lr=0;
+  bad_draw_abi.commands[5].lr=0;
+  assert(!ValidateOriginalCommandTimeline(bad_draw_abi));
+  bad_draw_abi=full_timeline;
+  bad_draw_abi.calls[0].gpr[4]=0; // missing indexed vertex count
+  bad_draw_abi.commands[3].gpr[4]=0;
+  assert(!ValidateOriginalCommandTimeline(bad_draw_abi));
+  bad_draw_abi=full_timeline;
+  bad_draw_abi.calls[1].gpr[2]=UINT32_MAX;
+  bad_draw_abi.commands[5].gpr[2]=UINT32_MAX;
+  assert(!ValidateOriginalCommandTimeline(bad_draw_abi));
+  bad_draw_abi=full_timeline;
+  bad_draw_abi.calls[1].kind=Kind::DrawVerticesUP;
+  bad_draw_abi.commands[5].kind=CommandKind::DrawVerticesUP;
+  assert(!ValidateOriginalCommandTimeline(bad_draw_abi));
   auto no_color_snapshot=full_timeline;
   no_color_snapshot.commands[2].captured_clear.reset();
   assert(!ValidateOriginalCommandTimeline(no_color_snapshot));
