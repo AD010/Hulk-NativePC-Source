@@ -78,6 +78,15 @@ class NativeEorLinkCoverage(unittest.TestCase):
             r"slots\.size\(\)>DILIGENT_MAX_LAYOUT_ELEMENTS\s*\|\|\s*slots\.size\(\)>16",
         )
 
+    def test_live_vulkan_resolve_waits_for_original_source_resolve(self):
+        backend = (ROOT / "native_port" / "src" /
+                   "eor_diligent_aot_backend.cpp").read_text(encoding="utf-8")
+        resolve = backend.split("bool DiligentEorDirectBackend::ResolveScene(", 1)[1]
+        resolve = resolve.split("bool DiligentEorDirectBackend::Composite(", 1)[0]
+        self.assertIn("s.source_timeline_active && !s.source_resolve_recorded", resolve)
+        self.assertLess(resolve.index("!s.source_resolve_recorded"),
+                        resolve.index("s.scene.ResolveScene()"))
+
     def test_shader_constant_packer_is_both_linked_and_tested(self):
         cmake = TARGET.read_text(encoding="utf-8")
         workflow = WORKFLOW.read_text(encoding="utf-8")
