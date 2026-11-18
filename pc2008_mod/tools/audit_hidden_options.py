@@ -29,8 +29,16 @@ def audit(data):
                 before = data[pos - (2 if encoding == 'utf16le' else 1):pos]
                 after = data[pos + len(pattern):pos + len(pattern) + (2 if encoding == 'utf16le' else 1)]
                 # Exclude substring hits in longer option names.
-                valid_before = not before or before[-1] not in b'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_'
-                valid_after = not after or after[0] not in b'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_'
+                word = b'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_'
+                if encoding == 'utf16le':
+                    # A UTF-16LE neighbor is two bytes; its low byte alone is
+                    # insufficient (the previous implementation accepted
+                    # "-noshadowsExtra" as a complete switch).
+                    valid_before = len(before) < 2 or before[1] != 0 or before[0] not in word
+                    valid_after = len(after) < 2 or after[1] != 0 or after[0] not in word
+                else:
+                    valid_before = not before or before[-1] not in word
+                    valid_after = not after or after[0] not in word
                 if valid_before and valid_after:
                     hits.append((encoding, pos))
                 start = pos + 1
