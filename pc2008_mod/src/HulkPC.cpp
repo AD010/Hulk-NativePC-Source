@@ -51,7 +51,8 @@ std::once_flag configOnce;
 wchar_t ini[MAX_PATH]{}, logFile[MAX_PATH]{};
 bool fixAspect = false;
 // Optional texture-quality enhancement; disabled unless explicitly configured.
-bool forceTrilinearMip = false, trilinearMipSupported = false;
+bool forceTrilinearMip = false;
+DWORD mipLinearCaps2D = 0, mipLinearCapsCube = 0, mipLinearCapsVolume = 0;
 uint32_t width = 0, height = 0, anisotropy = 0, maxAnisotropy = 1;
 double sourceAspect = 4.0 / 3.0;
 
@@ -255,17 +256,16 @@ HRESULT STDMETHODCALLTYPE OnCreateDevice(IDirect3D9* api,UINT adapter,
   }
   if(SUCCEEDED(hr) && *result) {
     D3DCAPS9 caps{};
-    // Require linear mip filtering for 2D, cube and volume textures so the
-    // override remains valid even if the engine changes bindings later.
-    trilinearMipSupported=false;
+    // D3D9 has separate mip-filter capabilities for 2D/cube/volume textures.
+    // Keep the exact device caps: DXVK or older native drivers may differ.
+    mipLinearCaps2D=mipLinearCapsCube=mipLinearCapsVolume=0;
     maxAnisotropy=1;
     if(SUCCEEDED((*result)->GetDeviceCaps(&caps))) {
       maxAnisotropy=(caps.TextureFilterCaps & D3DPTFILTERCAPS_MINFANISOTROPIC)
         ? std::max(1u,caps.MaxAnisotropy) : 1u;
-      trilinearMipSupported=
-        (caps.TextureFilterCaps & D3DPTFILTERCAPS_MIPFLINEAR) &&
-        (caps.CubeTextureFilterCaps & D3DPTFILTERCAPS_MIPFLINEAR) &&
-        (caps.VolumeTextureFilterCaps & D3DPTFILTERCAPS_MIPFLINEAR);
+      mipLinearCaps2D=caps.TextureFilterCaps & D3DPTFILTERCAPS_MIPFLINEAR;
+      mipLinearCapsCube=caps.CubeTextureFilterCaps & D3DPTFILTERCAPS_MIPFLINEAR;
+      mipLinearCapsVolume=caps.VolumeTextureFilterCaps & D3DPTFILTERCAPS_MIPFLINEAR;
     }
     ReplaceVtable(*result,16,&OnReset,realReset);
     ReplaceVtable(*result,17,&OnPresent,realPresent);
@@ -274,8 +274,9 @@ HRESULT STDMETHODCALLTYPE OnCreateDevice(IDirect3D9* api,UINT adapter,
     ReplaceVtable(*result,94,&OnVSConstants,realVSConst);
     ReplaceVtable(*result,106,&OnCreatePS,realCreatePS);
     ReplaceVtable(*result,69,&OnSampler,realSampler);
-    Log("[D3D9] trilinear mip: requested=%u supported=%u\r\n",
-        (unsigned)forceTrilinearMip,(unsigned)trilinearMipSupported);
+    Log("[D3D9] trilinear mip: requested=%u caps 2D=%u cube=%u volume=%u\r\n",
+        (unsigned)forceTrilinearMip,(unsigned)!!mipLinearCaps2D,
+        (unsigned)!!mipLinearCapsCube,(unsigned)!!mipLinearCapsVolume);
     Log("[HulkPC] DXVK-compatible D3D9 x86 Hor+ experimental; only ViewProj/World VS constants\r\n");
     Log("[D3D9] Device %ux%u fullscreen=%u, FOV experimental=%u, AF=%u\r\n",
         pp->BackBufferWidth,pp->BackBufferHeight,(unsigned)!pp->Windowed,
@@ -413,11 +414,25 @@ HRESULT STDMETHODCALLTYPE OnVSConstants(IDirect3DDevice9* dev,UINT reg,
 HRESULT STDMETHODCALLTYPE OnSampler(IDirect3DDevice9* dev,DWORD sampler,
                                     D3DSAMPLERSTATETYPE type,DWORD value) {
   if(!realSampler)return D3DERR_INVALIDCALL;
-  // Preserve NONE (textures with no mips) and the engine's MIN/MAG filters.
-  // Promote POINT -> LINEAR mip sampling only when all texture kinds support it.
-  if(forceTrilinearMip && trilinearMipSupported && sampler<16 &&
-     type==D3DSAMP_MIPFILTER && value==D3DTEXF_POINT)
-    value=D3DTEXF_LINEAR;
+  // Preserve NONE (no mip sampling) and MIN/MAG filters. Use the capability
+  // for the actual bound texture kind rather than requiring every texture
+  // class to support linear mip filtering. GetTexture returns an AddRef'd
+  // interface; release it on every path. Unknown/unbound samplers pass through.
+  if(forceTrilinearMip && sampler<16 &&
+     type==D3DSAMP_MIPFILTER && value==D3DTEXF_POINT) {
+    IDirect3DBaseTexture9* texture=nullptr;
+    if(SUCCEEDED(dev->GetTexture(sampler,&texture)) && texture) {
+      DWORD supported=0;
+      switch(texture->GetType()) {
+        case D3DRTYPE_TEXTURE: supported=mipLinearCaps2D; break;
+        case D3DRTYPE_CUBETEXTURE: supported=mipLinearCapsCube; break;
+        case D3DRTYPE_VOLUMETEXTURE: supported=mipLinearCapsVolume; break;
+        default: break;
+      }
+      texture->Release();
+      if(supported)value=D3DTEXF_LINEAR;
+    }
+  }
   if(anisotropy && maxAnisotropy>1 && sampler<16) {
     const unsigned maximum=std::min(anisotropy,maxAnisotropy);
     if(type==D3DSAMP_MAXANISOTROPY)value=maximum;
