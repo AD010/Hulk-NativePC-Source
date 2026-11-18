@@ -104,7 +104,7 @@ def main(argv=None):
         return 2
     for name, hits in audit(data).items():
         print(name + ': ' + ', '.join(
-            f'{enc}@0x{offset:X} [{section_for_offset(data, pe_offset, optional_size, section_count, offset, len(('-' + name).encode('utf-16le' if enc == 'utf16le' else 'ascii')))}]'
+            f'{enc}@0x{offset:X} [{section_for_offset(data, pe_offset, optional_size, section_count, offset, (len(name) + 1) * (2 if enc == 'utf16le' else 1))}]'
             for enc, offset in hits))
     print('String occurrences only; no runtime or D3D9 behavior verified.')
     return 0
