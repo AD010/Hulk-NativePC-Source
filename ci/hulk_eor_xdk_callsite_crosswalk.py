@@ -70,7 +70,8 @@ def analyze(log: str, hooks: dict[int, str],
             raise ValueError("Invalid guest caller or cumulative sample count")
         key = (xdk, lr)
         prev = observed.get(key)
-        if prev and (draws < prev['draws'] or frames < prev['frames']):
+        if prev and (draws < prev['draws'] or frames < prev['frames'] or
+                     (draws == prev['draws'] and frames != prev['frames'])):
             raise ValueError("Out-of-order or inconsistent XDK caller summary")
         if not prev or draws > prev['draws'] or frames > prev['frames']:
             observed[key] = {'xdk': xdk, 'lr': lr,
