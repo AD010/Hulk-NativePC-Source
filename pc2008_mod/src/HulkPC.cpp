@@ -263,6 +263,12 @@ HRESULT STDMETHODCALLTYPE OnCreateDevice(IDirect3D9* api,UINT adapter,
     hr=realCreateDevice(api,adapter,type,window,flags,pp,result);
   }
   if(SUCCEEDED(hr) && *result) {
+    // A new device starts with fresh sampler state. Never replay requests
+    // recorded for a previous device after a CreateDevice/recreate cycle.
+    {std::lock_guard lock(mipMutex);
+     std::fill_n(mipPointRequested,16,false);
+     std::fill_n(minLinearRequested,16,false);}
+    {std::lock_guard lock(shaderMutex);activeVS=nullptr;}
     D3DCAPS9 caps{};
     // D3D9 has separate mip-filter capabilities for 2D/cube/volume textures.
     // Keep the exact device caps: DXVK or older native drivers may differ.
