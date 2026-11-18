@@ -434,10 +434,10 @@ HRESULT STDMETHODCALLTYPE OnSetTexture(IDirect3DDevice9* dev,DWORD stage,
 HRESULT STDMETHODCALLTYPE OnSampler(IDirect3DDevice9* dev,DWORD sampler,
                                     D3DSAMPLERSTATETYPE type,DWORD value) {
   if(!realSampler)return D3DERR_INVALIDCALL;
-  if(type==D3DSAMP_MIPFILTER && sampler<16) {
-    const bool point=value==D3DTEXF_POINT;
-    {std::lock_guard lock(mipMutex);mipPointRequested[sampler]=point;}
-  }
+  // Track only successful engine requests. Failed SetSamplerState calls must
+  // not poison the remembered state used by the next SetTexture bind.
+  const bool trackMip=type==D3DSAMP_MIPFILTER && sampler<16;
+  const bool pointRequested=value==D3DTEXF_POINT;
   // Preserve NONE (no mip sampling) and MIN/MAG filters. Use the capability
   // for the actual bound texture kind rather than requiring every texture
   // class to support linear mip filtering. GetTexture returns an AddRef'd
@@ -466,7 +466,12 @@ HRESULT STDMETHODCALLTYPE OnSampler(IDirect3DDevice9* dev,DWORD sampler,
         return D3D_OK;
     }
   }
-  return realSampler(dev,sampler,type,value);
+  const HRESULT hr=realSampler(dev,sampler,type,value);
+  if(SUCCEEDED(hr) && trackMip) {
+    std::lock_guard lock(mipMutex);
+    mipPointRequested[sampler]=pointRequested;
+  }
+  return hr;
 }
 } // namespace
 
