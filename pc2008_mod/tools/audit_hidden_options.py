@@ -75,7 +75,7 @@ def main(argv=None):
     section_count = int.from_bytes(data[pe_offset+6:pe_offset+8], 'little')
     optional_size = int.from_bytes(data[pe_offset+20:pe_offset+22], 'little')
     optional_end = coff_end + optional_size
-    if (machine != 0x14c or optional_size < 2 or
+    if (machine != 0x14c or optional_size < 96 or section_count == 0 or
             optional_end > len(data) or
             int.from_bytes(data[coff_end:coff_end+2], 'little') != 0x10b or
             optional_end + section_count * 40 > len(data)):
