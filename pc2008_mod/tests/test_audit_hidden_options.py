@@ -54,7 +54,9 @@ class AuditTests(unittest.TestCase):
         self.assertEqual(check(0, 0, 256), 2)
         self.assertEqual(check(0xe0, 0, 256), 2)
         self.assertEqual(check(2, 4, 256), 2)
-        self.assertEqual(check(2, 0, 256), 0)
+        self.assertEqual(check(2, 0, 256), 2)
+        self.assertEqual(check(0xe0, 0, 512), 2)
+        self.assertEqual(check(0xe0, 1, 512), 0)
 
     def test_missing_executable_is_rejected_without_traceback(self):
         with tempfile.TemporaryDirectory() as folder:
