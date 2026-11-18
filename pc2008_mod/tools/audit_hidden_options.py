@@ -53,7 +53,7 @@ def section_for_offset(data, pe_offset, optional_size, section_count, offset):
     table = pe_offset + 24 + optional_size
     for index in range(section_count):
         entry = table + index * 40
-        name = data[entry:entry + 8].split(b'\\0', 1)[0]
+        name = data[entry:entry + 8].split(b'\0', 1)[0]
         raw_size = int.from_bytes(data[entry + 16:entry + 20], 'little')
         raw_start = int.from_bytes(data[entry + 20:entry + 24], 'little')
         if raw_size and raw_start <= offset < raw_start + raw_size:
@@ -80,7 +80,7 @@ def main(argv=None):
         return 2
     pe_offset = int.from_bytes(data[0x3c:0x40], 'little')
     # Validate the COFF header and the *declared* optional-header extent.
-    # Merely seeing PE\\0\\0, i386 and a PE32 magic at +24 is insufficient:
+    # Merely seeing PE\0\0, i386 and a PE32 magic at +24 is insufficient:
     # a truncated/forged header can otherwise be accepted.
     coff_end = pe_offset + 24
     if pe_offset < 0x40 or coff_end > len(data) or data[pe_offset:pe_offset+4] != b'PE\0\0':
