@@ -20,6 +20,14 @@ class AuditTests(unittest.TestCase):
     def test_no_partial_switch_matches(self):
         self.assertEqual(mod.audit(b'-noshadowsExtra xx-novsyncX'), {})
 
+    def test_utf16_partial_switch_matches(self):
+        # Both neighboring UTF-16LE code units must be inspected.
+        self.assertEqual(mod.audit('-noshadowsExtra -novsyncX'.encode('utf-16le')), {})
+        self.assertEqual(mod.audit('prefix_noshadows'.encode('utf-16le')), {})
+        self.assertEqual(mod.audit('X-noshadows'.encode('utf-16le')), {})
+        self.assertEqual(mod.audit(' -noshadows '.encode('utf-16le'))['noshadows'],
+                         [('utf16le', 2)])
+
     def test_empty_input(self):
         self.assertEqual(mod.audit(b''), {})
 
