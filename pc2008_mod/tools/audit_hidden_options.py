@@ -64,7 +64,7 @@ def main(argv=None):
     # Merely seeing PE\\0\\0, i386 and a PE32 magic at +24 is insufficient:
     # a truncated/forged header can otherwise be accepted.
     coff_end = pe_offset + 24
-    if pe_offset < 0x40 or coff_end > len(data) or data[pe_offset:pe_offset+4] != b'PE\\0\\0':
+    if pe_offset < 0x40 or coff_end > len(data) or data[pe_offset:pe_offset+4] != b'PE\0\0':
         print('REFUSED: invalid PE signature or COFF header', file=sys.stderr)
         return 2
     machine = int.from_bytes(data[pe_offset+4:pe_offset+6], 'little')
