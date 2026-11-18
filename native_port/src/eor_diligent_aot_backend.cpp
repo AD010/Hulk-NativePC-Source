@@ -939,7 +939,10 @@ bool DiligentEorDirectBackend::DrawIndexed(const native::IndexedDraw& draw) {
 }
 bool DiligentEorDirectBackend::ResolveScene(native::Size physical) {
   auto& s=*state_;
-  if(!s.scene_open || s.finished || !Same(physical,s.frame.world))return false;
+  if(!s.scene_open || s.finished || !Same(physical,s.frame.world) ||
+     (s.source_timeline_active && !s.source_resolve_recorded))return false;
+  // A live source frame must reach its verified Resolve event before the
+  // host Vulkan resolve. Offline anonymous scenes have no XDK timeline.
   if(!s.scene.ResolveScene())return false;
   s.finished=true;return true;
 }
