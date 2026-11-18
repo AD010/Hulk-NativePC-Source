@@ -59,6 +59,9 @@ void DiligentSceneTargets::Reset() noexcept {
 }
 bool DiligentSceneTargets::Prepare(const native::FrameGeometry& frame,
                                   VerifiedSceneFormat verified) {
+  // A nested Prepare must not invalidate an active render pass. In
+  // particular ResolveScene still needs the original prepared state.
+  if (state_->bound) return false;
   // Never allow BeginScene after Prepare fails or returns an old allocation.
   state_->prepared=false;
   state_->ready=false;
@@ -75,7 +78,6 @@ bool DiligentSceneTargets::Prepare(const native::FrameGeometry& frame,
      uint64_t(frame.composite.left)+frame.world.width>frame.backbuffer.width ||
      uint64_t(frame.composite.top)+frame.world.height>frame.backbuffer.height)
     return false;
-  if(state_->bound)return false;
   if(Same(state_->physical,frame.world) && state_->samples==frame.samples &&
      state_->formats.color==verified.color && state_->formats.depth==verified.depth &&
      state_->color && state_->depth && state_->resolved) {
