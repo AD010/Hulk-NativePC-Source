@@ -96,6 +96,18 @@ class NativeEorLinkCoverage(unittest.TestCase):
                         draw.index("if(!ReplayBeforeDraw(draw))"),
                         "Unmatched Draw must not replay XDK GPU commands")
 
+    def test_shader_evidence_checked_before_live_xdk_replay(self):
+        bridge = (ROOT / "native_port" / "src" /
+                  "eor_aot_draw_bridge.cpp").read_text(encoding="utf-8")
+        draw = bridge.split("bool DrawIndexed(const native::IndexedDraw& draw) override {", 1)[1]
+        draw = draw.split("bool ResolveScene(", 1)[0]
+        self.assertLess(draw.index("Unknown original Xenos shader or constant layout"),
+                        draw.index("if(!ReplayBeforeDraw(draw))"),
+                        "Unknown shader or reflection must not mutate live GPU state")
+        self.assertLess(draw.index("if(!ReplayBeforeDraw(draw))"),
+                        draw.index("++position_"),
+                        "Rejected source chronology must not consume a paired Draw")
+
     def test_shader_constant_packer_is_both_linked_and_tested(self):
         cmake = TARGET.read_text(encoding="utf-8")
         workflow = WORKFLOW.read_text(encoding="utf-8")
