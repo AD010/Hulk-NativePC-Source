@@ -51,7 +51,11 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('exe', type=Path, help='private original HULK.EXE (never uploaded)')
     args = parser.parse_args(argv)
-    data = args.exe.read_bytes()
+    try:
+        data = args.exe.read_bytes()
+    except OSError as exc:
+        print(f'REFUSED: cannot read private PC EXE: {exc.strerror or type(exc).__name__}', file=sys.stderr)
+        return 2
     digest = hashlib.sha256(data).hexdigest()
     if digest != EXPECTED_SHA256:
         print('REFUSED: SHA256 does not match the approved original PC HULK.EXE', file=sys.stderr)
