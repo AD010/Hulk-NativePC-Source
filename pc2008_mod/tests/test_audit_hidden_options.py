@@ -76,6 +76,18 @@ class AuditTests(unittest.TestCase):
         self.assertEqual(mod.section_for_offset(data, pe_offset, optional_size, 1, 320), '<headers-or-overlay>')
         self.assertEqual(mod.section_for_offset(data, pe_offset, optional_size, 1, 128), '<headers-or-overlay>')
 
+    def test_token_must_fit_entirely_inside_section(self):
+        data = bytearray(512)
+        pe_offset, optional_size = 0x80, 0x60
+        entry = pe_offset + 24 + optional_size
+        data[entry:entry + 8] = b'.rdata\\0\\0'
+        data[entry + 16:entry + 20] = (32).to_bytes(4, 'little')
+        data[entry + 20:entry + 24] = (256).to_bytes(4, 'little')
+        self.assertEqual(mod.section_for_offset(data, pe_offset, optional_size, 1, 280, 8), '.rdata')
+        self.assertEqual(mod.section_for_offset(data, pe_offset, optional_size, 1, 280, 9), '<headers-or-overlay>')
+        self.assertEqual(mod.section_for_offset(data, pe_offset, optional_size, 1, 256, 0), '<headers-or-overlay>')
+        self.assertEqual(mod.section_for_offset(data, pe_offset, optional_size, 1, 511, 2), '<headers-or-overlay>')
+
     def test_invalid_section_extents_are_not_trusted(self):
         data = bytearray(512)
         pe_offset, optional_size = 0x80, 0x60
