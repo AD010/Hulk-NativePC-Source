@@ -50,6 +50,8 @@ std::atomic<uint32_t> vsCount{0}, psCount{0}, viewProjCount{0};
 std::once_flag configOnce;
 wchar_t ini[MAX_PATH]{}, logFile[MAX_PATH]{};
 bool fixAspect = false;
+// Optional texture-quality enhancement; disabled unless explicitly configured.
+bool forceTrilinearMip = false, trilinearMipSupported = false;
 uint32_t width = 0, height = 0, anisotropy = 0, maxAnisotropy = 1;
 double sourceAspect = 4.0 / 3.0;
 
@@ -85,6 +87,7 @@ void LoadConfig() {
     wcscpy_s(logFile,path);wcscat_s(logFile,L"HulkPC_ASI.log");
     fixAspect=GetPrivateProfileIntW(L"Graphics",L"EnableExperimentalViewProj16x10",0,ini)==1;
     anisotropy=GetPrivateProfileIntW(L"Graphics",L"ForceAnisotropy",0,ini);
+    forceTrilinearMip=GetPrivateProfileIntW(L"Graphics",L"ForceTrilinearMipFilter",0,ini)==1;
     if(anisotropy!=2&&anisotropy!=4&&anisotropy!=8&&anisotropy!=16)anisotropy=0;
     width=GetPrivateProfileIntW(L"Graphics",L"ForceFullscreenWidth",0,ini);
     height=GetPrivateProfileIntW(L"Graphics",L"ForceFullscreenHeight",0,ini);
@@ -252,8 +255,18 @@ HRESULT STDMETHODCALLTYPE OnCreateDevice(IDirect3D9* api,UINT adapter,
   }
   if(SUCCEEDED(hr) && *result) {
     D3DCAPS9 caps{};
-    if(SUCCEEDED((*result)->GetDeviceCaps(&caps)))
-      maxAnisotropy=std::max(1u,caps.MaxAnisotropy);
+    // Require linear mip filtering for 2D, cube and volume textures so the
+    // override remains valid even if the engine changes bindings later.
+    trilinearMipSupported=false;
+    maxAnisotropy=1;
+    if(SUCCEEDED((*result)->GetDeviceCaps(&caps))) {
+      maxAnisotropy=(caps.TextureFilterCaps & D3DPTFILTERCAPS_MINFANISOTROPIC)
+        ? std::max(1u,caps.MaxAnisotropy) : 1u;
+      trilinearMipSupported=
+        (caps.TextureFilterCaps & D3DPTFILTERCAPS_MIPFLINEAR) &&
+        (caps.CubeTextureFilterCaps & D3DPTFILTERCAPS_MIPFLINEAR) &&
+        (caps.VolumeTextureFilterCaps & D3DPTFILTERCAPS_MIPFLINEAR);
+    }
     ReplaceVtable(*result,16,&OnReset,realReset);
     ReplaceVtable(*result,17,&OnPresent,realPresent);
     ReplaceVtable(*result,91,&OnCreateVS,realCreateVS);
@@ -261,6 +274,8 @@ HRESULT STDMETHODCALLTYPE OnCreateDevice(IDirect3D9* api,UINT adapter,
     ReplaceVtable(*result,94,&OnVSConstants,realVSConst);
     ReplaceVtable(*result,106,&OnCreatePS,realCreatePS);
     ReplaceVtable(*result,69,&OnSampler,realSampler);
+    Log("[D3D9] trilinear mip: requested=%u supported=%u\r\n",
+        (unsigned)forceTrilinearMip,(unsigned)trilinearMipSupported);
     Log("[HulkPC] DXVK-compatible D3D9 x86 Hor+ experimental; only ViewProj/World VS constants\r\n");
     Log("[D3D9] Device %ux%u fullscreen=%u, FOV experimental=%u, AF=%u\r\n",
         pp->BackBufferWidth,pp->BackBufferHeight,(unsigned)!pp->Windowed,
@@ -398,6 +413,11 @@ HRESULT STDMETHODCALLTYPE OnVSConstants(IDirect3DDevice9* dev,UINT reg,
 HRESULT STDMETHODCALLTYPE OnSampler(IDirect3DDevice9* dev,DWORD sampler,
                                     D3DSAMPLERSTATETYPE type,DWORD value) {
   if(!realSampler)return D3DERR_INVALIDCALL;
+  // Preserve NONE (textures with no mips) and the engine's MIN/MAG filters.
+  // Promote POINT -> LINEAR mip sampling only when all texture kinds support it.
+  if(forceTrilinearMip && trilinearMipSupported && sampler<16 &&
+     type==D3DSAMP_MIPFILTER && value==D3DTEXF_POINT)
+    value=D3DTEXF_LINEAR;
   if(anisotropy && maxAnisotropy>1 && sampler<16) {
     const unsigned maximum=std::min(anisotropy,maxAnisotropy);
     if(type==D3DSAMP_MAXANISOTROPY)value=maximum;
