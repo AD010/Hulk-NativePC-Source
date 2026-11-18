@@ -318,7 +318,7 @@ HRESULT STDMETHODCALLTYPE OnReset(IDirect3DDevice9* dev,D3DPRESENT_PARAMETERS* p
   }
   if(SUCCEEDED(hr)) {
     {std::lock_guard lock(shaderMutex);activeVS=nullptr;}
-    {std::lock_guard lock(mipMutex);std::fill(std::begin(mipPointRequested),std::end(mipPointRequested),false);}
+    {std::lock_guard lock(mipMutex);std::fill_n(mipPointRequested,16,false);}
   }
   if(pp)Log("[D3D9] Reset %ux%u windowed=%u hr=0x%08lX\r\n",
             pp->BackBufferWidth,pp->BackBufferHeight,
