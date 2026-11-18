@@ -36,6 +36,17 @@ class EorRuntimeCallsiteTests(unittest.TestCase):
         self.assertFalse(row['verified_engine_draw_abi'])
         self.assertFalse(row['verified_camera_or_projection'])
 
+    def test_duplicate_draw_method_addresses_are_rejected(self):
+        ambiguous = dict(HOOKS)
+        ambiguous[0x8288EF00] = 'DrawIndexedVertices'
+        with self.assertRaisesRegex(ValueError, 'Ambiguous'):
+            analyze(trace(), ambiguous, REVERSE)
+        # A second non-draw method is not relevant to draw identity.
+        other = dict(HOOKS)
+        other[0x8288EF00] = 'Present'
+        self.assertEqual(analyze(trace(), other, REVERSE)
+                         ['matched_direct_callsite_count'], 1)
+
     def test_unknown_return_address_stays_unmatched(self):
         result = analyze(trace(lr='82500030'), HOOKS, REVERSE)
         self.assertEqual(result['matched_direct_callsite_count'], 0)
