@@ -34,10 +34,10 @@ def audit(data):
                     # A UTF-16LE neighbor is two bytes; its low byte alone is
                     # insufficient (the previous implementation accepted
                     # "-noshadowsExtra" as a complete switch).
-                    valid_before = len(before) < 2 or before[1] != 0 or before[0] not in word
+                    valid_before = len(before) < 2 or before[1] != 0 or before[0] not in word + b'-'
                     valid_after = len(after) < 2 or after[1] != 0 or after[0] not in word
                 else:
-                    valid_before = not before or before[-1] not in word
+                    valid_before = not before or before[-1] not in word + b'-'
                     valid_after = not after or after[0] not in word
                 if valid_before and valid_after:
                     hits.append((encoding, pos))
