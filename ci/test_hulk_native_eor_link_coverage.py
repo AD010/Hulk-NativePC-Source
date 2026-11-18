@@ -66,6 +66,18 @@ class NativeEorLinkCoverage(unittest.TestCase):
             bridge.index("backend.PreflightOriginalScene(draws)"),
             "Missing live chronology must fail before GPU resource preparation")
 
+    def test_live_draw_vertex_slot_count_cannot_overrun_host_arrays(self):
+        backend = (ROOT / "native_port" / "src" /
+                   "eor_diligent_aot_backend.cpp").read_text(encoding="utf-8")
+        # The native Draw path uses fixed 16-entry buffer/offset arrays.
+        # DILIGENT_MAX_LAYOUT_ELEMENTS is not necessarily 16.
+        self.assertIn("std::array<Diligent::IBuffer*,16> buffers{}", backend)
+        self.assertIn("std::array<Diligent::Uint64,16> offsets{}", backend)
+        self.assertRegex(
+            backend,
+            r"slots\.size\(\)>DILIGENT_MAX_LAYOUT_ELEMENTS\s*\|\|\s*slots\.size\(\)>16",
+        )
+
     def test_shader_constant_packer_is_both_linked_and_tested(self):
         cmake = TARGET.read_text(encoding="utf-8")
         workflow = WORKFLOW.read_text(encoding="utf-8")
