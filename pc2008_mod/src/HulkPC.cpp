@@ -157,7 +157,9 @@ ShaderInfo ReadCtab(IDirect3DVertexShader9* shader) {
   if(!shader || FAILED(shader->GetFunction(nullptr,&bytes)) ||
      bytes<44||bytes>(1u<<20))return info;
   std::vector<uint8_t> code(bytes);
-  if(FAILED(shader->GetFunction(code.data(),&bytes)))return info;
+  const UINT allocated=bytes;
+  if(FAILED(shader->GetFunction(code.data(),&bytes)) ||
+     bytes>allocated || bytes<44 || (bytes&3u))return info;
   for(size_t i=0;i+36<bytes;i+=4) {
     if(memcmp(code.data()+i,"CTAB",4))continue;
     const size_t base=i+4;
