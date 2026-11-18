@@ -22,6 +22,12 @@ class AuditTests(unittest.TestCase):
     def test_no_partial_switch_matches(self):
         self.assertEqual(mod.audit(b'-noshadowsExtra xx-novsyncX'), {})
 
+    def test_double_hyphen_is_not_a_standalone_switch(self):
+        # A substring of --noshadows is not the exact -noshadows token.
+        self.assertEqual(mod.audit(b'--noshadows --novsync'), {})
+        self.assertEqual(mod.audit('--noshadows --novsync'.encode('utf-16le')), {})
+        self.assertEqual(mod.audit(b' -noshadows\x00')['noshadows'], [('ascii', 1)])
+
     def test_utf16_partial_switch_matches(self):
         # Both neighboring UTF-16LE code units must be inspected.
         self.assertEqual(mod.audit('-noshadowsExtra -novsyncX'.encode('utf-16le')), {})
