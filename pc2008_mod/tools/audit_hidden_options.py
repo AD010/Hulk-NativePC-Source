@@ -47,6 +47,21 @@ def audit(data):
     return findings
 
 
+
+def section_for_offset(data, pe_offset, optional_size, section_count, offset):
+    """Identify the PE section containing a raw file offset, without reading payloads."""
+    table = pe_offset + 24 + optional_size
+    for index in range(section_count):
+        entry = table + index * 40
+        name = data[entry:entry + 8].split(b'\\0', 1)[0]
+        raw_size = int.from_bytes(data[entry + 16:entry + 20], 'little')
+        raw_start = int.from_bytes(data[entry + 20:entry + 24], 'little')
+        if raw_size and raw_start <= offset < raw_start + raw_size:
+            # Section names are display-only and never interpreted as paths.
+            return name.decode('ascii', errors='backslashreplace') or '<unnamed>'
+    return '<headers-or-overlay>'
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('exe', type=Path, help='private original HULK.EXE (never uploaded)')
@@ -82,7 +97,9 @@ def main(argv=None):
         print('REFUSED: not a valid PE32 i386 image', file=sys.stderr)
         return 2
     for name, hits in audit(data).items():
-        print(name + ': ' + ', '.join(f'{enc}@0x{offset:X}' for enc, offset in hits))
+        print(name + ': ' + ', '.join(
+            f'{enc}@0x{offset:X} [{section_for_offset(data, pe_offset, optional_size, section_count, offset)}]'
+            for enc, offset in hits))
     print('String occurrences only; no runtime or D3D9 behavior verified.')
     return 0
 
