@@ -43,6 +43,16 @@ class NativeEorLinkCoverage(unittest.TestCase):
             self.assertIn(source, args,
                           f"Model adapter test cannot link original dependency: {source}")
 
+    def test_host_vulkan_present_avoids_redundant_fullscreen_clear(self):
+        host = (ROOT / "native_port" / "src" /
+                "eor_diligent_host_output.cpp").read_text(encoding="utf-8")
+        self.assertIn("HasFullNativeCompositePixels(", host)
+        self.assertIn("desc.Width!=output.width || desc.Height!=output.height", host)
+        self.assertIn("Blitter::Source::kColor,", host)
+        self.assertIn("device_->Present();", host)
+        self.assertNotIn("ClearRenderTarget(", host,
+                         "Exact-size host copy must not pre-clear the full swapchain")
+
     def test_shader_constant_packer_is_both_linked_and_tested(self):
         cmake = TARGET.read_text(encoding="utf-8")
         workflow = WORKFLOW.read_text(encoding="utf-8")
