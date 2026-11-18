@@ -56,6 +56,16 @@ class NativeEorLinkCoverage(unittest.TestCase):
         self.assertNotIn("ClearRenderTarget(", host,
                          "Exact-size host copy must not pre-clear the full swapchain")
 
+    def test_live_eor_draw_requires_original_frame_timeline(self):
+        bridge = (ROOT / "native_port" / "src" /
+                  "eor_aot_draw_bridge.cpp").read_text(encoding="utf-8")
+        self.assertIn("if(captured_source && !exact_original_timeline)", bridge)
+        self.assertIn("Live original EoR Draw requires exact XDK frame timeline", bridge)
+        self.assertLess(
+            bridge.index("if(captured_source && !exact_original_timeline)"),
+            bridge.index("backend.PreflightOriginalScene(draws)"),
+            "Missing live chronology must fail before GPU resource preparation")
+
     def test_shader_constant_packer_is_both_linked_and_tested(self):
         cmake = TARGET.read_text(encoding="utf-8")
         workflow = WORKFLOW.read_text(encoding="utf-8")
