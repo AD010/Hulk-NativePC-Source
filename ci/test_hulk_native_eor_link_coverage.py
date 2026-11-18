@@ -50,6 +50,9 @@ class NativeEorLinkCoverage(unittest.TestCase):
         self.assertIn("desc.Width!=output.width || desc.Height!=output.height", host)
         self.assertIn("Blitter::Source::kColor,", host)
         self.assertIn("device_->Present();", host)
+        self.assertRegex(host, r"SetRenderTargets\(0,nullptr,nullptr,\s*Diligent::RESOURCE_STATE_TRANSITION_MODE_NONE\);")
+        self.assertLess(host.index("blitter_->Copy("), host.index("SetRenderTargets(0,nullptr,nullptr,"))
+        self.assertLess(host.index("SetRenderTargets(0,nullptr,nullptr,"), host.index("device_->Present();"))
         self.assertNotIn("ClearRenderTarget(", host,
                          "Exact-size host copy must not pre-clear the full swapchain")
 
