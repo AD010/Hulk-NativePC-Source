@@ -66,6 +66,8 @@ class EorRuntimeCallsiteTests(unittest.TestCase):
             trace(kind=0),
             trace(xdk='82880778'),
             trace(lr='00000000'),
+            trace(lr='82500025'),  # PPC LR must be instruction-aligned
+            trace(lr='82500022'),
             trace(draws=0),
             trace(draws=2, frames=3),
             trace(draws=8, frames=2) + trace(draws=7, frames=3),
