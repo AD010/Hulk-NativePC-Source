@@ -34,14 +34,15 @@ class ForwardingBackend final : public native::Backend {
        pair.draw.source_frame!=draw.source_frame ||
        pair.draw.source_ordinal!=draw.source_ordinal)
       throw std::invalid_argument("EoR command/shader sequence mismatch");
-    if(!ReplayBeforeDraw(draw))return false;
-    ++position_;
     const auto* vs=bank_.Find(pair.vertex_source_sha256,Stage::Vertex);
     const auto* ps=bank_.Find(pair.pixel_source_sha256,Stage::Pixel);
     const auto* vr=reflection_.Find(pair.vertex_source_sha256,Stage::Vertex);
     const auto* pr=reflection_.Find(pair.pixel_source_sha256,Stage::Pixel);
     if(!vs || !ps || !vr || !pr)
       throw std::logic_error("Unknown original Xenos shader or constant layout");
+    // Missing original shader/reflection evidence must not replay GPU events.
+    if(!ReplayBeforeDraw(draw))return false;
+    ++position_;
     return target_.BindOriginalSurface(pair.original_model_hash,
                                        pair.original_surface_ordinal) &&
            target_.BindOriginalEffect(pair.effect_hash,pair.pass_index) &&
