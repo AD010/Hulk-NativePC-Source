@@ -36,7 +36,7 @@ class AuditTests(unittest.TestCase):
             data = bytearray(length)
             data[:2] = b'MZ'
             data[0x3c:0x40] = (0x80).to_bytes(4, 'little')
-            data[0x80:0x84] = b'PE\\0\\0'
+            data[0x80:0x84] = b'PE\x00\x00'
             data[0x84:0x86] = (0x14c).to_bytes(2, 'little')
             data[0x86:0x88] = sections.to_bytes(2, 'little')
             data[0x94:0x96] = optional_size.to_bytes(2, 'little')
