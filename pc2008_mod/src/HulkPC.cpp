@@ -58,6 +58,7 @@ bool fixAspect = false;
 // Optional texture-quality enhancement; disabled unless explicitly configured.
 bool forceTrilinearMip = false;
 DWORD mipLinearCaps2D = 0, mipLinearCapsCube = 0, mipLinearCapsVolume = 0;
+DWORD anisotropicCaps2D = 0, anisotropicCapsCube = 0, anisotropicCapsVolume = 0;
 uint32_t width = 0, height = 0, anisotropy = 0, maxAnisotropy = 1;
 double sourceAspect = 4.0 / 3.0;
 
@@ -265,10 +266,13 @@ HRESULT STDMETHODCALLTYPE OnCreateDevice(IDirect3D9* api,UINT adapter,
     // D3D9 has separate mip-filter capabilities for 2D/cube/volume textures.
     // Keep the exact device caps: DXVK or older native drivers may differ.
     mipLinearCaps2D=mipLinearCapsCube=mipLinearCapsVolume=0;
+    anisotropicCaps2D=anisotropicCapsCube=anisotropicCapsVolume=0;
     maxAnisotropy=1;
     if(SUCCEEDED((*result)->GetDeviceCaps(&caps))) {
-      maxAnisotropy=(caps.TextureFilterCaps & D3DPTFILTERCAPS_MINFANISOTROPIC)
-        ? std::max(1u,caps.MaxAnisotropy) : 1u;
+      maxAnisotropy=std::max(1u,caps.MaxAnisotropy);
+      anisotropicCaps2D=caps.TextureFilterCaps & D3DPTFILTERCAPS_MINFANISOTROPIC;
+      anisotropicCapsCube=caps.CubeTextureFilterCaps & D3DPTFILTERCAPS_MINFANISOTROPIC;
+      anisotropicCapsVolume=caps.VolumeTextureFilterCaps & D3DPTFILTERCAPS_MINFANISOTROPIC;
       mipLinearCaps2D=caps.TextureFilterCaps & D3DPTFILTERCAPS_MIPFLINEAR;
       mipLinearCapsCube=caps.CubeTextureFilterCaps & D3DPTFILTERCAPS_MIPFLINEAR;
       mipLinearCapsVolume=caps.VolumeTextureFilterCaps & D3DPTFILTERCAPS_MIPFLINEAR;
@@ -461,8 +465,21 @@ HRESULT STDMETHODCALLTYPE OnSampler(IDirect3DDevice9* dev,DWORD sampler,
     const unsigned maximum=std::min(anisotropy,maxAnisotropy);
     if(type==D3DSAMP_MAXANISOTROPY)value=maximum;
     else if(type==D3DSAMP_MINFILTER && value==D3DTEXF_LINEAR) {
-      realSampler(dev,sampler,D3DSAMP_MAXANISOTROPY,maximum);
-      if(SUCCEEDED(realSampler(dev,sampler,type,D3DTEXF_ANISOTROPIC)))
+      // D3D9 advertises anisotropic MIN filtering separately for 2D,
+      // cube and volume textures. Never force an unsupported filter.
+      IDirect3DBaseTexture9* bound=nullptr;
+      DWORD supported=0;
+      if(SUCCEEDED(dev->GetTexture(sampler,&bound)) && bound) {
+        switch(bound->GetType()) {
+          case D3DRTYPE_TEXTURE: supported=anisotropicCaps2D; break;
+          case D3DRTYPE_CUBETEXTURE: supported=anisotropicCapsCube; break;
+          case D3DRTYPE_VOLUMETEXTURE: supported=anisotropicCapsVolume; break;
+          default: break;
+        }
+        bound->Release();
+      }
+      if(supported && SUCCEEDED(realSampler(dev,sampler,D3DSAMP_MAXANISOTROPY,maximum)) &&
+         SUCCEEDED(realSampler(dev,sampler,type,D3DTEXF_ANISOTROPIC)))
         return D3D_OK;
     }
   }
