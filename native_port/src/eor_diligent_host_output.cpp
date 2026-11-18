@@ -75,6 +75,11 @@ bool DiligentEorHostOutput::CompositeAndPresent(
     blitter_->Copy(context,source,
        native_x_renderer::Blitter::Source::kColor,
        from,rtv,to);
+    // Release the swapchain RTV before Present/resize. Otherwise the
+    // context can retain a reference to the outgoing backbuffer across a
+    // window resize, even though the source EoR scene has already resolved.
+    context->SetRenderTargets(0,nullptr,nullptr,
+        Diligent::RESOURCE_STATE_TRANSITION_MODE_NONE);
     // The same sole host Vulkan device owns both the source EoR scene and
     // output swapchain. No PM4 copy, Xenos EDRAM or competing VkSurface.
     device_->Present();
