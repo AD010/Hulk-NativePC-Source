@@ -65,6 +65,10 @@ DWORD mipLinearCaps2D = 0, mipLinearCapsCube = 0, mipLinearCapsVolume = 0;
 DWORD anisotropicCaps2D = 0, anisotropicCapsCube = 0, anisotropicCapsVolume = 0;
 uint32_t width = 0, height = 0, anisotropy = 0, maxAnisotropy = 1;
 double sourceAspect = 4.0 / 3.0;
+// Optional native-PC engine camera far-clip experiment. The game's separate
+// LOD distances and shadow cascades are NOT changed by this setting.
+volatile float cameraFarPlaneScale = 1.0f;
+std::once_flag cameraFarPlaneHookOnce;
 
 bool OriginalHulk() noexcept {
   auto* dos=reinterpret_cast<const IMAGE_DOS_HEADER*>(GetModuleHandleW(nullptr));
@@ -127,6 +131,15 @@ void LoadConfig() {
     if(baseNumerator>=3 && baseNumerator<=64 &&
        baseDenominator>=3 && baseDenominator<=64)
       sourceAspect=double(baseNumerator)/double(baseDenominator);
+    wchar_t farScaleText[48]{};
+    GetPrivateProfileStringW(L"Graphics",L"ExperimentalCameraFarPlaneScale",
+                             L"1.0",farScaleText,48,ini);
+    wchar_t* farScaleEnd=nullptr;
+    const double farScale=wcstod(farScaleText,&farScaleEnd);
+    // Fail closed on malformed text, infinity, or extreme depth ranges.
+    if(farScaleEnd!=farScaleText && *farScaleEnd==L'\0' &&
+       std::isfinite(farScale) && farScale>=1.0 && farScale<=2.0)
+      cameraFarPlaneScale=static_cast<float>(farScale);
   });
 }
 void Log(const char* fmt,...) {
@@ -143,6 +156,66 @@ void Log(const char* fmt,...) {
   WriteFile(file,buffer,(DWORD)strlen(buffer),&written,nullptr);
   CloseHandle(file);
 }
+
+#if defined(_MSC_VER) && defined(_M_IX86)
+// Exact HULK.EXE SHA-256 verified off-line:
+// 6d71e479de73a5e3ee5f3a924ed2dc6f79aea9f0aac43b5984b1f77193d3b233
+// 004AC728: movss dword ptr [esi+40h], xmm0  (CameraFarPlane parser)
+// Replace only this 5-byte store with CALL. RET continues at 004AC72D.
+// The original XMM0, all GPRs, EFLAGS and the stack are preserved.
+__declspec(naked) void CameraFarPlaneStoreHook() {
+  __asm {
+    sub esp, 4
+    movss dword ptr [esp], xmm0
+    mulss xmm0, dword ptr [cameraFarPlaneScale]
+    movss dword ptr [esi+0x40], xmm0
+    movss xmm0, dword ptr [esp]
+    add esp, 4
+    ret
+  }
+}
+bool InstallCameraFarPlaneHook() {
+  if(!OriginalHulk() || cameraFarPlaneScale<=1.0001f)return false;
+  auto* host=reinterpret_cast<BYTE*>(GetModuleHandleW(nullptr));
+  if(!host)return false;
+  auto* site=host+0x000AC728u;
+  // Verify both the store AND the following call to the resource parser.
+  // Do not overwrite an altered EXE, a conflicting plugin, or an unknown TU.
+  static constexpr BYTE expected[10] = {
+    0xF3,0x0F,0x11,0x46,0x40,0xE8,0x1C,0x53,0x0D,0x00
+  };
+  if(memcmp(site,expected,sizeof(expected))!=0) {
+    Log("[Camera] far-plane hook refused: unexpected original instruction bytes\r\n");
+    return false;
+  }
+  // This hook runs later from executable code. Pin the ASI to prevent a
+  // dinput8 loader unloading the destination while the game is running.
+  HMODULE pinned=nullptr;
+  if(!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                         GET_MODULE_HANDLE_EX_FLAG_PIN,
+      reinterpret_cast<LPCWSTR>(&CameraFarPlaneStoreHook),&pinned))
+    return false;
+  DWORD previousProtect=0;
+  if(!VirtualProtect(site,5,PAGE_EXECUTE_READWRITE,&previousProtect))
+    return false;
+  BYTE patch[5]{0xE8,0,0,0,0};
+  const DWORD target=static_cast<DWORD>(
+      reinterpret_cast<uintptr_t>(&CameraFarPlaneStoreHook));
+  const DWORD next=static_cast<DWORD>(reinterpret_cast<uintptr_t>(site+5));
+  const DWORD displacement=target-next; // E8 relative32, modulo 2^32 on x86.
+  memcpy(patch+1,&displacement,sizeof(displacement));
+  memcpy(site,patch,sizeof(patch));
+  FlushInstructionCache(GetCurrentProcess(),site,sizeof(patch));
+  DWORD unused=0;
+  const BOOL restored=VirtualProtect(site,5,previousProtect,&unused);
+  Log("[Camera] native PC CameraFarPlane store hooked at 004AC728, scale=%.3f protection_restored=%u\r\n",
+      static_cast<double>(cameraFarPlaneScale),static_cast<unsigned>(restored!=0));
+  return true;
+}
+#else
+bool InstallCameraFarPlaneHook() { return false; }
+#endif
+
 template<typename Fn> bool ReplaceVtable(void* object,size_t index,Fn hook,Fn& original) {
   if(!object)return false;
   auto** table=*reinterpret_cast<void***>(object);
@@ -216,6 +289,12 @@ HRESULT STDMETHODCALLTYPE OnSetTexture(IDirect3DDevice9*,DWORD,IDirect3DBaseText
 IDirect3D9* WINAPI OnCreate9(UINT sdk) {
   if(!realCreate9)return nullptr;
   LoadConfig();
+  if(cameraFarPlaneScale>1.0001f) {
+    std::call_once(cameraFarPlaneHookOnce, [] {
+      if(!InstallCameraFarPlaneHook())
+        Log("[Camera] far-plane scale not installed; leaving original camera unchanged\r\n");
+    });
+  }
   auto* api=realCreate9(sdk);
   if(api && ReplaceVtable(api,16,&OnCreateDevice,realCreateDevice))
     Log("[ASI] HULK.EXE x86; Direct3DCreate9 / CreateDevice hook installed\r\n");
