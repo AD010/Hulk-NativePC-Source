@@ -507,11 +507,16 @@ HRESULT STDMETHODCALLTYPE OnSampler(IDirect3DDevice9* dev,DWORD sampler,
     }
     return hr;
   }
-  // The engine can stop requesting linear MIN filtering without changing
-  // the bound texture. Retire our AF maximum at that transition too; otherwise
-  // MAXANISOTROPY remains modified until the next SetTexture or Reset.
-  // Do not consume the engine's MIN request if restoration fails.
+  // A rejected engine MIN request must not change the sampler's MAX state.
+  // Apply the requested MIN first, then retire our AF maximum only after
+  // D3D9 accepts that transition. Keep rollback ownership on restore failure.
   if(type==D3DSAMP_MINFILTER && sampler<16 && value!=D3DTEXF_LINEAR) {
+    const HRESULT minHr=realSampler(dev,sampler,type,value);
+    if(FAILED(minHr))return minHr;
+    {
+      std::lock_guard lock(mipMutex);
+      minLinearRequested[sampler]=false;
+    }
     bool overridden=false;
     DWORD originalMaximum=0;
     {std::lock_guard lock(mipMutex);
@@ -528,6 +533,7 @@ HRESULT STDMETHODCALLTYPE OnSampler(IDirect3DDevice9* dev,DWORD sampler,
             (unsigned long)sampler,(unsigned long)(unsigned int)restoreHr);
       }
     }
+    return minHr;
   }
   // Track only successful engine requests. Failed SetSamplerState calls must
   // not poison the remembered state used by the next SetTexture bind.
