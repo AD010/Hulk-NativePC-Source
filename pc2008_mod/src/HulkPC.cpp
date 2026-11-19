@@ -68,7 +68,8 @@ double sourceAspect = 4.0 / 3.0;
 // Optional native-PC engine camera far-clip experiment. The game's separate
 // LOD distances and shadow cascades are NOT changed by this setting.
 volatile float cameraFarPlaneScale = 1.0f;
-std::once_flag cameraFarPlaneHookOnce;
+std::mutex cameraFarPlaneHookMutex;
+bool cameraFarPlaneHookInstalled = false;
 
 bool OriginalHulk() noexcept {
   auto* dos=reinterpret_cast<const IMAGE_DOS_HEADER*>(GetModuleHandleW(nullptr));
@@ -288,15 +289,20 @@ HRESULT STDMETHODCALLTYPE OnVSConstants(IDirect3DDevice9*,UINT,const float*,UINT
 HRESULT STDMETHODCALLTYPE OnSampler(IDirect3DDevice9*,DWORD,D3DSAMPLERSTATETYPE,DWORD);
 HRESULT STDMETHODCALLTYPE OnSetTexture(IDirect3DDevice9*,DWORD,IDirect3DBaseTexture9*);
 
+// A failed early attempt must not permanently consume the only install chance:
+// the loader may not yet have finished preparing the original camera parser.
+// Serialize attempts from the loader worker and the first D3D9 initialization.
+void TryInstallCameraFarPlaneHook() {
+  std::lock_guard<std::mutex> lock(cameraFarPlaneHookMutex);
+  if(cameraFarPlaneHookInstalled || cameraFarPlaneScale<=1.0001f)return;
+  cameraFarPlaneHookInstalled=InstallCameraFarPlaneHook();
+  if(!cameraFarPlaneHookInstalled)
+    Log("[Camera] far-plane hook not installed; a later D3D9 attempt may retry\r\n");
+}
 IDirect3D9* WINAPI OnCreate9(UINT sdk) {
   if(!realCreate9)return nullptr;
   LoadConfig();
-  if(cameraFarPlaneScale>1.0001f) {
-    std::call_once(cameraFarPlaneHookOnce, [] {
-      if(!InstallCameraFarPlaneHook())
-        Log("[Camera] far-plane scale not installed; leaving original camera unchanged\r\n");
-    });
-  }
+  if(cameraFarPlaneScale>1.0001f) TryInstallCameraFarPlaneHook();
   auto* api=realCreate9(sdk);
   if(api && ReplaceVtable(api,16,&OnCreateDevice,realCreateDevice))
     Log("[ASI] HULK.EXE x86; Direct3DCreate9 / CreateDevice hook installed\r\n");
@@ -323,12 +329,7 @@ DWORD WINAPI TryLateHook(void* context) {
   // Install the independent camera hook as soon as the loader lock is gone,
   // rather than waiting for graphics-device initialization.
   LoadConfig();
-  if(cameraFarPlaneScale>1.0001f) {
-    std::call_once(cameraFarPlaneHookOnce, [] {
-      if(!InstallCameraFarPlaneHook())
-        Log("[Camera] far-plane scale not installed; leaving original camera unchanged\r\n");
-    });
-  }
+  if(cameraFarPlaneScale>1.0001f) TryInstallCameraFarPlaneHook();
   // Only retry the D3D9 IAT when the immediate attach-time attempt failed.
   // Never rewrite an import slot already owned by this ASI.
   if(context) {
