@@ -193,5 +193,25 @@ class NativeEorLinkCoverage(unittest.TestCase):
         self.assertIn("ci/eor_native_shader_constants_test.cpp", workflow)
 
 
+    def test_live_game_loads_matching_private_original_pass_and_shader_registers(self):
+        app = (ROOT / "native_port" / "src" / "incredible_hulk_app.h").read_text(encoding="utf-8")
+        for input_name in ("hulk_shader_bank.bin", "hulk_effect_ledger.bin",
+                           "hulk_shader_reflection.bin"):
+            self.assertIn(input_name, app)
+        self.assertIn("effects->Load(private_effects);", app)
+        self.assertIn("reflection->Load(private_reflection);", app)
+        self.assertIn("effects->ShaderCount() != bank->expected()", app)
+        self.assertIn("reflection->size() != bank->expected()", app)
+        # All private products must validate before they can be published as
+        # one coherent material/pass/shader set at actual game initialization.
+        self.assertLess(app.index("reflection->size() != bank->expected()"),
+                        app.index("eor_effects_ = std::move(effects);"))
+        self.assertLess(app.index("eor_reflection_ = std::move(reflection);"),
+                        app.index("eor_aot_ = std::move(bank);"))
+        self.assertIn("eor_reflection_.reset();", app)
+        self.assertIn("eor_effects_.reset();", app)
+        self.assertNotIn("ReplayAotScene(", app,
+                         "A bank without verified EoR draw ABI is NOT a real game frame")
+
 if __name__ == "__main__":
     unittest.main()

@@ -8,9 +8,12 @@
 #include <cstdlib>
 #include <filesystem>
 #include <memory>
+#include <stdexcept>
 
 #include "assets_locator.h"
 #include "eor_spirv_bank.h"
+#include "eor_effect_catalog.h"
+#include "eor_shader_reflection.h"
 #include "native_pc_save_path.h"
 #include "native_pc_save_format.h"
 #include "native_gpu_autodiag.h"
@@ -112,25 +115,65 @@ class IncredibleHulkApp : public rex::ReXApp {
         }
       }
     }
-    // Load a PRIVATE owner-generated XenosRecomp+DXC bank, if it exists.
-    // This validates bytecode and archive coverage but does not enable any
-    // native EoR Vulkan pipelines until real shader/resource bindings exist.
+    // Load only OWNER-generated original USA ShaderEffects inputs.
+    // Three independent source artifacts are needed by ReplayAotScene:
+    // SPIR-V source digests, actual effect/pass ownership, and full VS/PS
+    // constant layouts. Loading one does NOT authorize rendering.
+    // Existing private converters accept --private-output; the paths below
+    // are the local cache destinations, never files published in source.
     if (runtime()) {
-      const auto private_bank = runtime()->cache_root() / "eor_offline" /
-                                "hulk_shader_bank.bin";
+      const auto offline = runtime()->cache_root() / "eor_offline";
+      const auto private_bank = offline / "hulk_shader_bank.bin";
+      const auto private_effects = offline / "hulk_effect_ledger.bin";
+      const auto private_reflection = offline / "hulk_shader_reflection.bin";
       std::error_code error;
       if (std::filesystem::is_regular_file(private_bank, error) && !error) {
         try {
-          eor_aot_ = std::make_unique<hulk::eor::aot::ShaderBank>();
-          eor_aot_->Load(private_bank);
-          REXLOG_INFO("[HULK/EOR-AOT] validated private SPIR-V blobs={}/{} "
+          auto bank = std::make_unique<hulk::eor::aot::ShaderBank>();
+          bank->Load(private_bank);
+          const bool have_effects =
+              std::filesystem::is_regular_file(private_effects, error) && !error;
+          const bool have_reflection =
+              std::filesystem::is_regular_file(private_reflection, error) && !error;
+          if (have_effects && have_reflection) {
+            auto effects = std::make_unique<hulk::eor::aot::EffectCatalog>();
+            auto reflection = std::make_unique<hulk::eor::aot::ReflectionBank>();
+            effects->Load(private_effects);
+            reflection->Load(private_reflection);
+            // A partial compiled shader bank is useful for the FIRST
+            // verified draw, but its ORIGINAL archive identities must
+            // still equal both complete effect and reflection indexes.
+            if (!effects->EffectCount() ||
+                effects->ShaderCount() != bank->expected() ||
+                reflection->size() != bank->expected())
+              throw std::invalid_argument(
+                  "Original USA EoR effect/shader/reflection identity mismatch");
+            // Commit all verified dependencies together: no mixed generations
+            // of private ShaderEffects are allowed in a live material pass.
+            eor_effects_ = std::move(effects);
+            eor_reflection_ = std::move(reflection);
+            REXLOG_INFO("[HULK/EOR-AOT] original pass catalog={} "
+                        "shader identities={} reflection={} coherent; "
+                        "live engine Draw ownership and Vulkan not enabled",
+                        eor_effects_->EffectCount(), bank->expected(),
+                        eor_reflection_->size());
+          } else {
+            REXLOG_INFO("[HULK/EOR-AOT] private effect ledger/reflection "
+                        "absent; shader-only diagnostic, no native EoR Draw");
+          }
+          eor_aot_ = std::move(bank);
+          REXLOG_INFO("[HULK/EOR-AOT] verified private SPIR-V blobs={}/{} "
                       "archive_coverage={} driver_PSO=false",
                       eor_aot_->size(), eor_aot_->expected(),
                       eor_aot_->HasFullArchiveCoverage());
         } catch (const std::exception& e) {
+          // Atomic source generation: a broken new catalog must not leave
+          // stale shader/reflection identities eligible for GPU replay.
           eor_aot_.reset();
-          REXLOG_WARN("[HULK/EOR-AOT] rejected corrupt/incompatible private "
-                      "shader bank: {}", e.what());
+          eor_effects_.reset();
+          eor_reflection_.reset();
+          REXLOG_WARN("[HULK/EOR-AOT] rejected private EoR source pack: {}",
+                      e.what());
         }
       }
     }
@@ -168,7 +211,13 @@ class IncredibleHulkApp : public rex::ReXApp {
     });
     REXLOG_INFO("[HULK/PCMENU] NativePC UI registered; F10 opens controls and Exit");
   }
-  void OnShutdown() override { hulk::ReportAutomaticGpuDiagnostics(); eor_aot_.reset(); pc_menu_.reset(); }
+  void OnShutdown() override {
+    hulk::ReportAutomaticGpuDiagnostics();
+    eor_reflection_.reset();
+    eor_effects_.reset();
+    eor_aot_.reset();
+    pc_menu_.reset();
+  }
   // std::unique_ptr<rex::ui::ImGuiDialog> CreateAchievementsOverlay() override;
   // std::unique_ptr<rex::ui::AchievementNotificationDialog>
   // CreateAchievementNotificationDialog() override;
@@ -176,6 +225,8 @@ class IncredibleHulkApp : public rex::ReXApp {
   // void OnConfigurePaths(rex::PathConfig& paths) override {}
  private:
   std::unique_ptr<hulk::eor::aot::ShaderBank> eor_aot_;
+  std::unique_ptr<hulk::eor::aot::EffectCatalog> eor_effects_;
+  std::unique_ptr<hulk::eor::aot::ReflectionBank> eor_reflection_;
   std::filesystem::path native_pc_config_;
   std::unique_ptr<rex::ui::ImGuiDialog> pc_menu_;
 };
