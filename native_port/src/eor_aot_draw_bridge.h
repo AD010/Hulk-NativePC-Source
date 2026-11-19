@@ -26,6 +26,9 @@ struct BoundIndexedDraw {
   // Exact original MODELS.ARC mesh-header identity. A model hash alone
   // cannot distinguish meshes using different vertex/index layouts.
   size_t original_mesh_header_offset = SIZE_MAX;
+  // True ONLY after a verified original DrawVertices stream was checked
+  // against sequential decoded host triangle indices by the mesh matcher.
+  bool source_nonindexed_linearization_verified = false;
 };
 // Real original guest VS register values at the exact source Draw.
 // These are NOT automatically a Vulkan UBO or a 16:10 camera update:

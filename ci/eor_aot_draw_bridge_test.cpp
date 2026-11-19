@@ -254,6 +254,18 @@ int main(){
   wrong_kind.commands[2].function=wrong_kind.calls[0].function;
   wrong_kind.commands[2].gpr=wrong_kind.calls[0].gpr;
   RejectSourceMismatch(wrong_kind,capturedDraws);
+  // Upstream verified DrawVertices->sequential host index conversion is
+  // the ONLY permitted non-indexed-to-indexed submission. Preserve the
+  // existing mixed-primitive Vulkan path rather than dropping real objects.
+  auto linearized=capturedDraws;
+  linearized[0].source_nonindexed_linearization_verified=true;
+  Backend converted;
+  converted.accept_original_timeline=true;
+  ReplayAotScene(geometry,linearized,shaders,effects,reflection,
+                 converted,&wrong_kind);
+  assert(converted.begin==1 && converted.draw==1 &&
+         converted.composite==1);
+  RejectSourceMismatch(source_frame,linearized); // wrong source method
   auto wrong_host_count=capturedDraws;
   wrong_host_count[0].draw.index_count=9;
   RejectSourceMismatch(source_frame,wrong_host_count);

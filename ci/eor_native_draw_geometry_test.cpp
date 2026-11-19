@@ -294,7 +294,9 @@ int main(){
   assert(nativeMixed.size()==2 && nativeMixed[0].original_call_ordinal==0 &&
          nativeMixed[1].original_call_ordinal==1 &&
          nativeMixed[1].first_index==3 &&
-         nativeMixed[1].original_model_hash==0xCAFE);
+         nativeMixed[1].original_model_hash==0xCAFE &&
+         !nativeMixed[0].original_linear_draw_verified &&
+         nativeMixed[1].original_linear_draw_verified);
   auto invalidNonIndexed=nonindexed;
   invalidNonIndexed.host_first_vertex=2;
   mixed[1]=invalidNonIndexed;

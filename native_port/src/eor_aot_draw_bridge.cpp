@@ -7,16 +7,22 @@
 
 namespace hulk::eor::aot {
 namespace {
-// Original XDK DrawVertices/UP and DrawIndexedVertices cannot share the
-// same native indexed mesh submission. Count and guest device are the two
-// invariant fields after original model index-window rebasing; guest first
-// index/base vertex are NOT assumed equal to decoded host mesh offsets.
-bool MatchesOriginalIndexedXdkDraw(
-    const xdk::RawDraw& source,const native::IndexedDraw& host_draw) noexcept {
-  const auto call=xdk::DecodeOriginalIndexedXdkCall(source);
-  return call && host_draw.guest_vs_matrices &&
-         call->guest_device==host_draw.guest_vs_matrices->original_guest_device &&
-         call->index_count==host_draw.index_count;
+// Original DrawVertices is accepted as a host indexed draw ONLY if the
+// upstream EoR model/mesh matcher proved a sequential triangle-list window.
+// Host firstIndex/baseVertex can be rebased, but guest device and submitted
+// vertex/index COUNT remain invariant. DrawVerticesUP is never accepted.
+bool MatchesOriginalXdkDraw(
+    const xdk::RawDraw& source,const BoundIndexedDraw& host) noexcept {
+  const auto& draw=host.draw;
+  if(!draw.guest_vs_matrices)return false;
+  if(const auto indexed=xdk::DecodeOriginalIndexedXdkCall(source))
+    return !host.source_nonindexed_linearization_verified &&
+           indexed->guest_device==draw.guest_vs_matrices->original_guest_device &&
+           indexed->index_count==draw.index_count;
+  const auto vertices=xdk::DecodeOriginalVerticesXdkCall(source);
+  return vertices && host.source_nonindexed_linearization_verified &&
+         vertices->guest_device==draw.guest_vs_matrices->original_guest_device &&
+         vertices->vertex_count==draw.index_count;
 }
 class ForwardingBackend final : public native::Backend {
  public:
@@ -298,12 +304,12 @@ void ReplayAotScene(const native::FrameGeometry& frame,
        source.calls.size()!=draws.size())
       throw std::invalid_argument(
           "Incomplete original Xbox XDK command timeline for native GPU");
-    // One-to-one, SAME USA XDK indexed call provenance. A non-indexed
-    // DrawVertices/UP or a different guest device/count must never become a
-    // host indexed Draw simply because the ordinal or shader bank matches.
+    // One-to-one SAME USA call provenance. An original DrawVertices
+    // requires prior source-verified sequential host-index linearization;
+    // DrawVerticesUP, wrong device or count cannot substitute a host Draw.
     // Validate all call pairs BEFORE GPU-side-effect eligibility checks.
     for(size_t i=0;i<draws.size();++i)
-      if(!MatchesOriginalIndexedXdkDraw(source.calls[i],draws[i].draw))
+      if(!MatchesOriginalXdkDraw(source.calls[i],draws[i]))
         throw std::invalid_argument(
             "Native indexed EoR Draw disagrees with the original USA XDK call");
     if(!backend.CanReplayOriginalXdkTimeline(source))

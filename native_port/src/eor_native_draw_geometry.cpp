@@ -90,6 +90,8 @@ std::vector<aot::BoundIndexedDraw> BindVerifiedGeometryDraws(
     // Preserve the authenticated source mesh even when other surfaces
     // in this same model reuse its material effect and shader pair.
     item.original_mesh_header_offset = src.original_mesh_header_offset;
+    item.source_nonindexed_linearization_verified =
+        src.original_linear_draw_verified;
     out.push_back(std::move(item));
   }
   return out;
@@ -128,6 +130,7 @@ std::vector<VerifiedDrawSource> MatchCapturedXdkDraws(
     // The original Xbox XDK index offset/baseVertex are from guest streams.
     // The host mesh has its OWN rebased indexed geometry and vertex origin.
     auto tagged=original;
+    tagged.original_linear_draw_verified=false; // indexed source method
     tagged.original_frame_sequence=frame.sequence;
     tagged.original_call_ordinal=static_cast<uint32_t>(i);
     tagged.original_vs_matrices=frame.calls[i].observed_vs_matrices;
@@ -358,6 +361,9 @@ std::vector<VerifiedDrawSource> MatchCapturedMixedDraws(
         if(int64_t(mesh->host_indices[source.first_index+j])+
            source.host_base_vertex!=int64_t(input.host_first_vertex)+j)
           throw std::invalid_argument("Original DrawVertices is not sequential host triangle-list geometry");
+      // Only this validated non-indexed conversion may be replayed through
+      // the indexed Vulkan API; a same-ordinal forged host Draw is rejected.
+      source.original_linear_draw_verified=true;
     }
     source.original_frame_sequence=frame.sequence;
     source.original_call_ordinal=static_cast<uint32_t>(i);

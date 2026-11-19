@@ -42,6 +42,9 @@ struct VerifiedDrawSource {
   bool mesh_material_verified = false;
   bool host_vertex_layout_verified = false;
   bool render_state_verified = false;
+  // Set only by MatchCapturedMixedDraws after proving original DrawVertices
+  // is a sequential indexed host mesh window with an exact guest owner.
+  bool original_linear_draw_verified = false;
   // Real guest material/fetch mapping supplied by a separately audited EoR
   // engine Draw, never inferred from adjacent textures in MODELS.ARC.
   std::vector<gpu::VerifiedEorSampler> original_sampler_slots;
