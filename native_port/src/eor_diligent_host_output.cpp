@@ -55,12 +55,26 @@ bool DiligentEorHostOutput::CompositeAndPresent(
      !native::HasFullNativeCompositePixels(
          {original.Width,original.Height},dest,output))
     return false;
+  // Keep the swapchain RTV detached on every exit, including exceptions
+  // raised by the blitter or Present during a resize/device-loss transition.
+  bool rtv_bound=false;
+  const auto detach=[&]() noexcept {
+    if(!rtv_bound)return;
+    try {
+      context->SetRenderTargets(0,nullptr,nullptr,
+          Diligent::RESOURCE_STATE_TRANSITION_MODE_NONE);
+    } catch (...) {
+      // Device loss may prevent detachment; do not issue Present afterwards.
+    }
+    rtv_bound=false;
+  };
   try {
     // Only a full native source may reach the host. HUD/camera provenance
     // must be verified earlier, not hidden behind black-bar margins.
     auto* rtv=target;
     context->SetRenderTargets(
         1,&rtv,nullptr,Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+    rtv_bound=true;
     // The validated source covers every physical backbuffer pixel.
     // Do not clear the swapchain before the exact-size copy: a redundant
     // full-screen GPU write wastes bandwidth on every destruction-heavy
@@ -78,14 +92,16 @@ bool DiligentEorHostOutput::CompositeAndPresent(
     // Release the swapchain RTV before Present/resize. Otherwise the
     // context can retain a reference to the outgoing backbuffer across a
     // window resize, even though the source EoR scene has already resolved.
-    context->SetRenderTargets(0,nullptr,nullptr,
-        Diligent::RESOURCE_STATE_TRANSITION_MODE_NONE);
+    detach();
     // The same sole host Vulkan device owns both the source EoR scene and
     // output swapchain. No PM4 copy, Xenos EDRAM or competing VkSurface.
     device_->Present();
     ++presented_;
     return true;
-  } catch (...) {return false;}
+  } catch (...) {
+    detach();
+    return false;
+  }
 }
 NativeEorCompositeOutput BindNativeEorVulkanPresentation(
     DiligentEorHostOutput& host) {
