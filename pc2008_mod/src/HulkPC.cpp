@@ -582,7 +582,22 @@ HRESULT STDMETHODCALLTYPE OnSampler(IDirect3DDevice9* dev,DWORD sampler,
               }
               return D3D_OK;
             }
-            realSampler(dev,sampler,D3DSAMP_MAXANISOTROPY,previousMaximum);
+            const HRESULT rollbackHr=realSampler(
+                dev,sampler,D3DSAMP_MAXANISOTROPY,previousMaximum);
+            if(FAILED(rollbackHr)) {
+              // The driver's MAX state may still be our forced value.
+              // Retain the original game maximum for a later texture/MIN
+              // transition rather than silently losing rollback ownership.
+              {
+                std::lock_guard lock(mipMutex);
+                if(!afMaximumOverridden[sampler]) {
+                  afOriginalMaximum[sampler]=previousMaximum;
+                  afMaximumOverridden[sampler]=true;
+                }
+              }
+              Log("[D3D9] AF maximum rollback after rejected MIN failed stage=%lu hr=0x%08lX\r\n",
+                  (unsigned long)sampler,(unsigned long)(unsigned int)rollbackHr);
+            }
           }
         }
       }
