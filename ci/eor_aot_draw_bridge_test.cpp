@@ -188,11 +188,11 @@ int main(){
   // must be replayed in ORDER on the same backend. The previous bridge
   // silently discarded every non-Draw XDK GPU command.
   xdk::RawDraw real_call{xdk::Kind::DrawIndexedVertices,
-       0x8288E318u,0x8263BF50u,{3,4,5,6,7,8,9,10}};
+       0x8288E318u,0x8263BF50u,{0x40002880u,4,0,0,12,0,0,0}};
   xdk::RawCommand rt{xdk::CommandKind::SetRenderTarget,
-       0x8287F2C0u,0x8263A000u,{3,0,0x82001234u,0,0,0,0,0}};
+       0x8287F2C0u,0x8263A000u,{0x40002880u,0,0x82001234u,0,0,0,0,0}};
   xdk::RawCommand clr{xdk::CommandKind::ClearF,
-       0x82888C40u,0x8263A004u,{3,1,0,0x82002000u,0,0,0,0}};
+       0x82888C40u,0x8263A004u,{0x40002880u,1,0,0x82002000u,0,0,0,0}};
   clr.captured_clear=xdk::OriginalXdkClearF{};
   clr.captured_clear->flags=1;
   clr.captured_clear->has_color=true;
@@ -200,9 +200,9 @@ int main(){
   xdk::RawCommand original_draw{xdk::CommandKind::DrawIndexedVertices,
        real_call.function,real_call.lr,real_call.gpr,0u};
   xdk::RawCommand resolve{xdk::CommandKind::Resolve,
-       0x828897F8u,0x8263A008u,{3,1,0,0x82003000u,0,0,0,0}};
+       0x828897F8u,0x8263A008u,{0x40002880u,1,0,0x82003000u,0,0,0,0}};
   xdk::RawCommand present{xdk::CommandKind::Present,
-       0x82880778u,0x8263A00Cu,{3,0x82004000u,0,0,0,0,0,0}};
+       0x82880778u,0x8263A00Cu,{0x40002880u,0x82004000u,0,0,0,0,0,0}};
   xdk::Frame source_frame{};
   source_frame.sequence=17;
   source_frame.calls={real_call};
@@ -221,6 +221,42 @@ int main(){
                 xdk::CommandKind::ClearF,
                 xdk::CommandKind::Resolve,
                 xdk::CommandKind::Present}));
+  // A host indexed Draw MUST correspond to the same original USA indexed
+  // XDK call, not merely a matching ordinal or shader pair. The host mesh
+  // offsets can be rebased, but index COUNT and guest device cannot.
+  auto RejectSourceMismatch=[&](const xdk::Frame& candidate,
+                                const std::vector<BoundIndexedDraw>& host) {
+    assert(xdk::ValidateOriginalCommandTimeline(candidate));
+    Backend rejected;
+    rejected.accept_original_timeline=true;
+    bool refused=false;
+    try {ReplayAotScene(geometry,host,shaders,effects,reflection,
+                        rejected,&candidate);}
+    catch(const std::invalid_argument&) {refused=true;}
+    assert(refused && rejected.preflights==0 && rejected.begin==0 &&
+           rejected.draw==0 && rejected.original_gpu_commands.empty());
+  };
+  auto wrong_count=source_frame;
+  wrong_count.calls[0].gpr[4]=9;
+  wrong_count.commands[2].gpr=wrong_count.calls[0].gpr;
+  RejectSourceMismatch(wrong_count,capturedDraws);
+  auto wrong_device=source_frame;
+  wrong_device.calls[0].gpr[0]=0x40002884u;
+  wrong_device.commands[2].gpr=wrong_device.calls[0].gpr;
+  RejectSourceMismatch(wrong_device,capturedDraws);
+  auto wrong_kind=source_frame;
+  wrong_kind.calls[0].kind=xdk::Kind::DrawVertices;
+  wrong_kind.calls[0].function=0x8288DF30u;
+  wrong_kind.calls[0].gpr[2]=0; // DrawVertices first vertex
+  wrong_kind.calls[0].gpr[3]=12; // DrawVertices vertex count
+  wrong_kind.calls[0].gpr[4]=0; // no indexed count
+  wrong_kind.commands[2].kind=xdk::CommandKind::DrawVertices;
+  wrong_kind.commands[2].function=wrong_kind.calls[0].function;
+  wrong_kind.commands[2].gpr=wrong_kind.calls[0].gpr;
+  RejectSourceMismatch(wrong_kind,capturedDraws);
+  auto wrong_host_count=capturedDraws;
+  wrong_host_count[0].draw.index_count=9;
+  RejectSourceMismatch(source_frame,wrong_host_count);
   // A rejected source Present must abort the scene without presenting
   // the host swapchain, even after a successful Draw and Resolve.
   Backend terminal_rejected;

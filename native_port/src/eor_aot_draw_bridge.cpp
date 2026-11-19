@@ -7,6 +7,17 @@
 
 namespace hulk::eor::aot {
 namespace {
+// Original XDK DrawVertices/UP and DrawIndexedVertices cannot share the
+// same native indexed mesh submission. Count and guest device are the two
+// invariant fields after original model index-window rebasing; guest first
+// index/base vertex are NOT assumed equal to decoded host mesh offsets.
+bool MatchesOriginalIndexedXdkDraw(
+    const xdk::RawDraw& source,const native::IndexedDraw& host_draw) noexcept {
+  const auto call=xdk::DecodeOriginalIndexedXdkCall(source);
+  return call && host_draw.guest_vs_matrices &&
+         call->guest_device==host_draw.guest_vs_matrices->original_guest_device &&
+         call->index_count==host_draw.index_count;
+}
 class ForwardingBackend final : public native::Backend {
  public:
   ForwardingBackend(std::span<const BoundIndexedDraw> draws,
@@ -284,8 +295,18 @@ void ReplayAotScene(const native::FrameGeometry& frame,
     const auto& source=*exact_original_timeline;
     if(!xdk::ValidateOriginalCommandTimeline(source) ||
        !captured_source || captured_frame!=source.sequence ||
-       source.calls.size()!=draws.size() ||
-       !backend.CanReplayOriginalXdkTimeline(source))
+       source.calls.size()!=draws.size())
+      throw std::invalid_argument(
+          "Incomplete original Xbox XDK command timeline for native GPU");
+    // One-to-one, SAME USA XDK indexed call provenance. A non-indexed
+    // DrawVertices/UP or a different guest device/count must never become a
+    // host indexed Draw simply because the ordinal or shader bank matches.
+    // Validate all call pairs BEFORE GPU-side-effect eligibility checks.
+    for(size_t i=0;i<draws.size();++i)
+      if(!MatchesOriginalIndexedXdkDraw(source.calls[i],draws[i].draw))
+        throw std::invalid_argument(
+            "Native indexed EoR Draw disagrees with the original USA XDK call");
+    if(!backend.CanReplayOriginalXdkTimeline(source))
       throw std::invalid_argument(
           "Incomplete original Xbox XDK command timeline for native GPU");
     for(const auto& event:source.commands)
