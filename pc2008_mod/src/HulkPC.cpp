@@ -591,21 +591,23 @@ HRESULT STDMETHODCALLTYPE OnVSConstants(IDirect3DDevice9* dev,UINT reg,
   const double scale=sourceAspect/(double(vp.Width)/vp.Height);
   if(!std::isfinite(scale)||scale<0.6||scale>1.8||
      std::abs(scale-1.0)<0.0001)return realVSConst(dev,reg,data,count);
-  try {
-    std::vector<float> changed(data,data+size_t(count)*4);
-    // CTAB class 3 is D3DXPC_MATRIX_COLUMNS: four consecutive constant
-    // registers contain the four *columns* of ViewProj. Horizontal clip
-    // scaling modifies row X (component 0) of EACH column, not all four
-    // components of the first column. The latter corrupts Y/Z/W and can
-    // distort depth, clipping, and the apparent camera perspective.
-    const uint64_t overlapBegin=std::max(writeBegin,matrixBegin);
-    const uint64_t overlapEnd=std::min(writeEnd,matrixEnd);
-    for(uint64_t column=overlapBegin;column<overlapEnd;++column) {
-      const size_t xComponent=size_t(column-writeBegin)*4;
-      changed[xComponent]=float(changed[xComponent]*scale);
-    }
-    return realVSConst(dev,reg,changed.data(),count);
-  } catch(...) {return realVSConst(dev,reg,data,count);}
+  // This is a per-draw hot path. The validated D3D9 upload is at most
+  // 256 float4 registers (4096 bytes), so avoid heap allocation, exception
+  // handling and allocator contention on every camera constant update.
+  float changed[256*4];
+  memcpy(changed,data,size_t(count)*4*sizeof(float));
+  // CTAB class 3 is D3DXPC_MATRIX_COLUMNS: four consecutive constant
+  // registers contain the four *columns* of ViewProj. Horizontal clip
+  // scaling modifies row X (component 0) of EACH column, not all four
+  // components of the first column. The latter corrupts Y/Z/W and can
+  // distort depth, clipping, and the apparent camera perspective.
+  const uint64_t overlapBegin=std::max(writeBegin,matrixBegin);
+  const uint64_t overlapEnd=std::min(writeEnd,matrixEnd);
+  for(uint64_t column=overlapBegin;column<overlapEnd;++column) {
+    const size_t xComponent=size_t(column-writeBegin)*4;
+    changed[xComponent]=float(changed[xComponent]*scale);
+  }
+  return realVSConst(dev,reg,changed,count);
 }
 HRESULT STDMETHODCALLTYPE OnSetTexture(IDirect3DDevice9* dev,DWORD stage,
                                        IDirect3DBaseTexture9* texture) {
