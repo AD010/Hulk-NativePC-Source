@@ -72,11 +72,20 @@ class ForwardingBackend final : public native::Backend {
   bool Composite(native::Rect rect,native::Size size) override {
     if(position_!=draws_.size())
       throw std::logic_error("Incomplete source shader-paired Draw sequence");
-    if(!target_.Composite(rect,size))return false;
-    if(!source_)return true;
-    const auto& terminal=source_->commands[cursor_++];
-    return target_.ReplayOriginalXdkCommand(terminal) &&
-           cursor_==source_->commands.size();
+    if(source_) {
+      // The terminal Present is part of the original source chronology.
+      // Never expose the host frame before its source command succeeds.
+      if(cursor_>=source_->commands.size() ||
+         cursor_+1!=source_->commands.size())
+        return false;
+      const auto& terminal=source_->commands[cursor_];
+      if(terminal.kind!=xdk::CommandKind::Present ||
+         terminal.draw_ordinal!=UINT32_MAX ||
+         !target_.ReplayOriginalXdkCommand(terminal))
+        return false;
+      ++cursor_;
+    }
+    return target_.Composite(rect,size);
   }
  private:
   bool ReplayBeforeDraw(const native::IndexedDraw& draw) {
