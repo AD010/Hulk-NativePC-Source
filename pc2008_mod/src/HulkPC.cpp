@@ -65,6 +65,9 @@ DWORD mipLinearCaps2D = 0, mipLinearCapsCube = 0, mipLinearCapsVolume = 0;
 DWORD anisotropicCaps2D = 0, anisotropicCapsCube = 0, anisotropicCapsVolume = 0;
 uint32_t width = 0, height = 0, anisotropy = 0, maxAnisotropy = 1;
 double sourceAspect = 4.0 / 3.0;
+// D3D9's hFocusWindow can differ from the actual device presentation window.
+// Track the effective hDeviceWindow for accurate client/backbuffer diagnostics.
+std::atomic<HWND> presentationWindow{nullptr};
 // Optional native-PC engine camera far-clip experiment. The game's separate
 // LOD distances and shadow cascades are NOT changed by this setting.
 volatile float cameraFarPlaneScale = 1.0f;
@@ -365,6 +368,10 @@ HRESULT STDMETHODCALLTYPE OnCreateDevice(IDirect3D9* api,UINT adapter,
     if(FAILED(hr)) *pp=original;
   }
   if(SUCCEEDED(hr) && *result) {
+    // A successful fallback may have changed hDeviceWindow. Record the
+    // effective presentation HWND, not the application's focus HWND.
+    presentationWindow.store(pp->hDeviceWindow ? pp->hDeviceWindow : window,
+                             std::memory_order_release);
     // A new device starts with fresh sampler state. Never replay requests
     // recorded for a previous device after a CreateDevice/recreate cycle.
     {std::lock_guard lock(mipMutex);
@@ -440,6 +447,8 @@ HRESULT STDMETHODCALLTYPE OnReset(IDirect3DDevice9* dev,D3DPRESENT_PARAMETERS* p
         (unsigned long)(unsigned int)firstHr,(unsigned long)(unsigned int)hr);
   }
   if(SUCCEEDED(hr)) {
+    if(pp && pp->hDeviceWindow)
+      presentationWindow.store(pp->hDeviceWindow,std::memory_order_release);
     {std::lock_guard lock(shaderMutex);activeVS=nullptr;}
     {std::lock_guard lock(mipMutex);
      std::fill_n(mipPointRequested,16,false);
@@ -477,10 +486,17 @@ HRESULT STDMETHODCALLTYPE OnPresent(IDirect3DDevice9* dev,const RECT* a,
         }
         back->Release();
       }
-      D3DDEVICE_CREATION_PARAMETERS creation{};
-      if(SUCCEEDED(dev->GetCreationParameters(&creation)) && creation.hFocusWindow) {
+      // Prefer the actual presentation HWND; the focus window can be a
+      // separate hidden/owner window and report misleading 4:3 dimensions.
+      HWND clientWindow=presentationWindow.load(std::memory_order_acquire);
+      if(!clientWindow) {
+        D3DDEVICE_CREATION_PARAMETERS creation{};
+        if(SUCCEEDED(dev->GetCreationParameters(&creation)))
+          clientWindow=creation.hFocusWindow;
+      }
+      if(clientWindow && IsWindow(clientWindow)) {
         RECT client{};
-        if(GetClientRect(creation.hFocusWindow,&client)) {
+        if(GetClientRect(clientWindow,&client)) {
           clientWidth=UINT(client.right-client.left);
           clientHeight=UINT(client.bottom-client.top);
         }
