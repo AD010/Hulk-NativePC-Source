@@ -515,7 +515,7 @@ HRESULT STDMETHODCALLTYPE OnSampler(IDirect3DDevice9* dev,DWORD sampler,
         std::lock_guard lock(mipMutex);
         afMaximumOverridden[sampler]=false;
       } else {
-        Log("[D3D9] AF maximum restore on MIN change failed stage=%lu hr=0x%08lX\\r\\n",
+        Log("[D3D9] AF maximum restore on MIN change failed stage=%lu hr=0x%08lX\r\n",
             (unsigned long)sampler,(unsigned long)(unsigned int)restoreHr);
       }
     }
