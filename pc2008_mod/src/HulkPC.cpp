@@ -165,12 +165,14 @@ void Log(const char* fmt,...) {
 // The original XMM0, all GPRs, EFLAGS and the stack are preserved.
 __declspec(naked) void CameraFarPlaneStoreHook() {
   __asm {
+    pushfd
     sub esp, 4
     movss dword ptr [esp], xmm0
     mulss xmm0, dword ptr [cameraFarPlaneScale]
     movss dword ptr [esi+0x40], xmm0
     movss xmm0, dword ptr [esp]
     add esp, 4
+    popfd
     ret
   }
 }
@@ -343,6 +345,9 @@ HRESULT STDMETHODCALLTYPE OnCreateDevice(IDirect3D9* api,UINT adapter,
     *pp=original;
     if(result)*result=nullptr;
     hr=realCreateDevice(api,adapter,type,window,flags,pp,result);
+    // Some D3D9 implementations mutate pp even when both attempts fail.
+    // Never leak a failed forced mode or driver-written garbage to the host.
+    if(FAILED(hr)) *pp=original;
   }
   if(SUCCEEDED(hr) && *result) {
     // A new device starts with fresh sampler state. Never replay requests
@@ -412,6 +417,10 @@ HRESULT STDMETHODCALLTYPE OnReset(IDirect3DDevice9* dev,D3DPRESENT_PARAMETERS* p
   if(FAILED(hr) && changed) {
     *pp=original;
     hr=realReset(dev,pp);
+    // Reset may rewrite the presentation parameters even on failure.
+    // Restore the exact host request when neither the forced mode nor
+    // its unmodified fallback was accepted.
+    if(FAILED(hr)) *pp=original;
     Log("[D3D9] Reset forced mode failed hr=0x%08lX; original retry hr=0x%08lX\r\n",
         (unsigned long)(unsigned int)firstHr,(unsigned long)(unsigned int)hr);
   }
