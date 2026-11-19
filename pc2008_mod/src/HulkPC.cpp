@@ -44,6 +44,9 @@ SetTextureFn realSetTexture{};
 std::mutex mipMutex;
 bool mipPointRequested[16]{};
 bool minLinearRequested[16]{};
+// Restore the game's sampler maximum when an AF override leaves its texture.
+bool afMaximumOverridden[16]{};
+DWORD afOriginalMaximum[16]{};
 struct ShaderInfo {
   UINT view = 0, world = 0;
   WORD matrixClass = 0;
@@ -267,7 +270,8 @@ HRESULT STDMETHODCALLTYPE OnCreateDevice(IDirect3D9* api,UINT adapter,
     // recorded for a previous device after a CreateDevice/recreate cycle.
     {std::lock_guard lock(mipMutex);
      std::fill_n(mipPointRequested,16,false);
-     std::fill_n(minLinearRequested,16,false);}
+     std::fill_n(minLinearRequested,16,false);
+     std::fill_n(afMaximumOverridden,16,false);}
     // A recreated device can reuse a shader pointer address. Never let
     // stale CTAB reflection from the old device affect a new shader or HUD.
     // Do not clear on Reset: D3D9 shader objects can survive that operation.
@@ -336,7 +340,8 @@ HRESULT STDMETHODCALLTYPE OnReset(IDirect3DDevice9* dev,D3DPRESENT_PARAMETERS* p
     {std::lock_guard lock(shaderMutex);activeVS=nullptr;}
     {std::lock_guard lock(mipMutex);
      std::fill_n(mipPointRequested,16,false);
-     std::fill_n(minLinearRequested,16,false);}
+     std::fill_n(minLinearRequested,16,false);
+     std::fill_n(afMaximumOverridden,16,false);}
   }
   if(pp)Log("[D3D9] Reset %ux%u windowed=%u hr=0x%08lX\r\n",
             pp->BackBufferWidth,pp->BackBufferHeight,
@@ -441,10 +446,18 @@ HRESULT STDMETHODCALLTYPE OnSetTexture(IDirect3DDevice9* dev,DWORD stage,
   if(!realSetTexture)return D3DERR_INVALIDCALL;
   const HRESULT hr=realSetTexture(dev,stage,texture);
   if(SUCCEEDED(hr) && stage<16 && realSampler) {
-    bool point=false,linear=false;
+    bool point=false,linear=false,restoreMaximum=false;
+    DWORD originalMaximum=0;
     {std::lock_guard lock(mipMutex);
      point=mipPointRequested[stage];
-     linear=minLinearRequested[stage];}
+     linear=minLinearRequested[stage];
+     restoreMaximum=afMaximumOverridden[stage];
+     originalMaximum=afOriginalMaximum[stage];
+     afMaximumOverridden[stage]=false;}
+    // The old texture may have received a forced AF maximum. Return to the
+    // game's value before evaluating the newly bound texture's capabilities.
+    if(restoreMaximum)
+      realSampler(dev,stage,D3DSAMP_MAXANISOTROPY,originalMaximum);
     // Reapply after binding: capability checks depend on the bound texture.
     // This also restores the game's LINEAR min filter when the next texture
     // cannot use the anisotropic override from a previous texture.
@@ -467,6 +480,15 @@ HRESULT STDMETHODCALLTYPE OnSetTexture(IDirect3DDevice9* dev,DWORD stage,
 HRESULT STDMETHODCALLTYPE OnSampler(IDirect3DDevice9* dev,DWORD sampler,
                                     D3DSAMPLERSTATETYPE type,DWORD value) {
   if(!realSampler)return D3DERR_INVALIDCALL;
+  // An explicit engine MAX request supersedes any saved AF restoration.
+  if(type==D3DSAMP_MAXANISOTROPY && sampler<16) {
+    const HRESULT hr=realSampler(dev,sampler,type,value);
+    if(SUCCEEDED(hr)) {
+      std::lock_guard lock(mipMutex);
+      afMaximumOverridden[sampler]=false;
+    }
+    return hr;
+  }
   // Track only successful engine requests. Failed SetSamplerState calls must
   // not poison the remembered state used by the next SetTexture bind.
   const bool trackMip=type==D3DSAMP_MIPFILTER && sampler<16;
@@ -523,6 +545,10 @@ HRESULT STDMETHODCALLTYPE OnSampler(IDirect3DDevice9* dev,DWORD sampler,
             if(SUCCEEDED(realSampler(dev,sampler,type,D3DTEXF_ANISOTROPIC))) {
               std::lock_guard lock(mipMutex);
               minLinearRequested[sampler]=true;
+              if(!afMaximumOverridden[sampler]) {
+                afOriginalMaximum[sampler]=previousMaximum;
+                afMaximumOverridden[sampler]=true;
+              }
               return D3D_OK;
             }
             realSampler(dev,sampler,D3DSAMP_MAXANISOTROPY,previousMaximum);
