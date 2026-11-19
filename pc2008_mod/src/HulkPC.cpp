@@ -128,13 +128,24 @@ void LoadConfig() {
       sourceAspect=aspect;
     // Keep Visual Studio Win32 ASI consistent with the freestanding x86
     // HulkPC.asi distributed in the DXVK 16:10 source package.
-    const UINT baseNumerator=GetPrivateProfileIntW(
-        L"Graphics",L"BaseAspectNumerator",4,ini);
-    const UINT baseDenominator=GetPrivateProfileIntW(
-        L"Graphics",L"BaseAspectDenominator",3,ini);
-    if(baseNumerator>=3 && baseNumerator<=64 &&
-       baseDenominator>=3 && baseDenominator<=64)
-      sourceAspect=double(baseNumerator)/double(baseDenominator);
+    // The legacy integer aspect pair is optional. Do not silently override
+    // a user-supplied SourceAspect with implicit default 4:3 values.
+    wchar_t numeratorText[32]{}, denominatorText[32]{};
+    const DWORD numeratorLength=GetPrivateProfileStringW(
+        L"Graphics",L"BaseAspectNumerator",L"",numeratorText,32,ini);
+    const DWORD denominatorLength=GetPrivateProfileStringW(
+        L"Graphics",L"BaseAspectDenominator",L"",denominatorText,32,ini);
+    if(numeratorLength && denominatorLength) {
+      wchar_t* numeratorEnd=nullptr;
+      wchar_t* denominatorEnd=nullptr;
+      const unsigned long numerator=wcstoul(numeratorText,&numeratorEnd,10);
+      const unsigned long denominator=wcstoul(denominatorText,&denominatorEnd,10);
+      if(numeratorEnd!=numeratorText && *numeratorEnd==L'\0' &&
+         denominatorEnd!=denominatorText && *denominatorEnd==L'\0' &&
+         numerator>=3 && numerator<=64 &&
+         denominator>=3 && denominator<=64)
+        sourceAspect=double(numerator)/double(denominator);
+    }
     wchar_t farScaleText[48]{};
     GetPrivateProfileStringW(L"Graphics",L"ExperimentalCameraFarPlaneScale",
                              L"1.0",farScaleText,48,ini);
