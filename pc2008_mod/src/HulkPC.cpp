@@ -570,6 +570,19 @@ HRESULT STDMETHODCALLTYPE OnVSConstants(IDirect3DDevice9* dev,UINT reg,
   D3DVIEWPORT9 vp{};
   if(FAILED(dev->GetViewport(&vp))||!vp.Width||!vp.Height)
     return realVSConst(dev,reg,data,count);
+  // Never infer a camera aspect from a HUD/minimap or partial viewport.
+  // In particular, applying the 16:10 scale to a 4:3 UI viewport can
+  // distort menu geometry even when its shader happens to expose ViewProj.
+  // Only modify a full-target viewport; unknown targets fail closed.
+  IDirect3DSurface9* renderTarget=nullptr;
+  if(FAILED(dev->GetRenderTarget(0,&renderTarget)) || !renderTarget)
+    return realVSConst(dev,reg,data,count);
+  D3DSURFACE_DESC targetDesc{};
+  const HRESULT descHr=renderTarget->GetDesc(&targetDesc);
+  renderTarget->Release();
+  if(FAILED(descHr) || vp.X!=0 || vp.Y!=0 ||
+     vp.Width!=targetDesc.Width || vp.Height!=targetDesc.Height)
+    return realVSConst(dev,reg,data,count);
   const double scale=sourceAspect/(double(vp.Width)/vp.Height);
   if(!std::isfinite(scale)||scale<0.6||scale>1.8||
      std::abs(scale-1.0)<0.0001)return realVSConst(dev,reg,data,count);
