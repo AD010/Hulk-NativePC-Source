@@ -120,6 +120,16 @@ void ReplayCapturedResourceScene(
     std::span<const model::UploadedOriginalModel* const> residents,
     const aot::ShaderBank& shaders,const aot::EffectCatalog& effects,
     const aot::ReflectionBank& reflection,aot::ShaderBindingBackend& gpu);
+// Exact original Present mailbox -> native EoR draw/material/shader/host GPU.
+// This does not manufacture source owners and rejects any dropped frames;
+// caller MUST already own one verified Vulkan device/swapchain/presenter.
+void ReplayDeliveredResourceScene(
+    const xdk::DeliveredFrame& delivered,
+    std::span<const VerifiedXdkResourceWitness> original_witnesses,
+    const FrameGeometry& output,
+    std::span<const model::UploadedOriginalModel* const> residents,
+    const aot::ShaderBank& shaders,const aot::EffectCatalog& effects,
+    const aot::ReflectionBank& reflection,aot::ShaderBindingBackend& gpu);
 std::vector<VerifiedDrawSource> MatchCapturedMixedDraws(
     const xdk::Frame& frame,
     std::span<const VerifiedXdkDrawSubmission> source_verified,

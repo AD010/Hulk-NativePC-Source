@@ -379,6 +379,32 @@ int main(){
          indexedGpu.begins==1 && indexedGpu.draws==1 &&
          indexedGpu.resolves==1 && indexedGpu.composites==1 &&
          indexedGpu.aborts==0);
+  // The REAL hook publishes a completed guest Present frame to this
+  // one-slot mailbox; the owner-verified host bridge consumes it once.
+  xdk::CompletedFrameMailbox mailbox;
+  mailbox.Publish(exactTimeline);
+  auto delivered=mailbox.Take();
+  assert(delivered && delivered->overwritten_since_take==0);
+  TimelineGpu directGpu;
+  native::ReplayDeliveredResourceScene(
+      *delivered,catalog,nativeFrame,models,minimalShaders,effects,
+      minimalReflection,directGpu);
+  assert(directGpu.begins==1 && directGpu.draws==1 &&
+         directGpu.resolves==1 && directGpu.composites==1 &&
+         directGpu.events==sourceGpuSequence);
+  // A destroyed/late original frame is NOT eligible for host Present.
+  mailbox.Publish(exactTimeline);
+  auto nextOriginal=exactTimeline;
+  nextOriginal.sequence=18;
+  mailbox.Publish(nextOriginal);
+  delivered=mailbox.Take();
+  assert(delivered && delivered->overwritten_since_take==1);
+  TimelineGpu missedGpu;
+  Reject([&]{native::ReplayDeliveredResourceScene(
+      *delivered,catalog,nativeFrame,models,minimalShaders,effects,
+      minimalReflection,missedGpu);});
+  assert(missedGpu.begins==0 && missedGpu.draws==0 &&
+         missedGpu.composites==0);
   std::vector<native::VerifiedXdkDrawSubmission> oneMixed{indexedProven};
   TimelineGpu mixedGpu;
   native::ReplayCapturedMixedScene(

@@ -81,6 +81,20 @@ std::optional<DeliveredFrame> TakeCompletedPpcFrame() {
   std::lock_guard lock(g_mutex);
   return g_frames_for_native.Take();
 }
+bool ReplayNextVerifiedPpcFrame(
+    std::span<const native::VerifiedXdkResourceWitness> witnesses,
+    const native::FrameGeometry& output,
+    std::span<const model::UploadedOriginalModel* const> residents,
+    const aot::ShaderBank& shaders,const aot::EffectCatalog& effects,
+    const aot::ReflectionBank& reflection,aot::ShaderBindingBackend& gpu) {
+  // Consume on the native render thread; mailbox mutex is held ONLY for
+  // transfer, never while compiling a PSO, uploading mips or presenting.
+  auto delivered=TakeCompletedPpcFrame();
+  if(!delivered)return false;
+  native::ReplayDeliveredResourceScene(*delivered,witnesses,output,
+                                        residents,shaders,effects,reflection,gpu);
+  return true;
+}
 void CapturePpcDraw(Kind kind, uint32_t guest, const PPCContext& ctx,
                     uint8_t* guest_base) {
   if (!CaptureEnabled()) return;

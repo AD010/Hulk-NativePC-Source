@@ -213,5 +213,21 @@ class NativeEorLinkCoverage(unittest.TestCase):
         self.assertNotIn("ReplayAotScene(", app,
                          "A bank without verified EoR draw ABI is NOT a real game frame")
 
+    def test_actual_present_mailbox_can_feed_verified_native_eor_scene(self):
+        hook = (ROOT / "native_port/src/eor_xdk_hook_bridge.cpp").read_text(encoding="utf-8")
+        scene = (ROOT / "native_port/src/eor_native_draw_geometry.cpp").read_text(encoding="utf-8")
+        self.assertIn("auto delivered=TakeCompletedPpcFrame();", hook)
+        self.assertIn("native::ReplayDeliveredResourceScene(*delivered,witnesses", hook)
+        self.assertIn("if(delivered.overwritten_since_take)", scene)
+        self.assertIn("ReplayCapturedResourceScene(delivered.frame,verified,frame,residents,", scene)
+        self.assertLess(scene.index("if(delivered.overwritten_since_take)"),
+                        scene.index("ReplayCapturedResourceScene(delivered.frame"))
+        self.assertIn("aot::ReplayAotScene(frame,commands,bank,effects,reflection,backend,&captured)", scene)
+        cmake = TARGET.read_text(encoding="utf-8")
+        self.assertIn("src/eor_xdk_hook_bridge.cpp", cmake)
+        self.assertIn("src/eor_native_draw_geometry.cpp", cmake)
+        self.assertIn("src/eor_diligent_aot_backend.cpp", cmake)
+
+
 if __name__ == "__main__":
     unittest.main()

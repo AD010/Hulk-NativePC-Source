@@ -302,6 +302,22 @@ void ReplayCapturedResourceScene(
   // An unknown source command rejects the FULL frame in preflight.
   aot::ReplayAotScene(frame,commands,bank,effects,reflection,backend,&captured);
 }
+void ReplayDeliveredResourceScene(
+    const xdk::DeliveredFrame& delivered,
+    std::span<const VerifiedXdkResourceWitness> verified,
+    const FrameGeometry& frame,
+    std::span<const model::UploadedOriginalModel* const> residents,
+    const aot::ShaderBank& bank,const aot::EffectCatalog& effects,
+    const aot::ReflectionBank& reflection,aot::ShaderBindingBackend& backend) {
+  // A one-slot mailbox may overwrite unsent frames at busy destruction
+  // scenes. Rendering a late frame with stale per-object shader constants
+  // could produce missing/doubled geometry. No Vulkan BeginScene on gaps.
+  if(delivered.overwritten_since_take)
+    throw std::invalid_argument(
+        "Original EoR Present mailbox lost captured GPU frames");
+  ReplayCapturedResourceScene(delivered.frame,verified,frame,residents,
+                              bank,effects,reflection,backend);
+}
 std::vector<VerifiedDrawSource> MatchCapturedMixedDraws(
     const xdk::Frame& frame,
     std::span<const VerifiedXdkDrawSubmission> verified,
