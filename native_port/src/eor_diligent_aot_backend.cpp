@@ -445,13 +445,12 @@ bool DiligentEorDirectBackend::ReplayOriginalXdkCommand(
   if(!state_ || !CanReplayOriginalXdkCommand(cmd))return false;
   auto& s=*state_;
   if(cmd.kind==xdk::CommandKind::Present) {
-    // The real native CompositeOutput already presented the resolved image.
-    // This original guest event only acknowledges source swap sequencing.
-    if(!s.finished || s.scene_open || !s.source_resolve_recorded ||
-       s.source_present_recorded)
+    // Validate the source Present BEFORE CompositeOutput touches the
+    // physical swapchain. This records authorization, not a GPU Present.
+    if(!s.finished || !s.scene_open || !s.source_timeline_active ||
+       !s.source_resolve_recorded || s.source_present_recorded)
       return false;
     s.source_present_recorded=true;
-    s.source_timeline_active=false;
     return true;
   }
   if(!s.scene_open || s.finished)return false;
@@ -962,6 +961,7 @@ bool DiligentEorDirectBackend::ResolveScene(native::Size physical) {
 bool DiligentEorDirectBackend::Composite(native::Rect dest,native::Size output) {
   auto& s=*state_;
   if(!s.scene_open || !s.finished ||
+     (s.source_timeline_active && !s.source_present_recorded) ||
      !Same(dest,s.frame.composite) || !Same(output,s.frame.backbuffer))
     return false;
   auto* image=s.scene.ResolvedColorSRV();
