@@ -13,6 +13,7 @@ struct Backend final:ShaderBindingBackend {
   std::vector<std::pair<uint32_t,uint32_t>> surface_history;
   bool refuse_samplers=false,refuse_preflight=false;
   bool accept_original_timeline=false;
+  bool refuse_terminal_present=false;
   std::vector<xdk::CommandKind> original_gpu_commands;
   bool CanReplayOriginalXdkTimeline(const xdk::Frame& source) const override {
     return accept_original_timeline &&
@@ -22,7 +23,9 @@ struct Backend final:ShaderBindingBackend {
     return accept_original_timeline;
   }
   bool ReplayOriginalXdkCommand(const xdk::RawCommand& call) override {
-    if(!accept_original_timeline)return false;
+    if(!accept_original_timeline ||
+       (refuse_terminal_present && call.kind==xdk::CommandKind::Present))
+      return false;
     original_gpu_commands.push_back(call.kind);
     return true;
   }
@@ -210,6 +213,19 @@ int main(){
                 xdk::CommandKind::ClearF,
                 xdk::CommandKind::Resolve,
                 xdk::CommandKind::Present}));
+  // A rejected source Present must abort the scene without presenting
+  // the host swapchain, even after a successful Draw and Resolve.
+  Backend terminal_rejected;
+  terminal_rejected.accept_original_timeline=true;
+  terminal_rejected.refuse_terminal_present=true;
+  bool terminal_failed=false;
+  try {ReplayAotScene(geometry,capturedDraws,shaders,effects,reflection,
+                      terminal_rejected,&source_frame);}
+  catch(const std::runtime_error&) {terminal_failed=true;}
+  assert(terminal_failed && terminal_rejected.draw==1 &&
+         terminal_rejected.resolve==1 && terminal_rejected.composite==0 &&
+         terminal_rejected.abort==1);
+
   Backend cannot_present;
   bool rejected_original=false;
   try{ReplayAotScene(geometry,capturedDraws,shaders,effects,reflection,
