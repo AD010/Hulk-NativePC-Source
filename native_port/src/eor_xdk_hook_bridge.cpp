@@ -87,13 +87,41 @@ bool ReplayNextVerifiedPpcFrame(
     std::span<const model::UploadedOriginalModel* const> residents,
     const aot::ShaderBank& shaders,const aot::EffectCatalog& effects,
     const aot::ReflectionBank& reflection,aot::ShaderBindingBackend& gpu) {
-  // Consume on the native render thread; mailbox mutex is held ONLY for
-  // transfer, never while compiling a PSO, uploading mips or presenting.
+  // Refuse incomplete engine/host provenance BEFORE consuming the only
+  // immutable guest Present snapshot. No guest memory, GPU render targets,
+  // or Vulkan swapchain may be touched by a rejected candidate.
+  if (!CaptureEnabled() || !output.direct_engine_path_ready ||
+      !native::HasFullNativeCompositePixels(
+          output.world,output.composite,output.backbuffer) ||
+      witnesses.empty() || residents.empty() || !shaders.size() ||
+      !effects.EffectCount() ||
+      effects.ShaderCount()!=shaders.expected() ||
+      reflection.size()!=shaders.expected())
+    return false;
+  // The caller MUST already be the exclusive render-thread presenter.
+  // Mailbox mutex is held ONLY for the transfer, not PSO or Present.
   auto delivered=TakeCompletedPpcFrame();
   if(!delivered)return false;
-  native::ReplayDeliveredResourceScene(*delivered,witnesses,output,
-                                        residents,shaders,effects,reflection,gpu);
-  return true;
+  // Frame gaps/unknown source chronology cannot authorize a Vulkan scene.
+  if(delivered->overwritten_since_take ||
+     !ValidateOriginalCommandTimeline(delivered->frame))
+    return false;
+  try {
+    // The real backend must accept every original RT/Clear/Resolve/Present
+    // operation before allowing an EoR Draw to modify GPU attachments.
+    if(!gpu.CanReplayOriginalXdkTimeline(delivered->frame))
+      return false;
+    native::ReplayDeliveredResourceScene(*delivered,witnesses,output,
+                                          residents,shaders,effects,reflection,gpu);
+    return true;
+  } catch (...) {
+    // The caller retains sole-presenter ownership; failure is never a
+    // license for a second Xenos/NativeX Present on this swapchain.
+    if(delivered->frame.sequence<=5 || delivered->frame.sequence%600==0)
+      REXLOG_WARN("[HULK/EOR-REPLAY] frame={} rejected native replay; "
+                  "no verified Vulkan image claimed",delivered->frame.sequence);
+    return false;
+  }
 }
 void CapturePpcDraw(Kind kind, uint32_t guest, const PPCContext& ctx,
                     uint8_t* guest_base) {

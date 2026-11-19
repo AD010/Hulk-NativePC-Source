@@ -24,5 +24,23 @@ class TestEorObserverOnly(unittest.TestCase):
         self.assertIn('CommandKind::Present',hooks)
         self.assertIn('::hulk::eor::xdk::EndPpcHook(type); return;',hooks)
         self.assertIn('__imp__sub_##addr(ctx,base);',hooks)
+    def test_live_replay_refuses_unowned_frame_before_mailbox_take(self):
+        source=(ROOT/"native_port/src/eor_xdk_hook_bridge.cpp").read_text()
+        replay=source.split("bool ReplayNextVerifiedPpcFrame(",1)[1].split(
+            "void CapturePpcDraw(",1)[0]
+        preflight=replay.split("auto delivered=TakeCompletedPpcFrame();",1)[0]
+        self.assertIn("!CaptureEnabled()",preflight)
+        self.assertIn("!output.direct_engine_path_ready",preflight)
+        self.assertIn("native::HasFullNativeCompositePixels(",preflight)
+        self.assertIn("witnesses.empty()",preflight)
+        self.assertIn("residents.empty()",preflight)
+        self.assertIn("reflection.size()!=shaders.expected()",preflight)
+        self.assertIn("delivered->overwritten_since_take",replay)
+        self.assertIn("ValidateOriginalCommandTimeline(delivered->frame)",replay)
+        self.assertLess(replay.index("gpu.CanReplayOriginalXdkTimeline("),
+                        replay.index("native::ReplayDeliveredResourceScene("))
+        self.assertIn("catch (...)",replay)
+        self.assertNotIn("native_x_renderer::Initialize(",replay)
+        self.assertNotIn("device_->Present(",replay)
 if __name__ == "__main__":
     unittest.main()
