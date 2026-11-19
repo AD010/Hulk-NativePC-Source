@@ -318,12 +318,26 @@ bool HookIat() {
   DWORD unused=0;VirtualProtect(thunk,4,old,&unused);
   return true;
 }
-DWORD WINAPI TryLateHook(void*) {
-  for(unsigned n=0;n<200;++n) {
-    if(HookIat())return 0;
-    Sleep(10);
+DWORD WINAPI TryLateHook(void* context) {
+  // The game can parse its camera before its first Direct3DCreate9 call.
+  // Install the independent camera hook as soon as the loader lock is gone,
+  // rather than waiting for graphics-device initialization.
+  LoadConfig();
+  if(cameraFarPlaneScale>1.0001f) {
+    std::call_once(cameraFarPlaneHookOnce, [] {
+      if(!InstallCameraFarPlaneHook())
+        Log("[Camera] far-plane scale not installed; leaving original camera unchanged\r\n");
+    });
   }
-  OutputDebugStringA("HulkPC: original D3D9 import not found, leaving game untouched\n");
+  // Only retry the D3D9 IAT when the immediate attach-time attempt failed.
+  // Never rewrite an import slot already owned by this ASI.
+  if(context) {
+    for(unsigned n=0;n<200;++n) {
+      if(HookIat())return 0;
+      Sleep(10);
+    }
+    OutputDebugStringA("HulkPC: original D3D9 import not found, leaving game untouched\n");
+  }
   return 0;
 }
 HRESULT STDMETHODCALLTYPE OnCreateDevice(IDirect3D9* api,UINT adapter,
@@ -719,8 +733,13 @@ HRESULT STDMETHODCALLTYPE OnSampler(IDirect3DDevice9* dev,DWORD sampler,
 BOOL APIENTRY DllMain(HMODULE dll,DWORD reason,LPVOID) {
   if(reason==DLL_PROCESS_ATTACH) {
     DisableThreadLibraryCalls(dll);
-    if(!HookIat() && OriginalHulk()) {
-      HANDLE worker=CreateThread(nullptr,0,TryLateHook,nullptr,0,nullptr);
+    if(OriginalHulk()) {
+      const bool iatHooked=HookIat();
+      // Run camera initialization even if D3D9 IAT was hooked immediately.
+      // The worker does not load DLLs or perform file I/O under DllMain.
+      HANDLE worker=CreateThread(nullptr,0,TryLateHook,
+                                 iatHooked ? nullptr : reinterpret_cast<void*>(1),
+                                 0,nullptr);
       if(worker)CloseHandle(worker);
     }
   }
