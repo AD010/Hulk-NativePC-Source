@@ -74,9 +74,12 @@ bool DiligentEorHostOutput::CompositeAndPresent(
     // Only a full native source may reach the host. HUD/camera provenance
     // must be verified earlier, not hidden behind black-bar margins.
     auto* rtv=target;
+    // Mark the attempted binding before the driver call: a backend may
+    // change render-target state and then throw during a device-loss/resize.
+    // The exception path must still attempt to detach that backbuffer.
+    rtv_bound=true;
     context->SetRenderTargets(
         1,&rtv,nullptr,Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
-    rtv_bound=true;
     // The validated source covers every physical backbuffer pixel.
     // Do not clear the swapchain before the exact-size copy: a redundant
     // full-screen GPU write wastes bandwidth on every destruction-heavy
