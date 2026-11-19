@@ -9,6 +9,7 @@ class TestEorObserverOnly(unittest.TestCase):
         hooks=(ROOT/"native_port/tools/gen_native_x_hooks.py").read_text()
         conf=(ROOT/"native_port/incredible_hulk.toml").read_text()
         self.assertIn('hulk_eor_xdk_capture = false',conf)
+        self.assertIn('hulk_eor_vulkan_replay = false',conf)
         self.assertIn('const bool eor_observer_only =',renderer)
         self.assertIn('rex::cvar::Query<bool>("hulk_eor_xdk_capture")',renderer)
         self.assertIn('if (eor_observer_only) {',renderer)
@@ -30,6 +31,10 @@ class TestEorObserverOnly(unittest.TestCase):
             "void CapturePpcDraw(",1)[0]
         preflight=replay.split("auto delivered=TakeCompletedPpcFrame();",1)[0]
         self.assertIn("!CaptureEnabled()",preflight)
+        self.assertIn("!REXCVAR_GET(hulk_eor_vulkan_replay)",preflight)
+        self.assertLess(preflight.index("!REXCVAR_GET(hulk_eor_vulkan_replay)"),
+                        replay.index("auto delivered=TakeCompletedPpcFrame();"))
+        self.assertIn("REXCVAR_DEFINE_BOOL(hulk_eor_vulkan_replay, false",source)
         self.assertIn("!output.direct_engine_path_ready",preflight)
         self.assertIn("native::HasFullNativeCompositePixels(",preflight)
         self.assertIn("witnesses.empty()",preflight)

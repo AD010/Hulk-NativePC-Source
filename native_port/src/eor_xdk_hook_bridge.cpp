@@ -24,6 +24,8 @@
 
 REXCVAR_DEFINE_BOOL(hulk_eor_xdk_capture, false, "Hulk/Diagnostics",
                     "Opt-in original XDK Draw/Present call snapshot; no rendering redirection");
+REXCVAR_DEFINE_BOOL(hulk_eor_vulkan_replay, false, "Hulk/Diagnostics",
+                    "Opt-in direct EoR Vulkan replay; requires verified sole presenter");
 namespace hulk::eor::xdk {
 namespace {
 std::mutex g_mutex;
@@ -90,7 +92,8 @@ bool ReplayNextVerifiedPpcFrame(
   // Refuse incomplete engine/host provenance BEFORE consuming the only
   // immutable guest Present snapshot. No guest memory, GPU render targets,
   // or Vulkan swapchain may be touched by a rejected candidate.
-  if (!CaptureEnabled() || !output.direct_engine_path_ready ||
+  if (!CaptureEnabled() || !REXCVAR_GET(hulk_eor_vulkan_replay) ||
+      !output.direct_engine_path_ready ||
       !native::HasFullNativeCompositePixels(
           output.world,output.composite,output.backbuffer) ||
       witnesses.empty() || residents.empty() || !shaders.size() ||
