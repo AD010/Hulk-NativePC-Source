@@ -462,6 +462,15 @@ HRESULT STDMETHODCALLTYPE OnSetTexture(IDirect3DDevice9* dev,DWORD stage,
       if(FAILED(restoreHr)) {
         Log("[D3D9] AF maximum restore failed stage=%lu hr=0x%08lX\r\n",
             (unsigned long)stage,(unsigned long)(unsigned int)restoreHr);
+        // The new texture is already bound: avoid leaking the previous
+        // texture's anisotropic MIN state onto an incompatible texture.
+        // Preserve the MAX rollback record for the next restoration attempt.
+        if(linear) {
+          const HRESULT minHr=realSampler(dev,stage,D3DSAMP_MINFILTER,D3DTEXF_LINEAR);
+          if(FAILED(minHr))
+            Log("[D3D9] AF MIN repair failed stage=%lu hr=0x%08lX\\r\\n",
+                (unsigned long)stage,(unsigned long)(unsigned int)minHr);
+        }
         return hr;
       }
       std::lock_guard lock(mipMutex);
