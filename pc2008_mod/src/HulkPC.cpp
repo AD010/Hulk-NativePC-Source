@@ -268,7 +268,12 @@ HRESULT STDMETHODCALLTYPE OnCreateDevice(IDirect3D9* api,UINT adapter,
     {std::lock_guard lock(mipMutex);
      std::fill_n(mipPointRequested,16,false);
      std::fill_n(minLinearRequested,16,false);}
-    {std::lock_guard lock(shaderMutex);activeVS=nullptr;}
+    // A recreated device can reuse a shader pointer address. Never let
+    // stale CTAB reflection from the old device affect a new shader or HUD.
+    // Do not clear on Reset: D3D9 shader objects can survive that operation.
+    {std::lock_guard lock(shaderMutex);
+     activeVS=nullptr;
+     shaderMap.clear();}
     D3DCAPS9 caps{};
     // D3D9 has separate mip-filter capabilities for 2D/cube/volume textures.
     // Keep the exact device caps: DXVK or older native drivers may differ.
