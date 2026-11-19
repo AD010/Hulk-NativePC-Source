@@ -109,6 +109,10 @@ std::vector<NativeEorDrawBuffers> PositionOnlyDrawBuffersFromOriginalModels(
       draw.vertex_count=mesh.vertex_count;
       draw.index_count=mesh.index_count;
       draw.host_vertex_slots={mesh.position_buffer};
+      for(const uint64_t slot:mesh.decoded_attribute_buffers) {
+        if(!slot)throw std::invalid_argument("Original mesh decoded attribute not resident");
+        draw.host_vertex_slots.push_back(slot);
+      }
       draw.original_model_hash=resident_model->original_resource_hash;
       draw.original_mesh_header_offset=mesh.original_header_offset;
       result.push_back(std::move(draw));

@@ -15,6 +15,10 @@ struct Fake final : NativeMeshUploadBackend {
  std::vector<NativePosition> positions;
  std::vector<std::byte> raw;
  std::vector<uint32_t> indices;
+ std::vector<HostAttribute> attributes;
+ uint64_t UploadDecodedAttributes(std::span<const HostAttribute> v) override {
+   attributes.assign(v.begin(),v.end());return Allocate();
+ }
  uint64_t Allocate(){if(++allocations==fail_at)return 0;return repeat?repeat:next++;}
  uint64_t UploadPositions(std::span<const NativePosition> p) override {positions.assign(p.begin(),p.end());return Allocate();}
  uint64_t UploadOriginalVertexStream(std::span<const std::byte> p) override {raw.assign(p.begin(),p.end());return Allocate();}
@@ -52,6 +56,31 @@ int main(){
    assert(a.meshes().empty()&&moved.meshes().size()==2);
  }
  assert((success.freed==std::vector<uint64_t>{6,5,4,3,2,1}));
+ // Verified Big Endian UVs actually become owned host float4 Vulkan slots.
+ std::vector<std::vector<VerifiedAttributeLayout>> slots{
+   {{12,2,AttributeEncoding::BigUNorm16}},
+   {{12,2,AttributeEncoding::BigUNorm16}}};
+ Fake with_attributes;
+ {
+   auto a=UploadNativeIndexedMeshes(original,with_attributes,slots);
+   assert(a.meshes()[0].decoded_attribute_buffers.size()==1);
+   assert(a.meshes()[0].decoded_attribute_buffers[0]==4);
+   assert(a.meshes()[1].decoded_attribute_buffers[0]==8);
+   assert(with_attributes.attributes.size()==3);
+   assert(with_attributes.attributes[0][0]==float(0x7f7f)/65535.f);
+ }
+ assert((with_attributes.freed==std::vector<uint64_t>{8,7,6,5,4,3,2,1}));
+ Fake allocation_failure;allocation_failure.fail_at=8;
+ MustThrow([&]{(void)UploadNativeIndexedMeshes(original,allocation_failure,slots);});
+ assert((allocation_failure.freed==std::vector<uint64_t>{7,6,5,4,3,2,1}));
+ Fake bad_layout;
+ auto missing=slots;missing.pop_back();
+ MustThrow([&]{(void)UploadNativeIndexedMeshes(original,bad_layout,missing);});
+ auto overflow=slots;overflow[1][0].original_byte_offset=23;
+ MustThrow([&]{(void)UploadNativeIndexedMeshes(original,bad_layout,overflow);});
+ auto duplicate=slots;duplicate[1].push_back(duplicate[1][0]);
+ MustThrow([&]{(void)UploadNativeIndexedMeshes(original,bad_layout,duplicate);});
+ assert(bad_layout.allocations==0);
  for(unsigned fail=1;fail<=6;++fail){
   Fake gpu;gpu.fail_at=fail;
   MustThrow([&]{(void)UploadNativeIndexedMeshes(original,gpu);});

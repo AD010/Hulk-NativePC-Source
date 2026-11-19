@@ -16,5 +16,7 @@ struct UploadedOriginalModel {
 // Accept the decoded Xbox geometry produced by OriginalModelAssets.
 // All model/surface metadata is checked before allocating any GPU buffers.
 // Byte-heavy original source payloads are released on destruction of input.
-UploadedOriginalModel UploadOriginalModel(LoadedNativeGeometry&& source, NativeMeshUploadBackend& backend);
+UploadedOriginalModel UploadOriginalModel(
+    LoadedNativeGeometry&& source,NativeMeshUploadBackend& backend,
+    std::span<const std::vector<VerifiedAttributeLayout>> original_slots={});
 }

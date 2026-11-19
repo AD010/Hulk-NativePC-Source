@@ -2,7 +2,9 @@
 #include <stdexcept>
 #include <utility>
 namespace hulk::eor::model {
-UploadedOriginalModel UploadOriginalModel(LoadedNativeGeometry&& source, NativeMeshUploadBackend& backend) {
+UploadedOriginalModel UploadOriginalModel(
+    LoadedNativeGeometry&& source,NativeMeshUploadBackend& backend,
+    std::span<const std::vector<VerifiedAttributeLayout>> original_slots) {
   if (source.model.source.platform!=Platform::Xbox360 ||
       source.model.source.model_name.empty() ||
       source.original_surfaces.size()!=source.model.source.surface_records ||
@@ -18,7 +20,7 @@ UploadedOriginalModel UploadOriginalModel(LoadedNativeGeometry&& source, NativeM
          !ref.original_resource.size || ref.original_resource.reserved)
         throw std::invalid_argument("Original EoR indexed texture candidate inconsistent");
   }
-  auto uploaded=UploadNativeIndexedMeshes(source.decoded_meshes,backend);
+  auto uploaded=UploadNativeIndexedMeshes(source.decoded_meshes,backend,original_slots);
   return {source.model.original_resource_hash,
           std::move(source.model.source),
           std::move(source.original_surfaces),

@@ -19,7 +19,7 @@ class DiligentMeshUploadBackend final : public model::NativeMeshUploadBackend {
   uint64_t UploadIndices(std::span<const uint32_t>) override;
   // Upload EoR attributes AFTER source-proven BE decoding. The raw Xbox
   // interleaved vertex stream above is never directly a host vertex layout.
-  uint64_t UploadDecodedAttributes(std::span<const model::HostAttribute> values);
+  uint64_t UploadDecodedAttributes(std::span<const model::HostAttribute> values) override;
   void ReleaseBuffer(uint64_t handle) noexcept override;
   // Raw, borrowed pointer: valid only until ReleaseBuffer or destruction.
   Diligent::IBuffer* FindBuffer(uint64_t handle) const noexcept;

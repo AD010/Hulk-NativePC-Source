@@ -133,6 +133,19 @@ class NativeEorLinkCoverage(unittest.TestCase):
                         draw.index("++position_"),
                         "Rejected source chronology must not consume a paired Draw")
 
+    def test_decoded_original_mesh_attribute_link_dependencies(self):
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+        for call in workflow.split("'native_port/src/eor_native_mesh_upload.cpp',")[1:]:
+            self.assertIn("'native_port/src/eor_native_attributes.cpp',",
+                          call.split("& cl.exe", 1)[0])
+        native = (ROOT / "native_port" / "src" /
+                  "eor_diligent_aot_backend.cpp").read_text(encoding="utf-8")
+        upload = (ROOT / "native_port" / "src" /
+                  "eor_native_mesh_upload.cpp").read_text(encoding="utf-8")
+        self.assertIn("mesh.decoded_attribute_buffers", native)
+        self.assertIn("DecodeVerifiedAttribute(meshes[i],layouts[i][j])", upload)
+        self.assertIn("backend.UploadDecodedAttributes(decoded[mesh_id][i])", upload)
+
     def test_shader_constant_packer_is_both_linked_and_tested(self):
         cmake = TARGET.read_text(encoding="utf-8")
         workflow = WORKFLOW.read_text(encoding="utf-8")

@@ -29,6 +29,7 @@ bool Exists(std::span<const UploadedNativeMesh> meshes,uint64_t h) noexcept {
   for(const auto& m:meshes)
     if(m.position_buffer==h || m.original_vertex_stream_buffer==h || m.index_buffer==h)
       return true;
+    for(const uint64_t slot:m.decoded_attribute_buffers)if(slot==h)return true;
   return false;
 }
 } // namespace
@@ -41,19 +42,41 @@ UploadedNativeMeshBatch& UploadedNativeMeshBatch::operator=(UploadedNativeMeshBa
 UploadedNativeMeshBatch::~UploadedNativeMeshBatch() noexcept {Reset();}
 void UploadedNativeMeshBatch::Reset() noexcept {
   if(backend_) for(auto it=meshes_.rbegin();it!=meshes_.rend();++it){
+    for(auto a=it->decoded_attribute_buffers.rbegin();a!=it->decoded_attribute_buffers.rend();++a)
+      if(*a)backend_->ReleaseBuffer(*a);
     if(it->index_buffer) backend_->ReleaseBuffer(it->index_buffer);
     if(it->original_vertex_stream_buffer) backend_->ReleaseBuffer(it->original_vertex_stream_buffer);
     if(it->position_buffer) backend_->ReleaseBuffer(it->position_buffer);
   }
   meshes_.clear();backend_=nullptr;
 }
-UploadedNativeMeshBatch UploadNativeIndexedMeshes(std::span<const NativeIndexedMesh> meshes,NativeMeshUploadBackend& backend) {
+UploadedNativeMeshBatch UploadNativeIndexedMeshes(
+    std::span<const NativeIndexedMesh> meshes,NativeMeshUploadBackend& backend,
+    std::span<const std::vector<VerifiedAttributeLayout>> layouts) {
   if(meshes.empty()) throw std::invalid_argument("No EoR indexed meshes to upload");
-  for(const auto& mesh:meshes)CheckMesh(mesh);
+  if(!layouts.empty() && layouts.size()!=meshes.size())
+    throw std::invalid_argument("Original attribute layouts do not match mesh count");
+  // Validate and decode the ENTIRE original model batch before GPU allocation.
+  std::vector<std::vector<std::vector<HostAttribute>>> decoded(meshes.size());
+  for(size_t i=0;i<meshes.size();++i) {
+    CheckMesh(meshes[i]);
+    if(layouts.empty())continue;
+    if(layouts[i].size()>15)
+      throw std::invalid_argument("Too many source-proven host attribute slots");
+    for(size_t j=0;j<layouts[i].size();++j) {
+      for(size_t k=0;k<j;++k)
+        if(layouts[i][j].original_byte_offset==layouts[i][k].original_byte_offset &&
+           layouts[i][j].components==layouts[i][k].components &&
+           layouts[i][j].encoding==layouts[i][k].encoding)
+          throw std::invalid_argument("Duplicate original attribute declaration");
+      decoded[i].push_back(DecodeVerifiedAttribute(meshes[i],layouts[i][j]));
+    }
+  }
   UploadedNativeMeshBatch batch;
   batch.meshes_.reserve(meshes.size()); // allocation failures occur before any GPU upload
   batch.backend_=&backend;
-  for(const auto& m:meshes){
+  for(size_t mesh_id=0;mesh_id<meshes.size();++mesh_id){
+    const auto& m=meshes[mesh_id];
     // Material metadata is never guessed from the nearest preceding surface.
     UploadedNativeMesh rec;
     rec.original_header_offset=m.source_header_offset;
@@ -65,6 +88,7 @@ UploadedNativeMeshBatch UploadNativeIndexedMeshes(std::span<const NativeIndexedM
     rec.min_index=*limits.first;
     rec.max_index=*limits.second;
     rec.host_indices=m.triangle_list_indices;
+    rec.decoded_attribute_buffers.resize(decoded[mesh_id].size());
     rec.original_attribute_declarations=m.original_attribute_declarations;
     batch.meshes_.push_back(std::move(rec)); // bookkeeping first, then GPU ownership
     auto& o=batch.meshes_.back();
@@ -77,6 +101,9 @@ UploadedNativeMeshBatch UploadNativeIndexedMeshes(std::span<const NativeIndexedM
     receive(backend.UploadPositions(m.positions),o.position_buffer);
     receive(backend.UploadOriginalVertexStream(m.original_vertex_stream),o.original_vertex_stream_buffer);
     receive(backend.UploadIndices(m.triangle_list_indices),o.index_buffer);
+    for(size_t i=0;i<decoded[mesh_id].size();++i)
+      receive(backend.UploadDecodedAttributes(decoded[mesh_id][i]),
+              o.decoded_attribute_buffers[i]);
   }
   return batch;
 }

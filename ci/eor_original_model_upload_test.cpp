@@ -9,6 +9,9 @@ using namespace hulk::eor::model;
 namespace {
 struct Fake final : NativeMeshUploadBackend {
  unsigned allocated=0;std::vector<uint64_t> freed;
+ uint64_t UploadDecodedAttributes(std::span<const HostAttribute> v)override{
+   assert(v.size()==3);return ++allocated;
+ }
  uint64_t UploadPositions(std::span<const NativePosition> v)override{assert(v.size()==3);return ++allocated;}
  uint64_t UploadOriginalVertexStream(std::span<const std::byte> v)override{assert(v.size()==72);return ++allocated;}
  uint64_t UploadIndices(std::span<const uint32_t> v)override{assert(v.size()==3);return ++allocated;}
@@ -52,6 +55,14 @@ int main(){
   assert(result.meshes.meshes()[0].original_header_offset==10);
  }
  assert((backend.freed==std::vector<uint64_t>{3,2,1}));
+ Fake with_uv;
+ {
+  std::vector<std::vector<VerifiedAttributeLayout>> uv{
+    {{12,2,AttributeEncoding::BigUNorm16}}};
+  auto a=UploadOriginalModel(Model(),with_uv,uv);
+  assert(a.meshes.meshes()[0].decoded_attribute_buffers[0]==4);
+ }
+ assert((with_uv.freed==std::vector<uint64_t>{4,3,2,1}));
  Fake invalid;
  auto bad=Model();bad.model.source.platform=Platform::PcD3d9;
  Rejected([&]{(void)UploadOriginalModel(std::move(bad),invalid);});

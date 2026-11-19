@@ -343,6 +343,7 @@ jobs:
           $uploadArgs = @('/nologo','/std:c++20','/EHsc','/W4','/WX','/utf-8',
                           "/Fe:$uploadTest",
                           'native_port/src/eor_native_mesh_upload.cpp',
+                          'native_port/src/eor_native_attributes.cpp',
                           'ci/eor_native_mesh_upload_test.cpp')
           & cl.exe @uploadArgs
           if ($LASTEXITCODE -ne 0) { throw 'Native EoR mesh upload bridge MSVC compile failed' }
@@ -354,6 +355,7 @@ jobs:
           $modelUploadArgs = @('/nologo','/std:c++20','/EHsc','/W4','/WX','/utf-8',
                                "/Fe:$modelUploadTest",
                                'native_port/src/eor_native_mesh_upload.cpp',
+                          'native_port/src/eor_native_attributes.cpp',
                                'native_port/src/eor_original_model_upload.cpp',
                                'ci/eor_original_model_upload_test.cpp')
           & cl.exe @modelUploadArgs
@@ -388,6 +390,7 @@ jobs:
           $worldArgs = @('/nologo','/std:c++20','/EHsc','/W4','/WX','/utf-8',
                         "/Fe:$worldTest",
                         'native_port/src/eor_native_mesh_upload.cpp',
+                          'native_port/src/eor_native_attributes.cpp',
                         'native_port/src/eor_original_model_upload.cpp',
                         'native_port/src/eor_native_lod.cpp',
                         'native_port/src/eor_native_world_stream.cpp',
@@ -406,6 +409,7 @@ jobs:
           $nativeDrawArgs = @('/nologo','/std:c++20','/EHsc','/W4','/WX','/utf-8',
                               "/Fe:$nativeDrawTest",
                               'native_port/src/eor_native_mesh_upload.cpp',
+                          'native_port/src/eor_native_attributes.cpp',
                               'native_port/src/eor_original_model_upload.cpp',
                               'native_port/src/eor_native_frame.cpp',
                               'native_port/src/eor_spirv_bank.cpp',
