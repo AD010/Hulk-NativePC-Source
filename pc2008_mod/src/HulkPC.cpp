@@ -494,8 +494,11 @@ HRESULT STDMETHODCALLTYPE OnSampler(IDirect3DDevice9* dev,DWORD sampler,
   }
   if(anisotropy && maxAnisotropy>1 && sampler<16) {
     const unsigned maximum=std::min(anisotropy,maxAnisotropy);
-    if(type==D3DSAMP_MAXANISOTROPY)value=maximum;
-    else if(type==D3DSAMP_MINFILTER && value==D3DTEXF_LINEAR) {
+    // Do not rewrite the game's independent MAXANISOTROPY requests.
+    // The optional AF path sets its own maximum only when a compatible
+    // bound texture actually accepts an anisotropic MIN filter. Rewriting
+    // MAX here could affect samplers whose texture is unsupported or absent.
+    if(type==D3DSAMP_MINFILTER && value==D3DTEXF_LINEAR) {
       // D3D9 advertises anisotropic MIN filtering separately for 2D,
       // cube and volume textures. Never force an unsupported filter.
       IDirect3DBaseTexture9* bound=nullptr;
