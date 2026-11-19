@@ -52,7 +52,76 @@ aot::EffectCatalog Catalog(){
   return effects;
 }
 template<class F> void Reject(F&& f){bool failed=false;try{f();}catch(const std::invalid_argument&){failed=true;}assert(failed);}
+
+void AddMinimalProgram(std::vector<uint8_t>& bytes,uint8_t id,uint32_t stage) {
+  for(unsigned i=0;i<32;++i)bytes.push_back(id);
+  const uint32_t spirv[]={
+      0x07230203u,0x10500u,0u,16u,0u,
+      0x00020011u,1u,0x0003000eu,0u,1u,
+      0x0005000fu,stage==1?0u:4u,1u,0x6e69616du,0u};
+  I32(bytes,stage);
+  I32(bytes,static_cast<uint32_t>(sizeof(spirv)/sizeof(spirv[0])));
+  for(uint32_t word:spirv)I32(bytes,word);
 }
+aot::ShaderBank MinimalPrograms() {
+  std::vector<uint8_t> data{'H','E','O','R','S','P','V','1'};
+  I32(data,2);I32(data,2);
+  AddMinimalProgram(data,0x11,1);
+  AddMinimalProgram(data,0x22,2);
+  const auto file=std::filesystem::temp_directory_path()/
+                  "hulk_draw_geometry_timeline_spirv.bin";
+  {std::ofstream out(file,std::ios::binary|std::ios::trunc);
+   out.write(reinterpret_cast<const char*>(data.data()),data.size());}
+  aot::ShaderBank bank;
+  bank.Load(file);
+  std::filesystem::remove(file);
+  return bank;
+}
+aot::ReflectionBank MinimalReflections() {
+  std::vector<uint8_t> data{'H','E','O','R','R','E','F','1'};
+  I32(data,2);I32(data,1);
+  for(uint32_t stage=1;stage<=2;++stage) {
+    for(unsigned i=0;i<32;++i)data.push_back(stage==1?0x11:0x22);
+    I32(data,stage);
+    // Synthetic test-only shaders have no original camera registers.
+    for(unsigned i=0;i<4;++i){I32(data,UINT32_MAX);I32(data,0);}
+  }
+  const auto file=std::filesystem::temp_directory_path()/
+                  "hulk_draw_geometry_timeline_reflection.bin";
+  {std::ofstream out(file,std::ios::binary|std::ios::trunc);
+   out.write(reinterpret_cast<const char*>(data.data()),data.size());}
+  aot::ReflectionBank reflection;
+  reflection.Load(file);
+  std::filesystem::remove(file);
+  return reflection;
+}
+struct TimelineGpu final:aot::ShaderBindingBackend {
+  unsigned begins=0,draws=0,resolves=0,composites=0,aborts=0;
+  std::vector<xdk::CommandKind> events;
+  bool CanReplayOriginalXdkTimeline(const xdk::Frame& frame) const override {
+    return xdk::ValidateOriginalCommandTimeline(frame);
+  }
+  bool CanReplayOriginalXdkCommand(const xdk::RawCommand&) const override {
+    return true;
+  }
+  bool ReplayOriginalXdkCommand(const xdk::RawCommand& cmd) override {
+    events.push_back(cmd.kind);
+    return true;
+  }
+  bool BeginScene(native::Size,uint32_t) override {++begins;return true;}
+  void AbortScene() noexcept override {++aborts;}
+  bool BindOriginalSurface(uint32_t,uint32_t) override {return true;}
+  bool BindOriginalEffect(uint32_t,uint32_t) override {return true;}
+  bool BindOriginalConstants(const aot::ReflectedShader&,
+                             const aot::ReflectedShader&) override {return true;}
+  bool BindOfflineShaders(std::span<const uint32_t>,
+                          std::span<const uint32_t>) override {return true;}
+  bool DrawIndexed(const native::IndexedDraw&) override {++draws;return true;}
+  bool ResolveScene(native::Size) override {++resolves;return true;}
+  bool Composite(native::Rect,native::Size) override {++composites;return true;}
+};
+}
+
 int main(){
   Fake gpu;
   auto resident=model::UploadOriginalModel(MakeModel(),gpu);
@@ -261,6 +330,69 @@ int main(){
          recovered[0].original_vs_matrices &&
          xdk::ReadOriginalMatrix(*recovered[0].original_vs_matrices,11,4)
              ->values[0]==2.0f);
+
+  // The real captured entrypoints MUST forward the whole source chronology.
+  // Previously both routes called ReplayVerifiedGeometryScene, which dropped
+  // the XDK events and made ReplayAotScene reject every tagged live Draw.
+  auto exactTimeline=runtime;
+  exactTimeline.sequence=17;
+  xdk::RawCommand sourceRt{xdk::CommandKind::SetRenderTarget,
+      0x8287F2C0u,0x8263A000u,{0x40002880u,0,0,0,0,0,0,0}};
+  xdk::RawCommand sourceDepth{xdk::CommandKind::SetDepthStencilSurface,
+      0x8287F628u,0x8263A004u,{0x40002880u,0,0,0,0,0,0,0}};
+  xdk::RawCommand sourceClear{xdk::CommandKind::ClearF,
+      0x82888C40u,0x8263A008u,{0x40002880u,1u,0,0,0,0,0,0}};
+  sourceClear.captured_clear=xdk::OriginalXdkClearF{};
+  sourceClear.captured_clear->flags=1;
+  sourceClear.captured_clear->has_color=true;
+  xdk::RawCommand sourceDraw{xdk::CommandKind::DrawIndexedVertices,
+      exactTimeline.calls[0].function,exactTimeline.calls[0].lr,
+      exactTimeline.calls[0].gpr,0u};
+  xdk::RawCommand sourceResolve{xdk::CommandKind::Resolve,
+      0x828897F8u,0x8263A00Cu,{0x40002880u,0,0,0,0,0,0,0}};
+  xdk::RawCommand sourcePresent{xdk::CommandKind::Present,
+      0x82880778u,0x8263A010u,{0x40002880u,0,0,0,0,0,0,0}};
+  exactTimeline.commands={
+      sourceRt,sourceDepth,sourceClear,sourceDraw,sourceResolve,sourcePresent};
+  assert(xdk::ValidateOriginalCommandTimeline(exactTimeline));
+  const auto minimalShaders=MinimalPrograms();
+  const auto minimalReflection=MinimalReflections();
+  const auto nativeFrame=native::PlanFrame(
+      {{1280,720},{1280,720},true,true,true,1});
+  auto indexedProven=verified;
+  indexedProven.native_draw.original_sampler_slots.clear();
+  TimelineGpu indexedGpu;
+  native::ReplayCapturedXdkScene(
+      exactTimeline,std::span<const native::VerifiedXdkIndexedSubmission>(
+          &indexedProven,1),nativeFrame,models,minimalShaders,effects,
+      minimalReflection,indexedGpu);
+  const std::vector<xdk::CommandKind> sourceGpuSequence{
+      xdk::CommandKind::SetRenderTarget,
+      xdk::CommandKind::SetDepthStencilSurface,
+      xdk::CommandKind::ClearF,
+      xdk::CommandKind::Resolve,xdk::CommandKind::Present};
+  assert(indexedGpu.events==sourceGpuSequence &&
+         indexedGpu.begins==1 && indexedGpu.draws==1 &&
+         indexedGpu.resolves==1 && indexedGpu.composites==1 &&
+         indexedGpu.aborts==0);
+  std::vector<native::VerifiedXdkDrawSubmission> oneMixed{indexedProven};
+  TimelineGpu mixedGpu;
+  native::ReplayCapturedMixedScene(
+      exactTimeline,oneMixed,nativeFrame,models,minimalShaders,effects,
+      minimalReflection,mixedGpu);
+  assert(mixedGpu.events==sourceGpuSequence &&
+         mixedGpu.begins==1 && mixedGpu.draws==1 &&
+         mixedGpu.resolves==1 && mixedGpu.composites==1 &&
+         mixedGpu.aborts==0);
+  auto missingTimeline=exactTimeline;
+  missingTimeline.commands.clear();
+  TimelineGpu rejectedTimeline;
+  Reject([&]{native::ReplayCapturedXdkScene(
+      missingTimeline,std::span<const native::VerifiedXdkIndexedSubmission>(
+          &indexedProven,1),nativeFrame,models,minimalShaders,effects,
+      minimalReflection,rejectedTimeline);});
+  assert(rejectedTimeline.begins==0 && rejectedTimeline.events.empty());
+
   // Identical resident meshes and materials may be replayed with a new
   // per-instance matrix in the next frame without hardcoding their order.
   auto transformed=runtime;
