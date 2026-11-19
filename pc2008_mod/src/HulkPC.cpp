@@ -566,8 +566,16 @@ HRESULT STDMETHODCALLTYPE OnVSConstants(IDirect3DDevice9* dev,UINT reg,
      std::abs(scale-1.0)<0.0001)return realVSConst(dev,reg,data,count);
   try {
     std::vector<float> changed(data,data+size_t(count)*4);
-    const size_t column=size_t(reflected.view-reg)*4;
-    for(size_t c=0;c<4;++c)changed[column+c]=float(changed[column+c]*scale);
+    // CTAB class 3 is D3DXPC_MATRIX_COLUMNS: four consecutive constant
+    // registers contain the four *columns* of ViewProj. Horizontal clip
+    // scaling modifies row X (component 0) of EACH column, not all four
+    // components of the first column. The latter corrupts Y/Z/W and can
+    // distort depth, clipping, and the apparent camera perspective.
+    const size_t firstColumn=size_t(reflected.view-reg)*4;
+    for(size_t c=0;c<4;++c) {
+      const size_t xComponent=firstColumn+c*4;
+      changed[xComponent]=float(changed[xComponent]*scale);
+    }
     return realVSConst(dev,reg,changed.data(),count);
   } catch(...) {return realVSConst(dev,reg,data,count);}
 }
