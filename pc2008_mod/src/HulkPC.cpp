@@ -453,11 +453,20 @@ HRESULT STDMETHODCALLTYPE OnSetTexture(IDirect3DDevice9* dev,DWORD stage,
      linear=minLinearRequested[stage];
      restoreMaximum=afMaximumOverridden[stage];
      originalMaximum=afOriginalMaximum[stage];
-     afMaximumOverridden[stage]=false;}
-    // The old texture may have received a forced AF maximum. Return to the
-    // game's value before evaluating the newly bound texture's capabilities.
-    if(restoreMaximum)
-      realSampler(dev,stage,D3DSAMP_MAXANISOTROPY,originalMaximum);
+    }
+    // Restore the game's MAXANISOTROPY before evaluating the new texture.
+    // A failed restore must not silently discard our rollback record or
+    // apply a second AF override over the still-modified sampler.
+    if(restoreMaximum) {
+      const HRESULT restoreHr=realSampler(dev,stage,D3DSAMP_MAXANISOTROPY,originalMaximum);
+      if(FAILED(restoreHr)) {
+        Log("[D3D9] AF maximum restore failed stage=%lu hr=0x%08lX\r\n",
+            (unsigned long)stage,(unsigned long)(unsigned int)restoreHr);
+        return hr;
+      }
+      std::lock_guard lock(mipMutex);
+      afMaximumOverridden[stage]=false;
+    }
     // Reapply after binding: capability checks depend on the bound texture.
     // This also restores the game's LINEAR min filter when the next texture
     // cannot use the anisotropic override from a previous texture.
