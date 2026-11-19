@@ -581,7 +581,13 @@ bool DiligentEorDirectBackend::PreflightOriginalScene(
        selected->pipeline.original_pixel_shader_sha256!=item.pixel_source_sha256 ||
        selected->original_textures.size()!=item.original_samplers.size())
       return false;
-    if(!d.source_frame || !d.guest_shader_constants ||
+    // The exact per-Draw XDK device shadow is independent of the
+    // interleaved command log. Reject unknown/changed RT0 or depth owners
+    // BEFORE pipeline compilation, color clears or the first Vulkan Draw.
+    if(!d.source_frame || !d.guest_vs_matrices ||
+       !MatchesVerifiedOriginalXdkMainDrawTargets(
+           *d.guest_vs_matrices,s.format.original_screen) ||
+       !d.guest_shader_constants ||
        !selected->pipeline.original_vs_float_layout ||
        !selected->pipeline.original_ps_float_layout)
       return false;

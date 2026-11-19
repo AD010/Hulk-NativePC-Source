@@ -28,6 +28,23 @@ struct VerifiedOriginalXdkScreen {
   bool final_resolve_to_front_buffer_verified=false;
   bool original_tiling_has_no_host_aliases_verified=false;
 };
+
+ // A live USA Draw must still reference the SAME original RT0 and depth
+ // surface that this native Vulkan render pass owns. Matching only model,
+ // material and shader digests cannot detect guest target switches that
+ // bypass the observed SetRenderTarget chronology.
+inline bool MatchesVerifiedOriginalXdkMainDrawTargets(
+    const xdk::OriginalVsMatrices& observed,
+    const VerifiedOriginalXdkScreen& screen) noexcept {
+  return screen.exact_guest_to_native_targets_verified &&
+         screen.guest_device && screen.guest_rt0 && screen.guest_depth &&
+         observed.original_guest_device == screen.guest_device &&
+         observed.original_rt0_guest_object == screen.guest_rt0 &&
+         observed.original_depth_guest_object == screen.guest_depth &&
+         observed.original_vertex_declaration_guest_object &&
+         observed.original_vs_guest_object &&
+         observed.original_ps_guest_object;
+}
 struct VerifiedSceneFormat {
   NativeColorFormat color = NativeColorFormat::Unknown;
   NativeDepthFormat depth = NativeDepthFormat::Unknown;

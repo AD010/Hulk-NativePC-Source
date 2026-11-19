@@ -1,4 +1,5 @@
 #include "../native_port/src/eor_native_frame.h"
+#include "../native_port/src/eor_diligent_scene_targets.h"
 #include "../native_port/src/native_camera_projection.h"
 #include "../native_port/src/native_resolution.h"
 #include <array>
@@ -35,6 +36,37 @@ template<class F> void MustThrow(F f) {
   assert(found);
 }
 int main() {
+  // Real-source target ownership is checked per Draw, not only at the
+  // preceding original SetRenderTarget command. Test IDs are synthetic.
+  hulk::eor::gpu::VerifiedOriginalXdkScreen target{};
+  target.guest_device=0x1000u; target.guest_rt0=0x2000u;
+  target.guest_depth=0x3000u;
+  target.exact_guest_to_native_targets_verified=true;
+  hulk::eor::xdk::OriginalVsMatrices actual{};
+  actual.original_guest_device=0x1000u;
+  actual.original_rt0_guest_object=0x2000u;
+  actual.original_depth_guest_object=0x3000u;
+  actual.original_vertex_declaration_guest_object=0x4000u;
+  actual.original_vs_guest_object=0x5000u;
+  actual.original_ps_guest_object=0x6000u;
+  using hulk::eor::gpu::MatchesVerifiedOriginalXdkMainDrawTargets;
+  assert(MatchesVerifiedOriginalXdkMainDrawTargets(actual,target));
+  target.exact_guest_to_native_targets_verified=false;
+  assert(!MatchesVerifiedOriginalXdkMainDrawTargets(actual,target));
+  target.exact_guest_to_native_targets_verified=true;
+  auto alien=actual;
+  alien.original_rt0_guest_object=0x2001u;
+  assert(!MatchesVerifiedOriginalXdkMainDrawTargets(alien,target));
+  alien=actual;alien.original_depth_guest_object=0x3001u;
+  assert(!MatchesVerifiedOriginalXdkMainDrawTargets(alien,target));
+  alien=actual;alien.original_guest_device=0x1001u;
+  assert(!MatchesVerifiedOriginalXdkMainDrawTargets(alien,target));
+  alien=actual;alien.original_vs_guest_object=0u;
+  assert(!MatchesVerifiedOriginalXdkMainDrawTargets(alien,target));
+  alien=actual;alien.original_ps_guest_object=0u;
+  assert(!MatchesVerifiedOriginalXdkMainDrawTargets(alien,target));
+  alien=actual;alien.original_vertex_declaration_guest_object=0u;
+  assert(!MatchesVerifiedOriginalXdkMainDrawTargets(alien,target));
   // Actual 16:10 camera rewrite is enabled only when source validation
   // proves the original 3D view and its matrix multiplication ABI.
   // Preserve original horizontal FOV: 16:9 -> 16:10 scales clip-Y by 0.9,
