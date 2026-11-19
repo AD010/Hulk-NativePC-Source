@@ -371,8 +371,14 @@ void ReplayCapturedMixedScene(
     std::span<const model::UploadedOriginalModel* const> residents,
     const aot::ShaderBank& bank,const aot::EffectCatalog& effects,
     const aot::ReflectionBank& reflection,aot::ShaderBindingBackend& backend) {
-  auto draws=MatchCapturedMixedDraws(captured,verified,residents);
-  ReplayVerifiedGeometryScene(frame,draws,residents,bank,effects,reflection,backend);
+  // A live captured Draw is never an offline/anonymous submission.
+  // Preserve its exact RT/depth/Clear/Resolve/Present events all the way
+  // into Diligent, or the AOT bridge correctly rejects the scene.
+  if(!xdk::ValidateOriginalCommandTimeline(captured))
+    throw std::invalid_argument("Incomplete captured mixed XDK GPU timeline");
+  const auto draws=MatchCapturedMixedDraws(captured,verified,residents);
+  const auto commands=BindVerifiedGeometryDraws(draws,residents,effects);
+  aot::ReplayAotScene(frame,commands,bank,effects,reflection,backend,&captured);
 }
 void ReplayCapturedXdkScene(
     const xdk::Frame& captured,
@@ -381,8 +387,14 @@ void ReplayCapturedXdkScene(
     std::span<const model::UploadedOriginalModel* const> residents,
     const aot::ShaderBank& bank,const aot::EffectCatalog& effects,
     const aot::ReflectionBank& reflection,aot::ShaderBindingBackend& backend) {
-  auto draws=MatchCapturedXdkDraws(captured,verified);
-  ReplayVerifiedGeometryScene(frame,draws,residents,bank,effects,reflection,backend);
+  // XDK read-only capture is the original command chronology. Do not
+  // forward tagged live Draws via the anonymous scene helper: that path
+  // cannot legally issue original clears or authorize physical Present.
+  if(!xdk::ValidateOriginalCommandTimeline(captured))
+    throw std::invalid_argument("Incomplete captured indexed XDK GPU timeline");
+  const auto draws=MatchCapturedXdkDraws(captured,verified);
+  const auto commands=BindVerifiedGeometryDraws(draws,residents,effects);
+  aot::ReplayAotScene(frame,commands,bank,effects,reflection,backend,&captured);
 }
 void ReplayVerifiedGeometryScene(
     const FrameGeometry& frame,
