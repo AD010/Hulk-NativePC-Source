@@ -499,13 +499,20 @@ HRESULT STDMETHODCALLTYPE OnPresent(IDirect3DDevice9* dev,const RECT* a,
       }
       // Prefer the actual presentation HWND; the focus window can be a
       // separate hidden/owner window and report misleading 4:3 dimensions.
-      HWND clientWindow=presentationWindow.load(std::memory_order_acquire);
-      if(!clientWindow) {
+      // Present's hDestWindowOverride is the actual output window for this
+      // call, even when it differs from both CreateDevice's hDeviceWindow and
+      // the focus HWND (common in window wrappers and DXVK setups).
+      // An invalid override must not replace the last known good window.
+      HWND clientWindow=(c && IsWindow(c)) ? c :
+                        presentationWindow.load(std::memory_order_acquire);
+      if(!clientWindow || !IsWindow(clientWindow)) {
         D3DDEVICE_CREATION_PARAMETERS creation{};
-        if(SUCCEEDED(dev->GetCreationParameters(&creation)))
+        clientWindow=nullptr;
+        if(SUCCEEDED(dev->GetCreationParameters(&creation)) &&
+           creation.hFocusWindow && IsWindow(creation.hFocusWindow))
           clientWindow=creation.hFocusWindow;
       }
-      if(clientWindow && IsWindow(clientWindow)) {
+      if(clientWindow) {
         RECT client{};
         if(GetClientRect(clientWindow,&client)) {
           clientWidth=UINT(client.right-client.left);
@@ -519,6 +526,8 @@ HRESULT STDMETHODCALLTYPE OnPresent(IDirect3DDevice9* dev,const RECT* a,
     }
     then=now;frames=0;
   }
+  // Do not persist a one-frame destination override: D3D9 permits the
+  // caller to switch back to the device's regular presentation window.
   return realPresent(dev,a,b,c,d);
 }
 HRESULT STDMETHODCALLTYPE OnCreateVS(IDirect3DDevice9* dev,const DWORD* data,
