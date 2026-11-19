@@ -66,6 +66,23 @@ class NativeEorLinkCoverage(unittest.TestCase):
             bridge.index("backend.PreflightOriginalScene(draws)"),
             "Missing live chronology must fail before GPU resource preparation")
 
+    def test_original_sampler_bijection_rejected_before_gpu_begin(self):
+        backend = (ROOT / "native_port" / "src" /
+                   "eor_diligent_aot_backend.cpp").read_text(encoding="utf-8")
+        self.assertIn("bool HasExactSourceSamplerBijection(", backend)
+        function = backend.split("bool HasExactSourceSamplerBijection(", 1)[1]
+        function = function.split("\n}", 1)[0]
+        self.assertIn("matched.insert(unique).second", function)
+        self.assertIn("unique!=resident.size()", function)
+        preflight = backend.split("bool DiligentEorDirectBackend::PreflightOriginalScene(", 1)[1]
+        preflight = preflight.split("bool DiligentEorDirectBackend::BeginScene(", 1)[0]
+        self.assertIn("HasExactSourceSamplerBijection(", preflight)
+        self.assertLess(preflight.index("HasExactSourceSamplerBijection("),
+                        preflight.index("CreateOriginalVulkanPipeline("))
+        bind = backend.split("bool DiligentEorDirectBackend::BindOriginalSamplers(", 1)[1]
+        bind = bind.split("bool DiligentEorDirectBackend::DrawIndexed(", 1)[0]
+        self.assertIn("HasExactSourceSamplerBijection(expected,textures)", bind)
+
     def test_original_material_owners_are_indexed_for_live_vulkan_draws(self):
         backend = (ROOT / "native_port" / "src" /
                    "eor_diligent_aot_backend.cpp").read_text(encoding="utf-8")

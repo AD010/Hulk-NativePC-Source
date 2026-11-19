@@ -37,6 +37,26 @@ bool Same(const VerifiedEorSampler& a,const VerifiedEorSampler& b) {
          a.original_shader_fetch_slot_verified==b.original_shader_fetch_slot_verified &&
          a.original_texture_format_and_mips_verified==b.original_texture_format_and_mips_verified;
 }
+// The entire original shader image/SRV set must be a one-to-one mapping.
+// Perform this exact check in BOTH frame preflight and live Draw binding;
+// duplicate samplers must fail before the first native Vulkan clear/Draw.
+bool HasExactSourceSamplerBijection(
+    std::span<const VerifiedEorSampler> expected,
+    std::span<const OriginalDiligentSampler> resident) {
+  if(expected.size()!=resident.size())return false;
+  std::set<size_t> matched;
+  for(const auto& slot:expected) {
+    size_t unique=resident.size();
+    for(size_t i=0;i<resident.size();++i)
+      if(Same(slot,resident[i].identity)) {
+        if(unique!=resident.size())return false;
+        unique=i;
+      }
+    if(unique==resident.size() || !matched.insert(unique).second)
+      return false;
+  }
+  return matched.size()==resident.size();
+}
 }
 std::vector<NativeEorPassResources> AcquireVerifiedNativeMaterialPasses(
     std::span<const VerifiedNativeMaterialPass> verified,
@@ -616,12 +636,12 @@ bool DiligentEorDirectBackend::PreflightOriginalScene(
                         d.source_ordinal},std::move(packed)).second)
         return false;
     } catch (...) {return false;}
-    for(const auto& sampler:item.original_samplers) {
-      unsigned matches=0;
-      for(const auto& owned:selected->original_textures)
-        if(Same(sampler,owned.identity))++matches;
-      if(matches!=1)return false;
-    }
+    // Reject duplicated/missing original SRVs BEFORE opening a host frame.
+    // Previously two copies of one sampler passed this loop, then failed
+    // BindOriginalSamplers only after earlier Draws had touched the target.
+    if(!HasExactSourceSamplerBijection(
+           item.original_samplers,selected->original_textures))
+      return false;
     const auto mesh=s.draw_buffers.find(d.vertex_buffer);
     if(mesh==s.draw_buffers.end() ||
        mesh->second.original_model_hash!=item.original_model_hash ||
@@ -795,21 +815,7 @@ bool DiligentEorDirectBackend::BindOriginalSamplers(
   // selected surface is exact even for shaders that sample zero textures.
   // Shader descriptor order and original material iteration order may differ.
   const auto& textures=s.selected->original_textures;
-  if(expected.size()!=textures.size())return false;
-  // Require a bijection, not merely that each requested sampler exists.
-  // Repeating one valid sampler could otherwise omit another original image
-  // while still passing the size and per-entry identity checks.
-  std::set<size_t> matched_indices;
-  for(const auto& slot:expected) {
-    size_t match=textures.size();
-    for(size_t i=0;i<textures.size();++i)
-      if(Same(slot,textures[i].identity)) {
-        if(match!=textures.size())return false;
-        match=i;
-      }
-    if(match==textures.size() || !matched_indices.insert(match).second)
-      return false;
-  }
+  if(!HasExactSourceSamplerBijection(expected,textures))return false;
   // All original GPU image variables and mip SRVs were actually bound
   // during PreflightOriginalScene. No Diligent Set() or GPU allocations
   // are allowed on the live Draw path.
