@@ -58,15 +58,17 @@ bool DiligentEorHostOutput::CompositeAndPresent(
   // Keep the swapchain RTV detached on every exit, including exceptions
   // raised by the blitter or Present during a resize/device-loss transition.
   bool rtv_bound=false;
-  const auto detach=[&]() noexcept {
-    if(!rtv_bound)return;
+  const auto detach=[&]() noexcept -> bool {
+    if(!rtv_bound)return true;
     try {
       context->SetRenderTargets(0,nullptr,nullptr,
           Diligent::RESOURCE_STATE_TRANSITION_MODE_NONE);
     } catch (...) {
       // Device loss may prevent detachment; do not issue Present afterwards.
+      return false;
     }
     rtv_bound=false;
+    return true;
   };
   try {
     // Only a full native source may reach the host. HUD/camera provenance
@@ -92,7 +94,7 @@ bool DiligentEorHostOutput::CompositeAndPresent(
     // Release the swapchain RTV before Present/resize. Otherwise the
     // context can retain a reference to the outgoing backbuffer across a
     // window resize, even though the source EoR scene has already resolved.
-    detach();
+    if(!detach())return false;
     // The same sole host Vulkan device owns both the source EoR scene and
     // output swapchain. No PM4 copy, Xenos EDRAM or competing VkSurface.
     device_->Present();
