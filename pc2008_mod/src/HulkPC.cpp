@@ -468,7 +468,7 @@ HRESULT STDMETHODCALLTYPE OnSetTexture(IDirect3DDevice9* dev,DWORD stage,
         if(linear) {
           const HRESULT minHr=realSampler(dev,stage,D3DSAMP_MINFILTER,D3DTEXF_LINEAR);
           if(FAILED(minHr))
-            Log("[D3D9] AF MIN repair failed stage=%lu hr=0x%08lX\\r\\n",
+            Log("[D3D9] AF MIN repair failed stage=%lu hr=0x%08lX\r\n",
                 (unsigned long)stage,(unsigned long)(unsigned int)minHr);
         }
         return hr;
