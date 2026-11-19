@@ -526,9 +526,12 @@ std::size_t DiligentEorDirectBackend::PrewarmResidentOriginalPipelines(
 bool DiligentEorDirectBackend::PreflightOriginalScene(
     std::span<const aot::BoundIndexedDraw> draws) {
   auto& s=*state_;
+  // A rejected nested preflight must not erase the constant snapshots
+  // being consumed by the CURRENT Vulkan scene.
+  if(s.scene_open)return false;
   s.frame_preflight_ready=false;
   s.packed_constants.clear();
-  if(s.scene_open || draws.empty())return false;
+  if(draws.empty())return false;
   std::map<State::DrawKey,State::PackedConstants> prepared_constants;
   std::set<State::MaterialKey> needed_materials;
   std::set<std::pair<uint64_t,uint32_t>> captured_calls;
@@ -829,8 +832,14 @@ bool DiligentEorDirectBackend::BindOriginalSamplers(
 }
 bool DiligentEorDirectBackend::DrawIndexed(const native::IndexedDraw& draw) {
   auto& s=*state_;
-  if(!s.scene_open || s.finished || !s.selected || !s.constants_ready ||
-     !s.program_ready || !s.textures_ready || !s.active.pipeline ||
+  // Per-Draw Vulkan constants/PSO/SRB are single-use. Consume even on a
+  // rejected or throwing GPU submission; never reuse the previous object's
+  // material or matrices if a caller omits the next original EoR binding.
+  const bool source_bindings_ready =
+      s.constants_ready && s.program_ready && s.textures_ready;
+  s.constants_ready=s.program_ready=s.textures_ready=false;
+  if(!s.scene_open || s.finished || !s.selected || !source_bindings_ready ||
+     !s.active.pipeline ||
      !s.active.bindings || !draw.index_count || !draw.vertex_buffer ||
      !draw.index_buffer || s.meshes.KindOf(draw.index_buffer)!=2)
     return false;

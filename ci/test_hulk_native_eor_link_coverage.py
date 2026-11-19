@@ -78,6 +78,31 @@ class NativeEorLinkCoverage(unittest.TestCase):
             r"slots\.size\(\)>DILIGENT_MAX_LAYOUT_ELEMENTS\s*\|\|\s*slots\.size\(\)>16",
         )
 
+
+    def test_active_vulkan_scene_preflight_is_nondestructive(self):
+        backend = (ROOT / "native_port" / "src" /
+                   "eor_diligent_aot_backend.cpp").read_text(encoding="utf-8")
+        prepare = backend.split("bool DiligentEorDirectBackend::PreflightOriginalScene(", 1)[1]
+        prepare = prepare.split("bool DiligentEorDirectBackend::BeginScene(", 1)[0]
+        self.assertRegex(prepare, r"if\s*\(s\.scene_open\)\s*return false;")
+        self.assertLess(prepare.index("if(s.scene_open)return false;"),
+                        prepare.index("s.frame_preflight_ready=false;"))
+        self.assertLess(prepare.index("if(s.scene_open)return false;"),
+                        prepare.index("s.packed_constants.clear();"))
+
+    def test_native_draw_binding_is_single_use_even_on_failure(self):
+        backend = (ROOT / "native_port" / "src" /
+                   "eor_diligent_aot_backend.cpp").read_text(encoding="utf-8")
+        draw = backend.split("bool DiligentEorDirectBackend::DrawIndexed(", 1)[1]
+        draw = draw.split("bool DiligentEorDirectBackend::ResolveScene(", 1)[0]
+        self.assertRegex(draw, r"const bool source_bindings_ready\s*=\s*"
+                         r"s\.constants_ready\s*&&\s*s\.program_ready\s*&&"
+                         r"\s*s\.textures_ready;")
+        self.assertLess(draw.index("s.constants_ready=s.program_ready=s.textures_ready=false;"),
+                        draw.index("if(!s.scene_open"),
+                        "A failing Draw must consume previous material/matrix bindings")
+        self.assertIn("!source_bindings_ready", draw)
+
     def test_live_vulkan_resolve_waits_for_original_source_resolve(self):
         backend = (ROOT / "native_port" / "src" /
                    "eor_diligent_aot_backend.cpp").read_text(encoding="utf-8")
