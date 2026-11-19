@@ -8,6 +8,8 @@
 #include "eor_shader_reflection.h"
 #include "eor_verified_sampler_bindings.h"
 #include <vector>
+#include <cstddef>
+#include <cstdint>
 #include <span>
 
 namespace hulk::eor::aot {
@@ -21,6 +23,9 @@ struct BoundIndexedDraw {
   // Preserve original surface ownership even when different models share a PSO.
   uint32_t original_model_hash = 0;
   uint32_t original_surface_ordinal = UINT32_MAX;
+  // Exact original MODELS.ARC mesh-header identity. A model hash alone
+  // cannot distinguish meshes using different vertex/index layouts.
+  size_t original_mesh_header_offset = SIZE_MAX;
 };
 // Real original guest VS register values at the exact source Draw.
 // These are NOT automatically a Vulkan UBO or a 16:10 camera update:

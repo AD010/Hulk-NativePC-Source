@@ -163,6 +163,7 @@ int main(){
          good[0].original_samplers[0].original_texture_hash==0xBEEF &&
          good[0].original_model_hash==0xCAFE &&
          good[0].original_surface_ordinal==0 &&
+         good[0].original_mesh_header_offset==40 &&
          good[0].draw.base_vertex==0);
   assert(good.size()==1 && good[0].draw.vertex_buffer==1 &&
          good[0].draw.index_buffer==3 && good[0].draw.index_count==3 &&
@@ -243,6 +244,7 @@ int main(){
   const auto tagged=native::BindVerifiedGeometryDraws(matched,models,effects);
   assert(tagged.size()==1 && tagged[0].draw.source_frame==1 &&
          tagged[0].draw.source_ordinal==0 &&
+         tagged[0].original_mesh_header_offset==40 &&
          tagged[0].draw.guest_vs_matrices &&
          tagged[0].draw.guest_shader_constants==complete_constants &&
          xdk::ReadOriginalMatrix(*tagged[0].draw.guest_vs_matrices,11,4)
@@ -418,7 +420,8 @@ int main(){
          second_triangle[0].original_call_ordinal==0);
   const auto uploaded=native::BindVerifiedGeometryDraws(
       second_triangle,models,effects);
-  assert(uploaded.size()==1 && uploaded[0].draw.first_index==3);
+  assert(uploaded.size()==1 && uploaded[0].draw.first_index==3 &&
+         uploaded[0].original_mesh_header_offset==40);
   // Guest baseVertex -5 is translated from the authenticated guest -2
   // origin to native -3. This local rebase is in bounds for indices 3..5.
   later.calls[0].gpr[2]=0xFFFFFFFBu;

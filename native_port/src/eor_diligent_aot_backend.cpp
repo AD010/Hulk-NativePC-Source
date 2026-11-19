@@ -622,6 +622,9 @@ bool DiligentEorDirectBackend::PreflightOriginalScene(
     const auto mesh=s.draw_buffers.find(d.vertex_buffer);
     if(mesh==s.draw_buffers.end() ||
        mesh->second.original_model_hash!=item.original_model_hash ||
+       item.original_mesh_header_offset==SIZE_MAX ||
+       mesh->second.original_mesh_header_offset!=
+           item.original_mesh_header_offset ||
        mesh->second.index_handle!=d.index_buffer ||
        mesh->second.host_vertex_slots.size()!=
            selected->pipeline.exact_host_input_layout.size() ||

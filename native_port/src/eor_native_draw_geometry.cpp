@@ -87,6 +87,9 @@ std::vector<aot::BoundIndexedDraw> BindVerifiedGeometryDraws(
     item.original_samplers = src.original_sampler_slots;
     item.original_model_hash = src.original_model_hash;
     item.original_surface_ordinal = src.original_surface_ordinal;
+    // Preserve the authenticated source mesh even when other surfaces
+    // in this same model reuse its material effect and shader pair.
+    item.original_mesh_header_offset = src.original_mesh_header_offset;
     out.push_back(std::move(item));
   }
   return out;
