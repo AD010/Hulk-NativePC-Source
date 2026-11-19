@@ -15,6 +15,7 @@ struct Backend final:ShaderBindingBackend {
   bool accept_original_timeline=false;
   bool refuse_terminal_present=false;
   std::vector<xdk::CommandKind> original_gpu_commands;
+  std::vector<char> presentation_order;
   bool CanReplayOriginalXdkTimeline(const xdk::Frame& source) const override {
     return accept_original_timeline &&
            xdk::ValidateOriginalCommandTimeline(source);
@@ -27,6 +28,8 @@ struct Backend final:ShaderBindingBackend {
        (refuse_terminal_present && call.kind==xdk::CommandKind::Present))
       return false;
     original_gpu_commands.push_back(call.kind);
+    if(call.kind==xdk::CommandKind::Present)
+      presentation_order.push_back('P');
     return true;
   }
   unsigned preflights=0;
@@ -71,7 +74,11 @@ struct Backend final:ShaderBindingBackend {
   void AbortScene() noexcept override {++abort;}
   bool DrawIndexed(const native::IndexedDraw&) override {++draw;return true;}
   bool ResolveScene(native::Size size) override {assert(size.width==2560);++resolve;return true;}
-  bool Composite(native::Rect r,native::Size) override {assert(r.height==1600);++composite;return true;}
+  bool Composite(native::Rect r,native::Size) override {
+    assert(r.height==1600);
+    presentation_order.push_back('C');
+    ++composite;return true;
+  }
 };
 void I32(std::vector<uint8_t>& b,uint32_t v){for(unsigned i=0;i<4;++i)b.push_back(uint8_t(v>>(8*i)));}
 void Add(std::vector<uint8_t>& b,uint8_t digest,uint32_t stage,bool sampled=false) {
@@ -207,6 +214,7 @@ int main(){
                  chronological,&source_frame);
   assert(chronological.begin==1 && chronological.draw==1 &&
          chronological.resolve==1 && chronological.composite==1 &&
+         chronological.presentation_order==std::vector<char>({'P','C'}) &&
          chronological.original_gpu_commands==
              std::vector<xdk::CommandKind>({
                 xdk::CommandKind::SetRenderTarget,
