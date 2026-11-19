@@ -66,6 +66,28 @@ class NativeEorLinkCoverage(unittest.TestCase):
             bridge.index("backend.PreflightOriginalScene(draws)"),
             "Missing live chronology must fail before GPU resource preparation")
 
+    def test_original_material_owners_are_indexed_for_live_vulkan_draws(self):
+        backend = (ROOT / "native_port" / "src" /
+                   "eor_diligent_aot_backend.cpp").read_text(encoding="utf-8")
+        constructor = backend.split("struct DiligentEorDirectBackend::State {", 1)[1]
+        constructor = constructor.split("DiligentEorDirectBackend::DiligentEorDirectBackend(", 1)[0]
+        self.assertIn("material_lookup.emplace(key,&original)", constructor)
+        self.assertIn("std::map<MaterialKey,const NativeEorPassResources*> material_lookup", constructor)
+        preflight = backend.split("bool DiligentEorDirectBackend::PreflightOriginalScene(", 1)[1]
+        preflight = preflight.split("bool DiligentEorDirectBackend::BeginScene(", 1)[0]
+        self.assertIn("s.material_lookup.find(", preflight)
+        self.assertIn("s.material_lookup.find(key)", preflight)
+        self.assertNotIn("for(const auto& material:s.passes)", preflight)
+        bind_surface = backend.split("bool DiligentEorDirectBackend::BindOriginalSurface(", 1)[1]
+        bind_surface = bind_surface.split("bool DiligentEorDirectBackend::BindOriginalEffect(", 1)[0]
+        self.assertIn("s.material_lookup.lower_bound(", bind_surface)
+        self.assertIn("std::get<0>(item->first)!=model", bind_surface)
+        self.assertIn("std::get<1>(item->first)!=ordinal", bind_surface)
+        bind_effect = backend.split("bool DiligentEorDirectBackend::BindOriginalEffect(", 1)[1]
+        bind_effect = bind_effect.split("bool DiligentEorDirectBackend::BindOriginalConstants(", 1)[0]
+        self.assertIn("s.material_lookup.find(", bind_effect)
+        self.assertIn("s.selected=item->second;", bind_effect)
+
     def test_live_draw_vertex_slot_count_cannot_overrun_host_arrays(self):
         backend = (ROOT / "native_port" / "src" /
                    "eor_diligent_aot_backend.cpp").read_text(encoding="utf-8")

@@ -123,6 +123,7 @@ std::vector<NativeEorDrawBuffers> PositionOnlyDrawBuffersFromOriginalModels(
   return result;
 }
 struct DiligentEorDirectBackend::State {
+  using MaterialKey=std::tuple<uint32_t,uint32_t,uint32_t,uint32_t>;
   State(Diligent::IRenderDevice* d,Diligent::IDeviceContext* c,
         DiligentSceneTargets& sc,DiligentMeshUploadBackend& ms,
         DiligentAotShaderModules& shaders,const aot::ShaderBank& bank,
@@ -134,6 +135,17 @@ struct DiligentEorDirectBackend::State {
        bank(bank),effects(effects),frame(f),format(formats),
        passes(std::move(passes)),bind_constants(std::move(bind)),
        composite(std::move(present)) {
+    // Pre-index exact source model/surface/effect/pass ownership ONCE at
+    // asset load, not O(draws * all-materials) on every game frame.
+    // Pointers remain stable: the resident pass vector is never reallocated.
+    for(const auto& original:passes) {
+      const MaterialKey key{original.original_model_hash,
+          original.original_surface_ordinal,
+          original.pipeline.original_effect_hash,
+          original.pipeline.original_pass_index};
+      if(!material_lookup.emplace(key,&original).second)
+        throw std::invalid_argument("Duplicate native EoR surface/material pass");
+    }
     for(auto& entry:buffers)
       if(!draw_buffers.emplace(entry.position_handle,std::move(entry)).second)
         throw std::invalid_argument("Duplicate original EoR Draw buffer provenance");
@@ -160,7 +172,7 @@ struct DiligentEorDirectBackend::State {
   // EXACT original model/surface/effect/pass: two materials may share a
   // ShaderEffect pair yet use different source-proven blend/depth/cull or
   // vertex input state. Sharing a PSO keyed by technique alone was unsafe.
-  using MaterialKey=std::tuple<uint32_t,uint32_t,uint32_t,uint32_t>;
+  std::map<MaterialKey,const NativeEorPassResources*> material_lookup;
   std::map<MaterialKey,OriginalVulkanPipeline> pipeline_cache;
   // Each original pass owns a unique mutable Vulkan descriptor binding.
   std::map<MaterialKey,Diligent::RefCntAutoPtr<Diligent::IShaderResourceBinding>>
@@ -310,18 +322,8 @@ DiligentEorDirectBackend::DiligentEorDirectBackend(
                         pass.original_vertex_shader_sha256,
                         pass.original_pixel_shader_sha256))
       throw std::invalid_argument("Native EoR shader/pass provenance mismatched");
-    for(size_t j=0;j<i;++j) {
-      const auto& earlier=state_->passes[j];
-      const auto& old=earlier.pipeline;
-      // PSOs are keyed by (model, surface, effect, pass); materials that
-      // reuse a source effect may have different fixed-function state.
-      // Reject only a duplicate four-part source owner.
-      if(earlier.original_model_hash==owner.original_model_hash &&
-         earlier.original_surface_ordinal==owner.original_surface_ordinal &&
-         old.original_effect_hash==pass.original_effect_hash &&
-         old.original_pass_index==pass.original_pass_index)
-        throw std::invalid_argument("Duplicate native EoR surface/material pass");
-    }
+    // State::material_lookup already rejects duplicate four-part owners
+    // in O(log N) per pass, before any Vulkan pipeline is allocated.
   }
   for(const auto& [position,resident]:state_->draw_buffers) {
     const auto& slots=resident.host_vertex_slots;
@@ -566,16 +568,11 @@ bool DiligentEorDirectBackend::PreflightOriginalScene(
        item.original_surface_ordinal==UINT32_MAX || !item.effect_hash ||
        item.pass_index==UINT32_MAX)
       return false;
-    const NativeEorPassResources* selected=nullptr;
-    for(const auto& material:s.passes) {
-      if(material.original_model_hash==item.original_model_hash &&
-         material.original_surface_ordinal==item.original_surface_ordinal &&
-         material.pipeline.original_effect_hash==item.effect_hash &&
-         material.pipeline.original_pass_index==item.pass_index) {
-        selected=&material;
-        break;
-      }
-    }
+    const auto owner=s.material_lookup.find(
+        {item.original_model_hash,item.original_surface_ordinal,
+         item.effect_hash,item.pass_index});
+    const NativeEorPassResources* selected=
+        owner==s.material_lookup.end()?nullptr:owner->second;
     if(!selected ||
        selected->pipeline.original_vertex_shader_sha256!=item.vertex_source_sha256 ||
        selected->pipeline.original_pixel_shader_sha256!=item.pixel_source_sha256 ||
@@ -648,18 +645,11 @@ bool DiligentEorDirectBackend::PreflightOriginalScene(
   try {
     for(const auto& key:needed_materials) {
       if(s.pipeline_cache.contains(key))continue;
-      const NativeEorPassResources* match=nullptr;
-      for(const auto& material:s.passes)
-        if(material.original_model_hash==std::get<0>(key) &&
-           material.original_surface_ordinal==std::get<1>(key) &&
-           material.pipeline.original_effect_hash==std::get<2>(key) &&
-           material.pipeline.original_pass_index==std::get<3>(key)) {
-          if(match)return false; // ambiguous original pass owner
-          match=&material;
-        }
-      if(!match)return false;
+      const auto owner=s.material_lookup.find(key);
+      if(owner==s.material_lookup.end())return false;
       auto pipeline=CreateOriginalVulkanPipeline(
-          s.device.RawPtr(),s.shaders,s.bank,s.effects,match->pipeline);
+          s.device.RawPtr(),s.shaders,s.bank,s.effects,
+          owner->second->pipeline);
       s.pipeline_cache.emplace(key,std::move(pipeline));
     }
     // Pass three: build a distinct shader-resource-binding object for each
@@ -671,16 +661,9 @@ bool DiligentEorDirectBackend::PreflightOriginalScene(
       const auto pipeline=s.pipeline_cache.find(key);
       if(pipeline==s.pipeline_cache.end() || !pipeline->second.pipeline)
         return false;
-      const NativeEorPassResources* original=nullptr;
-      for(const auto& material:s.passes)
-        if(material.original_model_hash==std::get<0>(key) &&
-           material.original_surface_ordinal==std::get<1>(key) &&
-           material.pipeline.original_effect_hash==std::get<2>(key) &&
-           material.pipeline.original_pass_index==std::get<3>(key)) {
-          if(original)return false;
-          original=&material;
-        }
-      if(!original)return false;
+      const auto owner=s.material_lookup.find(key);
+      if(owner==s.material_lookup.end())return false;
+      const auto* original=owner->second;
       // CreateOriginalVulkanPipeline ALREADY creates one mutable SRB for
       // this exact original material owner. Reuse it rather than paying for
       // a second per-material Vulkan descriptor allocation on first frame.
@@ -732,12 +715,15 @@ bool DiligentEorDirectBackend::BindOriginalSurface(uint32_t model,uint32_t ordin
   s.constants_ready=s.program_ready=s.textures_ready=false;
   s.requested_model=0;s.requested_surface=UINT32_MAX;s.surface_ready=false;
   if(!s.scene_open || s.finished || !model || ordinal==UINT32_MAX)return false;
-  for(const auto& item:s.passes)
-    if(item.original_model_hash==model && item.original_surface_ordinal==ordinal) {
-      s.requested_model=model;s.requested_surface=ordinal;
-      s.surface_ready=true;return true;
-    }
-  return false;
+  // A source model may own many effects, but the first keyed pass is
+  // sufficient to prove that THIS exact model/surface is resident.
+  const auto item=s.material_lookup.lower_bound({model,ordinal,0u,0u});
+  if(item==s.material_lookup.end() ||
+     std::get<0>(item->first)!=model ||
+     std::get<1>(item->first)!=ordinal)return false;
+  s.requested_model=model;s.requested_surface=ordinal;
+  s.surface_ready=true;
+  return true;
 }
 bool DiligentEorDirectBackend::BindOriginalEffect(uint32_t effect,uint32_t pass) {
   auto& s=*state_;
@@ -745,15 +731,11 @@ bool DiligentEorDirectBackend::BindOriginalEffect(uint32_t effect,uint32_t pass)
      pass==UINT32_MAX)return false;
   s.selected=nullptr;s.active={};
   s.constants_ready=s.program_ready=s.textures_ready=false;
-  for(const auto& item:s.passes)
-    if(item.original_model_hash==s.requested_model &&
-       item.original_surface_ordinal==s.requested_surface &&
-       item.pipeline.original_effect_hash==effect &&
-       item.pipeline.original_pass_index==pass) {
-      // Duplicate exact surface/pass owners were rejected by the constructor.
-      s.selected=&item;return true;
-    }
-  return false;
+  const auto item=s.material_lookup.find(
+      {s.requested_model,s.requested_surface,effect,pass});
+  if(item==s.material_lookup.end())return false;
+  s.selected=item->second;
+  return true;
 }
 bool DiligentEorDirectBackend::BindOriginalConstants(
     const aot::ReflectedShader& vs,const aot::ReflectedShader& ps) {
