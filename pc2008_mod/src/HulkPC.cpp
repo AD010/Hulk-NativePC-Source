@@ -564,8 +564,13 @@ HRESULT STDMETHODCALLTYPE OnVSConstants(IDirect3DDevice9* dev,UINT reg,
   {std::lock_guard lock(shaderMutex);
    const auto it=shaderMap.find(activeVS);
    if(it!=shaderMap.end())reflected=it->second;}
+  // D3D9 permits partial constant-register updates. Correct the intersection
+  // with the four ViewProj columns, not only a single four-register upload.
+  // Use widened arithmetic: a caller can supply a high register index.
+  const uint64_t writeBegin=reg, writeEnd=writeBegin+count;
+  const uint64_t matrixBegin=reflected.view, matrixEnd=matrixBegin+4;
   if(!reflected.hasView || !reflected.hasWorld || reflected.matrixClass!=3 ||
-     reg>reflected.view || uint64_t(reg)+count<uint64_t(reflected.view)+4)
+     writeEnd<=matrixBegin || writeBegin>=matrixEnd)
     return realVSConst(dev,reg,data,count);
   D3DVIEWPORT9 vp{};
   if(FAILED(dev->GetViewport(&vp))||!vp.Width||!vp.Height)
@@ -593,9 +598,10 @@ HRESULT STDMETHODCALLTYPE OnVSConstants(IDirect3DDevice9* dev,UINT reg,
     // scaling modifies row X (component 0) of EACH column, not all four
     // components of the first column. The latter corrupts Y/Z/W and can
     // distort depth, clipping, and the apparent camera perspective.
-    const size_t firstColumn=size_t(reflected.view-reg)*4;
-    for(size_t c=0;c<4;++c) {
-      const size_t xComponent=firstColumn+c*4;
+    const uint64_t overlapBegin=std::max(writeBegin,matrixBegin);
+    const uint64_t overlapEnd=std::min(writeEnd,matrixEnd);
+    for(uint64_t column=overlapBegin;column<overlapEnd;++column) {
+      const size_t xComponent=size_t(column-writeBegin)*4;
       changed[xComponent]=float(changed[xComponent]*scale);
     }
     return realVSConst(dev,reg,changed.data(),count);
