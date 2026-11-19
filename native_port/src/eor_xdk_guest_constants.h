@@ -26,6 +26,9 @@ struct OriginalVsMatrices {
   uint32_t original_rt0_guest_object=0;
   uint32_t original_depth_guest_object=0;
   std::array<uint32_t,16> original_texture_guest_objects{};
+  // Real USA XDK 6534 SetStreamSource slot 0..15 device shadow (+12460).
+  // Guest object identity only: NOT a model hash or Vulkan buffer handle.
+  std::array<uint32_t,16> original_vertex_buffer_guest_objects{};
   std::array<float,kRegisterCount*4> c7_through_c25{};
   uint32_t finite_register_mask=0;
 };
@@ -72,6 +75,8 @@ inline std::optional<OriginalVsMatrices> CaptureUsaVsMatrices(
   result.original_ps_guest_object=at(12692);
   result.original_vertex_declaration_guest_object=at(11820);
   result.original_index_buffer_guest_object=at(12436);
+  for(uint32_t i=0;i<result.original_vertex_buffer_guest_objects.size();++i)
+    result.original_vertex_buffer_guest_objects[i]=at(12460+i*4);
   result.original_rt0_guest_object=at(12440);
   result.original_depth_guest_object=at(12456);
   for(uint32_t i=0;i<result.original_texture_guest_objects.size();++i)

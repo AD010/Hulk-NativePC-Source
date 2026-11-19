@@ -318,6 +318,7 @@ int main(){
   live_state.original_ps_guest_object=0x82002222u;
   live_state.original_vertex_declaration_guest_object=0x82003333u;
   live_state.original_index_buffer_guest_object=0x82004444u;
+  live_state.original_vertex_buffer_guest_objects[0]=0x82008888u;
   live_state.original_rt0_guest_object=0x82005555u;
   live_state.original_depth_guest_object=0x82006666u;
   live_state.original_texture_guest_objects[0]=0x82007777u;
@@ -326,6 +327,8 @@ int main(){
   witness.original_resources=native::ResourcesAtDraw(live_state);
   witness.original_source_submission=verified;
   witness.source_verified_texture_slot_mask=1u;
+  witness.source_verified_vertex_stream_slot_mask=1u;
+  witness.original_xdk_vertex_stream_slot_mapping_verified=true;
   witness.original_xdk_texture_slot_mapping_verified=true;
   witness.original_guest_resource_to_material_mapping_verified=true;
   std::vector<native::VerifiedXdkResourceWitness> catalog{witness};
@@ -465,6 +468,21 @@ int main(){
       later,catalog,models);
       (void)native::BindVerifiedGeometryDraws(bad,models,effects);});
   catalog[0].original_linear_index_stream_verified=false;
+  // Exact original USA VB stream 0 differentiates meshes that share shaders.
+  // Stale stream 15 is ignored when source declaration consumes only slot 0.
+  transformed.calls[0].observed_vs_matrices->
+      original_vertex_buffer_guest_objects[15]=0x8300FEEDu;
+  assert(native::ResolveCapturedResourceDraws(transformed,catalog,models).size()==1);
+  transformed.calls[0].observed_vs_matrices->
+      original_vertex_buffer_guest_objects[0]=0x8300BAD0u;
+  Reject([&]{(void)native::ResolveCapturedResourceDraws(transformed,catalog,models);});
+  transformed=runtime;
+  catalog[0].source_verified_vertex_stream_slot_mask=0;
+  Reject([&]{(void)native::ResolveCapturedResourceDraws(transformed,catalog,models);});
+  catalog[0]=witness;
+  catalog[0].original_xdk_vertex_stream_slot_mapping_verified=false;
+  Reject([&]{(void)native::ResolveCapturedResourceDraws(transformed,catalog,models);});
+  catalog[0]=witness;
   // Stale XDK slot 15 is irrelevant when original shader reads only slot 0.
   transformed.calls[0].observed_vs_matrices->
       original_texture_guest_objects[15]=0x8300ABCDu;

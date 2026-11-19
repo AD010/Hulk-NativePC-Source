@@ -148,7 +148,8 @@ OriginalXdkResourceIdentity ResourcesAtDraw(
           state.original_ps_guest_object,
           state.original_rt0_guest_object,
           state.original_depth_guest_object,
-          state.original_texture_guest_objects};
+          state.original_texture_guest_objects,
+          state.original_vertex_buffer_guest_objects};
 }
 namespace {
 bool SameOriginalResources(
@@ -169,6 +170,18 @@ bool SameOriginalResources(
   const auto& native_draw=original?original->native_draw:
       std::get<VerifiedXdkVerticesSubmission>(
           evidence.original_source_submission).native_draw;
+  // An effect/material does not identify a resident mesh: enforce actual
+  // source-proven XDK vertex-stream bindings BEFORE selecting its buffers.
+  if(!evidence.original_xdk_vertex_stream_slot_mapping_verified ||
+     !evidence.source_verified_vertex_stream_slot_mask)
+    return false;
+  for(uint32_t slot=0;slot<16;++slot) {
+    if(!(evidence.source_verified_vertex_stream_slot_mask &
+         (uint16_t(1u)<<slot)))continue;
+    if(!expected.vertex_buffers[slot] ||
+       expected.vertex_buffers[slot]!=observed.vertex_buffers[slot])
+      return false;
+  }
   if(!native_draw.original_sampler_slots.empty() &&
      (!evidence.original_xdk_texture_slot_mapping_verified ||
       !evidence.source_verified_texture_slot_mask))

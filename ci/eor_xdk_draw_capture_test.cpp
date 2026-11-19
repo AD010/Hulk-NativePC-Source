@@ -73,6 +73,8 @@ int main() {
   W(guest,device+12692,0x82FEDCBA);
   W(guest,device+11820,0x82345678);
   W(guest,device+12436,0x826789AB);
+  W(guest,device+12460,0x82123456);
+  W(guest,device+12460+15*4,0x82F01234);
   W(guest,device+12440,0x82888888);
   W(guest,device+12456,0x82999999);
   W(guest,device+12544,0x8200BEEF);
@@ -84,6 +86,9 @@ int main() {
          matrix->original_ps_guest_object==0x82FEDCBAu &&
          matrix->original_vertex_declaration_guest_object==0x82345678u &&
          matrix->original_index_buffer_guest_object==0x826789ABu &&
+         matrix->original_vertex_buffer_guest_objects[0]==0x82123456u &&
+         matrix->original_vertex_buffer_guest_objects[15]==0x82F01234u &&
+         matrix->original_vertex_buffer_guest_objects[1]==0u &&
          matrix->original_rt0_guest_object==0x82888888u &&
          matrix->original_depth_guest_object==0x82999999u &&
          matrix->original_texture_guest_objects[0]==0x8200BEEFu &&

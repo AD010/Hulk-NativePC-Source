@@ -84,6 +84,8 @@ struct OriginalXdkResourceIdentity {
   uint32_t device=0,vertex_declaration=0,index_buffer=0;
   uint32_t vertex_shader=0,pixel_shader=0,rt0=0,depth=0;
   std::array<uint32_t,16> textures{};
+  // Captured original XDK SetStreamSource, not inferred mesh identifiers.
+  std::array<uint32_t,16> vertex_buffers{};
   bool operator==(const OriginalXdkResourceIdentity&) const = default;
 };
 OriginalXdkResourceIdentity ResourcesAtDraw(
@@ -98,6 +100,10 @@ struct VerifiedXdkResourceWitness {
   // mapping, not a guess from Xenos fetch index or archive hash.
   uint16_t source_verified_texture_slot_mask=0;
   bool original_xdk_texture_slot_mapping_verified=false;
+  // The ORIGINAL vertex declaration's actually used source slots.
+  // Never assume stale bound streams are consumed by the active shader.
+  uint16_t source_verified_vertex_stream_slot_mask=0;
+  bool original_xdk_vertex_stream_slot_mapping_verified=false;
   bool original_guest_resource_to_material_mapping_verified=false;
   // Optional SHA/guest-memory verified proof that the original XDK indexed
   // stream is the SAME complete original source buffer as the host mesh,
