@@ -8,6 +8,23 @@ from run_hulk_tu1_dual_codegen import manifest_text, prepare_codegen, codegen
 
 
 class DualCodegenTests(unittest.TestCase):
+    def test_eu_tu1_analysis_isolated_before_usa_build(self):
+        script = (Path(__file__).resolve().parents[1] /
+                  "native_port/BUILD_WINDOWS.ps1").read_text(encoding="utf-8")
+        stage = (Path(__file__).resolve().parent /
+                 "run_hulk_tu1_dual_codegen.py").read_text(encoding="utf-8")
+        self.assertIn("[switch]$EuTu1Analysis", script)
+        self.assertIn("[string]$EuTu1Zip", script)
+        self.assertIn("if ($EuTu1Analysis) {", script)
+        self.assertIn("EU TU1 codegen cannot reuse USA NativeX/PM4/XDK hooks", script)
+        self.assertIn("Refusing to overwrite existing private EU TU1 source analysis", script)
+        self.assertIn("ci/run_hulk_tu1_dual_codegen.py", script)
+        self.assertIn("decoded_overrides=True", stage)
+        self.assertLess(script.index("if ($EuTu1Analysis) {"),
+                        script.index("foreach ($cmd in @('git', 'cmake', 'ninja', 'clang++', 'python'))"))
+        self.assertLess(script.index("exit 0", script.index("if ($EuTu1Analysis) {")),
+                        script.index("foreach ($cmd in @('git', 'cmake', 'ninja', 'clang++', 'python'))"))
+
     def test_manifest_never_uses_usa_function_hints(self):
         value = manifest_text()
         self.assertIn("includes = []", value)

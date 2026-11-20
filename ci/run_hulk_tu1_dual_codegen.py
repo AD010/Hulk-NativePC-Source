@@ -67,7 +67,10 @@ def run(rexglue: Path, eu_xex: Path, tu_zip: Path, work: Path,
         check_usa_executable(us_xex.read_bytes())
 
     work.mkdir(parents=True)
-    staged = stage(tu_zip, eu_xex, work / "verified-tu1")
+    # Export the same authenticated 525 resource replacements for the
+    # future EU native runtime; never overlay the USA game data root.
+    staged = stage(tu_zip, eu_xex, work / "verified-tu1",
+                   decoded_overrides=True)
     original = staged / "codegen-game/default.xex"
     patch = staged / "codegen-game/default.xexp"
 

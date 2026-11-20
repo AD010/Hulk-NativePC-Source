@@ -4,7 +4,10 @@ param(
   [string]$GameRoot = "",
   [switch]$NativeXLink,
   [switch]$Pm4Probe,
-  [switch]$InputProbe
+  [switch]$InputProbe,
+  [switch]$EuTu1Analysis,
+  [string]$EuTu1Zip = "",
+  [string]$EuRexGlue = ""
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -52,6 +55,51 @@ function Invoke-Checked([string]$exe, [string[]]$arguments, [string]$dir) {
   } finally { Pop-Location }
 }
 try {
+  # EU PAL+TU1 is a NEW PPC codegen target, NOT a drop-in USA XEX.
+  # Keep its original executable, real 30 overlay archives and decoded
+  # delta resources isolated from main's USA generated C++, profile and ZIP.
+  # This branch never enters the USA NativeX/XDK/Release build path.
+  if ($EuTu1Analysis) {
+    if ($NativeXLink -or $Pm4Probe -or $InputProbe) {
+      throw 'EU TU1 codegen cannot reuse USA NativeX/PM4/XDK hooks or probes'
+    }
+    Require-Command 'python'
+    if (-not $GameRoot -or -not $EuTu1Zip) {
+      throw 'EU TU1 analysis requires -GameRoot EU base folder and -EuTu1Zip'
+    }
+    $EuXex = Join-Path $GameRoot 'default.xex'
+    if (-not (Test-Path -LiteralPath $EuXex -PathType Leaf)) {
+      throw 'Original EU/PAL default.xex missing'
+    }
+    $EuSha = (Get-FileHash -LiteralPath $EuXex -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($EuSha -ne 'ede8b62b5d4d0357ace2e08caf06a6bd702783d1a9b036bbf405124bd84f3351') {
+      throw 'EU TU1 base XEX is not the user-verified retail edition'
+    }
+    if (-not (Test-Path -LiteralPath $EuTu1Zip -PathType Leaf)) {
+      throw 'Signed original EU TU1 ZIP missing'
+    }
+    if (-not $EuRexGlue) {
+      $EuRexGlue = Join-Path $Source 'sdk-src/out/install/win-amd64/bin/rexglue.exe'
+    }
+    if (-not (Test-Path -LiteralPath $EuRexGlue -PathType Leaf)) {
+      throw 'The pinned ReXGlue codegen executable is required for EU TU1 PPC comparison'
+    }
+    $EuOut = Join-Path $Source 'out/analysis/eu-tu1'
+    $EuWork = Join-Path $EuOut 'codegen'
+    $EuReport = Join-Path $EuOut 'eu-tu1-diff.json'
+    if ((Test-Path -LiteralPath $EuWork) -or (Test-Path -LiteralPath $EuReport)) {
+      throw 'Refusing to overwrite existing private EU TU1 source analysis'
+    }
+    New-Item -ItemType Directory -Path $EuOut -Force | Out-Null
+    $EuRunner = Join-Path (Split-Path $Source -Parent) 'ci/run_hulk_tu1_dual_codegen.py'
+    Invoke-Checked 'python' @($EuRunner, '--rexglue', $EuRexGlue,
+      '--eu-xex', $EuXex, '--tu-zip', $EuTu1Zip, '--work', $EuWork,
+      '--report', $EuReport) $Source
+    Write-Host "EU TU1 PPC codegen and 525 private update resources verified: $EuReport"
+    Write-Host 'This is codegen analysis, NOT a rebuilt EU game; EU hook ABI and Vulkan must be remapped.'
+    try { Stop-Transcript | Out-Null } catch {}
+    exit 0
+  }
   foreach ($cmd in @('git', 'cmake', 'ninja', 'clang++', 'python')) { Require-Command $cmd }
   # Fail early if a future update reintroduces PAL data acceptance or unbounded GPU.
   Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_hulk_us_gpu_defaults.py')) $Source
