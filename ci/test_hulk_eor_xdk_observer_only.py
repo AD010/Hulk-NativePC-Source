@@ -29,11 +29,11 @@ class TestEorObserverOnly(unittest.TestCase):
         source=(ROOT/"native_port/src/eor_xdk_hook_bridge.cpp").read_text()
         replay=source.split("bool ReplayNextVerifiedPpcFrame(",1)[1].split(
             "void CapturePpcDraw(",1)[0]
-        preflight=replay.split("auto delivered=TakeCompletedPpcFrame();",1)[0]
+        preflight=replay.split("std::shared_ptr<const Frame> preview;",1)[0]
         self.assertIn("!CaptureEnabled()",preflight)
         self.assertIn("!REXCVAR_GET(hulk_eor_vulkan_replay)",preflight)
         self.assertLess(preflight.index("!REXCVAR_GET(hulk_eor_vulkan_replay)"),
-                        replay.index("auto delivered=TakeCompletedPpcFrame();"))
+                        replay.index("std::shared_ptr<const Frame> preview;"))
         self.assertIn("REXCVAR_DEFINE_BOOL(hulk_eor_vulkan_replay, false",source)
         self.assertIn("!output.direct_engine_path_ready",preflight)
         self.assertIn("native::HasFullNativeCompositePixels(",preflight)
@@ -41,8 +41,13 @@ class TestEorObserverOnly(unittest.TestCase):
         self.assertIn("residents.empty()",preflight)
         self.assertIn("reflection.size()!=shaders.expected()",preflight)
         self.assertIn("delivered->overwritten_since_take",replay)
-        self.assertIn("ValidateOriginalCommandTimeline(delivered->frame)",replay)
-        self.assertLess(replay.index("gpu.CanReplayOriginalXdkTimeline("),
+        self.assertIn("ValidateOriginalCommandTimeline(*preview)",replay)
+        self.assertIn("gpu.CanReplayOriginalXdkTimeline(*preview)",replay)
+        self.assertLess(replay.index("gpu.CanReplayOriginalXdkTimeline(*preview)"),
+                        replay.index("g_frames_for_native.TakeIfSequence(sequence)"))
+        self.assertLess(replay.index("preview.reset();"),
+                        replay.index("g_frames_for_native.TakeIfSequence(sequence)"))
+        self.assertLess(replay.index("g_frames_for_native.TakeIfSequence(sequence)"),
                         replay.index("native::ReplayDeliveredResourceScene("))
         self.assertIn("catch (...)",replay)
         self.assertNotIn("native_x_renderer::Initialize(",replay)

@@ -253,7 +253,9 @@ class NativeEorLinkCoverage(unittest.TestCase):
     def test_actual_present_mailbox_can_feed_verified_native_eor_scene(self):
         hook = (ROOT / "native_port/src/eor_xdk_hook_bridge.cpp").read_text(encoding="utf-8")
         scene = (ROOT / "native_port/src/eor_native_draw_geometry.cpp").read_text(encoding="utf-8")
-        self.assertIn("auto delivered=TakeCompletedPpcFrame();", hook)
+        self.assertIn("g_frames_for_native.TakeIfSequence(sequence)", hook)
+        self.assertLess(hook.index("gpu.CanReplayOriginalXdkTimeline(*preview)"),
+                        hook.index("g_frames_for_native.TakeIfSequence(sequence)"))
         self.assertIn("native::ReplayDeliveredResourceScene(*delivered,witnesses", hook)
         self.assertIn("if(delivered.overwritten_since_take)", scene)
         self.assertIn("ReplayCapturedResourceScene(delivered.frame,verified,frame,residents,", scene)

@@ -80,20 +80,29 @@ std::optional<VerticesXdkCall> DecodeOriginalVerticesXdkCall(const RawDraw& call
 void CompletedFrameMailbox::Publish(Frame frame) {
   if(!frame.sequence)
     throw std::invalid_argument("Original XDK frame sequence missing at native handoff");
+  // Allocate first: OOM must not drop the previous frame or corrupt loss
+  // accounting. A read-only preview remains alive if a newer frame arrives.
+  auto next=std::make_shared<Frame>(std::move(frame));
   if(pending_) {
     ++total_overwritten_;
     ++missed_since_take_;
   }
-  // Capture transfers its complete per-Draw VS/PS/object-state snapshot
-  // atomically at Present without copying thousands of original matrices.
-  pending_.emplace(std::move(frame));
+  // Source eligibility checks can inspect this snapshot outside g_mutex.
+  pending_=std::move(next);
 }
 std::optional<DeliveredFrame> CompletedFrameMailbox::Take() {
-  if(!pending_)return std::nullopt;
+  // A live preview is immutable: never move its storage during validation.
+  if(!pending_ || pending_.use_count()!=1)return std::nullopt;
   DeliveredFrame result{std::move(*pending_),missed_since_take_};
   pending_.reset();
   missed_since_take_=0;
   return result;
+}
+std::optional<DeliveredFrame> CompletedFrameMailbox::TakeIfSequence(
+    uint64_t source_sequence) {
+  if(!source_sequence || !pending_ ||
+     pending_->sequence!=source_sequence)return std::nullopt;
+  return Take();
 }
 void CompletedFrameMailbox::Reset() noexcept {
   pending_.reset();

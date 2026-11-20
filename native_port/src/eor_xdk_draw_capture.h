@@ -114,10 +114,17 @@ class CompletedFrameMailbox {
  public:
   void Publish(Frame frame);
   std::optional<DeliveredFrame> Take();
+  // Immutable preview outlives the mailbox lock, allowing Vulkan source
+  // eligibility checks without blocking the guest PPC Present thread.
+  // Drop all previews before calling TakeIfSequence.
+  std::shared_ptr<const Frame> Peek() const noexcept {return pending_;}
+  uint64_t MissedSinceTake() const noexcept {return missed_since_take_;}
+  // Atomically reject a stale frame after another original guest Present.
+  std::optional<DeliveredFrame> TakeIfSequence(uint64_t source_sequence);
   uint64_t TotalOverwritten() const noexcept {return total_overwritten_;}
   void Reset() noexcept;
  private:
-  std::optional<Frame> pending_;
+  std::shared_ptr<Frame> pending_;
   uint64_t total_overwritten_=0;
   uint64_t missed_since_take_=0;
 };

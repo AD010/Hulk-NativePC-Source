@@ -301,6 +301,29 @@ int main() {
          newest->overwritten_since_take==2 &&
          newest->frame.calls.size()==1);
   assert(!mailbox.Take());
+  // Preflight preserves the pending original frame until a matching
+  // sequence is atomically claimed. A concurrent newer Present wins.
+  mailbox.Reset();
+  mailbox.Publish(Frame{61,0,{a}});
+  {
+    const auto preview=mailbox.Peek();
+    assert(preview && preview->sequence==61);
+    assert(mailbox.MissedSinceTake()==0);
+    assert(!mailbox.TakeIfSequence(61)); // preview still owned
+    assert(!mailbox.TakeIfSequence(60)); // wrong original sequence
+  }
+  auto admitted=mailbox.TakeIfSequence(61);
+  assert(admitted && admitted->frame.sequence==61 && !mailbox.Take());
+  mailbox.Publish(Frame{70,0,{a}});
+  auto stale=mailbox.Peek();
+  mailbox.Publish(Frame{71,0,{a,b}});
+  assert(stale && stale->sequence==70 && mailbox.MissedSinceTake()==1);
+  stale.reset();
+  assert(!mailbox.TakeIfSequence(70));
+  auto latest=mailbox.TakeIfSequence(71);
+  assert(latest && latest->frame.sequence==71 &&
+         latest->overwritten_since_take==1 &&
+         latest->frame.calls.size()==2);
   mailbox.Reset();
   assert(capture.Finish().sequence==2);
   assert(capture.Finish().calls.empty());

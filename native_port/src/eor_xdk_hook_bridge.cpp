@@ -102,18 +102,34 @@ bool ReplayNextVerifiedPpcFrame(
       reflection.size()!=shaders.expected())
     return false;
   // The caller MUST already be the exclusive render-thread presenter.
-  // Mailbox mutex is held ONLY for the transfer, not PSO or Present.
-  auto delivered=TakeCompletedPpcFrame();
-  if(!delivered)return false;
-  // Frame gaps/unknown source chronology cannot authorize a Vulkan scene.
-  if(delivered->overwritten_since_take ||
-     !ValidateOriginalCommandTimeline(delivered->frame))
+  // Inspect the immutable guest Present snapshot without holding g_mutex
+  // across timeline checks. An ineligible frame remains available for replay.
+  std::shared_ptr<const Frame> preview;
+  uint64_t missed=0;
+  {
+    std::lock_guard lock(g_mutex);
+    preview=g_frames_for_native.Peek();
+    missed=g_frames_for_native.MissedSinceTake();
+  }
+  if(!preview || missed || !ValidateOriginalCommandTimeline(*preview))
     return false;
+  const uint64_t sequence=preview->sequence;
   try {
-    // The real backend must accept every original RT/Clear/Resolve/Present
-    // operation before allowing an EoR Draw to modify GPU attachments.
-    if(!gpu.CanReplayOriginalXdkTimeline(delivered->frame))
-      return false;
+    // This eligibility check is read-only: no PSO, RT or GPU writes.
+    if(!gpu.CanReplayOriginalXdkTimeline(*preview))return false;
+  } catch (...) {return false;}
+  if(!CaptureEnabled() || !REXCVAR_GET(hulk_eor_vulkan_replay))
+    return false;
+  // A concurrent Present can replace the candidate while the GPU backend
+  // checks the timeline. Reject stale sequence and any overwritten frames.
+  preview.reset();
+  std::optional<DeliveredFrame> delivered;
+  {
+    std::lock_guard lock(g_mutex);
+    delivered=g_frames_for_native.TakeIfSequence(sequence);
+  }
+  if(!delivered || delivered->overwritten_since_take)return false;
+  try {
     native::ReplayDeliveredResourceScene(*delivered,witnesses,output,
                                           residents,shaders,effects,reflection,gpu);
     return true;
