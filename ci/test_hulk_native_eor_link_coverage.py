@@ -141,6 +141,7 @@ class NativeEorLinkCoverage(unittest.TestCase):
         self.assertNotIn("slots.size()!=layout.size()", draw,
                          "Layout elements are attributes, not distinct GPU streams")
         self.assertIn("HasExactSourceVertexSlots(layout,slots)", draw)
+        self.assertIn("HasVerifiedHostAttributeLayout(layout)", helper)
         self.assertIn("std::array<bool,16> used_slots{}", helper)
         self.assertIn("used_slots[item.BufferSlot]=true;", helper)
         self.assertIn("if(item.BufferSlot>=slots.size() || !slots[item.BufferSlot])", helper)
@@ -152,12 +153,30 @@ class NativeEorLinkCoverage(unittest.TestCase):
         constructor = backend.split("DiligentEorDirectBackend::DiligentEorDirectBackend(", 1)[1]
         constructor = constructor.split("DiligentEorDirectBackend::~DiligentEorDirectBackend(", 1)[0]
         self.assertNotIn("(used_slots & (1u << v.BufferSlot))", constructor)
-        self.assertIn("(used_slots & (used_slots+1u))!=0", constructor)
+        self.assertIn("!HasVerifiedHostAttributeLayout(pass.exact_host_input_layout)", constructor)
         preflight = backend.split("bool DiligentEorDirectBackend::PreflightOriginalScene(", 1)[1]
         preflight = preflight.split("bool DiligentEorDirectBackend::BeginScene(", 1)[0]
         self.assertIn("!HasExactSourceVertexSlots(", preflight)
         self.assertNotIn("mesh->second.host_vertex_slots.size()!=", preflight)
 
+
+    def test_native_original_host_layout_is_checked_before_pipeline_preparation(self):
+        backend = (ROOT / "native_port/src/eor_diligent_aot_backend.cpp").read_text()
+        validator = (ROOT / "native_port/src/eor_host_vertex_layout.h").read_text()
+        self.assertIn('#include "eor_host_vertex_layout.h"', backend)
+        self.assertIn("bool HasVerifiedHostAttributeLayout(", backend)
+        self.assertIn("ValidateHostVertexLayout(", backend)
+        self.assertIn("occupied[slot] & byte_mask", validator)
+        self.assertIn("offset > width || offset % 4u || size > width - offset", validator)
+        self.assertIn("highest_end[slot] != (slot == 0 ? 12u : 16u)", validator)
+        self.assertIn("slot == 0 && (attribute.components != 3 || offset != 0)", validator)
+        preflight = backend.split("bool DiligentEorDirectBackend::PreflightOriginalScene(", 1)[1]
+        preflight = preflight.split("bool DiligentEorDirectBackend::BeginScene(", 1)[0]
+        self.assertIn("!HasExactSourceVertexSlots(", preflight)
+        draw = backend.split("bool DiligentEorDirectBackend::DrawIndexed(", 1)[1]
+        self.assertIn("!HasExactSourceVertexSlots(layout,slots)", draw)
+        uploaded = (ROOT / "ci/eor_native_mesh_upload_test.cpp").read_text()
+        self.assertIn("ValidateHostVertexLayout(", uploaded)
 
     def test_live_draw_vertex_slot_count_cannot_overrun_host_arrays(self):
         backend = (ROOT / "native_port" / "src" /

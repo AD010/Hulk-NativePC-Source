@@ -1,4 +1,5 @@
 #include "../native_port/src/eor_native_mesh_upload.h"
+#include "../native_port/src/eor_host_vertex_layout.h"
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
@@ -44,6 +45,37 @@ NativeIndexedMesh Mesh(size_t n) {
 template<typename F> void MustThrow(F f){bool caught=false;try{f();}catch(const std::exception&){caught=true;}assert(caught);}
 }
 int main(){
+ using hulk::eor::gpu::HostVertexAttribute;
+ using hulk::eor::gpu::ValidateHostVertexLayout;
+ constexpr uint32_t automatic = UINT32_MAX;
+ const auto verified_layout=[&](std::initializer_list<HostVertexAttribute> source){
+   return ValidateHostVertexLayout(
+       std::span<const HostVertexAttribute>(source.begin(),source.size()),
+       automatic,automatic);
+ };
+ const HostVertexAttribute xyz{0,3,0,12,true,true};
+ const HostVertexAttribute tex0{1,2,0,16,true,true};
+ const HostVertexAttribute tex1{1,2,8,16,true,true};
+ assert(verified_layout({xyz}));
+ assert(verified_layout({xyz,tex0,tex1}));
+ assert(verified_layout({xyz,tex0,{1,2,automatic,automatic,true,true}}));
+ assert(verified_layout({xyz,{1,4,0,automatic,true,true}}));
+ assert(!verified_layout({}));
+ assert(!verified_layout({tex0}));
+ assert(!verified_layout({xyz,xyz}));
+ assert(!verified_layout({xyz,{0,2,0,12,true,true}}));
+ assert(!verified_layout({xyz,{1,2,0,automatic,true,true}}));
+ assert(!verified_layout({xyz,{2,4,0,16,true,true}}));
+ assert(!verified_layout({xyz,tex0,{1,2,4,16,true,true}}));
+ assert(!verified_layout({xyz,tex0,{1,2,12,16,true,true}}));
+ assert(!verified_layout({xyz,{1,4,4,16,true,true}}));
+ assert(!verified_layout({xyz,{1,4,0,12,true,true}}));
+ assert(!verified_layout({xyz,{1,4,0,16,false,true}}));
+ assert(!verified_layout({xyz,{1,4,0,16,true,false}}));
+ assert(!verified_layout({xyz,{16,4,0,16,true,true}}));
+ assert(!verified_layout({xyz,{1,0,0,16,true,true}}));
+ assert(!verified_layout({xyz,{1,5,0,16,true,true}}));
+ assert(!verified_layout({xyz,{1,1,3,16,true,true}}));
  const std::vector<NativeIndexedMesh> original{Mesh(120),Mesh(300)};
  Fake success;
  {

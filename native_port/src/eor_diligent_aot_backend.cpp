@@ -1,4 +1,5 @@
 #include "eor_diligent_aot_backend.h"
+#include "eor_host_vertex_layout.h"
 #include "eor_spirv_texture_bindings.h"
 #include "native_resolution.h"
 #include "RenderDevice.h"
@@ -57,10 +58,31 @@ bool HasExactSourceSamplerBijection(
   }
   return matched.size()==resident.size();
 }
-// A Diligent input layout describes ATTRIBUTES, not unique GPU buffers.
-// Position/normal/UV may all share an original vertex stream. Require every
-// resident decoded stream to have an exact source-proven attribute owner,
-// while safely allowing repeated references to the same BufferSlot.
+// Validate actual byte-addressed host vertex allocation before accepting
+// source-mapped shader attributes. Diligent AUTO_OFFSET and AUTO_STRIDE must
+// resolve within the real float3 position / float4 attribute GPU buffers.
+// Sharing a slot cannot make two source attributes alias the same bytes.
+bool HasVerifiedHostAttributeLayout(
+    std::span<const Diligent::LayoutElement> layout) {
+  if(layout.empty() || layout.size()>DILIGENT_MAX_LAYOUT_ELEMENTS ||
+     layout.size()>32)return false;
+  std::array<HostVertexAttribute,DILIGENT_MAX_LAYOUT_ELEMENTS> host{};
+  for(size_t i=0;i<layout.size();++i) {
+    const auto& item=layout[i];
+    host[i]={static_cast<uint32_t>(item.BufferSlot),
+             static_cast<uint32_t>(item.NumComponents),
+             static_cast<uint32_t>(item.RelativeOffset),
+             static_cast<uint32_t>(item.Stride),
+             item.ValueType==Diligent::VT_FLOAT32,
+             item.Frequency==Diligent::INPUT_ELEMENT_FREQUENCY_PER_VERTEX};
+  }
+  return ValidateHostVertexLayout(
+      std::span<const HostVertexAttribute>(host.data(),layout.size()),
+      Diligent::LAYOUT_ELEMENT_AUTO_OFFSET,
+      Diligent::LAYOUT_ELEMENT_AUTO_STRIDE);
+}
+// Attribute count is distinct from GPU stream count: multiple nonoverlapping
+// declared inputs may share a single decoded float4 source buffer.
 bool HasExactSourceVertexSlots(
     std::span<const Diligent::LayoutElement> layout,
     std::span<const uint64_t> slots) {
@@ -68,6 +90,7 @@ bool HasExactSourceVertexSlots(
      slots.size()>16 || layout.empty() ||
      layout.size()>DILIGENT_MAX_LAYOUT_ELEMENTS)
     return false;
+  if(!HasVerifiedHostAttributeLayout(layout))return false;
   std::array<bool,16> used_slots{};
   for(const auto& item:layout) {
     if(item.BufferSlot>=slots.size() || !slots[item.BufferSlot])
@@ -342,29 +365,9 @@ DiligentEorDirectBackend::DiligentEorDirectBackend(
     if(gpu.NumRenderTargets!=1 || gpu.RTVFormats[0]!=color ||
        gpu.DSVFormat!=depth || gpu.SmplDesc.Count!=frame.samples)
       throw std::invalid_argument("Native Vulkan PSO format/sample contract disagrees with scene");
-    uint32_t used_slots=0;
-    for(const auto& v:pass.exact_host_input_layout) {
-      if(v.BufferSlot>=16 ||
-         v.ValueType!=Diligent::VT_FLOAT32 ||
-         v.Frequency!=Diligent::INPUT_ELEMENT_FREQUENCY_PER_VERTEX ||
-         (v.RelativeOffset!=0 &&
-          v.RelativeOffset!=Diligent::LAYOUT_ELEMENT_AUTO_OFFSET) ||
-         v.NumComponents==0 || v.NumComponents>4)
-        throw std::invalid_argument("Unverified independent EoR float vertex slot layout");
-      const uint32_t stride=v.BufferSlot==0?12:16;
-      if(v.Stride!=stride && v.Stride!=Diligent::LAYOUT_ELEMENT_AUTO_STRIDE)
-        throw std::invalid_argument("EoR vertex strides do not match decoded host data");
-      if(v.BufferSlot==0 && v.NumComponents!=3)
-        throw std::invalid_argument("EoR host position buffer requires float3 XYZ");
-      used_slots |= 1u << v.BufferSlot;
-    }
-    const uint32_t attributes=static_cast<uint32_t>(pass.exact_host_input_layout.size());
-    // Input layouts count attributes; SetVertexBuffers counts unique streams.
-    // Several source-verified attributes may point to the same BufferSlot.
-    // The resident slots must still be contiguous with no missing owners.
-    if(attributes==0 || attributes>16 || used_slots==0 ||
-       (used_slots & (used_slots+1u))!=0)
-      throw std::invalid_argument("EoR shader vertex inputs have noncontiguous resident streams");
+    if(!HasVerifiedHostAttributeLayout(pass.exact_host_input_layout))
+      throw std::invalid_argument(
+          "EoR original vertex layout overruns or aliases actual host GPU attribute buffers");
     if(!effects.HasPair(pass.original_effect_hash,pass.original_pass_index,
                         pass.original_vertex_shader_sha256,
                         pass.original_pixel_shader_sha256))
