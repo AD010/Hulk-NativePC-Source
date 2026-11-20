@@ -634,6 +634,14 @@ HRESULT STDMETHODCALLTYPE OnVSConstants(IDirect3DDevice9* dev,UINT reg,
   if(FAILED(descHr) || !eligible || vp.X!=0 || vp.Y!=0 ||
      vp.Width!=targetDesc.Width || vp.Height!=targetDesc.Height)
     return realVSConst(dev,reg,data,count);
+  // A full-backbuffer HUD can share the same shader constant names as the
+  // world and bypass viewport/scissor guards. Do not widen projection uploads
+  // during depth-disabled 2D compositing. Depth-tested translucent 3D remains
+  // eligible: ZWRITEENABLE need not be set for a valid camera pass.
+  DWORD depthTest=D3DZB_FALSE;
+  if(FAILED(dev->GetRenderState(D3DRS_ZENABLE,&depthTest)) ||
+     depthTest==D3DZB_FALSE)
+    return realVSConst(dev,reg,data,count);
   // A full viewport alone does not mean the entire scene is being drawn.
   // The PC renderer may use a scissor rectangle for HUD panels, maps and
   // other partial passes while leaving the viewport at backbuffer size.
