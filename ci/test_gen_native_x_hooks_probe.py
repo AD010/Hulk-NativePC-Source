@@ -34,6 +34,19 @@ with tempfile.TemporaryDirectory() as d:
     assert "CommandKind::Clear, " not in cpp # nested Clear -> ClearF once
     assert "ctx, base);" in cpp
     assert "EndPpcHook(type)" in cpp
+    # NativeX detail::Leave queues kPresent to its independent Vulkan render
+    # worker. An EoR mailbox published afterwards races with that worker,
+    # which can reach its only Present before the captured USA frame exists.
+    # Keep the unhooked fallback intact, and publish the original PPC frame
+    # after the guest function returns but before NativeX queues Present.
+    guest = cpp.index("::native_x_renderer::detail::Enter(type,ctx,base);")
+    original = cpp.index("__imp__sub_##addr(ctx,base);", guest)
+    publish = cpp.index("::hulk::eor::xdk::EndPpcHook(type);", guest)
+    native_leave = cpp.index("::native_x_renderer::detail::Leave(type,ctx,base);", guest)
+    assert guest < original < publish < native_leave
+    assert cpp.count("::hulk::eor::xdk::EndPpcHook(type);") == 2
+    assert cpp.count("::native_x_renderer::detail::Leave(type,ctx,base);") == 1
+    assert "frame to the worker" in cpp
     assert "eor_xdk_hook_bridge.h" in cpp
     assert "gpu_probe::Hit(index, addr, ctx)" in cpp
     cmake = (Path(__file__).resolve().parents[1] / "native_port/CMakeLists.txt").read_text()
