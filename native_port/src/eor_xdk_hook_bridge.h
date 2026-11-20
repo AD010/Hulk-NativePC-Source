@@ -24,7 +24,8 @@ bool ReplayNextVerifiedPpcFrame(
     const native::FrameGeometry& output,
     std::span<const model::UploadedOriginalModel* const> residents,
     const aot::ShaderBank& shaders,const aot::EffectCatalog& effects,
-    const aot::ReflectionBank& reflection,aot::ShaderBindingBackend& gpu);
+    const aot::ReflectionBank& reflection,aot::ShaderBindingBackend& gpu,
+    uint64_t expected_original_frame_sequence=0);
 // A source-verified, immutable per-Present snapshot, built by the actual
 // EoR material/mesh owner. No automatic XDK register->EoR ownership guesses.
 // All host buffers/PSO/SRV references and their source owners must stay live

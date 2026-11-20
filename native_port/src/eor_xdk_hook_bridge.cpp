@@ -98,7 +98,8 @@ bool ReplayNextVerifiedPpcFrame(
     const native::FrameGeometry& output,
     std::span<const model::UploadedOriginalModel* const> residents,
     const aot::ShaderBank& shaders,const aot::EffectCatalog& effects,
-    const aot::ReflectionBank& reflection,aot::ShaderBindingBackend& gpu) {
+    const aot::ReflectionBank& reflection,aot::ShaderBindingBackend& gpu,
+    uint64_t expected_original_frame_sequence) {
   // Refuse incomplete engine/host provenance BEFORE consuming the only
   // immutable guest Present snapshot. No guest memory, GPU render targets,
   // or Vulkan swapchain may be touched by a rejected candidate.
@@ -123,6 +124,10 @@ bool ReplayNextVerifiedPpcFrame(
   }
   if(!preview)return false;
   const uint64_t sequence=preview->sequence;
+  // A frame prepared from the genuine EoR engine must not be paired with
+  // another XDK Present that arrived during material/PSO preparation.
+  if(expected_original_frame_sequence &&
+     sequence!=expected_original_frame_sequence)return false;
   // A worker stalled behind the PPC producer can lose one or more complete
   // mailbox frames. Reject the newest frame if any intervening Present was
   // overwritten, but DISCARD that stale epoch by exact sequence; otherwise
@@ -342,19 +347,20 @@ native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(
   if(!CaptureEnabled() || !REXCVAR_GET(hulk_eor_vulkan_replay))
     return Result::kNotReady;
   std::shared_ptr<const VerifiedWorkerEorFrame> ready;
+  std::shared_ptr<const Frame> source_snapshot;
   uint64_t source_sequence=0;
   {
     std::lock_guard lock(g_mutex);
     ready=g_verified_worker_frame;
     if(!ready)return Result::kNotReady;
-    auto preview=g_frames_for_native.Peek();
-    if(!preview)return Result::kNotReady;
-    source_sequence=preview->sequence;
+    source_snapshot=g_frames_for_native.Peek();
+    if(!source_snapshot)return Result::kNotReady;
+    source_sequence=source_snapshot->sequence;
     if(g_frames_for_native.MissedSinceTake()) {
       // A dropped mailbox epoch is never permitted to touch Vulkan.
       // Discard it atomically while still under the original Present lock,
       // release the temporary preview first, and let the NEXT frame compete.
-      preview.reset();
+      source_snapshot.reset();
       (void)g_frames_for_native.TakeIfSequence(source_sequence);
       return Result::kNotReady;
     }
@@ -366,20 +372,49 @@ native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(
   if(desc.Width!=ready->output.backbuffer.width ||
      desc.Height!=ready->output.backbuffer.height)
     return Result::kNotReady; // resize requires a fresh exact source frame
+  std::vector<const model::UploadedOriginalModel*> residents;
   try {
-    std::vector<const model::UploadedOriginalModel*> residents;
     residents.reserve(ready->residents.size());
     for(const auto& model:ready->residents)residents.push_back(model.get());
-    // ReplayNextVerifiedPpcFrame owns its original timeline preflight and
-    // sequence-matched claim. This is the REAL NativeX Vulkan worker; its
-    // callback must have CompositeToBackbuffer bound, never a second Present.
+    // Verify the ACTUAL original Draw -> guest resource -> native mesh/surface
+    // correspondence, paired shader effects and real original SPIR-V BEFORE
+    // the worker opens a Vulkan render target. This does not infer an EoR
+    // model from LR, a shader hash or an adjacent XDK texture.
+    if(!ValidateOriginalCommandTimeline(*source_snapshot) ||
+       !ready->gpu->CanReplayOriginalXdkTimeline(*source_snapshot))
+      return Result::kNotReady;
+    const auto source=native::ResolveCapturedResourceDraws(
+        *source_snapshot,ready->witnesses,residents);
+    if(source.size()!=source_snapshot->calls.size())
+      return Result::kNotReady;
+    const auto bound=native::BindVerifiedGeometryDraws(
+        source,residents,*ready->effects);
+    if(bound.size()!=source.size())return Result::kNotReady;
+    for(const auto& draw:bound) {
+      if(!ready->shaders->Find(draw.vertex_source_sha256,aot::Stage::Vertex) ||
+         !ready->shaders->Find(draw.pixel_source_sha256,aot::Stage::Pixel))
+        return Result::kNotReady;
+    }
+  } catch (...) {
+    // Pure source/ownership preflight has not touched Diligent.
+    // Preserve the normally visible NativeX presentation on rejection.
+    return Result::kNotReady;
+  }
+  // Release the read-only preview so the completed mailbox's exact
+  // sequence Take can move the original frame without extra ownership.
+  source_snapshot.reset();
+  try {
+    // This is the REAL sole Vulkan render worker. The final exact-sequence
+    // claim is repeated atomically inside ReplayNextVerifiedPpcFrame; a
+    // racing newer guest Present can never render with this old EoR owner.
     const bool submitted=ReplayNextVerifiedPpcFrame(
         ready->witnesses,ready->output,residents,
-        *ready->shaders,*ready->effects,*ready->reflection,*ready->gpu);
+        *ready->shaders,*ready->effects,*ready->reflection,*ready->gpu,
+        source_sequence);
     return submitted ? Result::kBackbufferReady : Result::kFailedAfterGpu;
   } catch (...) {
-    // An exception after GPU state changes cannot fall back to a second
-    // Xenos/NativeX compositing operation on the same backbuffer.
+    // An exception after potential GPU state changes cannot fall back to
+    // a competing NativeX composite on the same Vulkan backbuffer.
     return Result::kFailedAfterGpu;
   }
 }

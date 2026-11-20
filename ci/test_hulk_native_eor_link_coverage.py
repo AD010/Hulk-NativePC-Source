@@ -357,6 +357,27 @@ class NativeEorLinkCoverage(unittest.TestCase):
         self.assertIn("native_x_renderer::SetHulkEorPresentCallback(nullptr);", app)
         self.assertIn("ClearVerifiedWorkerEorFrame();", app)
 
+    def test_worker_checks_real_guest_mesh_material_shader_before_vulkan(self):
+        worker=(ROOT / "native_port/src/eor_xdk_hook_bridge.cpp").read_text()
+        api=(ROOT / "native_port/src/eor_xdk_hook_bridge.h").read_text()
+        start=worker.index("native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(")
+        source=worker[start:]
+        self.assertIn("source_snapshot=g_frames_for_native.Peek();", source)
+        self.assertIn("native::ResolveCapturedResourceDraws(", source)
+        self.assertIn("native::BindVerifiedGeometryDraws(", source)
+        self.assertIn("ready->shaders->Find(draw.vertex_source_sha256,aot::Stage::Vertex)", source)
+        self.assertIn("ready->shaders->Find(draw.pixel_source_sha256,aot::Stage::Pixel)", source)
+        self.assertIn("ready->gpu->CanReplayOriginalXdkTimeline(*source_snapshot)", source)
+        self.assertIn("source_snapshot.reset();", source)
+        self.assertIn("Result::kNotReady;", source)
+        self.assertLess(source.index("native::ResolveCapturedResourceDraws("),
+                        source.index("ReplayNextVerifiedPpcFrame("))
+        self.assertLess(source.index("source_snapshot.reset();\n  try {"),
+                        source.index("ReplayNextVerifiedPpcFrame("))
+        self.assertIn("uint64_t expected_original_frame_sequence=0", api)
+        self.assertIn("sequence!=expected_original_frame_sequence", worker)
+        self.assertIn("source_sequence);", source)
+
     def test_actual_present_mailbox_can_feed_verified_native_eor_scene(self):
         hook = (ROOT / "native_port/src/eor_xdk_hook_bridge.cpp").read_text(encoding="utf-8")
         scene = (ROOT / "native_port/src/eor_native_draw_geometry.cpp").read_text(encoding="utf-8")
