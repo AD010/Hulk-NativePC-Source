@@ -92,6 +92,20 @@ struct VerticesXdkCall {
   uint32_t primitive=0, start_vertex=0, vertex_count=0;
 };
 std::optional<VerticesXdkCall> DecodeOriginalVerticesXdkCall(const RawDraw& call);
+// Original USA frontend DrawVertices prim=6 (D3DPT_TRIANGLEFAN) emits two
+// triangles for a four-vertex quad; Vulkan's native DrawIndexed uses lists.
+// Topology conversion is independent of archive/game resource ownership.
+inline std::optional<uint32_t> VerifiedTriangleListCount(
+    uint32_t primitive,uint32_t count) noexcept {
+  if(primitive==4u && count>=3u && count%3u==0)return count;
+  if(primitive==6u && count>=3u && count-2u<=UINT32_MAX/3u)
+    return 3u*(count-2u);
+  return std::nullopt;
+}
+inline uint32_t OriginalTriangleFanVertex(
+    uint32_t triangle,uint32_t corner) noexcept {
+  return corner==0u ? 0u : triangle+corner;
+}
 struct Frame {
   uint64_t sequence = 0;
   uint32_t dropped = 0;

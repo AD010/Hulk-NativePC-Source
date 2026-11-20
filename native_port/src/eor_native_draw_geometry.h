@@ -43,8 +43,8 @@ struct VerifiedDrawSource {
   bool mesh_material_verified = false;
   bool host_vertex_layout_verified = false;
   bool render_state_verified = false;
-  // Set only by MatchCapturedMixedDraws after proving original DrawVertices
-  // is a sequential indexed host mesh window with an exact guest owner.
+  // Only real guest triangle-list or triangle-fan DrawVertices whose full
+  // indexed host mesh window was verified vertex-by-vertex can set this.
   bool original_linear_draw_verified = false;
   // Real guest material/fetch mapping supplied by a separately audited EoR
   // engine Draw, never inferred from adjacent textures in MODELS.ARC.
@@ -72,6 +72,8 @@ struct VerifiedXdkVerticesSubmission {
   xdk::VerticesXdkCall original_guest_call{};
   VerifiedDrawSource native_draw{};
   uint32_t host_first_vertex=0;
+  // Real source primitive 4 or 6 must exactly match a HOST triangle-list
+  // index window and independently proven material/vertex-stream ownership.
   bool original_triangle_list_verified=false;
   bool guest_to_native_vertex_stream_verified=false;
   bool original_material_at_draw_verified=false;

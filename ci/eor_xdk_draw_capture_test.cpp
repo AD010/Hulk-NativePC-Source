@@ -22,6 +22,20 @@ void W(GuestMemory& m,uint32_t address,uint32_t v) {
 }
 }
 int main() {
+  assert(xdk::VerifiedTriangleListCount(4u,3u)==3u);
+  assert(xdk::VerifiedTriangleListCount(4u,6u)==6u);
+  assert(xdk::VerifiedTriangleListCount(6u,4u)==6u);
+  assert(xdk::VerifiedTriangleListCount(6u,3u)==3u);
+  assert(xdk::OriginalTriangleFanVertex(0,0)==0u &&
+         xdk::OriginalTriangleFanVertex(0,1)==1u &&
+         xdk::OriginalTriangleFanVertex(0,2)==2u &&
+         xdk::OriginalTriangleFanVertex(1,0)==0u &&
+         xdk::OriginalTriangleFanVertex(1,1)==2u &&
+         xdk::OriginalTriangleFanVertex(1,2)==3u);
+  assert(!xdk::VerifiedTriangleListCount(5u,4u));
+  assert(!xdk::VerifiedTriangleListCount(6u,2u));
+  assert(!xdk::VerifiedTriangleListCount(6u,UINT32_MAX));
+
   // The original Hulk USA device shadow state has proven BE c7..c25 VS
   // registers and VS/PS guest object slots. Capture at the actual Draw.
   GuestMemory guest;

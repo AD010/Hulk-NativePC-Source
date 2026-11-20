@@ -428,7 +428,10 @@ std::vector<VerifiedDrawSource> MatchCapturedMixedDraws(
       const auto actual=xdk::DecodeOriginalVerticesXdkCall(frame.calls[i]);
       const auto& expected=input.original_guest_call;
       source=input.native_draw;
-      if(!actual || !input.original_triangle_list_verified ||
+      const auto triangle_indices=actual ?
+          xdk::VerifiedTriangleListCount(actual->primitive,actual->vertex_count) :
+          std::nullopt;
+      if(!triangle_indices || !input.original_triangle_list_verified ||
          !input.guest_to_native_vertex_stream_verified ||
          !input.original_material_at_draw_verified ||
          actual->xdk_function!=expected.xdk_function ||
@@ -437,12 +440,11 @@ std::vector<VerifiedDrawSource> MatchCapturedMixedDraws(
          actual->primitive!=expected.primitive ||
          actual->start_vertex!=expected.start_vertex ||
          actual->vertex_count!=expected.vertex_count ||
-         actual->primitive!=4u || (actual->vertex_count%3u) ||
-         source.index_count!=actual->vertex_count ||
+         source.index_count!=*triangle_indices ||
          uint64_t(input.host_first_vertex)+actual->vertex_count>UINT32_MAX ||
          !source.engine_draw_verified || !source.mesh_material_verified ||
          !source.host_vertex_layout_verified || !source.render_state_verified)
-        throw std::invalid_argument("Non-indexed Xbox Draw has no exact triangle-list owner");
+        throw std::invalid_argument("Non-indexed Xbox Draw has no exact triangle topology owner");
       const model::UploadedNativeMesh* mesh=nullptr;
       for(const auto* resident:residents)
         if(resident && resident->original_resource_hash==source.original_model_hash) {
@@ -454,12 +456,16 @@ std::vector<VerifiedDrawSource> MatchCapturedMixedDraws(
         }
       if(!mesh || mesh->host_indices.size()!=mesh->index_count ||
          uint64_t(source.first_index)+source.index_count>mesh->index_count ||
-         uint64_t(input.host_first_vertex)+source.index_count>mesh->vertex_count)
+         uint64_t(input.host_first_vertex)+actual->vertex_count>mesh->vertex_count)
         throw std::invalid_argument("Native DrawVertices source index window unavailable");
-      for(uint32_t j=0;j<source.index_count;++j)
+      for(uint32_t j=0;j<source.index_count;++j) {
+        const uint32_t position=actual->primitive==6u ?
+            xdk::OriginalTriangleFanVertex(j/3u,j%3u) : j;
         if(int64_t(mesh->host_indices[source.first_index+j])+
-           source.host_base_vertex!=int64_t(input.host_first_vertex)+j)
-          throw std::invalid_argument("Original DrawVertices is not sequential host triangle-list geometry");
+           source.host_base_vertex!=int64_t(input.host_first_vertex)+position)
+          throw std::invalid_argument(
+              "Original DrawVertices host indices disagree with exact guest triangle topology");
+      }
       // Only this validated non-indexed conversion may be replayed through
       // the indexed Vulkan API; a same-ordinal forged host Draw is rejected.
       source.original_linear_draw_verified=true;

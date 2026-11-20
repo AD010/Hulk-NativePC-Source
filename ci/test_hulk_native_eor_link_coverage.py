@@ -258,6 +258,17 @@ class NativeEorLinkCoverage(unittest.TestCase):
         self.assertLess(hook.index("if(submitted) {\n      g_eor_ready_backbuffers"),
                         hook.index("return Result::kBackbufferReady"))
 
+    def test_real_usa_menu_quad_fan_reaches_verified_vulkan_topology(self):
+        bridge=(ROOT / "native_port/src/eor_aot_draw_bridge.cpp").read_text()
+        geometry=(ROOT / "native_port/src/eor_native_draw_geometry.cpp").read_text()
+        source=(ROOT / "native_port/src/eor_xdk_draw_capture.h").read_text()
+        cpp=(ROOT / "ci/eor_native_draw_geometry_test.cpp").read_text()
+        self.assertIn("xdk::VerifiedTriangleListCount(",bridge)
+        self.assertIn("OriginalTriangleFanVertex(j/3u,j%3u)",geometry)
+        self.assertIn("primitive==6u",source)
+        self.assertIn("0x8268BFE4u",cpp)
+        self.assertIn("fanGpuDraw[0].draw.index_count==6",cpp)
+
     def test_native_worker_fallback_only_suppressed_after_gpu_begin_attempt(self):
         bridge = (ROOT / "native_port/src/eor_aot_draw_bridge.cpp").read_text()
         worker = (ROOT / "native_port/src/eor_xdk_hook_bridge.cpp").read_text()

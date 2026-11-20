@@ -38,6 +38,14 @@ model::LoadedNativeGeometry MakeModel() {
   m.decoded_meshes.push_back(std::move(mesh));
   return m;
 }
+model::LoadedNativeGeometry MakeFanModel() {
+  auto m=MakeModel();
+  auto& mesh=m.decoded_meshes.at(0);
+  mesh.positions={{0,0,0},{1,0,0},{1,1,0},{0,1,0}};
+  mesh.triangle_list_indices={0,1,2,0,2,3};
+  mesh.original_vertex_stream.resize(4u*24u);
+  return m;
+}
 void I32(std::vector<uint8_t>& b,uint32_t x){for(int i=0;i<4;++i)b.push_back(uint8_t(x>>(8*i)));}
 aot::EffectCatalog Catalog(){
   std::vector<uint8_t> b{'H','E','O','R','M','A','T','2'};
@@ -312,6 +320,51 @@ int main(){
   invalidNonIndexed.original_triangle_list_verified=false;
   mixed[1]=invalidNonIndexed;
   Reject([&]{(void)native::MatchCapturedMixedDraws(mixedFrame,mixed,models);});
+  // Original USA 195.log records 22 menu DrawVertices calls from
+  // 0x8268BFE4, primitive 6, four source vertices (two fan triangles).
+  Fake fanUploader;
+  auto fanResident=model::UploadOriginalModel(MakeFanModel(),fanUploader);
+  std::vector<const model::UploadedOriginalModel*> fanModels{&fanResident};
+  xdk::RawDraw fan{xdk::Kind::DrawVertices,0x8288DF30u,0x8268BFE4u,
+      {0x40002880u,6u,0u,4u,0u,0u,0u,0u}};
+  const auto fanCall=xdk::DecodeOriginalVerticesXdkCall(fan);
+  assert(fanCall && xdk::VerifiedTriangleListCount(
+      fanCall->primitive,fanCall->vertex_count)==6u);
+  auto fanSubmission=nonindexed;
+  fanSubmission.original_guest_call=*fanCall;
+  fanSubmission.native_draw.first_index=0;
+  fanSubmission.native_draw.index_count=6;
+  fanSubmission.host_first_vertex=0;
+  const native::VerifiedXdkDrawSubmission fanVariant{fanSubmission};
+  const auto fanFrame=xdk::Frame{8,0,{fan}};
+  const auto fanMatched=native::MatchCapturedMixedDraws(
+      fanFrame,std::span<const native::VerifiedXdkDrawSubmission>(
+          &fanVariant,1),fanModels);
+  assert(fanMatched.size()==1 && fanMatched[0].original_linear_draw_verified &&
+         fanMatched[0].index_count==6);
+  const auto fanGpuDraw=native::BindVerifiedGeometryDraws(
+      fanMatched,fanModels,effects);
+  assert(fanGpuDraw.size()==1 && fanGpuDraw[0].draw.index_count==6 &&
+         fanGpuDraw[0].source_nonindexed_linearization_verified);
+  auto badFanSource=MakeFanModel();
+  badFanSource.decoded_meshes[0].triangle_list_indices[3]=2;
+  Fake badFanUploader;
+  auto badFan=model::UploadOriginalModel(std::move(badFanSource),badFanUploader);
+  std::vector<const model::UploadedOriginalModel*> badFanModels{&badFan};
+  Reject([&]{(void)native::MatchCapturedMixedDraws(
+      fanFrame,std::span<const native::VerifiedXdkDrawSubmission>(
+          &fanVariant,1),badFanModels);});
+  auto unsupportedStrip=fanFrame;
+  unsupportedStrip.calls[0].gpr[1]=5u;
+  Reject([&]{(void)native::MatchCapturedMixedDraws(
+      unsupportedStrip,std::span<const native::VerifiedXdkDrawSubmission>(
+          &fanVariant,1),fanModels);});
+  auto wrongFanCount=fanSubmission;
+  wrongFanCount.native_draw.index_count=3;
+  const native::VerifiedXdkDrawSubmission wrongCountVariant{wrongFanCount};
+  Reject([&]{(void)native::MatchCapturedMixedDraws(
+      fanFrame,std::span<const native::VerifiedXdkDrawSubmission>(
+          &wrongCountVariant,1),fanModels);});
   // A missing original UP/inline geometry cannot be passed as DrawVertices.
   mixed[1]=nonindexed;
   auto up=plain;up.kind=xdk::Kind::DrawVerticesUP;

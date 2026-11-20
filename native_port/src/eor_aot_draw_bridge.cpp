@@ -7,10 +7,9 @@
 
 namespace hulk::eor::aot {
 namespace {
-// Original DrawVertices is accepted as a host indexed draw ONLY if the
-// upstream EoR model/mesh matcher proved a sequential triangle-list window.
-// Host firstIndex/baseVertex can be rebased, but guest device and submitted
-// vertex/index COUNT remain invariant. DrawVerticesUP is never accepted.
+// Genuine guest triangle lists and frontend triangle fans can be lowered
+// into host DrawIndexed only after verifying the complete original host
+// vertex/index correspondence and material ownership. Never accept UP.
 bool MatchesOriginalXdkDraw(
     const xdk::RawDraw& source,const BoundIndexedDraw& host) noexcept {
   const auto& draw=host.draw;
@@ -20,9 +19,12 @@ bool MatchesOriginalXdkDraw(
            indexed->guest_device==draw.guest_vs_matrices->original_guest_device &&
            indexed->index_count==draw.index_count;
   const auto vertices=xdk::DecodeOriginalVerticesXdkCall(source);
-  return vertices && host.source_nonindexed_linearization_verified &&
+  const auto indices=vertices ?
+      xdk::VerifiedTriangleListCount(vertices->primitive,vertices->vertex_count) :
+      std::nullopt;
+  return indices && host.source_nonindexed_linearization_verified &&
          vertices->guest_device==draw.guest_vs_matrices->original_guest_device &&
-         vertices->vertex_count==draw.index_count;
+         *indices==draw.index_count;
 }
 class ForwardingBackend final : public native::Backend {
  public:
