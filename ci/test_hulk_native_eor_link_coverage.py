@@ -183,6 +183,22 @@ class NativeEorLinkCoverage(unittest.TestCase):
         self.assertLess(prepare.index("if(s.scene_open)return false;"),
                         prepare.index("s.packed_constants.clear();"))
 
+    def test_indexed_source_windows_do_not_assume_triangle_aligned_start(self):
+        # D3D triangle-list index COUNT must be divisible by three, not the
+        # offset within a verified shared GPU index buffer.
+        geometry = (ROOT / "native_port/src/eor_native_draw_geometry.cpp").read_text()
+        upload = (ROOT / "native_port/src/eor_diligent_mesh_buffers.cpp").read_text()
+        self.assertIn("src.index_count % 3u", geometry)
+        self.assertNotIn("src.first_index % 3u", geometry)
+        self.assertNotIn("host_first%3", geometry)
+        self.assertIn("count%3", upload)
+        self.assertNotIn("first%3", upload)
+        self.assertIn("!expected.index_buffer || !observed.index_buffer", geometry)
+        cpp = (ROOT / "ci/eor_native_draw_geometry_test.cpp").read_text()
+        self.assertIn("offset.first_index=1;", cpp)
+        self.assertIn("later.calls[0].gpr[3]=121u;", cpp)
+        self.assertIn("invalidIbWitness[0].original_resources.index_buffer=0;", cpp)
+
     def test_native_draw_binding_is_single_use_even_on_failure(self):
         backend = (ROOT / "native_port" / "src" /
                    "eor_diligent_aot_backend.cpp").read_text(encoding="utf-8")

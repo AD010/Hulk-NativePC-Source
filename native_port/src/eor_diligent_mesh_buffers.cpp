@@ -121,7 +121,7 @@ bool DiligentMeshUploadBackend::IndexWindowInRange(
     int32_t base,uint32_t vertex_count) const noexcept {
   const auto it=state_->live.find(handle);
   if(it==state_->live.end() || it->second.kind!=2 ||
-     !count || count%3 || first%3 || vertex_count<3)
+     !count || count%3 || vertex_count<3)
     return false;
   const auto& indices=it->second.immutable_indices;
   if(first>indices.size() || count>indices.size()-first)

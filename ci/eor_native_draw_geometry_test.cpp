@@ -190,6 +190,13 @@ int main(){
   const auto posDraw=native::BindVerifiedGeometryDraws(
       std::span<const native::VerifiedDrawSource>(&pos,1),models,effects);
   assert(posDraw.size()==1 && posDraw[0].draw.base_vertex==1);
+  // Triangle-list count must be a multiple of three, but an index
+  // window can begin at any position in a shared, authenticated IB.
+  auto offset=original;
+  offset.first_index=1;
+  const auto offsetDraw=native::BindVerifiedGeometryDraws(
+      std::span<const native::VerifiedDrawSource>(&offset,1),models,effects);
+  assert(offsetDraw.size()==1 && offsetDraw[0].draw.first_index==1);
   auto neg=original;
   neg.first_index=3;neg.host_base_vertex=-3;
   const auto negDraw=native::BindVerifiedGeometryDraws(
@@ -496,6 +503,16 @@ int main(){
       second_triangle,models,effects);
   assert(uploaded.size()==1 && uploaded[0].draw.first_index==3 &&
          uploaded[0].original_mesh_header_offset==40);
+  // A verified shared index stream can also contain a triangle beginning
+  // at an unaligned firstIndex: keep the source count and bounds exact.
+  later.calls[0].gpr[3]=121u;
+  const auto offset_triangle=native::ResolveCapturedResourceDraws(
+      later,catalog,models);
+  assert(offset_triangle.size()==1 && offset_triangle[0].first_index==1);
+  const auto offset_gpu=native::BindVerifiedGeometryDraws(
+      offset_triangle,models,effects);
+  assert(offset_gpu.size()==1 && offset_gpu[0].draw.first_index==1);
+  later.calls[0].gpr[3]=123u;
   // Guest baseVertex -5 is translated from the authenticated guest -2
   // origin to native -3. This local rebase is in bounds for indices 3..5.
   later.calls[0].gpr[2]=0xFFFFFFFBu;
@@ -511,6 +528,15 @@ int main(){
       later,catalog,models);
       (void)native::BindVerifiedGeometryDraws(bad,models,effects);});
   catalog[0].original_linear_index_stream_verified=false;
+  // A null original guest IB must never establish source ownership merely
+  // because both witness and captured state happen to contain zero.
+  auto missingIb=runtime;
+  missingIb.calls[0].observed_vs_matrices->
+      original_index_buffer_guest_object=0;
+  auto invalidIbWitness=catalog;
+  invalidIbWitness[0].original_resources.index_buffer=0;
+  Reject([&]{(void)native::ResolveCapturedResourceDraws(
+      missingIb,invalidIbWitness,models);});
   // Exact original USA VB stream 0 differentiates meshes that share shaders.
   // Stale stream 15 is ignored when source declaration consumes only slot 0.
   transformed.calls[0].observed_vs_matrices->

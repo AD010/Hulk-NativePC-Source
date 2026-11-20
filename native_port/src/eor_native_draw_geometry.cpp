@@ -29,7 +29,7 @@ std::vector<aot::BoundIndexedDraw> BindVerifiedGeometryDraws(
         src.original_surface_name.empty() ||
         src.original_surface_ordinal == UINT32_MAX ||
         src.original_pass_index == UINT32_MAX ||
-        !src.index_count || (src.index_count % 3u) || (src.first_index % 3u))
+        !src.index_count || (src.index_count % 3u))
       throw std::invalid_argument("Original EoR Draw/material/vertex/pass identity unverified");
     const model::UploadedOriginalModel* model = nullptr;
     for (const auto* resident : residents)
@@ -164,7 +164,8 @@ bool SameOriginalResources(
      expected.pixel_shader!=observed.pixel_shader ||
      expected.rt0!=observed.rt0 ||
      expected.depth!=observed.depth ||
-     (indexed && expected.index_buffer!=observed.index_buffer))
+     (indexed && (!expected.index_buffer || !observed.index_buffer ||
+                  expected.index_buffer!=observed.index_buffer)))
     return false;
   const auto* original=std::get_if<VerifiedXdkIndexedSubmission>(
       &evidence.original_source_submission);
@@ -327,7 +328,7 @@ std::vector<VerifiedDrawSource> ResolveCapturedResourceDraws(
                 int64_t(link->native_draw.host_base_vertex)+
                 (int64_t(indexed->base_vertex)-int64_t(x.base_vertex));
             if(host_first<0 || host_first>UINT32_MAX ||
-               host_first%3 != 0 || host_base<INT32_MIN ||
+               host_base<INT32_MIN ||
                host_base>INT32_MAX)
               continue;
             mapped.native_draw.first_index=static_cast<uint32_t>(host_first);
