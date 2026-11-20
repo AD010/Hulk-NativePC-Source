@@ -130,15 +130,15 @@ class IncredibleHulkApp : public rex::ReXApp {
       std::error_code error;
       if (std::filesystem::is_regular_file(private_bank, error) && !error) {
         try {
-          auto bank = std::make_unique<hulk::eor::aot::ShaderBank>();
+          auto bank = std::make_shared<hulk::eor::aot::ShaderBank>();
           bank->Load(private_bank);
           const bool have_effects =
               std::filesystem::is_regular_file(private_effects, error) && !error;
           const bool have_reflection =
               std::filesystem::is_regular_file(private_reflection, error) && !error;
           if (have_effects && have_reflection) {
-            auto effects = std::make_unique<hulk::eor::aot::EffectCatalog>();
-            auto reflection = std::make_unique<hulk::eor::aot::ReflectionBank>();
+            auto effects = std::make_shared<hulk::eor::aot::EffectCatalog>();
+            auto reflection = std::make_shared<hulk::eor::aot::ReflectionBank>();
             effects->Load(private_effects);
             reflection->Load(private_reflection);
             // A partial compiled shader bank is useful for the FIRST
@@ -179,6 +179,14 @@ class IncredibleHulkApp : public rex::ReXApp {
       }
     }
 #if defined(HULK_NATIVE_X_LINKED)
+    // These are authentic private ShaderEffects inputs already verified
+    // against matching source digest counts, not synthetic GPU material
+    // bindings. Keep them resident for the sole Vulkan worker.
+    if(eor_aot_ && eor_effects_ && eor_reflection_ &&
+       !hulk::eor::xdk::InstallVerifiedSourceShaderPack(
+           eor_aot_,eor_effects_,eor_reflection_))
+      REXLOG_WARN("[HULK/EOR-AOT] coherent private source pack rejected "
+                  "at Vulkan worker handoff");
     const bool vulkan_active = hulk::NativeXInitialize(
         runtime() ? runtime()->graphics_system() : nullptr,
         window(), runtime() ? runtime()->cache_root() : std::filesystem::path{});
@@ -219,6 +227,7 @@ class IncredibleHulkApp : public rex::ReXApp {
 #if defined(HULK_NATIVE_X_LINKED)
     native_x_renderer::SetHulkEorPresentCallback(nullptr);
     hulk::eor::xdk::ClearVerifiedWorkerEorFrame();
+    hulk::eor::xdk::ClearVerifiedSourceShaderPack();
 #endif
     hulk::ReportAutomaticGpuDiagnostics();
     eor_reflection_.reset();
@@ -232,9 +241,9 @@ class IncredibleHulkApp : public rex::ReXApp {
   // void OnShutdown() override {}
   // void OnConfigurePaths(rex::PathConfig& paths) override {}
  private:
-  std::unique_ptr<hulk::eor::aot::ShaderBank> eor_aot_;
-  std::unique_ptr<hulk::eor::aot::EffectCatalog> eor_effects_;
-  std::unique_ptr<hulk::eor::aot::ReflectionBank> eor_reflection_;
+  std::shared_ptr<hulk::eor::aot::ShaderBank> eor_aot_;
+  std::shared_ptr<hulk::eor::aot::EffectCatalog> eor_effects_;
+  std::shared_ptr<hulk::eor::aot::ReflectionBank> eor_reflection_;
   std::filesystem::path native_pc_config_;
   std::unique_ptr<rex::ui::ImGuiDialog> pc_menu_;
 };

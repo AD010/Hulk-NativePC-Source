@@ -42,6 +42,15 @@ struct VerifiedWorkerEorFrame {
   std::shared_ptr<const aot::ReflectionBank> reflection;
   std::shared_ptr<aot::ShaderBindingBackend> gpu;
 };
+// Register the REAL private USA offline ShaderEffects bank, effect/pass index,
+// and reflection together. The game owns the source generations; the GPU
+// worker holds shared immutable references, never detached naked pointers.
+// This does NOT attest any engine Draw, model identity or camera.
+bool InstallVerifiedSourceShaderPack(
+    std::shared_ptr<const aot::ShaderBank> shaders,
+    std::shared_ptr<const aot::EffectCatalog> effects,
+    std::shared_ptr<const aot::ReflectionBank> reflection);
+void ClearVerifiedSourceShaderPack() noexcept;
 // Thread-safe source submission. A complete source-proven EoR engine owner
 // must supply this per-frame; startup AOT shader banks alone are insufficient.
 // The backend MUST use BindNativeEorVulkanBackbuffer, not Present itself.

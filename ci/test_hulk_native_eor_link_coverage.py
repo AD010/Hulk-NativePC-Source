@@ -294,6 +294,39 @@ class NativeEorLinkCoverage(unittest.TestCase):
         self.assertNotIn("ReplayAotScene(", app,
                          "A bank without verified EoR draw ABI is NOT a real game frame")
 
+    def test_private_shader_pack_reaches_existing_gpu_worker(self):
+        game = (ROOT / "native_port/src/incredible_hulk_app.h").read_text()
+        bridge = (ROOT / "native_port/src/eor_xdk_hook_bridge.cpp").read_text()
+        header = (ROOT / "native_port/src/eor_xdk_hook_bridge.h").read_text()
+        self.assertIn("auto bank = std::make_shared<hulk::eor::aot::ShaderBank>();", game)
+        self.assertIn("auto effects = std::make_shared<hulk::eor::aot::EffectCatalog>();", game)
+        self.assertIn("auto reflection = std::make_shared<hulk::eor::aot::ReflectionBank>();", game)
+        self.assertIn("InstallVerifiedSourceShaderPack(", game)
+        self.assertIn("InstallVerifiedSourceShaderPack(", header)
+        self.assertIn("InstallVerifiedSourceShaderPack(", bridge)
+        self.assertIn("g_offline_shader_pack=OfflineShaderPack{", bridge)
+        self.assertIn("g_verified_worker_frame.reset();", bridge)
+        self.assertIn("complete->shaders=pack.shaders;", bridge)
+        self.assertIn("complete->effects=pack.effects;", bridge)
+        self.assertIn("complete->reflection=pack.reflection;", bridge)
+        self.assertIn("ClearVerifiedSourceShaderPack();", game)
+        self.assertLess(game.index("InstallVerifiedSourceShaderPack("),
+                        game.index("hulk::NativeXInitialize(",
+                                   game.index("InstallVerifiedSourceShaderPack(")))
+        self.assertNotIn("make_unique<hulk::eor::aot::ShaderBank>", game)
+        self.assertIn("frame->witnesses.empty() || frame->residents.empty()", bridge)
+
+    def test_diagnostic_eor_optin_uses_single_immediate_host_present(self):
+        game = (ROOT / "native_port/src/native_x_renderer_hulk.cpp").read_text()
+        toml = (ROOT / "native_port/incredible_hulk.toml").read_text()
+        upstream = (ROOT / "ci/patch_native_x_hulk_present_semantics.py").read_text()
+        self.assertIn("native_x_renderer_present_with_swaps = true", toml)
+        self.assertIn('const bool requested_eor = rex::cvar::Query<bool>("hulk_eor_vulkan_replay");', game)
+        self.assertIn('rex::cvar::SetFlagByName("hulk_eor_xdk_capture","true");', game)
+        self.assertIn('rex::cvar::SetFlagByName("native_x_renderer_present_with_swaps","false");', game)
+        self.assertIn("eor_worker_allowed ? &hulk::eor::xdk::TryWorkerEorFrame : nullptr", game)
+        self.assertIn("!g_present_with_swaps && !g_frame_generation", upstream)
+
     def test_active_native_vulkan_worker_reaches_original_ppc_replay(self):
         hook = (ROOT / "native_port/src/eor_xdk_hook_bridge.cpp").read_text()
         header = (ROOT / "native_port/src/eor_xdk_hook_bridge.h").read_text()

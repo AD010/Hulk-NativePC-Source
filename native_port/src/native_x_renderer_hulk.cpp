@@ -282,12 +282,29 @@ bool NativeXInitialize(
   // NativeXRenderer owns Vulkan instance/device/surface
   // initialization through the ReXGlue host window.
   // Do not create a competing VkSurfaceKHR here.
+  // The packaged Hulk defaults intentionally use guest swap pacing.
+  // Direct EoR owns an entire physical frame, so this staging path must
+  // use NativeX's single immediate Present (not a queued guest-swap image).
+  // Keep normal NativeX pacing UNCHANGED unless the owner explicitly opts
+  // into native EoR Vulkan replay in its single incredible_hulk.toml.
+  const bool requested_eor = rex::cvar::Query<bool>("hulk_eor_vulkan_replay");
+  if(requested_eor) {
+    rex::cvar::SetFlagByName("hulk_eor_xdk_capture","true");
+    rex::cvar::SetFlagByName("native_x_renderer_present_with_swaps","false");
+  }
+  const bool eor_worker_allowed = requested_eor &&
+      rex::cvar::Query<bool>("hulk_eor_xdk_capture") &&
+      !rex::cvar::Query<bool>("native_x_renderer_present_with_swaps");
+  if(requested_eor && !eor_worker_allowed)
+    REXLOG_WARN("[HULK/EOR-WORKER] replay disabled: PPC capture or "
+                "sole immediate Vulkan Present could not be selected");
+
   // Actual EoR source-to-native-worker rendezvous; without a verified
   // EoR material/mesh/PSO/frame bundle this is a zero-GPU fallback.
   // Must be installed BEFORE renderer worker startup and only on this
   // existing Vulkan device/swapchain (no competing presenter).
   native_x_renderer::SetHulkEorPresentCallback(
-      &hulk::eor::xdk::TryWorkerEorFrame);
+      eor_worker_allowed ? &hulk::eor::xdk::TryWorkerEorFrame : nullptr);
   native_x_renderer::Initialize(
       g_profile->profile,
       graphics,

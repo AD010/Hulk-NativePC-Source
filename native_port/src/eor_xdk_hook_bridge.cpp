@@ -36,6 +36,12 @@ FrameCapture g_collector;
 XdkCallsiteEvidence g_callsite_evidence;
 CompletedFrameMailbox g_frames_for_native;
 std::shared_ptr<const VerifiedWorkerEorFrame> g_verified_worker_frame;
+struct OfflineShaderPack {
+  std::shared_ptr<const aot::ShaderBank> shaders;
+  std::shared_ptr<const aot::EffectCatalog> effects;
+  std::shared_ptr<const aot::ReflectionBank> reflection;
+};
+std::optional<OfflineShaderPack> g_offline_shader_pack;
 // ReXGlue's guest base is NOT directly an original Xbox VA; use the same
 // guest high-memory padding convention as native_camera_direct.cpp, and
 // reject inaccessible ranges without reading unverified game memory.
@@ -270,6 +276,28 @@ void EndPpcHook(native_x_renderer::Call kind) {
     g_frames_for_native.Publish(std::move(frame));
   }
 }
+bool InstallVerifiedSourceShaderPack(
+    std::shared_ptr<const aot::ShaderBank> shaders,
+    std::shared_ptr<const aot::EffectCatalog> effects,
+    std::shared_ptr<const aot::ReflectionBank> reflection) {
+  if(!shaders || !shaders->size() || !shaders->expected() ||
+     !effects || !effects->EffectCount() ||
+     effects->ShaderCount()!=shaders->expected() ||
+     !reflection || reflection->size()!=shaders->expected())
+    return false;
+  std::lock_guard lock(g_mutex);
+  // A new original ShaderEffects generation must NEVER be attached to
+  // an already queued frame from the previous bank's digest identities.
+  g_verified_worker_frame.reset();
+  g_offline_shader_pack=OfflineShaderPack{
+      std::move(shaders),std::move(effects),std::move(reflection)};
+  return true;
+}
+void ClearVerifiedSourceShaderPack() noexcept {
+  std::lock_guard lock(g_mutex);
+  g_verified_worker_frame.reset();
+  g_offline_shader_pack.reset();
+}
 bool InstallVerifiedWorkerEorFrame(
     std::shared_ptr<const VerifiedWorkerEorFrame> frame) {
   if(!frame || !frame->original_frame_sequence || !frame->device ||
@@ -277,11 +305,7 @@ bool InstallVerifiedWorkerEorFrame(
      !native::HasFullNativeCompositePixels(
         frame->output.world,frame->output.composite,frame->output.backbuffer) ||
      frame->witnesses.empty() || frame->residents.empty() ||
-     !frame->shaders || !frame->shaders->size() ||
-     !frame->effects || !frame->effects->EffectCount() ||
-     !frame->reflection || !frame->gpu ||
-     frame->effects->ShaderCount()!=frame->shaders->expected() ||
-     frame->reflection->size()!=frame->shaders->expected())
+     !frame->gpu)
     return false;
   for(const auto& model:frame->residents)
     if(!model || !model->original_resource_hash)return false;
@@ -293,7 +317,19 @@ bool InstallVerifiedWorkerEorFrame(
     if(!same_frame)return false;
   }
   std::lock_guard lock(g_mutex);
-  g_verified_worker_frame=std::move(frame);
+  if(!g_offline_shader_pack)return false;
+  const auto& pack=*g_offline_shader_pack;
+  // Never permit a caller's independently constructed ShaderEffects
+  // generation to be mixed with the app's actual loaded USA source pack.
+  if((frame->shaders && frame->shaders!=pack.shaders) ||
+     (frame->effects && frame->effects!=pack.effects) ||
+     (frame->reflection && frame->reflection!=pack.reflection))
+    return false;
+  auto complete=std::make_shared<VerifiedWorkerEorFrame>(*frame);
+  complete->shaders=pack.shaders;
+  complete->effects=pack.effects;
+  complete->reflection=pack.reflection;
+  g_verified_worker_frame=std::move(complete);
   return true;
 }
 void ClearVerifiedWorkerEorFrame() noexcept {
