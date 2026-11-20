@@ -603,7 +603,17 @@ HRESULT STDMETHODCALLTYPE OnVSConstants(IDirect3DDevice9* dev,UINT reg,
   const bool hasBackDesc=backbuffer &&
                         SUCCEEDED(backbuffer->GetDesc(&backDesc));
   bool eligible=isBackbuffer;
-  if(!eligible && allowOffscreenHorPlus && SUCCEEDED(descHr) &&
+  // A matching offscreen target can still be a postprocessing/UI surface.
+  // Require a texture-backed render target, not an arbitrary plain surface:
+  // the intended scene-composite path renders to a texture and samples it
+  // later. This is an additional safeguard, not proof of camera semantics.
+  IDirect3DBaseTexture9* sceneTexture=nullptr;
+  const bool textureBacked=allowOffscreenHorPlus && !isBackbuffer &&
+      SUCCEEDED(renderTarget->GetContainer(
+          IID_IDirect3DBaseTexture9,
+          reinterpret_cast<void**>(&sceneTexture))) && sceneTexture;
+  if(sceneTexture)sceneTexture->Release();
+  if(!eligible && textureBacked && SUCCEEDED(descHr) &&
      hasBackDesc && targetDesc.Width==backDesc.Width &&
      targetDesc.Height==backDesc.Height &&
      (targetDesc.Usage & D3DUSAGE_RENDERTARGET)!=0) {
