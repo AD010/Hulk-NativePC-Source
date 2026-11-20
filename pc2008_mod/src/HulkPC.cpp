@@ -584,8 +584,17 @@ HRESULT STDMETHODCALLTYPE OnVSConstants(IDirect3DDevice9* dev,UINT reg,
     return realVSConst(dev,reg,data,count);
   D3DSURFACE_DESC targetDesc{};
   const HRESULT descHr=renderTarget->GetDesc(&targetDesc);
+  // A full-size viewport is not proof of an onscreen camera pass: shadow,
+  // reflection and postprocessing targets may use identical dimensions.
+  // Fail closed unless the active surface is the actual swap-chain backbuffer.
+  // Both D3D9 queries return AddRef'd surfaces, so release both references.
+  IDirect3DSurface9* backbuffer=nullptr;
+  const HRESULT backHr=dev->GetBackBuffer(0,0,D3DBACKBUFFER_TYPE_MONO,&backbuffer);
+  const bool isBackbuffer=SUCCEEDED(backHr) && backbuffer &&
+                          renderTarget==backbuffer;
+  if(backbuffer)backbuffer->Release();
   renderTarget->Release();
-  if(FAILED(descHr) || vp.X!=0 || vp.Y!=0 ||
+  if(FAILED(descHr) || !isBackbuffer || vp.X!=0 || vp.Y!=0 ||
      vp.Width!=targetDesc.Width || vp.Height!=targetDesc.Height)
     return realVSConst(dev,reg,data,count);
   const double scale=sourceAspect/(double(vp.Width)/vp.Height);
