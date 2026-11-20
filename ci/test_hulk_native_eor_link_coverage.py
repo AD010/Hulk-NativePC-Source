@@ -286,6 +286,19 @@ class NativeEorLinkCoverage(unittest.TestCase):
         self.assertIn("Actual original XDK buffer bytes disprove engine mesh owner",geom)
         self.assertIn("wrongIb->bytes[0]=std::byte{0xFA};",test)
 
+    def test_live_draw_shader_guest_objects_match_real_usa_pass_catalog(self):
+        source=(ROOT / "native_port/src/eor_native_draw_geometry.cpp").read_text()
+        header=(ROOT / "native_port/src/eor_effect_catalog.h").read_text()
+        cpp=(ROOT / "ci/eor_native_draw_geometry_test.cpp").read_text()
+        self.assertIn("ValidateLiveOriginalShaderPasses(captured,source,effects);",source)
+        self.assertIn("effects.FindOriginalPass(",source)
+        self.assertIn("state.original_vs_guest_object",source)
+        self.assertIn("state.original_ps_guest_object",source)
+        self.assertIn("Same live XDK VS guest object claimed two original source shaders",source)
+        self.assertIn("Same live XDK PS guest object claimed two original source shaders",source)
+        self.assertIn("distinctShaderObjects.original_vs_guest_object^=4u;",cpp)
+        self.assertIn("std::map<std::pair<Digest,Digest>,OriginalEffectPass> reverse_",header)
+
     def test_native_worker_fallback_only_suppressed_after_gpu_begin_attempt(self):
         bridge = (ROOT / "native_port/src/eor_aot_draw_bridge.cpp").read_text()
         worker = (ROOT / "native_port/src/eor_xdk_hook_bridge.cpp").read_text()

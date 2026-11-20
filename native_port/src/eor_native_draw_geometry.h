@@ -103,6 +103,12 @@ struct ExactOriginalGuestMesh {
 std::optional<ExactOriginalGuestMesh> IdentifyExactOriginalGuestMesh(
     const xdk::RawDraw& draw,
     std::span<const model::UploadedOriginalModel* const> residents);
+// Enforce original ShaderEffects digest identity against real guest XDK
+// shader objects on EVERY Draw before the native EoR Vulkan pass begins.
+void ValidateLiveOriginalShaderPasses(
+    const xdk::Frame& original_frame,
+    std::span<const VerifiedDrawSource> original_draws,
+    const aot::EffectCatalog& effects);
 struct VerifiedXdkResourceWitness {
   OriginalXdkResourceIdentity original_resources;
   VerifiedXdkDrawSubmission original_source_submission;

@@ -47,11 +47,16 @@ model::LoadedNativeGeometry MakeFanModel() {
   return m;
 }
 void I32(std::vector<uint8_t>& b,uint32_t x){for(int i=0;i<4;++i)b.push_back(uint8_t(x>>(8*i)));}
-aot::EffectCatalog Catalog(){
+aot::EffectCatalog Catalog(bool another=false){
   std::vector<uint8_t> b{'H','E','O','R','M','A','T','2'};
-  I32(b,1);I32(b,2);I32(b,0x1234);I32(b,0);
+  I32(b,another?2u:1u);I32(b,2);I32(b,0x1234);I32(b,0);
   for(int i=0;i<32;++i)b.push_back(0x11);
   for(int i=0;i<32;++i)b.push_back(0x22);
+  if(another) {
+    I32(b,0x4567);I32(b,0);
+    for(int i=0;i<32;++i)b.push_back(0x33);
+    for(int i=0;i<32;++i)b.push_back(0x44);
+  }
   const auto file=std::filesystem::temp_directory_path()/"hulk_draw_geometry_effect_test.bin";
   {std::ofstream out(file,std::ios::binary|std::ios::trunc);
    out.write(reinterpret_cast<const char*>(b.data()),b.size());}
@@ -438,6 +443,28 @@ int main(){
   realBufferDraw.source_vb0=wrongVb;
   assert(!native::IdentifyExactOriginalGuestMesh(realBufferDraw,models));
   const auto recovered=native::ResolveCapturedResourceDraws(runtime,catalog,models);
+  native::ValidateLiveOriginalShaderPasses(runtime,recovered,effects);
+  const auto twoEffects=Catalog(true);
+  auto shaderFrame=runtime;
+  shaderFrame.calls.push_back(runtime.calls[0]);
+  auto shaderMatches=recovered;
+  auto second=shaderMatches[0];
+  second.original_call_ordinal=1;
+  shaderMatches.push_back(second);
+  native::ValidateLiveOriginalShaderPasses(shaderFrame,shaderMatches,twoEffects);
+  shaderMatches[1].original_effect_hash=0x4567;
+  shaderMatches[1].original_pass_index=0;
+  shaderMatches[1].vertex_source_sha256.fill(0x33);
+  shaderMatches[1].pixel_source_sha256.fill(0x44);
+  // Same live XDK shader object with two different original digests is
+  // not a source-verified engine material.
+  Reject([&]{native::ValidateLiveOriginalShaderPasses(
+      shaderFrame,shaderMatches,twoEffects);});
+  auto distinctShaderObjects=*shaderFrame.calls[1].observed_vs_matrices;
+  distinctShaderObjects.original_vs_guest_object^=4u;
+  distinctShaderObjects.original_ps_guest_object^=4u;
+  shaderFrame.calls[1].observed_vs_matrices=distinctShaderObjects;
+  native::ValidateLiveOriginalShaderPasses(shaderFrame,shaderMatches,twoEffects);
   assert(recovered.size()==1 && recovered[0].original_model_hash==0xCAFE &&
          recovered[0].original_vs_matrices &&
          xdk::ReadOriginalMatrix(*recovered[0].original_vs_matrices,11,4)

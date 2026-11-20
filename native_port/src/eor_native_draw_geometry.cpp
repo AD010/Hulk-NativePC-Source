@@ -83,6 +83,47 @@ std::optional<ExactOriginalGuestMesh> IdentifyExactOriginalGuestMesh(
   }
   return unique;
 }
+
+void ValidateLiveOriginalShaderPasses(
+    const xdk::Frame& frame,
+    std::span<const VerifiedDrawSource> sources,
+    const aot::EffectCatalog& effects) {
+  if(!frame.sequence || frame.calls.empty() ||
+     frame.calls.size()!=sources.size())
+    throw std::invalid_argument(
+        "Actual original EoR XDK shader frame has missing Draws");
+  std::map<uint32_t,aot::Digest> observed_vs,observed_ps;
+  for(size_t i=0;i<sources.size();++i) {
+    const auto& source=sources[i];
+    const auto& draw=frame.calls[i];
+    if(!draw.observed_vs_matrices ||
+       source.original_frame_sequence!=frame.sequence ||
+       source.original_call_ordinal!=i)
+      throw std::invalid_argument(
+          "Original shader source not bound to exact current guest Draw");
+    const auto& state=*draw.observed_vs_matrices;
+    if(!state.original_vs_guest_object || !state.original_ps_guest_object)
+      throw std::invalid_argument(
+          "Live original Xbox shader object identity missing");
+    const auto real_pass=effects.FindOriginalPass(
+        source.vertex_source_sha256,source.pixel_source_sha256);
+    if(!real_pass ||
+       real_pass->effect_hash!=source.original_effect_hash ||
+       real_pass->pass_index!=source.original_pass_index)
+      throw std::invalid_argument(
+          "Original runtime VS/PS pair does not identify asserted EoR effect/pass");
+    const auto [vs,created_vs]=observed_vs.emplace(
+        state.original_vs_guest_object,source.vertex_source_sha256);
+    if(!created_vs && vs->second!=source.vertex_source_sha256)
+      throw std::invalid_argument(
+          "Same live XDK VS guest object claimed two original source shaders");
+    const auto [ps,created_ps]=observed_ps.emplace(
+        state.original_ps_guest_object,source.pixel_source_sha256);
+    if(!created_ps && ps->second!=source.pixel_source_sha256)
+      throw std::invalid_argument(
+          "Same live XDK PS guest object claimed two original source shaders");
+  }
+}
 std::vector<aot::BoundIndexedDraw> BindVerifiedGeometryDraws(
     std::span<const VerifiedDrawSource> sources,
     std::span<const model::UploadedOriginalModel* const> residents,
@@ -465,6 +506,7 @@ void ReplayCapturedResourceScene(
   if(!xdk::ValidateOriginalCommandTimeline(captured))
     throw std::invalid_argument("Incomplete source RT/Draw/Resolve/Present timeline");
   const auto source=ResolveCapturedResourceDraws(captured,verified,residents);
+  ValidateLiveOriginalShaderPasses(captured,source,effects);
   const auto commands=BindVerifiedGeometryDraws(source,residents,effects);
   // Unlike the Draw-only legacy bridge, replay the true original
   // RT/Clear/Draw/Resolve/Present sequence through the native GPU.
