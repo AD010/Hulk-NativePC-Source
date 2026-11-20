@@ -395,6 +395,49 @@ int main(){
   assert(directGpu.begins==1 && directGpu.draws==1 &&
          directGpu.resolves==1 && directGpu.composites==1 &&
          directGpu.events==sourceGpuSequence);
+  // The original USA archive streamer may provide these models using
+  // NativeWorldStream::ResidentShared(), which holds real GPU buffers through
+  // the active frame. The owner collector must never infer models from a
+  // common shader, wrong mesh offset or out-of-date XDK resource pointer.
+  Fake residentGpu;
+  auto streamResident=std::make_shared<const model::UploadedOriginalModel>(
+      model::UploadOriginalModel(MakeModel(),residentGpu));
+  auto sourceOwned=catalog;
+  std::visit([&](auto& link){
+      link.native_draw.original_frame_sequence=exactTimeline.sequence;
+    },sourceOwned[0].original_source_submission);
+  const auto lookup=[&](uint32_t hash)
+      -> std::shared_ptr<const model::UploadedOriginalModel> {
+    return hash==0xCAFE ? streamResident : nullptr;
+  };
+  auto ownedModels=native::RetainVerifiedOriginalFrameResidents(
+      exactTimeline,sourceOwned,lookup);
+  assert(ownedModels.size()==1 && ownedModels[0]==streamResident &&
+         ownedModels[0]->meshes.meshes()[0].index_buffer!=0);
+  const auto missingLookup=[](uint32_t)
+      -> std::shared_ptr<const model::UploadedOriginalModel>{return nullptr;};
+  Reject([&]{(void)native::RetainVerifiedOriginalFrameResidents(
+      exactTimeline,sourceOwned,missingLookup);});
+  auto changedOwner=sourceOwned;
+  std::visit([](auto& link){
+    link.native_draw.original_mesh_header_offset+=4;
+  },changedOwner[0].original_source_submission);
+  Reject([&]{(void)native::RetainVerifiedOriginalFrameResidents(
+      exactTimeline,changedOwner,lookup);});
+  changedOwner=sourceOwned;
+  std::visit([](auto& link){
+    link.native_draw.original_frame_sequence+=1;
+  },changedOwner[0].original_source_submission);
+  Reject([&]{(void)native::RetainVerifiedOriginalFrameResidents(
+      exactTimeline,changedOwner,lookup);});
+  changedOwner=sourceOwned;
+  changedOwner[0].original_guest_resource_to_material_mapping_verified=false;
+  Reject([&]{(void)native::RetainVerifiedOriginalFrameResidents(
+      exactTimeline,changedOwner,lookup);});
+  // A source-valid model remains resident while the caller holds it, even
+  // when its temporary owner catalogue releases its own reference.
+  streamResident.reset();
+  assert(ownedModels[0] && ownedModels[0]->original_resource_hash==0xCAFE);
   // A destroyed/late original frame is NOT eligible for host Present.
   mailbox.Publish(exactTimeline);
   auto nextOriginal=exactTimeline;

@@ -1,6 +1,7 @@
 #include "eor_native_draw_geometry.h"
 #include <algorithm>
 #include <limits>
+#include <map>
 #include <stdexcept>
 
 namespace hulk::eor::native {
@@ -200,6 +201,69 @@ bool SameOriginalResources(
   }
   return true;
 }
+}
+std::vector<std::shared_ptr<const model::UploadedOriginalModel>>
+RetainVerifiedOriginalFrameResidents(
+    const xdk::Frame& frame,
+    std::span<const VerifiedXdkResourceWitness> witnesses,
+    const VerifiedOriginalResidentLookup& lookup) {
+  // No guest EoR model hash may be manufactured from LR, ShaderEffects or
+  // PM4 state. Every requested archive hash must be vouched for by the
+  // ORIGINAL source engine Draw and match this exact complete XDK frame.
+  if(!frame.sequence || witnesses.empty() || !lookup ||
+     !xdk::ValidateOriginalCommandTimeline(frame))
+    throw std::invalid_argument("Missing verified original EoR model frame");
+  std::map<uint32_t,std::shared_ptr<const model::UploadedOriginalModel>> owned;
+  for(const auto& witness:witnesses) {
+    const auto& source=std::visit([](const auto& link)
+        -> const VerifiedDrawSource& {return link.native_draw;},
+        witness.original_source_submission);
+    if(!witness.original_guest_resource_to_material_mapping_verified ||
+       !source.original_frame_sequence ||
+       source.original_frame_sequence!=frame.sequence ||
+       !source.engine_draw_verified || !source.mesh_material_verified ||
+       !source.host_vertex_layout_verified || !source.render_state_verified ||
+       !source.original_model_hash || source.original_surface_name.empty() ||
+       source.original_surface_ordinal==UINT32_MAX ||
+       source.original_mesh_header_offset==SIZE_MAX)
+      throw std::invalid_argument("Original EoR Draw owner unverified");
+    auto it=owned.find(source.original_model_hash);
+    std::shared_ptr<const model::UploadedOriginalModel> resident=
+        it==owned.end() ? lookup(source.original_model_hash) : it->second;
+    if(!resident || resident->original_resource_hash!=source.original_model_hash ||
+       resident->original_identity.platform!=model::Platform::Xbox360 ||
+       source.original_surface_ordinal>=resident->original_surface_candidates.size() ||
+       resident->original_surface_candidates[source.original_surface_ordinal].
+           original_material_name!=source.original_surface_name)
+      throw std::invalid_argument("Missing original EoR GPU model or surface");
+    // A common material effect is not proof of a particular original mesh.
+    // This checks that the host buffers really belong to its source header.
+    unsigned matching_meshes=0;
+    for(const auto& mesh:resident->meshes.meshes())
+      if(mesh.original_header_offset==source.original_mesh_header_offset &&
+         mesh.position_buffer && mesh.index_buffer &&
+         mesh.vertex_count>=3 && mesh.index_count>=3)
+        ++matching_meshes;
+    if(matching_meshes!=1)
+      throw std::invalid_argument("Original EoR mesh ownership ambiguous");
+    if(it==owned.end())
+      owned.emplace(source.original_model_hash,std::move(resident));
+  }
+  std::vector<std::shared_ptr<const model::UploadedOriginalModel>> result;
+  result.reserve(owned.size());
+  std::vector<const model::UploadedOriginalModel*> borrowed;
+  borrowed.reserve(owned.size());
+  for(const auto& [_,model]:owned) {
+    borrowed.push_back(model.get());
+    result.push_back(model);
+  }
+  // Enforce exact XDK guest object/window/texture/vertex-stream identity
+  // and a one-to-one source ownership for every captured Draw BEFORE
+  // publishing any model reference to the Vulkan worker.
+  const auto matched=ResolveCapturedResourceDraws(frame,witnesses,borrowed);
+  if(matched.size()!=frame.calls.size())
+    throw std::invalid_argument("Original EoR frame has unmatched Draws");
+  return result;
 }
 std::vector<VerifiedDrawSource> ResolveCapturedResourceDraws(
     const xdk::Frame& frame,

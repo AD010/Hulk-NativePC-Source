@@ -7,6 +7,7 @@
 #include "eor_xdk_draw_capture.h"
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <span>
 #include <string>
@@ -112,6 +113,19 @@ struct VerifiedXdkResourceWitness {
   // Never infer this proof from shared shaders, LR, or resource pointers.
   bool original_linear_index_stream_verified=false;
 };
+// The actual original GPU archive streamer owns strong uploaded Vulkan
+// positions, indices and source-decoded attribute buffers. Retain only
+// those real models whose engine-verified Draws match the original XDK
+// timeline and source model+mesh+surface identity. A caller can bind its
+// NativeWorldStream::ResidentShared lookup without manufacturing pointers.
+// Missing, stale, ambiguous or incomplete source owners reject the frame.
+using VerifiedOriginalResidentLookup=std::function<
+    std::shared_ptr<const model::UploadedOriginalModel>(uint32_t)>;
+std::vector<std::shared_ptr<const model::UploadedOriginalModel>>
+RetainVerifiedOriginalFrameResidents(
+    const xdk::Frame& source,
+    std::span<const VerifiedXdkResourceWitness> original_witnesses,
+    const VerifiedOriginalResidentLookup& original_residents);
 // Resolve the entire captured frame with independently verified original
 // model/mesh/pass witnesses. This does NOT discover missing witnesses.
 // It rejects unrecognized/ambiguous Draws before any GPU scene starts.
