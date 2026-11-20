@@ -111,6 +111,48 @@ This is original shader source adaptation, not verified Vulkan PSO binding;
 the 24 dynamic-flow shaders, all EoR material descriptors, game-time
 shader injections and GPU command routing still require source/runtime work.
 
+## Current continuation (2026-11-20)
+
+Continuation was rebased on `274cc34` (original ShaderEffects / Xenia Edge
+dump crosswalk), not the historical #108/D140 revision. The USA port remains
+separate from `pc2008_mod`. Shader dump matches identify candidate source
+programs; they do not establish the complete live material/Draw ownership.
+
+- Fixed the live XDK geometry snapshot budget: repeated unchanged VB/IB
+  bytes share an immutable snapshot within one Present instead of charging
+  the 64 MiB budget again on every Draw. Every observation still reads the
+  guest bytes; changed contents at the same object/address get a separate
+  version. A failed read never returns an old version. The budget counts
+  new versions, and exhausted budgets reject new data rather than recycling
+  storage still referenced by previous Draws. Capture/reset/Record now share
+  the collector mutex. This reduces retained copies, not the necessary
+  per-Draw guest read bandwidth, and is not a measured GPU FPS improvement.
+- Restored the missing XDK capture include in the AOT bridge header. Fixed
+  conflicting local names and the missing pixel texture declaration/binder
+  in the synthetic geometry test. Production shader-resource checks remain
+  strict. The existing Windows AOT test now links its sampler and SPIR-V
+  resource implementations; no workflow or configuration copy was added.
+- Updated stale source-contract checks to follow the exception-safe RTV
+  detach helper, actual worker snapshot name, and GPU-attempt flag forwarded
+  to the real BeginScene boundary. They no longer demand a premature flag
+  that would suppress the visible fallback on a clean source rejection.
+
+Local validation: XDK capture C++ tests exercise 4096 references, in-place
+buffer mutation, budget exhaustion, failed reads and old-frame lifetime.
+The same test passes AddressSanitizer/UBSan with leak detection disabled
+because LeakSanitizer cannot run under this host's ptrace environment.
+Geometry and AOT tests also compile and pass with the source lists from the
+existing workflow. All 35 EoR link checks, 9 dispatcher checks and 5 shader
+dump crosswalk tests pass. These are host checks, not a Windows EXE or live
+Vulkan frame validation. The AOT fixtures now supply the required original
+command timeline for positive captured-Draw cases; missing timelines still
+fail before BeginScene rather than being permitted just to pass a test.
+
+Outstanding: the actual game must still produce complete per-Draw
+model/surface/shader/sampler/state ownership for the independent renderer.
+No color-flash, HUD, mip/LOD, physics, TU1 water or full release claim follows
+from these source changes. No Actions release was launched in this step.
+
 ## Cleanup and quality gate (2026-11-17)
 
 - Removed all eight failed-run `.hulk-release-one-shot-20261117*` trigger

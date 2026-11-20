@@ -20,8 +20,60 @@ void W(GuestMemory& m,uint32_t address,uint32_t v) {
   auto* p=m.bytes.data()+address;
   for(int i=0;i<4;++i)p[i]=std::byte(uint8_t(v>>(24-8*i)));
 }
+void CheckBufferSnapshots() {
+  GuestMemory guest;
+  const uint32_t object=0x100, address=0x200, bytes=12;
+  W(guest,address,0x12345678);
+  OriginalGuestBufferSnapshots buffers(2*bytes);
+  const auto first=buffers.Capture(object,address,bytes,ReadFake,&guest);
+  assert(first && first->guest_size==bytes && buffers.RetainedBytes()==bytes);
+  // Thousands of Draws sharing a static VB must not consume the frame
+  // budget thousands of times (the former capture exhausted it on Draw 3).
+  for(unsigned draw=0;draw<4096;++draw)
+    assert(buffers.Capture(object,address,bytes,ReadFake,&guest)==first);
+  assert(buffers.RetainedBytes()==bytes);
+  W(guest,address,0xABCDEF01);
+  const auto rewritten=buffers.Capture(object,address,bytes,ReadFake,&guest);
+  assert(rewritten && rewritten!=first && rewritten->bytes!=first->bytes);
+  assert(first->bytes[0]==std::byte{0x12});
+  assert(rewritten->bytes[0]==std::byte{0xAB});
+  assert(buffers.RetainedBytes()==2*bytes);
+  // The budget can be full and the CURRENT unchanged revision still valid.
+  assert(buffers.Capture(object,address,bytes,ReadFake,&guest)==rewritten);
+  W(guest,address,0x99887766);
+  assert(!buffers.Capture(object,address,bytes,ReadFake,&guest));
+  assert(rewritten->bytes[0]==std::byte{0xAB}); // no in-place mutation
+  assert(buffers.RetainedBytes()==2*bytes);
+  const auto failing=[](void*,uint32_t,std::byte* out,size_t) noexcept {
+    out[0]=std::byte{0xFF};return false;
+  };
+  assert(!buffers.Capture(object,address,bytes,failing,&guest));
+  assert(buffers.RetainedBytes()==2*bytes);
+  buffers.Reset();
+  assert(buffers.RetainedBytes()==0);
+  // A queued GPU frame still owns the prior bytes after the next Present.
+  assert(first->bytes[0]==std::byte{0x12} && rewritten->bytes[0]==std::byte{0xAB});
+  const auto newFrame=buffers.Capture(object,address,bytes,ReadFake,&guest);
+  assert(newFrame && newFrame->bytes[0]==std::byte{0x99});
+  buffers.Reset();
+  // Same contents at different addresses/objects are NOT resource identity.
+  const auto owner=buffers.Capture(object,address,bytes,ReadFake,&guest);
+  const auto other=buffers.Capture(object+4,address,bytes,ReadFake,&guest);
+  assert(owner && other && owner!=other && other->guest_object==object+4);
+  buffers.Reset();
+  assert(!buffers.Capture(object,UINT32_MAX-3,bytes,ReadFake,&guest));
+  assert(!buffers.Capture(object,address,5,ReadFake,&guest));
+  assert(!buffers.Capture(object,address,(8u<<20)+1,ReadFake,&guest));
+  assert(!buffers.Capture(object,address,bytes,nullptr,&guest));
+  assert(!buffers.Capture(0,address,bytes,ReadFake,&guest));
+  assert(!buffers.Capture(object,address,bytes,failing,&guest));
+  assert(buffers.RetainedBytes()==0);
+  const auto recovered=buffers.Capture(object,address,bytes,ReadFake,&guest);
+  assert(recovered && recovered->bytes[0]==std::byte{0x99});
+}
 }
 int main() {
+  CheckBufferSnapshots();
   assert(VerifiedTriangleListCount(4u,3u)==3u);
   assert(VerifiedTriangleListCount(4u,6u)==6u);
   assert(VerifiedTriangleListCount(6u,4u)==6u);

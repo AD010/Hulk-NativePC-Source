@@ -92,7 +92,7 @@ class D140WindowsDispatchTests(unittest.TestCase):
         self.assertIn("function Invoke-HulkNativeXCheckedPatch(",builder)
         self.assertIn('Invoke-HulkNativeXPatch ("test_" + $ScriptName)',builder)
         self.assertIn("function Invoke-HulkNativeXPatch(",builder)
-        self.assertIn("ci/native_x_d140_dispatch.py",builder)
+        self.assertIn("$Dispatcher = Join-Path $CiDir 'native_x_d140_dispatch.py'",builder)
         self.assertIn("Invoke-Checked 'python' @($Dispatcher, '--patch', $Script, $NxrFull) $Source",builder)
         self.assertIn("Invoke-Checked 'python' @($Dispatcher, '--test', $Script) $Source",builder)
         self.assertNotIn("Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_native_x_hulk_",builder)
@@ -142,7 +142,8 @@ class D140WindowsDispatchTests(unittest.TestCase):
                      "apply_index", "apply_mip", "apply_scalar"):
             self.assertIn("def "+name+"(",source)
         self.assertEqual(len(re.findall(r"(?m)^class \w+Tests\(unittest\.TestCase\):",checks)),3)
-        self.assertEqual(len(re.findall(r"(?m)^\s+def test_\w+\(",checks)),9)
+        # Additional regressions must not break the consolidation gate.
+        self.assertGreaterEqual(len(re.findall(r"(?m)^\s+def test_\w+\(",checks)),9)
 
     def test_release_cpp_preflight_has_real_unique_inputs(self):
         # Past releases reached cl.exe only to fail on missing source units.

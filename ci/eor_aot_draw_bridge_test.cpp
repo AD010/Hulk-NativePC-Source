@@ -185,8 +185,10 @@ int main(){
   captured.draw=tagged;
   Backend bound;
   std::vector<BoundIndexedDraw> capturedDraws{captured};
-  ReplayAotScene(geometry,capturedDraws,shaders,effects,reflection,bound);
-  assert(bound.begin==1 && bound.draw==1);
+  bool missing_timeline=false;
+  try {ReplayAotScene(geometry,capturedDraws,shaders,effects,reflection,bound);}
+  catch(const std::invalid_argument&) {missing_timeline=true;}
+  assert(missing_timeline && bound.begin==0 && bound.draw==0);
   // Actual original RT0 -> ClearF -> indexed Draw -> Resolve -> Present
   // must be replayed in ORDER on the same backend. The previous bridge
   // silently discarded every non-Draw XDK GPU command.
@@ -307,9 +309,10 @@ int main(){
   corrupted->vertex[11*4]=1.f;
   wrong_full.draw.guest_shader_constants=corrupted;
   Backend conflicting;
+  conflicting.accept_original_timeline=true;
   bool mismatch_refused=false;
   try{ReplayAotScene(geometry,std::span<const BoundIndexedDraw>(&wrong_full,1),
-                     shaders,effects,reflection,conflicting);}
+                     shaders,effects,reflection,conflicting,&source_frame);}
   catch(const std::invalid_argument&){mismatch_refused=true;}
   assert(mismatch_refused && conflicting.begin==0 && conflicting.draw==0);
   // The source frame is an ordered original PPC command stream: two
@@ -318,13 +321,21 @@ int main(){
   BoundIndexedDraw another=captured;
   another.draw.source_ordinal=1;
   std::vector<BoundIndexedDraw> ordered{captured,another};
+  auto orderedSource=source_frame;
+  orderedSource.calls.push_back(real_call);
+  auto secondDrawCommand=original_draw;
+  secondDrawCommand.draw_ordinal=1;
+  orderedSource.commands.insert(orderedSource.commands.begin()+3,secondDrawCommand);
+  assert(xdk::ValidateOriginalCommandTimeline(orderedSource));
   Backend orderedBackend;
-  ReplayAotScene(geometry,ordered,shaders,effects,reflection,orderedBackend);
+  orderedBackend.accept_original_timeline=true;
+  ReplayAotScene(geometry,ordered,shaders,effects,reflection,orderedBackend,&orderedSource);
   assert(orderedBackend.begin==1 && orderedBackend.draw==2);
   auto RejectBeforeBegin=[&](std::vector<BoundIndexedDraw> broken) {
     Backend candidate;
+    candidate.accept_original_timeline=true;
     bool refused=false;
-    try { ReplayAotScene(geometry,broken,shaders,effects,reflection,candidate); }
+    try { ReplayAotScene(geometry,broken,shaders,effects,reflection,candidate,&orderedSource); }
     catch(const std::invalid_argument&) {refused=true;}
     assert(refused && candidate.begin==0 && candidate.draw==0 &&
            candidate.preflights==0);

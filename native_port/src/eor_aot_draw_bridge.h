@@ -7,6 +7,7 @@
 #include "eor_effect_catalog.h"
 #include "eor_shader_reflection.h"
 #include "eor_verified_sampler_bindings.h"
+#include "eor_xdk_draw_capture.h"
 #include <vector>
 #include <cstddef>
 #include <cstdint>

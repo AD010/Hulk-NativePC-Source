@@ -69,12 +69,26 @@ template<class F> void Reject(F&& f){bool failed=false;try{f();}catch(const std:
 
 void AddMinimalProgram(std::vector<uint8_t>& bytes,uint8_t id,uint32_t stage) {
   for(unsigned i=0;i<32;++i)bytes.push_back(id);
-  const uint32_t spirv[]={
+  std::vector<uint32_t> spirv={
       0x07230203u,0x10500u,0u,16u,0u,
       0x00020011u,1u,0x0003000eu,0u,1u,
       0x0005000fu,stage==1?0u:4u,1u,0x6e69616du,0u};
+  if(stage==2) {
+    // The synthetic pixel material below actually binds g_Diffuse. Its
+    // shader fixture must declare that image too; do not weaken production
+    // shader/material validation to accept a sampler absent from SPIR-V.
+    const uint32_t image[]={
+      0x00030016u,2u,32u,                 // OpTypeFloat
+      0x00090019u,3u,2u,1u,0u,0u,0u,1u,0u, // OpTypeImage 2D
+      0x00040020u,4u,0u,3u,               // pointer UniformConstant
+      0x0004003bu,4u,5u,0u,               // OpVariable
+      0x00040047u,5u,33u,0u,              // Binding 0
+      0x00040047u,5u,34u,0u,              // DescriptorSet 0
+      0x00050005u,5u,0x69445f67u,0x73756666u,0x65u}; // g_Diffuse
+    spirv.insert(spirv.end(),std::begin(image),std::end(image));
+  }
   I32(bytes,stage);
-  I32(bytes,static_cast<uint32_t>(sizeof(spirv)/sizeof(spirv[0])));
+  I32(bytes,static_cast<uint32_t>(spirv.size()));
   for(uint32_t word:spirv)I32(bytes,word);
 }
 aot::ShaderBank MinimalPrograms() {
@@ -110,7 +124,7 @@ aot::ReflectionBank MinimalReflections() {
   return reflection;
 }
 struct TimelineGpu final:aot::ShaderBindingBackend {
-  unsigned begins=0,draws=0,resolves=0,composites=0,aborts=0;
+  unsigned begins=0,draws=0,resolves=0,composites=0,aborts=0,sampler_binds=0;
   std::vector<xdk::CommandKind> events;
   bool CanReplayOriginalXdkTimeline(const xdk::Frame& frame) const override {
     return xdk::ValidateOriginalCommandTimeline(frame);
@@ -130,6 +144,14 @@ struct TimelineGpu final:aot::ShaderBindingBackend {
                              const aot::ReflectedShader&) override {return true;}
   bool BindOfflineShaders(std::span<const uint32_t>,
                           std::span<const uint32_t>) override {return true;}
+  bool BindOriginalSamplers(
+      std::span<const gpu::VerifiedEorSampler> samplers) override {
+    assert(samplers.size()==1 && samplers[0].original_texture_hash==0xBEEF &&
+           samplers[0].exact_shader_variable_name=="g_Diffuse" &&
+           samplers[0].stage==gpu::OriginalSamplerStage::Pixel);
+    ++sampler_binds;
+    return true;
+  }
   bool DrawIndexed(const native::IndexedDraw&) override {++draws;return true;}
   bool ResolveScene(native::Size) override {++resolves;return true;}
   bool Composite(native::Rect,native::Size) override {++composites;return true;}
@@ -472,8 +494,8 @@ int main(){
   outOfBounds=realBufferDraw;
   outOfBounds.gpr[2]=0xFFFFFFFFu;
   assert(!native::IdentifyExactOriginalGuestMesh(outOfBounds,models));
-  std::vector<const model::UploadedOriginalModel*> ambiguous{&resident,&resident};
-  assert(!native::IdentifyExactOriginalGuestMesh(realBufferDraw,ambiguous));
+  std::vector<const model::UploadedOriginalModel*> ambiguousResidents{&resident,&resident};
+  assert(!native::IdentifyExactOriginalGuestMesh(realBufferDraw,ambiguousResidents));
   auto wrongVb=std::make_shared<xdk::OriginalGuestBufferBytes>(*vb);
   wrongVb->guest_object^=4u;
   realBufferDraw.source_vb0=wrongVb;
@@ -484,9 +506,9 @@ int main(){
   auto shaderFrame=runtime;
   shaderFrame.calls.push_back(runtime.calls[0]);
   auto shaderMatches=recovered;
-  auto second=shaderMatches[0];
-  second.original_call_ordinal=1;
-  shaderMatches.push_back(second);
+  auto secondShaderMatch=shaderMatches[0];
+  secondShaderMatch.original_call_ordinal=1;
+  shaderMatches.push_back(secondShaderMatch);
   native::ValidateLiveOriginalShaderPasses(shaderFrame,shaderMatches,twoEffects);
   shaderMatches[1].original_effect_hash=0x4567;
   shaderMatches[1].original_pass_index=0;
@@ -535,7 +557,6 @@ int main(){
   const auto nativeFrame=native::PlanFrame(
       {{1280,720},{1280,720},true,true,true,1});
   auto indexedProven=verified;
-  indexedProven.native_draw.original_sampler_slots.clear();
   TimelineGpu indexedGpu;
   native::ReplayCapturedXdkScene(
       exactTimeline,std::span<const native::VerifiedXdkIndexedSubmission>(
@@ -562,6 +583,7 @@ int main(){
       *delivered,catalog,nativeFrame,models,minimalShaders,effects,
       minimalReflection,directGpu,&delivered_scene_attempted);
   assert(delivered_scene_attempted && directGpu.begins==1 && directGpu.draws==1 &&
+         directGpu.sampler_binds==1 &&
          directGpu.resolves==1 && directGpu.composites==1 &&
          directGpu.events==sourceGpuSequence);
   // The original USA archive streamer may provide these models using

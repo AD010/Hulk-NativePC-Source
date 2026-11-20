@@ -65,6 +65,24 @@ struct OriginalGuestBufferBytes {
   uint32_t guest_object=0,guest_address=0,guest_size=0;
   std::vector<std::byte> bytes;
 };
+// Per-Present immutable snapshots. Re-read at EVERY Draw: object/address
+// equality does not prove unchanged vertices. Only byte equality permits
+// reuse. Caller serializes Capture/Reset with the original frame collector.
+class OriginalGuestBufferSnapshots {
+ public:
+  explicit OriginalGuestBufferSnapshots(size_t budget=64u<<20)
+      : budget_(budget) {}
+  std::shared_ptr<const OriginalGuestBufferBytes> Capture(
+      uint32_t object,uint32_t address,uint32_t bytes,
+      ReadGuestBytes reader,void* reader_state);
+  void Reset() noexcept;
+  size_t RetainedBytes() const noexcept {return retained_bytes_;}
+ private:
+  size_t budget_=0,retained_bytes_=0;
+  std::map<std::tuple<uint32_t,uint32_t,uint32_t>,
+           std::shared_ptr<const OriginalGuestBufferBytes>> latest_;
+  std::vector<std::byte> scratch_;
+};
 struct RawDraw {
   Kind kind{};
   uint32_t function = 0, lr = 0;

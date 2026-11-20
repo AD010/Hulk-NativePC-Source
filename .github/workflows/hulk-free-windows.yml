@@ -569,6 +569,8 @@ jobs:
                            "/Fe:$aotDrawTest", 'native_port/src/eor_native_frame.cpp',
                            'native_port/src/eor_spirv_bank.cpp',
                            'native_port/src/eor_xdk_draw_capture.cpp',
+                           'native_port/src/eor_verified_sampler_bindings.cpp',
+                           'native_port/src/eor_spirv_texture_bindings.cpp',
                            'native_port/src/eor_aot_draw_bridge.cpp',
                            'ci/eor_aot_draw_bridge_test.cpp')
           & cl.exe @aotDrawArgs

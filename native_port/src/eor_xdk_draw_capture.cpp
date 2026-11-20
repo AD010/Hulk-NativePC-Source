@@ -5,6 +5,38 @@
 #include <utility>
 
 namespace hulk::eor::xdk {
+std::shared_ptr<const OriginalGuestBufferBytes>
+OriginalGuestBufferSnapshots::Capture(
+    uint32_t object,uint32_t address,uint32_t bytes,
+    ReadGuestBytes reader,void* reader_state) {
+  if(!object || !address || !reader || bytes<6 || bytes>(8u<<20) ||
+     bytes>budget_ || uint64_t(address)+bytes>uint64_t(UINT32_MAX)+1u)
+    return {};
+  scratch_.resize(bytes);
+  // Failed/partial reads cannot fall back to an older cached revision.
+  if(!reader(reader_state,address,scratch_.data(),bytes))return {};
+  const auto key=std::make_tuple(object,address,bytes);
+  const auto prior=latest_.find(key);
+  if(prior!=latest_.end() && prior->second->bytes==scratch_)
+    return prior->second;
+  // Charge only NEW immutable bytes, including rewritten buffer versions
+  // still held by earlier Draws. Repeated references work at a full budget.
+  if(bytes>budget_-retained_bytes_)return {};
+  auto next=std::make_shared<OriginalGuestBufferBytes>();
+  next->guest_object=object;
+  next->guest_address=address;
+  next->guest_size=bytes;
+  next->bytes=scratch_;
+  latest_.insert_or_assign(key,next);
+  retained_bytes_+=bytes;
+  return next;
+}
+void OriginalGuestBufferSnapshots::Reset() noexcept {
+  latest_.clear();
+  retained_bytes_=0;
+  scratch_.clear();
+}
+
 std::optional<OriginalXdkClearF> CaptureOriginalXdkClearF(
     const std::array<uint32_t,8>& gpr,double f1,
     ReadGuestBytes reader,void* guest_base) noexcept {

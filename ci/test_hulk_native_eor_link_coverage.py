@@ -42,6 +42,13 @@ class NativeEorLinkCoverage(unittest.TestCase):
         ):
             self.assertIn(source, args,
                           f"Model adapter test cannot link original dependency: {source}")
+        aot = re.search(r"\$aotDrawArgs\s*=\s*@\((.*?)\)\s*\n\s*&\s*cl\.exe\s+@aotDrawArgs", workflow, re.S)
+        self.assertIsNotNone(aot)
+        for source in ("eor_xdk_draw_capture.cpp",
+                       "eor_verified_sampler_bindings.cpp",
+                       "eor_spirv_texture_bindings.cpp"):
+            self.assertIn(source, aot.group(1),
+                          f"AOT draw test cannot link dependency: {source}")
 
     def test_host_vulkan_present_avoids_redundant_fullscreen_clear(self):
         host = (ROOT / "native_port" / "src" /
@@ -51,8 +58,11 @@ class NativeEorLinkCoverage(unittest.TestCase):
         self.assertIn("Blitter::Source::kColor,", host)
         self.assertIn("device_->Present();", host)
         self.assertRegex(host, r"SetRenderTargets\(0,nullptr,nullptr,\s*Diligent::RESOURCE_STATE_TRANSITION_MODE_NONE\);")
-        self.assertLess(host.index("blitter_->Copy("), host.index("SetRenderTargets(0,nullptr,nullptr,"))
-        self.assertLess(host.index("SetRenderTargets(0,nullptr,nullptr,"), host.index("device_->Present();"))
+        # Detachment is now a shared exception-safe lambda. Check its CALL
+        # order, not the position of the lambda definition before the copy.
+        self.assertLess(host.index("blitter_->Copy("), host.index("if(!detach())return false;"))
+        self.assertLess(host.index("if(!detach())return false;"), host.index("device_->Present();"))
+        self.assertIn("catch (...) {\n    detach();", host)
         self.assertNotIn("ClearRenderTarget(", host,
                          "Exact-size host copy must not pre-clear the full swapchain")
 
@@ -277,7 +287,8 @@ class NativeEorLinkCoverage(unittest.TestCase):
         self.assertIn("SourceGpuBuffer(",hook)
         self.assertIn("state.original_vertex_buffer_guest_objects[0]",hook)
         self.assertIn("state.original_index_buffer_guest_object",hook)
-        self.assertIn("g_original_capture_bytes.store(0",hook)
+        self.assertIn("g_original_buffers.Reset();",hook)
+        self.assertIn("g_original_buffers.Capture(object,address,bytes,ReadGuest,guest_base)",hook)
         self.assertIn("rec.original_source_vertex_bytes=m.original_vertex_stream;",source)
         self.assertIn("IdentifyExactOriginalGuestMesh(",geom)
         self.assertIn("if(be==le)continue;",geom)
@@ -508,7 +519,7 @@ class NativeEorLinkCoverage(unittest.TestCase):
         self.assertIn("original_frame_sequence", header)
         self.assertIn("source_sequence!=ready->original_frame_sequence", worker)
         self.assertIn("original.native_draw.original_frame_sequence ==", hook)
-        self.assertLess(worker.index("preview.reset();"),
+        self.assertLess(worker.index("source_snapshot.reset();"),
                         worker.index("(void)g_frames_for_native.TakeIfSequence(source_sequence)"))
         self.assertLess(worker.index("g_frames_for_native.TakeIfSequence(source_sequence)"),
                         worker.index("ReplayNextVerifiedPpcFrame("))
@@ -524,15 +535,23 @@ class NativeEorLinkCoverage(unittest.TestCase):
         worker = bridge.split("native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(", 1)[1]
         self.assertIn("bool* reached_gpu=nullptr", header)
         self.assertIn("if(reached_gpu)*reached_gpu=false;", replay)
-        self.assertIn("if(reached_gpu)*reached_gpu=true;", replay)
+        # GPU mutation begins in the forwarding backend, after source
+        # validation; setting true in this outer function would black-screen
+        # harmless ownership rejections before BeginScene.
+        self.assertNotIn("if(reached_gpu)*reached_gpu=true;", replay)
         self.assertLess(replay.index("if(reached_gpu)*reached_gpu=false;"),
                         replay.index("gpu.CanReplayOriginalXdkTimeline(*preview)"))
-        self.assertGreater(replay.index("if(reached_gpu)*reached_gpu=true;"),
-                           replay.index("g_frames_for_native.TakeIfSequence(sequence)"))
-        self.assertLess(replay.index("if(reached_gpu)*reached_gpu=true;"),
+        self.assertLess(replay.index("g_frames_for_native.TakeIfSequence(sequence)"),
                         replay.index("native::ReplayDeliveredResourceScene("))
+        self.assertIn("reached_gpu);", replay.split("native::ReplayDeliveredResourceScene(",1)[1])
+        forwarding=(ROOT / "native_port/src/eor_aot_draw_bridge.cpp").read_text()
+        begin=forwarding.split("bool BeginScene(",1)[1].split("\n  }",1)[0]
+        self.assertLess(begin.index("if(scene_begin_attempted_)*scene_begin_attempted_=true;"),
+                        begin.index("return target_.BeginScene(size,samples);"))
         self.assertIn("source_sequence,&reached_gpu);", worker)
-        self.assertIn("(reached_gpu ? Result::kFailedAfterGpu : Result::kNotReady)", worker)
+        failed=worker.split("if(reached_gpu) {",1)[1]
+        self.assertLess(failed.index("return Result::kFailedAfterGpu;"),
+                        failed.index("return Result::kNotReady;"))
         self.assertNotIn("return submitted ? Result::kBackbufferReady : Result::kFailedAfterGpu;", worker)
 
     def test_worker_checks_real_guest_mesh_material_shader_before_vulkan(self):
