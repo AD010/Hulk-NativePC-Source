@@ -56,6 +56,32 @@ class NativeEorLinkCoverage(unittest.TestCase):
         self.assertNotIn("ClearRenderTarget(", host,
                          "Exact-size host copy must not pre-clear the full swapchain")
 
+    def test_existing_vulkan_worker_owns_the_only_eor_present(self):
+        host = (ROOT / "native_port/src/eor_diligent_host_output.cpp").read_text()
+        api = (ROOT / "native_port/src/eor_diligent_host_output.h").read_text()
+        blit = host.split("bool DiligentEorHostOutput::CompositeToBackbuffer(", 1)[1]
+        blit = blit.split("bool DiligentEorHostOutput::CompositeAndPresent(", 1)[0]
+        standalone = host.split("bool DiligentEorHostOutput::CompositeAndPresent(", 1)[1]
+        standalone = standalone.split("NativeEorCompositeOutput BindNativeEorVulkanBackbuffer(", 1)[0]
+        worker = host.split("NativeEorCompositeOutput BindNativeEorVulkanBackbuffer(", 1)[1]
+        worker = worker.split("NativeEorCompositeOutput BindNativeEorVulkanPresentation(", 1)[0]
+        self.assertIn("HasFullNativeCompositePixels(", blit)
+        self.assertIn("blitter_->Copy(", blit)
+        self.assertNotIn("device_->Present()", blit)
+        self.assertNotIn("device_->Present()", worker)
+        self.assertIn("host.CompositeToBackbuffer(", worker)
+        self.assertIn("if(!CompositeToBackbuffer(source,dest,output))return false;", standalone)
+        self.assertEqual(standalone.count("device_->Present();"), 1)
+        self.assertIn("bool CompositeToBackbuffer(", api)
+        self.assertIn("BindNativeEorVulkanBackbuffer(", api)
+        # The pinned NativeX patch uses a separate worker decision:
+        # kBackbufferReady -> existing worker FinishPresent, not another
+        # EoR CompositeAndPresent.
+        nx = (ROOT / "ci/patch_native_x_hulk_present_semantics.py").read_text()
+        self.assertIn("HulkEorPresentResult::kBackbufferReady", nx)
+        self.assertIn("FinishPresent();", nx)
+        self.assertNotIn("CompositeAndPresent(", nx)
+
     def test_live_eor_draw_requires_original_frame_timeline(self):
         bridge = (ROOT / "native_port" / "src" /
                   "eor_aot_draw_bridge.cpp").read_text(encoding="utf-8")

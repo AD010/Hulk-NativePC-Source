@@ -27,6 +27,13 @@ class DiligentEorHostOutput final {
   // gives the source-verified scene SRV (resolved, host physical dimensions)
   // and exactly the selected real host destination. The host Vulkan device
   // must exclusively own the target window (no simultaneous Xenos/NativeX).
+  // NativeX worker mode: write the source-verified physical-sized frame
+  // into its CURRENT backbuffer, detach the RTV, and DO NOT Present.
+  // The worker runs overlays and FinishPresent exactly once afterwards.
+  bool CompositeToBackbuffer(Diligent::ITextureView* resolved_scene,
+                             native::Rect destination,native::Size backbuffer);
+  // Standalone owner mode: copy + one Present. Never use this entry inside
+  // NativeX's renderer worker (that would double-submit a frame).
   bool CompositeAndPresent(Diligent::ITextureView* resolved_scene,
                            native::Rect destination,native::Size backbuffer);
   uint64_t PresentedFrames() const noexcept {return presented_;}
@@ -41,6 +48,8 @@ class DiligentEorHostOutput final {
 // finished source provenance and exclusive swapchain ownership checks.
 using NativeEorCompositeOutput=std::function<bool(
     Diligent::ITextureView*,native::Rect,native::Size)>;
+NativeEorCompositeOutput BindNativeEorVulkanBackbuffer(
+    DiligentEorHostOutput& host);
 NativeEorCompositeOutput BindNativeEorVulkanPresentation(
     DiligentEorHostOutput& host);
 } // namespace hulk::eor::gpu

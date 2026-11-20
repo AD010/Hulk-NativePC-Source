@@ -25,7 +25,7 @@ bool DiligentEorHostOutput::Initialize() {
     return true;
   } catch (...) {return false;}
 }
-bool DiligentEorHostOutput::CompositeAndPresent(
+bool DiligentEorHostOutput::CompositeToBackbuffer(
     Diligent::ITextureView* source,native::Rect dest,native::Size output) {
   if(!initialized_ || !source || !source->GetTexture() ||
      !output.width || !output.height ||
@@ -98,15 +98,33 @@ bool DiligentEorHostOutput::CompositeAndPresent(
     // context can retain a reference to the outgoing backbuffer across a
     // window resize, even though the source EoR scene has already resolved.
     if(!detach())return false;
-    // The same sole host Vulkan device owns both the source EoR scene and
-    // output swapchain. No PM4 copy, Xenos EDRAM or competing VkSurface.
-    device_->Present();
-    ++presented_;
+    // NativeX's sole worker can now finish this frame (overlay + exactly
+    // ONE physical Present) without a second swap or a 720p guest copy.
     return true;
   } catch (...) {
     detach();
     return false;
   }
+}
+bool DiligentEorHostOutput::CompositeAndPresent(
+    Diligent::ITextureView* source,native::Rect dest,native::Size output) {
+  if(!CompositeToBackbuffer(source,dest,output))return false;
+  try {
+    // Standalone/direct host ownership only. Do not use this entry when
+    // invoked by NativeX's existing worker, which calls FinishPresent().
+    device_->Present();
+    ++presented_;
+    return true;
+  } catch (...) {return false;}
+}
+NativeEorCompositeOutput BindNativeEorVulkanBackbuffer(
+    DiligentEorHostOutput& host) {
+  // A source-proven EoR backend may use NativeX's already-owned worker;
+  // this callback writes physical pixels but NEVER calls Present itself.
+  return [&host](Diligent::ITextureView* color,
+                 native::Rect target,native::Size host_size) {
+    return host.CompositeToBackbuffer(color,target,host_size);
+  };
 }
 NativeEorCompositeOutput BindNativeEorVulkanPresentation(
     DiligentEorHostOutput& host) {
