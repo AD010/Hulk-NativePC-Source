@@ -493,15 +493,22 @@ HRESULT STDMETHODCALLTYPE OnReset(IDirect3DDevice9* dev,D3DPRESENT_PARAMETERS* p
 }
 HRESULT STDMETHODCALLTYPE OnPresent(IDirect3DDevice9* dev,const RECT* a,
                                     const RECT* b,HWND c,const RGNDATA* d) {
-  static LARGE_INTEGER frequency{},then{};
-  static unsigned frames=0;
+  // Present may be called from more than one thread. Keep the diagnostic
+  // frame clock local to the calling thread, and restart it on device changes.
+  // This avoids races in the old shared counters without changing game timing.
+  thread_local LARGE_INTEGER frequency{},then{};
+  thread_local unsigned frames=0;
+  thread_local IDirect3DDevice9* countedDevice=nullptr;
   LARGE_INTEGER now{};
-  QueryPerformanceCounter(&now);
-  if(!frequency.QuadPart) {
-    QueryPerformanceFrequency(&frequency);
+  if(!QueryPerformanceCounter(&now))return realPresent(dev,a,b,c,d);
+  if(countedDevice!=dev || !frequency.QuadPart) {
+    countedDevice=dev;
+    frames=0;
     then=now;
+    if(!QueryPerformanceFrequency(&frequency) || frequency.QuadPart<=0)
+      return realPresent(dev,a,b,c,d);
   }
-  if(++frames>=300 && frequency.QuadPart) {
+  if(++frames>=300) {
     const double seconds=double(now.QuadPart-then.QuadPart)/frequency.QuadPart;
     D3DVIEWPORT9 vp{};
     if(seconds>0.01 && SUCCEEDED(dev->GetViewport(&vp))) {
