@@ -218,7 +218,7 @@ class IncredibleHulkApp : public rex::ReXApp {
     pc_menu_ = hulk::CreatePcMenu(drawer, window(), native_pc_config_, [this] {
       if (window()) window()->RequestClose();
     });
-    REXLOG_INFO("[HULK/PCMENU] NativePC UI registered; F10 opens controls and Exit");
+    REXLOG_INFO("[HULK/PCMENU] native full-screen game menu registered; Esc/F10, display, graphics, controls and confirmed exit");
   }
   void OnShutdown() override {
     // Stop new worker callbacks and discard frame ownership before the

@@ -28,6 +28,7 @@ namespace hulk {
 void GameWindowMenuClosed();
 namespace {
 std::atomic<bool> visible{false};
+std::atomic<bool> return_to_home{true};
 rex::ui::Window* game_window = nullptr; // accessed only on host UI thread
 
 class PcMenu final : public rex::ui::ImGuiDialog {
@@ -49,6 +50,8 @@ class PcMenu final : public rex::ui::ImGuiDialog {
  protected:
   void OnDraw(ImGuiIO& io) override {
     if (!visible.load(std::memory_order_acquire)) return;
+    if (return_to_home.exchange(false, std::memory_order_acq_rel))
+      active_section_=-1;
     // HULK/PC-MENU-SECTIONS: accessible in-game host overlay, not a
     // counterfeit edit of the Xbox pause-menu or an asset replacement.
     // Do not advertise controls until real CVars or game APIs are wired.
@@ -56,13 +59,13 @@ class PcMenu final : public rex::ui::ImGuiDialog {
     // on the owner's 2560x1600 / Windows 175%-DPI screen and on 4:3.
     const float menu_scale = std::clamp(io.FontGlobalScale, 0.75f, 2.5f);
     const float menu_width = std::min(
-        850.0f * menu_scale, std::max(240.0f, io.DisplaySize.x - 24.0f));
+        1160.0f * menu_scale, std::max(240.0f, io.DisplaySize.x - 32.0f));
     const float menu_height = std::min(
-        610.0f * menu_scale, std::max(200.0f, io.DisplaySize.y - 24.0f));
-    ImGui::SetNextWindowSize(ImVec2(menu_width, menu_height), ImGuiCond_Always);
-    ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f,
-                                   io.DisplaySize.y * 0.5f),
-                            ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+        760.0f * menu_scale, std::max(210.0f, io.DisplaySize.y - 24.0f));
+    // A true in-game PC frontend, not a small floating debug/settings box.
+    // All size calculations use ImGui logical pixels, not Xbox 720p pixels.
+    ImGui::SetNextWindowSize(io.DisplaySize, ImGuiCond_Always);
+    ImGui::SetNextWindowPos(ImVec2(0,0), ImGuiCond_Always);
     ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.065f, 0.082f, 0.061f, 0.96f));
     ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.095f, 0.125f, 0.087f, 0.95f));
     ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.19f, 0.28f, 0.13f, 1.0f));
@@ -70,18 +73,53 @@ class PcMenu final : public rex::ui::ImGuiDialog {
     ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0.31f, 0.42f, 0.20f, 1.0f));
     ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(0.36f, 0.51f, 0.24f, 1.0f));
     bool open = true;
-    if (ImGui::Begin("The Incredible Hulk | PC Settings (F10 / Esc)", &open,
-                     ImGuiWindowFlags_NoCollapse)) {
-      ImGui::TextUnformatted("THE INCREDIBLE HULK");
-      ImGui::SameLine();
-      ImGui::TextDisabled("  /  PC SETTINGS");
+    const ImGuiWindowFlags native_flags =
+        ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
+        ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse |
+        ImGuiWindowFlags_NoSavedSettings;
+    if (ImGui::Begin("##HulkNativeGameMenu", &open, native_flags)) {
+      // Fullscreen, DPI-aware Hulk-green frontend with an actual home page,
+      // real options, keyboard/mouse navigation and desktop exit confirmation.
+      auto* art=ImGui::GetWindowDrawList();
+      const auto top=ImGui::GetWindowPos();
+      const auto extent=ImGui::GetWindowSize();
+      art->AddRectFilledMultiColor(
+          top,ImVec2(top.x+extent.x,top.y+extent.y),
+          IM_COL32(8,20,13,248),IM_COL32(14,28,16,248),
+          IM_COL32(3,8,8,252),IM_COL32(5,14,10,252));
+      art->AddRectFilled(
+          ImVec2(top.x,top.y),ImVec2(top.x+5.0f*menu_scale,top.y+extent.y),
+          IM_COL32(121,203,64,255));
+      const float panel_left=std::max(16.0f,(extent.x-menu_width)*0.5f);
+      const float panel_top=std::max(14.0f,(extent.y-menu_height)*0.5f);
+      const float section_width=std::min(220.0f*menu_scale,menu_width*0.32f);
+      const float footer_height=std::clamp(
+          68.0f*menu_scale,54.0f,menu_height*0.17f);
+      const float pane_height=std::max(
+          120.0f,menu_height-112.0f*menu_scale-footer_height);
+      const float settings_width=std::max(
+          110.0f,menu_width-section_width-14.0f*menu_scale);
+      ImGui::SetCursorPos(ImVec2(panel_left,panel_top));
+      auto* font=ImGui::GetFont();
+      const ImVec2 heading=ImGui::GetCursorScreenPos();
+      art->AddText(font,37.0f*menu_scale,heading,
+                   IM_COL32(187,233,149,255),"THE INCREDIBLE HULK");
+      ImGui::Dummy(ImVec2(menu_width,44.0f*menu_scale));
+      ImGui::SetCursorPosX(panel_left);
+      ImGui::TextDisabled("NATIVE PC EDITION  /  GAME MENU");
+      ImGui::SetCursorPosX(panel_left);
       ImGui::Separator();
-      const float section_width =
-           std::min(176.0f * menu_scale, menu_width * 0.32f);
-       const float footer_height = std::clamp(
-           66.0f * menu_scale, 54.0f, menu_height * 0.18f);
-       ImGui::BeginChild("##hulk_sections",
-                         ImVec2(section_width, -footer_height), true);
+      ImGui::SetCursorPosX(panel_left);
+      ImGui::BeginChild("##hulk_sections",
+                        ImVec2(section_width,pane_height),true);
+      if(ImGui::Selectable("CONTINUE GAME",false))
+        PcMenuSetOpen(false);
+      if(ImGui::Selectable("HOME",active_section_==-1))
+        active_section_=-1;
+      ImGui::Separator();
+      ImGui::TextDisabled("SETTINGS");
+      // HULK/PC-MENU-SECTIONS: all entries are backed by working UI,
+      // never decorative sliders or invented GPU/guest engine controls.
       static constexpr const char* kSections[] = {
           "Display", "Graphics", "Post-processing", "Audio",
           "Controls", "Accessibility", "Enhancements"};
@@ -92,8 +130,37 @@ class PcMenu final : public rex::ui::ImGuiDialog {
       ImGui::EndChild();
       ImGui::SameLine();
       ImGui::BeginChild("##hulk_settings",
-                         ImVec2(0.0f, -footer_height), true);
+                       ImVec2(settings_width,pane_height),true);
       switch (active_section_) {
+        case -1: {
+          ImGui::Spacing();
+          ImGui::TextColored(ImVec4(0.73f,0.91f,0.58f,1.f),
+                             "THE CITY IS YOURS");
+          ImGui::Separator();
+          ImGui::Spacing();
+          ImGui::TextWrapped(
+              "The Incredible Hulk (2008) - Xbox 360 USA. "
+              "A native Windows interface for keyboard, mouse, display, "
+              "graphics and gameplay settings.");
+          ImGui::Spacing();
+          ImGui::Spacing();
+          if(ImGui::Button("CONTINUE GAME",ImVec2(240.0f*menu_scale,48.0f*menu_scale)))
+            PcMenuSetOpen(false);
+          if(ImGui::Button("DISPLAY & GRAPHICS",ImVec2(240.0f*menu_scale,42.0f*menu_scale)))
+            active_section_=0;
+          if(ImGui::Button("KEYBOARD & MOUSE",ImVec2(240.0f*menu_scale,42.0f*menu_scale)))
+            active_section_=4;
+          ImGui::Spacing();
+          ImGui::Separator();
+          const bool native_x=rex::cvar::Query<bool>("native_x_renderer");
+          const bool eor_requested=rex::cvar::Query<bool>("hulk_eor_vulkan_replay");
+          ImGui::Text("Renderer: %s",
+              eor_requested ? "Direct EoR requested (source-gated)" :
+              native_x ? "NativeX Vulkan compatibility" : "Xenos Vulkan");
+          ImGui::TextDisabled(
+              "Esc / F10: menu  |  Enter: original game Start");
+          break;
+        }
         case 0: {
           ImGui::TextUnformatted("Display");
           ImGui::Separator();
@@ -445,10 +512,13 @@ class PcMenu final : public rex::ui::ImGuiDialog {
         }
       }
       ImGui::EndChild();
+      ImGui::SetCursorPosX(panel_left);
       ImGui::Separator();
+      ImGui::SetCursorPosX(panel_left);
       ImGui::TextDisabled("Changes saved to incredible_hulk.toml"
-                          "  |  F8: recapture mouse  |  F10/Esc: close settings");
+                          "  |  F8: recapture mouse  |  F10 / Esc: game menu");
       if (last_save_ok_.has_value()) {
+        ImGui::SetCursorPosX(panel_left);
         if (*last_save_ok_) {
           ImGui::TextUnformatted("Settings saved successfully.");
         } else {
@@ -456,17 +526,32 @@ class PcMenu final : public rex::ui::ImGuiDialog {
                              "Could not save TOML; current value is temporary.");
         }
       }
+      ImGui::SetCursorPosX(panel_left);
       if (ImGui::Button("Resume game", ImVec2(210, 36))) {
         PcMenuSetOpen(false);
       }
       ImGui::SameLine();
       if (ImGui::Button("Exit to Windows", ImVec2(210, 36))) {
-        // HULK/AUTO-GPU-213-EXIT: guest termination can hard-exit without
-        // WM_DESTROY or ReXApp::OnShutdown; report while logger is alive.
-        // Atomic once-guard avoids duplicate summaries.
-        ReportAutomaticGpuDiagnostics();
-        PcMenuSetOpen(false);
-        if (on_exit_) on_exit_();
+        ImGui::OpenPopup("Exit to desktop?");
+      }
+      // Explicit exit confirmation: never discard a session because a
+      // controller/keyboard selection moved onto the last menu item.
+      if(ImGui::BeginPopupModal("Exit to desktop?",nullptr,
+                                ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::TextWrapped("Close The Incredible Hulk and return to Windows?");
+        ImGui::Spacing();
+        if(ImGui::Button("Return to game",ImVec2(150,36))) {
+          ImGui::CloseCurrentPopup();
+          PcMenuSetOpen(false);
+        }
+        ImGui::SameLine();
+        if(ImGui::Button("Confirm exit",ImVec2(150,36))) {
+          ReportAutomaticGpuDiagnostics();
+          ImGui::CloseCurrentPopup();
+          PcMenuSetOpen(false);
+          if(on_exit_)on_exit_();
+        }
+        ImGui::EndPopup();
       }
     }
     ImGui::End();
@@ -551,7 +636,7 @@ class PcMenu final : public rex::ui::ImGuiDialog {
   float sharpness_edit_value_ = 0.0f;
   bool sharpness_edit_active_ = false;
   std::optional<bool> last_save_ok_;
-  int active_section_ = 0;
+  int active_section_ = -1;
   std::function<void()> on_exit_;
 };
 } // namespace
@@ -568,6 +653,7 @@ bool PcMenuIsOpen() {
 }
 void PcMenuSetOpen(bool open) {
   const bool old = visible.exchange(open, std::memory_order_acq_rel);
+  if(open && !old) return_to_home.store(true, std::memory_order_release);
   if (old != open) REXLOG_INFO("[HULK/PCMENU] visible={}", open);
   if (old && !open) GameWindowMenuClosed();
   if (game_window) game_window->RequestPaint();
