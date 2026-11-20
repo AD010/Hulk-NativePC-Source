@@ -597,6 +597,21 @@ HRESULT STDMETHODCALLTYPE OnVSConstants(IDirect3DDevice9* dev,UINT reg,
   if(FAILED(descHr) || !isBackbuffer || vp.X!=0 || vp.Y!=0 ||
      vp.Width!=targetDesc.Width || vp.Height!=targetDesc.Height)
     return realVSConst(dev,reg,data,count);
+  // A full viewport alone does not mean the entire scene is being drawn.
+  // The PC renderer may use a scissor rectangle for HUD panels, maps and
+  // other partial passes while leaving the viewport at backbuffer size.
+  // Do not change their ViewProj constants; fail closed on state-query errors.
+  DWORD scissorEnabled=FALSE;
+  if(FAILED(dev->GetRenderState(D3DRS_SCISSORTESTENABLE,&scissorEnabled)))
+    return realVSConst(dev,reg,data,count);
+  if(scissorEnabled) {
+    RECT scissor{};
+    if(FAILED(dev->GetScissorRect(&scissor)) ||
+       scissor.left!=0 || scissor.top!=0 ||
+       scissor.right!=static_cast<LONG>(targetDesc.Width) ||
+       scissor.bottom!=static_cast<LONG>(targetDesc.Height))
+      return realVSConst(dev,reg,data,count);
+  }
   const double scale=sourceAspect/(double(vp.Width)/vp.Height);
   if(!std::isfinite(scale)||scale<0.6||scale>1.8||
      std::abs(scale-1.0)<0.0001)return realVSConst(dev,reg,data,count);
