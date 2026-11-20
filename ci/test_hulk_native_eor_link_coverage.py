@@ -244,6 +244,20 @@ class NativeEorLinkCoverage(unittest.TestCase):
         self.assertIn("&captured,scene_begin_attempted);", source)
         self.assertIn("bank,effects,reflection,backend,scene_begin_attempted);", source)
 
+    def test_native_index_window_uses_immutable_block_extrema(self):
+        backend = (ROOT / "native_port/src/eor_diligent_mesh_buffers.cpp").read_text()
+        upload = backend.split("uint64_t DiligentMeshUploadBackend::UploadIndices(", 1)[1]
+        upload = upload.split("uint64_t DiligentMeshUploadBackend::UploadDecodedAttributes(", 1)[0]
+        window = backend.split("bool DiligentMeshUploadBackend::IndexWindowInRange(", 1)[1]
+        window = window.split("size_t DiligentMeshUploadBackend::LiveBufferCount(", 1)[0]
+        self.assertIn("mirror.assign(v.begin(),v.end());", upload)
+        self.assertIn("extrema.emplace_back(*bounds.first,*bounds.second);", upload)
+        self.assertIn("record.index_block_extrema=std::move(extrema);", upload)
+        self.assertIn("count>indices.size()-first", window)
+        self.assertIn("pos%kIndexBlockElements!=0", window)
+        self.assertIn("it->second.index_block_extrema[pos/kIndexBlockElements]", window)
+        self.assertIn("int64_t(minimum)+base>=0", window)
+
     def test_native_eor_one_present_attempt_per_source_frame(self):
         backend = (ROOT / "native_port" / "src" /
                    "eor_diligent_aot_backend.cpp").read_text(encoding="utf-8")
@@ -480,7 +494,9 @@ class NativeEorLinkCoverage(unittest.TestCase):
         self.assertIn("ReplayCapturedResourceScene(delivered.frame,verified,frame,residents,", scene)
         self.assertLess(scene.index("if(delivered.overwritten_since_take)"),
                         scene.index("ReplayCapturedResourceScene(delivered.frame"))
-        self.assertIn("aot::ReplayAotScene(frame,commands,bank,effects,reflection,backend,&captured)", scene)
+        # The original guest frame must thread the GPU BeginScene attempt.
+        # The prior assertion expected an obsolete ReplayAotScene signature.
+        self.assertRegex(scene, r"aot::ReplayAotScene\(frame,commands,bank,effects,reflection,backend,\s*&captured,scene_begin_attempted\);")
         cmake = TARGET.read_text(encoding="utf-8")
         self.assertIn("src/eor_xdk_hook_bridge.cpp", cmake)
         self.assertIn("src/eor_native_draw_geometry.cpp", cmake)

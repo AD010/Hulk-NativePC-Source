@@ -8,10 +8,14 @@
 #include <map>
 #include <stdexcept>
 #include <type_traits>
+#include <utility>
 
 namespace hulk::eor::gpu {
 namespace {
 constexpr uint64_t kMaxUploadBytes = 256ull << 20;
+// Keep exact index-window checks cheap for repeated live EoR Vulkan draws.
+// These original GPU index streams are immutable after uploading.
+constexpr size_t kIndexBlockElements = 256;
 static_assert(sizeof(model::NativePosition) == 3 * sizeof(float));
 static_assert(std::is_trivially_copyable_v<model::NativePosition>);
 }
@@ -24,6 +28,7 @@ struct DiligentMeshUploadBackend::State {
     uint32_t maximum_index=UINT32_MAX;
     uint32_t minimum_index=UINT32_MAX;
     std::vector<uint32_t> immutable_indices;
+    std::vector<std::pair<uint32_t,uint32_t>> index_block_extrema;
   };
   std::map<uint64_t,Entry> live;
   uint64_t next_handle = 1;
@@ -74,15 +79,27 @@ uint64_t DiligentMeshUploadBackend::UploadIndices(std::span<const uint32_t> v) {
   // The complete immutable mirror is used only for exact indexed windows,
   // not shader/texture emulation or guessed original Xbox streams.
   std::vector<uint32_t> mirror;
-  try { mirror.assign(v.begin(),v.end()); }
-  catch (...) { return 0; }
-  const auto limits=std::minmax_element(v.begin(),v.end());
+  std::vector<std::pair<uint32_t,uint32_t>> extrema;
+  uint32_t minimum=UINT32_MAX,maximum=0;
+  try {
+    mirror.assign(v.begin(),v.end());
+    extrema.reserve((mirror.size()-1)/kIndexBlockElements+1);
+    for(size_t first=0;first<mirror.size();first+=kIndexBlockElements) {
+      const size_t last=std::min(mirror.size(),first+kIndexBlockElements);
+      const auto bounds=std::minmax_element(
+          mirror.begin()+first,mirror.begin()+last);
+      extrema.emplace_back(*bounds.first,*bounds.second);
+      minimum=std::min(minimum,*bounds.first);
+      maximum=std::max(maximum,*bounds.second);
+    }
+  } catch (...) {return 0;}
   const auto handle=Create(v.data(),v.size_bytes(),2);
   if (handle) {
     auto& record=state_->live.at(handle);
-    record.minimum_index=*limits.first;
-    record.maximum_index=*limits.second;
+    record.minimum_index=minimum;
+    record.maximum_index=maximum;
     record.immutable_indices=std::move(mirror);
+    record.index_block_extrema=std::move(extrema);
   }
   return handle;
 }
@@ -126,10 +143,26 @@ bool DiligentMeshUploadBackend::IndexWindowInRange(
   const auto& indices=it->second.immutable_indices;
   if(first>indices.size() || count>indices.size()-first)
     return false;
-  const auto bounds=std::minmax_element(indices.begin()+first,
-                                         indices.begin()+first+count);
-  return int64_t(*bounds.first)+base>=0 &&
-         int64_t(*bounds.second)+base<vertex_count;
+  // Validate the exact immutable source window, not whole-buffer extrema.
+  // Full blocks are cached; only two unaligned boundary fragments are
+  // scanned on the live render thread.
+  const size_t end=size_t(first)+count;
+  uint32_t minimum=UINT32_MAX,maximum=0;
+  auto merge=[&](uint32_t low,uint32_t high) noexcept {
+    minimum=std::min(minimum,low);
+    maximum=std::max(maximum,high);
+  };
+  size_t pos=first;
+  for(;pos<end && pos%kIndexBlockElements!=0;++pos)
+    merge(indices[pos],indices[pos]);
+  for(;end-pos>=kIndexBlockElements;pos+=kIndexBlockElements) {
+    const auto& bounds=it->second.index_block_extrema[pos/kIndexBlockElements];
+    merge(bounds.first,bounds.second);
+  }
+  for(;pos<end;++pos)
+    merge(indices[pos],indices[pos]);
+  return int64_t(minimum)+base>=0 &&
+         int64_t(maximum)+base<vertex_count;
 }
 size_t DiligentMeshUploadBackend::LiveBufferCount() const noexcept {return state_->live.size();}
 } // namespace hulk::eor::gpu
