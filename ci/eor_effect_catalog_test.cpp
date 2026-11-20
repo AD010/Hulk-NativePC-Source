@@ -29,6 +29,9 @@ int main() {
   assert(catalog.ShaderCount()==6);
   hulk::eor::aot::Digest vs{},ps{};vs.fill(0x11);ps.fill(0x22);
   assert(catalog.HasPair(0x111,0,vs,ps));
+  const auto first_original_pass=catalog.FindOriginalPass(vs,ps);
+  assert(first_original_pass && first_original_pass->effect_hash==0x111 &&
+         first_original_pass->pass_index==0);
   assert(!catalog.HasPair(0x111,1,vs,ps)); // wrong technique ordinal
   vs.fill(0x33);ps.fill(0x44);
   assert(catalog.HasPair(0x111,1,vs,ps));
@@ -43,7 +46,25 @@ int main() {
   hulk::eor::aot::Digest reused_vs{},reused_ps{};
   reused_vs.fill(0x11);reused_ps.fill(0x66);
   assert(catalog.HasPair(0x222,1,reused_vs,reused_ps));
+  const auto shared_original_pass=catalog.FindOriginalPass(reused_vs,reused_ps);
+  assert(shared_original_pass && shared_original_pass->effect_hash==0x222 &&
+         shared_original_pass->pass_index==1);
   const auto verified_shared=data;
+  // Duplicate exact stage pairs are ambiguous even when both effects
+  // legitimately reuse one stage of a different original shader pair.
+  for(unsigned k=0;k<32;++k) {
+    data[16+3*72+8+k]=0x11;
+    data[16+3*72+40+k]=0x22;
+  }
+  write();
+  bool duplicate_failed=false;
+  try {catalog.Load(path);}catch(const std::invalid_argument&){
+    duplicate_failed=true;
+  }
+  const auto surviving=catalog.FindOriginalPass(reused_vs,reused_ps);
+  assert(duplicate_failed && surviving &&
+         surviving->effect_hash==0x222 && surviving->pass_index==1);
+  data=verified_shared;
   for(unsigned k=0;k<32;++k) data[16+3*72+8+k]=0x22;
   // The ENTIRE VS digest now equals the PS digest of another material.
   write();bool stage_failed=false;

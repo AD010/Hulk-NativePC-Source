@@ -8,6 +8,7 @@
 #include <filesystem>
 #include <fstream>
 #include <map>
+#include <optional>
 #include <set>
 #include <stdexcept>
 #include <string>
@@ -15,6 +16,10 @@
 #include <vector>
 
 namespace hulk::eor::aot {
+struct OriginalEffectPass {
+  uint32_t effect_hash=0;
+  uint32_t pass_index=UINT32_MAX;
+};
 class EffectCatalog {
  public:
   void Load(const std::filesystem::path& path) {
@@ -40,6 +45,7 @@ class EffectCatalog {
       throw std::invalid_argument("Invalid original EoR paired shader record count");
     using Pair = std::pair<Digest, Digest>;
     std::map<uint32_t, std::vector<Pair>> next;
+    std::map<Pair,OriginalEffectPass> reverse;
     // An original shader may be reused by many effects / passes.
     // Only conflicting VS/PS stage assignments are ambiguous.
     std::map<Digest,Stage> unique;
@@ -66,8 +72,11 @@ class EffectCatalog {
       if (pass != slots.size())
         throw std::invalid_argument("EoR pass slots are missing, reordered or duplicated");
       slots.emplace_back(vs, ps);
+      if(!reverse.emplace(Pair{vs,ps},OriginalEffectPass{effect,pass}).second)
+        throw std::invalid_argument("Duplicate original ShaderContainer pass identity");
     }
     sources_.swap(next); // Failure leaves previous valid catalog untouched.
+    reverse_.swap(reverse);
     pair_count_ = count;
     unique_shader_count_ = unique.size();
   }
@@ -78,6 +87,12 @@ class EffectCatalog {
            it->second[pass_index].first == vs &&
            it->second[pass_index].second == ps;
   }
+  std::optional<OriginalEffectPass> FindOriginalPass(
+      const Digest& vs,const Digest& ps) const noexcept {
+    const auto it=reverse_.find(std::pair<Digest,Digest>{vs,ps});
+    if(it==reverse_.end())return std::nullopt;
+    return it->second;
+  }
   size_t EffectCount() const noexcept { return sources_.size(); }
   size_t PairCount() const noexcept { return pair_count_; }
   // Actual number of AOT modules, not the number of draw/material references.
@@ -86,5 +101,6 @@ class EffectCatalog {
   size_t pair_count_ = 0;
   size_t unique_shader_count_ = 0;
   std::map<uint32_t, std::vector<std::pair<Digest, Digest>>> sources_;
+  std::map<std::pair<Digest,Digest>,OriginalEffectPass> reverse_;
 };
 } // namespace hulk::eor::aot
