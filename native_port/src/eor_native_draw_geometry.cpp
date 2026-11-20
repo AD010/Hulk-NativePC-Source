@@ -24,7 +24,9 @@ std::optional<ExactOriginalGuestMesh> IdentifyExactOriginalGuestMesh(
     ib=draw.source_ib.get();
     if(!ib->guest_object || !ib->guest_address ||
        ib->guest_object!=state.original_index_buffer_guest_object ||
-       ib->guest_size!=ib->bytes.size() || ib->bytes.size()%2u)
+       ib->guest_size!=ib->bytes.size() || ib->bytes.size()%2u ||
+       uint64_t(indexed->first_index)+indexed->index_count>
+           ib->bytes.size()/2u)
       return std::nullopt;
   }
   std::optional<ExactOriginalGuestMesh> unique;
@@ -36,7 +38,14 @@ std::optional<ExactOriginalGuestMesh> IdentifyExactOriginalGuestMesh(
          !std::equal(mesh.original_source_vertex_bytes.begin(),
                      mesh.original_source_vertex_bytes.end(),
                      vb.bytes.begin()) ||
-         mesh.host_indices.size()!=mesh.index_count)continue;
+         mesh.host_indices.size()!=mesh.index_count ||
+         !mesh.original_vertex_stride ||
+         vb.bytes.size()%mesh.original_vertex_stride)
+        continue;
+      if(plain &&
+         uint64_t(plain->start_vertex)+plain->vertex_count>
+             vb.bytes.size()/mesh.original_vertex_stride)
+        continue;
       bool big_endian=false;
       if(ib) {
         if(ib->bytes.size()!=mesh.host_indices.size()*2u)continue;
@@ -50,6 +59,22 @@ std::optional<ExactOriginalGuestMesh> IdentifyExactOriginalGuestMesh(
         }
         if(be==le)continue; // no ambiguous source index byte order
         big_endian=be;
+        // The original PPC Draw's FULL live index window and signed base
+        // must be able to fetch vertices from the exact matched XDK VB.
+        // Matching archive payload alone is not proof of a valid Draw.
+        bool window_valid=true;
+        for(uint64_t k=indexed->first_index;
+            k<uint64_t(indexed->first_index)+indexed->index_count;++k) {
+          const auto a=uint32_t(std::to_integer<uint8_t>(ib->bytes[k*2u]));
+          const auto b=uint32_t(std::to_integer<uint8_t>(ib->bytes[k*2u+1u]));
+          const auto idx=big_endian ? (a<<8u)|b : (b<<8u)|a;
+          if(int64_t(idx)+indexed->base_vertex<0 ||
+             int64_t(idx)+indexed->base_vertex>=mesh.vertex_count) {
+            window_valid=false;
+            break;
+          }
+        }
+        if(!window_valid)continue;
       }
       if(unique)return std::nullopt; // two meshes share same bytes: no owner
       unique=ExactOriginalGuestMesh{

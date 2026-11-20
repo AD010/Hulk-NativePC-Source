@@ -409,6 +409,11 @@ int main(){
   }
   ib->guest_size=uint32_t(ib->bytes.size());
   auto realBufferDraw=runtime.calls[0];
+  // The older synthetic Draw uses firstIndex=120 and baseVertex=-2 to
+  // exercise rebase arithmetic; this separate REAL-buffer proof checks
+  // only a physically valid local firstIndex/baseVertex window.
+  realBufferDraw.gpr[2]=0;
+  realBufferDraw.gpr[3]=0;
   realBufferDraw.source_vb0=vb;
   realBufferDraw.source_ib=ib;
   const auto realMesh=native::IdentifyExactOriginalGuestMesh(realBufferDraw,models);
@@ -420,6 +425,12 @@ int main(){
   realBufferDraw.source_ib=wrongIb;
   assert(!native::IdentifyExactOriginalGuestMesh(realBufferDraw,models));
   realBufferDraw.source_ib=ib;
+  auto outOfBounds=realBufferDraw;
+  outOfBounds.gpr[3]=120u;
+  assert(!native::IdentifyExactOriginalGuestMesh(outOfBounds,models));
+  outOfBounds=realBufferDraw;
+  outOfBounds.gpr[2]=0xFFFFFFFFu;
+  assert(!native::IdentifyExactOriginalGuestMesh(outOfBounds,models));
   std::vector<const model::UploadedOriginalModel*> ambiguous{&resident,&resident};
   assert(!native::IdentifyExactOriginalGuestMesh(realBufferDraw,ambiguous));
   auto wrongVb=std::make_shared<xdk::OriginalGuestBufferBytes>(*vb);

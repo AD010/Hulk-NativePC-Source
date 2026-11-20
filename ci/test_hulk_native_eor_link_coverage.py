@@ -281,6 +281,8 @@ class NativeEorLinkCoverage(unittest.TestCase):
         self.assertIn("rec.original_source_vertex_bytes=m.original_vertex_stream;",source)
         self.assertIn("IdentifyExactOriginalGuestMesh(",geom)
         self.assertIn("if(be==le)continue;",geom)
+        self.assertIn("indexed->first_index)+indexed->index_count>",geom)
+        self.assertIn("int64_t(idx)+indexed->base_vertex>=mesh.vertex_count",geom)
         self.assertIn("Actual original XDK buffer bytes disprove engine mesh owner",geom)
         self.assertIn("wrongIb->bytes[0]=std::byte{0xFA};",test)
 
