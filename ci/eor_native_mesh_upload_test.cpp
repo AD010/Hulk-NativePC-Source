@@ -9,7 +9,7 @@
 using namespace hulk::eor::model;
 namespace {
 struct Fake final : NativeMeshUploadBackend {
- uint64_t next=1,repeat=0;
+ uint64_t next=1,repeat=0,alias_at=0,alias_handle=0;
  unsigned allocations=0,fail_at=0;
  std::vector<uint64_t> freed;
  std::vector<NativePosition> positions;
@@ -19,7 +19,12 @@ struct Fake final : NativeMeshUploadBackend {
  uint64_t UploadDecodedAttributes(std::span<const HostAttribute> v) override {
    attributes.assign(v.begin(),v.end());return Allocate();
  }
- uint64_t Allocate(){if(++allocations==fail_at)return 0;return repeat?repeat:next++;}
+ uint64_t Allocate(){
+   ++allocations;
+   if(allocations==fail_at)return 0;
+   if(allocations==alias_at)return alias_handle;
+   return repeat?repeat:next++;
+ }
  uint64_t UploadPositions(std::span<const NativePosition> p) override {positions.assign(p.begin(),p.end());return Allocate();}
  uint64_t UploadOriginalVertexStream(std::span<const std::byte> p) override {raw.assign(p.begin(),p.end());return Allocate();}
  uint64_t UploadIndices(std::span<const uint32_t> p) override {indices.assign(p.begin(),p.end());return Allocate();}
@@ -100,5 +105,13 @@ int main(){
  Fake alias;alias.repeat=7;
  MustThrow([&]{(void)UploadNativeIndexedMeshes(original,alias);});
  assert((alias.freed==std::vector<uint64_t>{7}));
+ // The last UV upload tries to reuse model 0's decoded attribute handle.
+ // Only the first model's attribute owner may release handle 4; the
+ // rejected alias must never become a second owner or be freed twice.
+ Fake attribute_alias;
+ attribute_alias.alias_at=8;attribute_alias.alias_handle=4;
+ MustThrow([&]{(void)UploadNativeIndexedMeshes(original,attribute_alias,slots);});
+ assert(attribute_alias.allocations==8);
+ assert((attribute_alias.freed==std::vector<uint64_t>{7,6,5,4,3,2,1}));
  MustThrow([&]{(void)UploadNativeIndexedMeshes({},preflight);});
 }

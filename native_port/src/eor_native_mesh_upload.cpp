@@ -26,10 +26,16 @@ void CheckMesh(const NativeIndexedMesh& mesh) {
       throw std::invalid_argument("Invalid original EoR mesh position");
 }
 bool Exists(std::span<const UploadedNativeMesh> meshes,uint64_t h) noexcept {
-  for(const auto& m:meshes)
-    if(m.position_buffer==h || m.original_vertex_stream_buffer==h || m.index_buffer==h)
+  // Original position/index and host-decoded attribute slots all own
+  // distinct live GPU handles. Do not accept a returned handle that aliases
+  // a previous model's normal/UV stream.
+  for(const auto& m:meshes) {
+    if(m.position_buffer==h || m.original_vertex_stream_buffer==h ||
+       m.index_buffer==h)
       return true;
-    for(const uint64_t slot:m.decoded_attribute_buffers)if(slot==h)return true;
+    for(const uint64_t slot:m.decoded_attribute_buffers)
+      if(slot==h)return true;
+  }
   return false;
 }
 } // namespace
