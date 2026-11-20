@@ -793,8 +793,12 @@ HRESULT STDMETHODCALLTYPE OnSampler(IDirect3DDevice9* dev,DWORD sampler,
         case D3DRTYPE_VOLUMETEXTURE: supported=mipLinearCapsVolume; break;
         default: break;
       }
+      // Preserve the original filter on single-level textures (often HUD,
+      // fonts or UI atlases). Trilinear filtering only has meaning when at
+      // least two source mip levels exist; do not manufacture new mipmaps.
+      const UINT levels=texture->GetLevelCount();
       texture->Release();
-      if(supported)value=D3DTEXF_LINEAR;
+      if(supported && levels>1)value=D3DTEXF_LINEAR;
     }
   }
   if(anisotropy && maxAnisotropy>1 && sampler<16) {
