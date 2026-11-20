@@ -34,6 +34,12 @@ class NativeWorldStream {
   // consume time and should be submitted before the scene's DrawIndexed.
   LodDecision Tick(double camera_distance_world_units);
   const model::UploadedOriginalModel* Resident(uint32_t original_hash) const noexcept;
+  // Strong original-source GPU ownership for an independently verified
+  // EoR Draw frame. The caller keeps this reference until the Vulkan
+  // submission's GPU completion fence. Unlike a borrowed raw pointer, it
+  // survives world streaming reconfiguration or the model map clearing.
+  std::shared_ptr<const model::UploadedOriginalModel> ResidentShared(
+      uint32_t original_hash) const noexcept;
   bool Failed(uint32_t original_hash) const;
   void RetryFailed(uint32_t original_hash);
  private:
@@ -41,7 +47,7 @@ class NativeWorldStream {
   void Worker();
   model::NativeMeshUploadBackend& backend_; // outlives this object
   ResidentLodSet lod_;
-  std::map<uint32_t, model::UploadedOriginalModel> gpu_; // never auto-evict in-flight buffers
+  std::map<uint32_t,std::shared_ptr<model::UploadedOriginalModel>> gpu_; // GPU buffers shared with submitted frames
   std::unique_ptr<ModelSource> source_;
   mutable std::mutex mutex_;
   std::condition_variable wake_;

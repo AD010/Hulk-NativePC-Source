@@ -24,7 +24,12 @@ NativeWorldStream::~NativeWorldStream() noexcept {
 }
 const model::UploadedOriginalModel* NativeWorldStream::Resident(uint32_t hash) const noexcept {
   const auto it = gpu_.find(hash);
-  return it == gpu_.end() ? nullptr : &it->second;
+  return it == gpu_.end() ? nullptr : it->second.get();
+}
+std::shared_ptr<const model::UploadedOriginalModel>
+NativeWorldStream::ResidentShared(uint32_t hash) const noexcept {
+  const auto it = gpu_.find(hash);
+  return it == gpu_.end() ? nullptr : it->second;
 }
 bool NativeWorldStream::Failed(uint32_t hash) const {
   std::lock_guard lock(mutex_);
@@ -87,7 +92,8 @@ LodDecision NativeWorldStream::Tick(double distance) {
       try {
         if (prepared->second.model.original_resource_hash != hash)
           throw std::invalid_argument("Original model index/hash changed during streaming");
-        auto uploaded=model::UploadOriginalModel(std::move(prepared->second),backend_);
+        auto uploaded=std::make_shared<model::UploadedOriginalModel>(
+            model::UploadOriginalModel(std::move(prepared->second),backend_));
         if (!gpu_.emplace(hash,std::move(uploaded)).second)
           throw std::logic_error("Original EoR GPU model already resident");
         lod_.SetResident(hash,true);

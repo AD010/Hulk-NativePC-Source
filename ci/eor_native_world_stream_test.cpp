@@ -85,6 +85,28 @@ class PrioritySource final : public ModelSource {
  private:
   std::shared_ptr<PriorityState> state_;
 };
+void CheckSharedGpuResidentLifetime() {
+  FakeGpu gpu;
+  std::shared_ptr<const model::UploadedOriginalModel> verified_frame_resident;
+  {
+    NativeWorldStream stream(std::make_unique<Source>(),gpu,
+      {{11,100.0},{22,300.0},{33,std::numeric_limits<double>::infinity()}});
+    RetryUntil([&]{
+      stream.Tick(20.0);
+      return stream.Resident(11)!=nullptr;
+    });
+    assert(!stream.ResidentShared(0));
+    verified_frame_resident=stream.ResidentShared(11);
+    assert(verified_frame_resident &&
+           verified_frame_resident.get()==stream.Resident(11) &&
+           verified_frame_resident->original_resource_hash==11);
+  }
+  // A submitted Vulkan frame keeps the ORIGINAL uploaded model's
+  // position, index and guest stream handles until its owner releases it.
+  assert(gpu.serial==3 && gpu.freed.empty());
+  verified_frame_resident.reset(); // after the caller's completion fence
+  assert(gpu.freed.size()==3);
+}
 void CheckRapidCameraJump() {
   FakeGpu gpu;
   auto state = std::make_shared<PriorityState>();
@@ -151,4 +173,5 @@ int main() {
   assert(gpu.serial==6);
   assert(gpu.freed.size()==6);
   CheckRapidCameraJump();
+  CheckSharedGpuResidentLifetime();
 }
