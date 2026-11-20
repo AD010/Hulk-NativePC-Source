@@ -92,14 +92,28 @@ try {
   if ($LocalXex -ne $Xex) { Copy-Item -LiteralPath $Xex -Destination $LocalXex -Force }
   # The game data can stay at its installed path. Codegen only needs default.xex.
 
+  # Exact compatible ReXGlue SDK fork. Do not silently upgrade this source
+  # to official v0.11's different module/driver ABI or floating recomp HEAD.
+  $SdkCommit = '4348a344eb86ae456e1ccf7d393085d720cc6ce6'
   $Sdk = Join-Path $Source 'sdk-src'
   if (-not (Test-Path (Join-Path $Sdk 'CMakeLists.txt'))) {
-    Invoke-Checked 'git' @('clone', '--branch', 'recomp', '--depth', '1', '--recurse-submodules',
+    Invoke-Checked 'git' @('clone', '--branch', 'recomp', '--depth', '1', '--no-checkout',
       'https://github.com/ElGuslml/rexglue-sdk.git', $Sdk) $Source
+    Invoke-Checked 'git' @('-C', $Sdk, 'fetch', '--depth', '1', 'origin', $SdkCommit) $Source
+    Invoke-Checked 'git' @('-C', $Sdk, 'checkout', '--detach', $SdkCommit) $Source
   } else {
-    Write-Host 'Using existing sdk-src (no automatic upgrade).'
-    Invoke-Checked 'git' @('-C', $Sdk, 'submodule', 'update', '--init', '--recursive') $Source
+    Write-Host 'Using existing sdk-src only if it matches the reviewed SHA.'
   }
+  $ActualSdkSha = (& git -C $Sdk rev-parse HEAD).Trim()
+  if ($LASTEXITCODE -ne 0 -or $ActualSdkSha -ne $SdkCommit) {
+    throw "Unreviewed ReXGlue SDK $ActualSdkSha; expected $SdkCommit. Use a fresh sdk-src."
+  }
+  Invoke-Checked 'git' @('-C', $Sdk, 'submodule', 'update', '--init', '--recursive') $Source
+  # Official v0.11 PPC semantics; source-checked, ABI-preserving backport.
+  $SdkBackportTest = Join-Path (Split-Path $Source -Parent) 'ci/test_patch_sdk_upstream_v011_ppc.py'
+  $SdkBackport = Join-Path (Split-Path $Source -Parent) 'ci/patch_sdk_upstream_v011_ppc.py'
+  Invoke-Checked 'python' @($SdkBackportTest, $Sdk) $Source
+  Invoke-Checked 'python' @($SdkBackport, $Sdk) $Source
   # Source-proven host services: XMA/SDL/WASAPI/XAM/VFS/threads.
   # Report raw SDK support and explicit XAM stubs WITHOUT claiming that
   # the USA XEX reaches those APIs or that gameplay is correct.

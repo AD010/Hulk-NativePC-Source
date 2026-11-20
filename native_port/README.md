@@ -85,7 +85,10 @@ pixels, native PM4-free rendering, a complete converter or DLSS support.
 Official ReXGlue **v0.11.0** was published on 2026-11-14. The current
 Hulk build still depends on the separately pinned
 `ElGuslml/rexglue-sdk` recomp branch for PPC guest runtime and
-NativeXRenderer. The official release is not an ABI-compatible drop-in
+NativeXRenderer, SHA-pinned to `4348a344`, with three reviewed ReXGlue v0.11
+PPC codegen correctness backports. Details in
+`docs/HULK_REXGLUE_0_11_UPSTREAM_SYNC_2026_11_20.md`.
+The official release is not an ABI-compatible drop-in
 replacement. The eventual independent EoR Windows runtime must replace
 those guest-runtime dependencies deliberately, subsystem by subsystem,
 while preserving original FMOD/Havok/save ownership and data.
