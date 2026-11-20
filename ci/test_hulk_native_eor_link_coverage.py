@@ -245,6 +245,19 @@ class NativeEorLinkCoverage(unittest.TestCase):
         self.assertIn("if (state_->bound)", abort)
         self.assertIn("state_->context->SetRenderTargets(0,nullptr,nullptr,", abort)
 
+    def test_native_eor_actual_worker_backbuffer_feedback(self):
+        hook = (ROOT / "native_port/src/eor_xdk_hook_bridge.cpp").read_text()
+        header = (ROOT / "native_port/src/eor_xdk_hook_bridge.h").read_text()
+        menu = (ROOT / "native_port/src/pc_menu.cpp").read_text()
+        options = (ROOT / "native_port/src/native_pc_options_store.cpp").read_text()
+        self.assertIn("EorWorkerStatus GetEorWorkerStatus() noexcept", header)
+        self.assertIn("g_eor_ready_backbuffers.fetch_add(1", hook)
+        self.assertIn("g_eor_gpu_failures.fetch_add(1", hook)
+        self.assertIn('key == "hulk_eor_vulkan_replay"', options)
+        self.assertIn("GetEorWorkerStatus()", menu)
+        self.assertLess(hook.index("if(submitted) {\n      g_eor_ready_backbuffers"),
+                        hook.index("return Result::kBackbufferReady"))
+
     def test_native_worker_fallback_only_suppressed_after_gpu_begin_attempt(self):
         bridge = (ROOT / "native_port/src/eor_aot_draw_bridge.cpp").read_text()
         worker = (ROOT / "native_port/src/eor_xdk_hook_bridge.cpp").read_text()

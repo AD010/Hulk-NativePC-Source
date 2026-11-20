@@ -34,6 +34,7 @@ bool Allowed(std::string_view key, std::string_view value) {
   // guest flags. All token values are single, known BindTokenDown names.
   if (IsBindingOption(key)) return IsBindingToken(value);
   if (key == "vsync" || key == "fullscreen" ||
+      key == "hulk_eor_vulkan_replay" ||
       key == "hulk_mouse_invert_x" || key == "hulk_mouse_invert_y")
     return value == "true" || value == "false";
   if (key == "hulk_guest_swap_fps_cap")

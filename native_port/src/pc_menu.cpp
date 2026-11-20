@@ -6,6 +6,9 @@
 #include "native_pc_bindings.h"
 #include "native_resolution.h"
 #include "native_gpu_autodiag.h"
+#if defined(HULK_NATIVE_X_LINKED)
+#include "eor_xdk_hook_bridge.h"
+#endif
 #include <rex/cvar.h>
 #include <rex/ui/imgui_dialog.h>
 #include <rex/ui/imgui_drawer.h>
@@ -157,6 +160,11 @@ class PcMenu final : public rex::ui::ImGuiDialog {
           ImGui::Text("Renderer: %s",
               eor_requested ? "Direct EoR requested (source-gated)" :
               native_x ? "NativeX Vulkan compatibility" : "Xenos Vulkan");
+#if defined(HULK_NATIVE_X_LINKED)
+          const auto replay=hulk::eor::xdk::GetEorWorkerStatus();
+          ImGui::Text("EoR Vulkan backbuffer frames: %llu",
+              static_cast<unsigned long long>(replay.ready_backbuffers));
+#endif
           ImGui::TextDisabled(
               "Esc / F10: menu  |  Enter: original game Start");
           break;
@@ -308,6 +316,21 @@ class PcMenu final : public rex::ui::ImGuiDialog {
       ImGui::Separator();
       ImGui::TextUnformatted("PC graphics (restart game to apply)");
       ImGui::TextWrapped("Current NativeX Vulkan: host-scaled XDK/PM4 compatibility rendering. Full Edge of Reality native passes and 16:10 camera are not active yet.");
+      bool direct_eor=PendingBool("hulk_eor_vulkan_replay");
+      if(ImGui::Checkbox("Direct EoR Vulkan replay (experimental, restart)",
+                         &direct_eor))
+        Change("hulk_eor_vulkan_replay", direct_eor ? "true" : "false");
+      ImGui::TextWrapped(
+          "Native EoR uses the same Vulkan worker and one backbuffer Present "
+          "only when exact original Draw, mesh/material, shader and camera "
+          "owners have been verified. Otherwise compatibility rendering stays active.");
+#if defined(HULK_NATIVE_X_LINKED)
+      const auto status=hulk::eor::xdk::GetEorWorkerStatus();
+      ImGui::Text("Native EoR verified backbuffers: %llu",
+          static_cast<unsigned long long>(status.ready_backbuffers));
+      ImGui::Text("Native GPU submission failures: %llu",
+          static_cast<unsigned long long>(status.failed_after_gpu));
+#endif
       const double native_scale =
           PendingDouble("native_x_renderer_resolution_scale");
       ImGui::TextUnformatted(native_scale <= 0.0

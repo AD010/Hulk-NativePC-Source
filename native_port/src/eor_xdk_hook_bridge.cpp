@@ -7,6 +7,7 @@
 #include <rex/cvar.h>
 #include <rex/logging.h>
 #include <algorithm>
+#include <atomic>
 #include <cstring>
 #include <cstdint>
 #include <limits>
@@ -32,6 +33,8 @@ REXCVAR_DEFINE_BOOL(hulk_eor_vulkan_replay, false, "Hulk/Diagnostics",
 namespace hulk::eor::xdk {
 namespace {
 std::mutex g_mutex;
+std::atomic<uint64_t> g_eor_ready_backbuffers{0};
+std::atomic<uint64_t> g_eor_gpu_failures{0};
 FrameCapture g_collector;
 XdkCallsiteEvidence g_callsite_evidence;
 CompletedFrameMailbox g_frames_for_native;
@@ -383,6 +386,10 @@ void ClearVerifiedWorkerEorFrame() noexcept {
   std::lock_guard lock(g_mutex);
   g_verified_worker_frame.reset();
 }
+EorWorkerStatus GetEorWorkerStatus() noexcept {
+  return {g_eor_ready_backbuffers.load(std::memory_order_relaxed),
+          g_eor_gpu_failures.load(std::memory_order_relaxed)};
+}
 native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(
     native_x_renderer::Device& host) noexcept {
   using Result=native_x_renderer::HulkEorPresentResult;
@@ -457,11 +464,19 @@ native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(
     // Safe preflight loss, disabled capture and a newer mailbox frame
     // MUST preserve the visible NativeX frame. Never black-screen a
     // clean rejection; only suppress fallback if native GPU work began.
-    return submitted ? Result::kBackbufferReady :
-        (reached_gpu ? Result::kFailedAfterGpu : Result::kNotReady);
+    if(submitted) {
+      g_eor_ready_backbuffers.fetch_add(1,std::memory_order_relaxed);
+      return Result::kBackbufferReady;
+    }
+    if(reached_gpu) {
+      g_eor_gpu_failures.fetch_add(1,std::memory_order_relaxed);
+      return Result::kFailedAfterGpu;
+    }
+    return Result::kNotReady;
   } catch (...) {
     // An exception after potential GPU state changes cannot fall back to
     // a competing NativeX composite on the same Vulkan backbuffer.
+    g_eor_gpu_failures.fetch_add(1,std::memory_order_relaxed);
     return Result::kFailedAfterGpu;
   }
 }

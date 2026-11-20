@@ -67,6 +67,13 @@ bool InstallVerifiedWorkerEorFrameWithResidents(
     std::shared_ptr<const VerifiedWorkerEorFrame> frame,
     const native::VerifiedOriginalResidentLookup& lookup);
 void ClearVerifiedWorkerEorFrame() noexcept;
+// Exact native EoR Vulkan *backbuffer completion*, not the guest XDK frame
+// count and not proof the host GPU swapchain has finished Present.
+struct EorWorkerStatus {
+  uint64_t ready_backbuffers=0;
+  uint64_t failed_after_gpu=0;
+};
+EorWorkerStatus GetEorWorkerStatus() noexcept;
 native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(
     native_x_renderer::Device& device) noexcept;
 }
