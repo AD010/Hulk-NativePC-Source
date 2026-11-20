@@ -59,6 +59,8 @@ std::atomic<uint32_t> vsCount{0}, psCount{0}, viewProjCount{0};
 std::once_flag configOnce;
 wchar_t ini[MAX_PATH]{}, logFile[MAX_PATH]{};
 bool fixAspect = false;
+// Optional experimental support for full-size offscreen 3D scene passes.
+bool allowOffscreenHorPlus = false;
 // Optional texture-quality enhancement; disabled unless explicitly configured.
 bool forceTrilinearMip = false;
 DWORD mipLinearCaps2D = 0, mipLinearCapsCube = 0, mipLinearCapsVolume = 0;
@@ -105,6 +107,8 @@ void LoadConfig() {
     wcscpy_s(ini,path);wcscat_s(ini,L"HulkPC.ini");
     wcscpy_s(logFile,path);wcscat_s(logFile,L"HulkPC_ASI.log");
     fixAspect=GetPrivateProfileIntW(L"Graphics",L"EnableExperimentalViewProj16x10",0,ini)==1;
+    allowOffscreenHorPlus=GetPrivateProfileIntW(
+        L"Graphics",L"ExperimentalHorPlusSceneTargets",0,ini)==1;
     anisotropy=GetPrivateProfileIntW(L"Graphics",L"ForceAnisotropy",0,ini);
     forceTrilinearMip=GetPrivateProfileIntW(L"Graphics",L"ForceTrilinearMipFilter",0,ini)==1;
     if(anisotropy!=2&&anisotropy!=4&&anisotropy!=8&&anisotropy!=16)anisotropy=0;
@@ -117,6 +121,7 @@ void LoadConfig() {
     // Opt-in ProtectOriginalHUD=0 only AFTER a real native UI mapper exists.
     if(GetPrivateProfileIntW(L"Graphics",L"ProtectOriginalHUD",1,ini)!=0) {
       fixAspect=false;
+      allowOffscreenHorPlus=false;
       width=height=0;
     }
     wchar_t value[64]{};
@@ -584,17 +589,39 @@ HRESULT STDMETHODCALLTYPE OnVSConstants(IDirect3DDevice9* dev,UINT reg,
     return realVSConst(dev,reg,data,count);
   D3DSURFACE_DESC targetDesc{};
   const HRESULT descHr=renderTarget->GetDesc(&targetDesc);
-  // A full-size viewport is not proof of an onscreen camera pass: shadow,
-  // reflection and postprocessing targets may use identical dimensions.
-  // Fail closed unless the active surface is the actual swap-chain backbuffer.
-  // Both D3D9 queries return AddRef'd surfaces, so release both references.
+  // Prefer the swap-chain backbuffer. Some D3D9 engines instead render
+  // their 3D scene to a full-size texture, then composite it on Present.
+  // Such passes are excluded by default. With explicit opt-in, accept only a
+  // full-size render target matching the backbuffer dimensions and having a
+  // matching depth-stencil surface with Z testing active. Fullscreen UI and
+  // postprocessing passes normally lack these camera-depth prerequisites.
   IDirect3DSurface9* backbuffer=nullptr;
   const HRESULT backHr=dev->GetBackBuffer(0,0,D3DBACKBUFFER_TYPE_MONO,&backbuffer);
   const bool isBackbuffer=SUCCEEDED(backHr) && backbuffer &&
                           renderTarget==backbuffer;
+  D3DSURFACE_DESC backDesc{};
+  const bool hasBackDesc=backbuffer &&
+                        SUCCEEDED(backbuffer->GetDesc(&backDesc));
+  bool eligible=isBackbuffer;
+  if(!eligible && allowOffscreenHorPlus && SUCCEEDED(descHr) &&
+     hasBackDesc && targetDesc.Width==backDesc.Width &&
+     targetDesc.Height==backDesc.Height &&
+     (targetDesc.Usage & D3DUSAGE_RENDERTARGET)!=0) {
+    DWORD zEnable=D3DZB_FALSE;
+    IDirect3DSurface9* depth=nullptr;
+    if(SUCCEEDED(dev->GetRenderState(D3DRS_ZENABLE,&zEnable)) &&
+       zEnable!=D3DZB_FALSE &&
+       SUCCEEDED(dev->GetDepthStencilSurface(&depth)) && depth) {
+      D3DSURFACE_DESC depthDesc{};
+      eligible=SUCCEEDED(depth->GetDesc(&depthDesc)) &&
+               depthDesc.Width==targetDesc.Width &&
+               depthDesc.Height==targetDesc.Height;
+    }
+    if(depth)depth->Release();
+  }
   if(backbuffer)backbuffer->Release();
   renderTarget->Release();
-  if(FAILED(descHr) || !isBackbuffer || vp.X!=0 || vp.Y!=0 ||
+  if(FAILED(descHr) || !eligible || vp.X!=0 || vp.Y!=0 ||
      vp.Width!=targetDesc.Width || vp.Height!=targetDesc.Height)
     return realVSConst(dev,reg,data,count);
   // A full viewport alone does not mean the entire scene is being drawn.
