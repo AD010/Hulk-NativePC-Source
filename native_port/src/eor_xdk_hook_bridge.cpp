@@ -163,9 +163,12 @@ bool ReplayNextVerifiedPpcFrame(
     // All previous checks are read-only. This is the FIRST point at which
     // native GPU work may start. Never classify earlier rejections as
     // device-render failures that suppress the working NativeX Present.
-    if(reached_gpu)*reached_gpu=true;
+    // Source-only ABI/material/PSO rejection is not a GPU failure.
+    // The AOT forwarding backend marks this only at actual BeginScene,
+    // BEFORE a possible partial Vulkan attachment bind or driver throw.
     native::ReplayDeliveredResourceScene(*delivered,witnesses,output,
-                                          residents,shaders,effects,reflection,gpu);
+                                          residents,shaders,effects,reflection,gpu,
+                                          reached_gpu);
     return true;
   } catch (...) {
     // The caller retains sole-presenter ownership; failure is never a

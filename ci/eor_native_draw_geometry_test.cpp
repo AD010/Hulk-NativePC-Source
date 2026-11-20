@@ -396,10 +396,11 @@ int main(){
   auto delivered=mailbox.Take();
   assert(delivered && delivered->overwritten_since_take==0);
   TimelineGpu directGpu;
+  bool delivered_scene_attempted=false;
   native::ReplayDeliveredResourceScene(
       *delivered,catalog,nativeFrame,models,minimalShaders,effects,
-      minimalReflection,directGpu);
-  assert(directGpu.begins==1 && directGpu.draws==1 &&
+      minimalReflection,directGpu,&delivered_scene_attempted);
+  assert(delivered_scene_attempted && directGpu.begins==1 && directGpu.draws==1 &&
          directGpu.resolves==1 && directGpu.composites==1 &&
          directGpu.events==sourceGpuSequence);
   // The original USA archive streamer may provide these models using
@@ -453,10 +454,11 @@ int main(){
   delivered=mailbox.Take();
   assert(delivered && delivered->overwritten_since_take==1);
   TimelineGpu missedGpu;
+  bool missed_scene_attempted=true;
   Reject([&]{native::ReplayDeliveredResourceScene(
       *delivered,catalog,nativeFrame,models,minimalShaders,effects,
-      minimalReflection,missedGpu);});
-  assert(missedGpu.begins==0 && missedGpu.draws==0 &&
+      minimalReflection,missedGpu,&missed_scene_attempted);});
+  assert(!missed_scene_attempted && missedGpu.begins==0 && missedGpu.draws==0 &&
          missedGpu.composites==0);
   std::vector<native::VerifiedXdkDrawSubmission> oneMixed{indexedProven};
   TimelineGpu mixedGpu;

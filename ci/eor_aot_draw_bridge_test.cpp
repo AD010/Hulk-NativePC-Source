@@ -175,7 +175,10 @@ int main(){
   tagged.guest_vs_matrices->finite_register_mask=(1u<<19)-1u;
   Backend target;
   std::vector<BoundIndexedDraw> draws{entry};
-  ReplayAotScene(geometry,draws,shaders,effects,reflection,target);
+  bool native_scene_attempted=false;
+  ReplayAotScene(geometry,draws,shaders,effects,reflection,target,
+                 nullptr,&native_scene_attempted);
+  assert(native_scene_attempted);
   // A captured source Draw with missing registers is rejected before any
   // live GPU render target is cleared or submitted.
   BoundIndexedDraw captured=entry;
@@ -351,9 +354,11 @@ int main(){
   Backend no_pso;
   no_pso.refuse_preflight=true;
   bool preflight_rejected=false;
-  try { ReplayAotScene(geometry,draws,shaders,effects,reflection,no_pso); }
+  bool refused_before_gpu=true;
+  try { ReplayAotScene(geometry,draws,shaders,effects,reflection,no_pso,
+                       nullptr,&refused_before_gpu); }
   catch(const std::runtime_error&) { preflight_rejected=true; }
-  assert(preflight_rejected && no_pso.preflights==1 &&
+  assert(preflight_rejected && !refused_before_gpu && no_pso.preflights==1 &&
          no_pso.begin==0 && no_pso.draw==0);
   assert(target.surfaces==1 &&
          target.surface_history[0]==std::make_pair(0xCAFEu,0u));

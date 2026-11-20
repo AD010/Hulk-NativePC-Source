@@ -28,10 +28,15 @@ class ForwardingBackend final : public native::Backend {
  public:
   ForwardingBackend(std::span<const BoundIndexedDraw> draws,
                     const ShaderBank& bank,const ReflectionBank& reflection,
-                    ShaderBindingBackend& target,const xdk::Frame* source)
+                    ShaderBindingBackend& target,const xdk::Frame* source,
+                    bool* scene_begin_attempted)
       :draws_(draws),bank_(bank),reflection_(reflection),
-       target_(target),source_(source){}
+       target_(target),source_(source),scene_begin_attempted_(scene_begin_attempted){}
   bool BeginScene(native::Size size,uint32_t samples) override {
+    // Only NOW can the original source begin altering host color/depth.
+    // A shader/owner/PSO rejection before this point must retain NativeX.
+    // Mark before delegating: a failing driver bind may already touch RTs.
+    if(scene_begin_attempted_)*scene_begin_attempted_=true;
     return target_.BeginScene(size,samples);
   }
   void AbortScene() noexcept override {target_.AbortScene();}
@@ -129,6 +134,7 @@ class ForwardingBackend final : public native::Backend {
   const ReflectionBank& reflection_;
   ShaderBindingBackend& target_;
   const xdk::Frame* source_=nullptr;
+  bool* scene_begin_attempted_=nullptr;
   size_t position_=0,cursor_=0;
 };}
 
@@ -182,7 +188,9 @@ void ReplayAotScene(const native::FrameGeometry& frame,
                     const ShaderBank& bank, const EffectCatalog& effects,
                     const ReflectionBank& reflection,
                     ShaderBindingBackend& backend,
-                    const xdk::Frame* exact_original_timeline) {
+                    const xdk::Frame* exact_original_timeline,
+                    bool* scene_begin_attempted) {
+  if(scene_begin_attempted)*scene_begin_attempted=false;
   if (effects.EffectCount() == 0 ||
       effects.ShaderCount() != bank.expected())
     throw std::logic_error("Original EoR effect catalog/shader bank mismatch");
@@ -332,7 +340,7 @@ void ReplayAotScene(const native::FrameGeometry& frame,
   if (!backend.PreflightOriginalScene(draws))
     throw std::runtime_error("Source-proven native Vulkan frame PSO/resource preflight failed");
   ForwardingBackend forward(draws,bank,reflection,backend,
-                            exact_original_timeline);
+                            exact_original_timeline,scene_begin_attempted);
   native::ReplayNativeScene(frame,commands,forward);
 }
 }  // namespace hulk::eor::aot

@@ -368,7 +368,9 @@ void ReplayCapturedResourceScene(
     const FrameGeometry& frame,
     std::span<const model::UploadedOriginalModel* const> residents,
     const aot::ShaderBank& bank,const aot::EffectCatalog& effects,
-    const aot::ReflectionBank& reflection,aot::ShaderBindingBackend& backend) {
+    const aot::ReflectionBank& reflection,aot::ShaderBindingBackend& backend,
+    bool* scene_begin_attempted) {
+  if(scene_begin_attempted)*scene_begin_attempted=false;
   // No sole Vulkan presenter may replay only Draws while silently
   // dropping original render-target binds, clears and resolves.
   if(!xdk::ValidateOriginalCommandTimeline(captured))
@@ -378,7 +380,8 @@ void ReplayCapturedResourceScene(
   // Unlike the Draw-only legacy bridge, replay the true original
   // RT/Clear/Draw/Resolve/Present sequence through the native GPU.
   // An unknown source command rejects the FULL frame in preflight.
-  aot::ReplayAotScene(frame,commands,bank,effects,reflection,backend,&captured);
+  aot::ReplayAotScene(frame,commands,bank,effects,reflection,backend,
+                      &captured,scene_begin_attempted);
 }
 void ReplayDeliveredResourceScene(
     const xdk::DeliveredFrame& delivered,
@@ -386,7 +389,9 @@ void ReplayDeliveredResourceScene(
     const FrameGeometry& frame,
     std::span<const model::UploadedOriginalModel* const> residents,
     const aot::ShaderBank& bank,const aot::EffectCatalog& effects,
-    const aot::ReflectionBank& reflection,aot::ShaderBindingBackend& backend) {
+    const aot::ReflectionBank& reflection,aot::ShaderBindingBackend& backend,
+    bool* scene_begin_attempted) {
+  if(scene_begin_attempted)*scene_begin_attempted=false;
   // A one-slot mailbox may overwrite unsent frames at busy destruction
   // scenes. Rendering a late frame with stale per-object shader constants
   // could produce missing/doubled geometry. No Vulkan BeginScene on gaps.
@@ -394,7 +399,7 @@ void ReplayDeliveredResourceScene(
     throw std::invalid_argument(
         "Original EoR Present mailbox lost captured GPU frames");
   ReplayCapturedResourceScene(delivered.frame,verified,frame,residents,
-                              bank,effects,reflection,backend);
+                              bank,effects,reflection,backend,scene_begin_attempted);
 }
 std::vector<VerifiedDrawSource> MatchCapturedMixedDraws(
     const xdk::Frame& frame,

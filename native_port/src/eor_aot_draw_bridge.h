@@ -112,5 +112,6 @@ void ReplayAotScene(const native::FrameGeometry& frame,
                     std::span<const BoundIndexedDraw> draws,
                     const ShaderBank& bank, const EffectCatalog& effects,
                     const ReflectionBank& reflection, ShaderBindingBackend& backend,
-                    const xdk::Frame* exact_original_timeline=nullptr);
+                    const xdk::Frame* exact_original_timeline=nullptr,
+                    bool* scene_begin_attempted=nullptr);
 }  // namespace hulk::eor::aot

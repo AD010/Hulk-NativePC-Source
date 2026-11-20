@@ -226,6 +226,24 @@ class NativeEorLinkCoverage(unittest.TestCase):
         self.assertIn("if (state_->bound)", abort)
         self.assertIn("state_->context->SetRenderTargets(0,nullptr,nullptr,", abort)
 
+    def test_native_worker_fallback_only_suppressed_after_gpu_begin_attempt(self):
+        bridge = (ROOT / "native_port/src/eor_aot_draw_bridge.cpp").read_text()
+        worker = (ROOT / "native_port/src/eor_xdk_hook_bridge.cpp").read_text()
+        source = (ROOT / "native_port/src/eor_native_draw_geometry.cpp").read_text()
+        begin = bridge.split("bool BeginScene(native::Size size,uint32_t samples) override {", 1)[1]
+        begin = begin.split("void AbortScene()", 1)[0]
+        self.assertLess(begin.index("if(scene_begin_attempted_)*scene_begin_attempted_=true;"),
+                        begin.index("return target_.BeginScene(size,samples);"))
+        replay = bridge.split("void ReplayAotScene(", 1)[1]
+        self.assertLess(replay.index("if(scene_begin_attempted)*scene_begin_attempted=false;"),
+                        replay.index("backend.PreflightOriginalScene(draws)"))
+        worker = worker.split("bool ReplayNextVerifiedPpcFrame(", 1)[1]
+        worker = worker.split("void CapturePpcDraw(", 1)[0]
+        self.assertNotIn("if(reached_gpu)*reached_gpu=true;", worker)
+        self.assertIn("reached_gpu);", worker)
+        self.assertIn("&captured,scene_begin_attempted);", source)
+        self.assertIn("bank,effects,reflection,backend,scene_begin_attempted);", source)
+
     def test_native_eor_one_present_attempt_per_source_frame(self):
         backend = (ROOT / "native_port" / "src" /
                    "eor_diligent_aot_backend.cpp").read_text(encoding="utf-8")
