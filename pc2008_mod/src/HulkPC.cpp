@@ -59,6 +59,8 @@ std::atomic<uint32_t> vsCount{0}, psCount{0}, viewProjCount{0};
 std::once_flag configOnce;
 wchar_t ini[MAX_PATH]{}, logFile[MAX_PATH]{};
 bool fixAspect = false;
+// Optional D3D9 presentation interval override; independent of HUD geometry.
+bool forceImmediatePresent = false;
 // Optional experimental support for full-size offscreen 3D scene passes.
 bool allowOffscreenHorPlus = false;
 // Optional texture-quality enhancement; disabled unless explicitly configured.
@@ -107,6 +109,8 @@ void LoadConfig() {
     wcscpy_s(ini,path);wcscat_s(ini,L"HulkPC.ini");
     wcscpy_s(logFile,path);wcscat_s(logFile,L"HulkPC_ASI.log");
     fixAspect=GetPrivateProfileIntW(L"Graphics",L"EnableExperimentalViewProj16x10",0,ini)==1;
+    forceImmediatePresent=GetPrivateProfileIntW(
+        L"Graphics",L"ForceVSyncOff",0,ini)==1;
     allowOffscreenHorPlus=GetPrivateProfileIntW(
         L"Graphics",L"ExperimentalHorPlusSceneTargets",0,ini)==1;
     anisotropy=GetPrivateProfileIntW(L"Graphics",L"ForceAnisotropy",0,ini);
@@ -368,12 +372,17 @@ HRESULT STDMETHODCALLTYPE OnCreateDevice(IDirect3D9* api,UINT adapter,
   const D3DPRESENT_PARAMETERS original=*pp;
   // Capture our own change before calling the driver: a failed CreateDevice
   // is allowed to modify the caller's presentation parameters.
-  const bool changed=width && height && !pp->Windowed &&
+  const bool sizeChanged=width && height && !pp->Windowed &&
     (pp->BackBufferWidth!=width || pp->BackBufferHeight!=height);
-  if(changed) {
+  const bool intervalChanged=forceImmediatePresent &&
+    pp->PresentationInterval!=D3DPRESENT_INTERVAL_IMMEDIATE;
+  const bool changed=sizeChanged || intervalChanged;
+  if(sizeChanged) {
     pp->BackBufferWidth=width;
     pp->BackBufferHeight=height;
   }
+  if(intervalChanged)
+    pp->PresentationInterval=D3DPRESENT_INTERVAL_IMMEDIATE;
   HRESULT hr=realCreateDevice(api,adapter,type,window,flags,pp,result);
   if(FAILED(hr) && changed) {
     *pp=original;
@@ -440,13 +449,19 @@ HRESULT STDMETHODCALLTYPE OnReset(IDirect3DDevice9* dev,D3DPRESENT_PARAMETERS* p
   // If the requested mode fails, retry the game's untouched parameters.
   D3DPRESENT_PARAMETERS original{};
   bool changed=false;
-  if(pp && width && height && !pp->Windowed) {
+  if(pp) {
     original=*pp;
-    changed=pp->BackBufferWidth!=width || pp->BackBufferHeight!=height;
-    if(changed) {
+    const bool sizeChanged=width && height && !pp->Windowed &&
+      (pp->BackBufferWidth!=width || pp->BackBufferHeight!=height);
+    const bool intervalChanged=forceImmediatePresent &&
+      pp->PresentationInterval!=D3DPRESENT_INTERVAL_IMMEDIATE;
+    changed=sizeChanged || intervalChanged;
+    if(sizeChanged) {
       pp->BackBufferWidth=width;
       pp->BackBufferHeight=height;
     }
+    if(intervalChanged)
+      pp->PresentationInterval=D3DPRESENT_INTERVAL_IMMEDIATE;
   }
   // A failed Reset leaves the old device state in place. Invalidate the
   // tracked shader only after a successful reset, not before the call.
