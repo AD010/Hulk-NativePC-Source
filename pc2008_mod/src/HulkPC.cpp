@@ -613,10 +613,19 @@ HRESULT STDMETHODCALLTYPE OnVSConstants(IDirect3DDevice9* dev,UINT reg,
   // GetContainer even though the returned texture inherits that interface.
   // Never accept a cube face or a plain offscreen surface as a 2D scene RT.
   IDirect3DTexture9* sceneTexture=nullptr;
-  const bool textureBacked=allowOffscreenHorPlus && !isBackbuffer &&
-      SUCCEEDED(renderTarget->GetContainer(
-          IID_IDirect3DTexture9,
-          reinterpret_cast<void**>(&sceneTexture))) && sceneTexture;
+  bool textureBacked=false;
+  if(allowOffscreenHorPlus && !isBackbuffer &&
+     SUCCEEDED(renderTarget->GetContainer(
+         IID_IDirect3DTexture9,
+         reinterpret_cast<void**>(&sceneTexture))) && sceneTexture) {
+    // A matching texture container is not enough: the active RT might be a
+    // nonzero mip level. Only widen the full-resolution scene surface at mip 0.
+    // COM identity is stable for repeated GetSurfaceLevel(0) queries.
+    IDirect3DSurface9* topLevel=nullptr;
+    if(SUCCEEDED(sceneTexture->GetSurfaceLevel(0,&topLevel)) && topLevel)
+      textureBacked=(topLevel==renderTarget);
+    if(topLevel)topLevel->Release();
+  }
   if(sceneTexture)sceneTexture->Release();
   if(!eligible && textureBacked && SUCCEEDED(descHr) &&
      hasBackDesc && targetDesc.Width==backDesc.Width &&
