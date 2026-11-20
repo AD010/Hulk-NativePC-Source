@@ -99,7 +99,11 @@ bool ReplayNextVerifiedPpcFrame(
     std::span<const model::UploadedOriginalModel* const> residents,
     const aot::ShaderBank& shaders,const aot::EffectCatalog& effects,
     const aot::ReflectionBank& reflection,aot::ShaderBindingBackend& gpu,
-    uint64_t expected_original_frame_sequence) {
+    uint64_t expected_original_frame_sequence,
+    bool* reached_gpu) {
+  // Preserve a truthful outcome for the caller: some failures happen
+  // before ANY Vulkan work and must retain the existing NativeX image.
+  if(reached_gpu)*reached_gpu=false;
   // Refuse incomplete engine/host provenance BEFORE consuming the only
   // immutable guest Present snapshot. No guest memory, GPU render targets,
   // or Vulkan swapchain may be touched by a rejected candidate.
@@ -156,6 +160,10 @@ bool ReplayNextVerifiedPpcFrame(
   }
   if(!delivered || delivered->overwritten_since_take)return false;
   try {
+    // All previous checks are read-only. This is the FIRST point at which
+    // native GPU work may start. Never classify earlier rejections as
+    // device-render failures that suppress the working NativeX Present.
+    if(reached_gpu)*reached_gpu=true;
     native::ReplayDeliveredResourceScene(*delivered,witnesses,output,
                                           residents,shaders,effects,reflection,gpu);
     return true;
@@ -407,11 +415,16 @@ native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(
     // This is the REAL sole Vulkan render worker. The final exact-sequence
     // claim is repeated atomically inside ReplayNextVerifiedPpcFrame; a
     // racing newer guest Present can never render with this old EoR owner.
+    bool reached_gpu=false;
     const bool submitted=ReplayNextVerifiedPpcFrame(
         ready->witnesses,ready->output,residents,
         *ready->shaders,*ready->effects,*ready->reflection,*ready->gpu,
-        source_sequence);
-    return submitted ? Result::kBackbufferReady : Result::kFailedAfterGpu;
+        source_sequence,&reached_gpu);
+    // Safe preflight loss, disabled capture and a newer mailbox frame
+    // MUST preserve the visible NativeX frame. Never black-screen a
+    // clean rejection; only suppress fallback if native GPU work began.
+    return submitted ? Result::kBackbufferReady :
+        (reached_gpu ? Result::kFailedAfterGpu : Result::kNotReady);
   } catch (...) {
     // An exception after potential GPU state changes cannot fall back to
     // a competing NativeX composite on the same Vulkan backbuffer.

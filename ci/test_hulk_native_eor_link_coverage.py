@@ -357,6 +357,25 @@ class NativeEorLinkCoverage(unittest.TestCase):
         self.assertIn("native_x_renderer::SetHulkEorPresentCallback(nullptr);", app)
         self.assertIn("ClearVerifiedWorkerEorFrame();", app)
 
+    def test_live_replay_denies_black_frame_on_clean_preflight_failure(self):
+        bridge = (ROOT / "native_port/src/eor_xdk_hook_bridge.cpp").read_text()
+        header = (ROOT / "native_port/src/eor_xdk_hook_bridge.h").read_text()
+        replay = bridge.split("bool ReplayNextVerifiedPpcFrame(", 1)[1]
+        replay = replay.split("void CapturePpcDraw(", 1)[0]
+        worker = bridge.split("native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(", 1)[1]
+        self.assertIn("bool* reached_gpu=nullptr", header)
+        self.assertIn("if(reached_gpu)*reached_gpu=false;", replay)
+        self.assertIn("if(reached_gpu)*reached_gpu=true;", replay)
+        self.assertLess(replay.index("if(reached_gpu)*reached_gpu=false;"),
+                        replay.index("gpu.CanReplayOriginalXdkTimeline(*preview)"))
+        self.assertGreater(replay.index("if(reached_gpu)*reached_gpu=true;"),
+                           replay.index("g_frames_for_native.TakeIfSequence(sequence)"))
+        self.assertLess(replay.index("if(reached_gpu)*reached_gpu=true;"),
+                        replay.index("native::ReplayDeliveredResourceScene("))
+        self.assertIn("source_sequence,&reached_gpu);", worker)
+        self.assertIn("(reached_gpu ? Result::kFailedAfterGpu : Result::kNotReady)", worker)
+        self.assertNotIn("return submitted ? Result::kBackbufferReady : Result::kFailedAfterGpu;", worker)
+
     def test_worker_checks_real_guest_mesh_material_shader_before_vulkan(self):
         worker=(ROOT / "native_port/src/eor_xdk_hook_bridge.cpp").read_text()
         api=(ROOT / "native_port/src/eor_xdk_hook_bridge.h").read_text()
