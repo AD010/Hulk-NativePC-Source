@@ -61,6 +61,10 @@ struct RawCommand {
   uint32_t draw_ordinal=UINT32_MAX; // populated only for Draw commands
   std::optional<OriginalXdkClearF> captured_clear;
 };
+struct OriginalGuestBufferBytes {
+  uint32_t guest_object=0,guest_address=0,guest_size=0;
+  std::vector<std::byte> bytes;
+};
 struct RawDraw {
   Kind kind{};
   uint32_t function = 0, lr = 0;
@@ -73,6 +77,8 @@ struct RawDraw {
   // Required for arbitrary original lighting/material constants, separate
   // from the c7..c25 camera/transform reflection.
   std::shared_ptr<const OriginalShaderRegisters> observed_shader_constants;
+  std::shared_ptr<const OriginalGuestBufferBytes> source_vb0;
+  std::shared_ptr<const OriginalGuestBufferBytes> source_ib;
 };
 // Verified USA XDK 2.0.6534 method ABI from the original wrapper:
 // DrawIndexedVertices(dev, prim, baseVertex, startIndex, indexCount).

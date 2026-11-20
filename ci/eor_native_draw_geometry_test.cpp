@@ -392,6 +392,40 @@ int main(){
   witness.original_xdk_texture_slot_mapping_verified=true;
   witness.original_guest_resource_to_material_mapping_verified=true;
   std::vector<native::VerifiedXdkResourceWitness> catalog{witness};
+  // Guest XDK GPU byte identity is matched directly to the ORIGINAL model
+  // stream, not inferred from a shared shader or an EoR CRC32 name hash.
+  auto realModel=MakeModel();
+  auto vb=std::make_shared<xdk::OriginalGuestBufferBytes>();
+  vb->guest_object=live_state.original_vertex_buffer_guest_objects[0];
+  vb->guest_address=0x40010000;
+  vb->bytes=realModel.decoded_meshes[0].original_vertex_stream;
+  vb->guest_size=uint32_t(vb->bytes.size());
+  auto ib=std::make_shared<xdk::OriginalGuestBufferBytes>();
+  ib->guest_object=live_state.original_index_buffer_guest_object;
+  ib->guest_address=0x40012000;
+  for(uint32_t idx:realModel.decoded_meshes[0].triangle_list_indices) {
+    ib->bytes.push_back(std::byte(idx>>8));
+    ib->bytes.push_back(std::byte(idx&255u));
+  }
+  ib->guest_size=uint32_t(ib->bytes.size());
+  auto realBufferDraw=runtime.calls[0];
+  realBufferDraw.source_vb0=vb;
+  realBufferDraw.source_ib=ib;
+  const auto realMesh=native::IdentifyExactOriginalGuestMesh(realBufferDraw,models);
+  assert(realMesh && realMesh->model_hash==0xCAFE &&
+         realMesh->mesh_header_offset==40 &&
+         realMesh->original_index_big_endian);
+  auto wrongIb=std::make_shared<xdk::OriginalGuestBufferBytes>(*ib);
+  wrongIb->bytes[0]=std::byte{0xFA};
+  realBufferDraw.source_ib=wrongIb;
+  assert(!native::IdentifyExactOriginalGuestMesh(realBufferDraw,models));
+  realBufferDraw.source_ib=ib;
+  std::vector<const model::UploadedOriginalModel*> ambiguous{&resident,&resident};
+  assert(!native::IdentifyExactOriginalGuestMesh(realBufferDraw,ambiguous));
+  auto wrongVb=std::make_shared<xdk::OriginalGuestBufferBytes>(*vb);
+  wrongVb->guest_object^=4u;
+  realBufferDraw.source_vb0=wrongVb;
+  assert(!native::IdentifyExactOriginalGuestMesh(realBufferDraw,models));
   const auto recovered=native::ResolveCapturedResourceDraws(runtime,catalog,models);
   assert(recovered.size()==1 && recovered[0].original_model_hash==0xCAFE &&
          recovered[0].original_vs_matrices &&

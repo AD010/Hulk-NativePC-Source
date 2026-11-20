@@ -93,6 +93,16 @@ struct OriginalXdkResourceIdentity {
 };
 OriginalXdkResourceIdentity ResourcesAtDraw(
     const xdk::OriginalVsMatrices& snapshot) noexcept;
+struct ExactOriginalGuestMesh {
+  uint32_t model_hash=0;
+  size_t mesh_header_offset=SIZE_MAX;
+  bool original_index_big_endian=false;
+};
+// Source-proven model and mesh ONLY; the independently observed EoR shader,
+// material/surface and camera remain separate mandatory ownership gates.
+std::optional<ExactOriginalGuestMesh> IdentifyExactOriginalGuestMesh(
+    const xdk::RawDraw& draw,
+    std::span<const model::UploadedOriginalModel* const> residents);
 struct VerifiedXdkResourceWitness {
   OriginalXdkResourceIdentity original_resources;
   VerifiedXdkDrawSubmission original_source_submission;

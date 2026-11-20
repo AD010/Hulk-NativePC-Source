@@ -94,6 +94,7 @@ UploadedNativeMeshBatch UploadNativeIndexedMeshes(
     rec.min_index=*limits.first;
     rec.max_index=*limits.second;
     rec.host_indices=m.triangle_list_indices;
+    rec.original_source_vertex_bytes=m.original_vertex_stream;
     rec.decoded_attribute_buffers.resize(decoded[mesh_id].size());
     rec.original_attribute_declarations=m.original_attribute_declarations;
     batch.meshes_.push_back(std::move(rec)); // bookkeeping first, then GPU ownership

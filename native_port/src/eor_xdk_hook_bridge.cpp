@@ -45,6 +45,7 @@ struct OfflineShaderPack {
   std::shared_ptr<const aot::ReflectionBank> reflection;
 };
 std::optional<OfflineShaderPack> g_offline_shader_pack;
+std::atomic<uint64_t> g_original_capture_bytes{0};
 // ReXGlue's guest base is NOT directly an original Xbox VA; use the same
 // guest high-memory padding convention as native_camera_direct.cpp, and
 // reject inaccessible ranges without reading unverified game memory.
@@ -90,6 +91,39 @@ bool ReadGuest(void* state,uint32_t address,std::byte* output,size_t length) noe
   return false;
 #endif
 }
+}
+
+// Original USA XDK 6534 resource object: GPU buffer address at +24,
+// allocation byte length at +28 (both PPC big endian). This capture NEVER
+// trusts the address without the checked ReadGuest, nor logs game bytes.
+std::shared_ptr<const OriginalGuestBufferBytes> SourceGpuBuffer(
+    uint32_t object,void* guest_base) {
+  if(!object || object>UINT32_MAX-32u)return {};
+  std::array<std::byte,8> meta{};
+  if(!ReadGuest(guest_base,object+24u,meta.data(),meta.size()))return {};
+  const auto be32=[](const std::byte* p) {
+    return uint32_t(std::to_integer<uint8_t>(p[0]))<<24 |
+           uint32_t(std::to_integer<uint8_t>(p[1]))<<16 |
+           uint32_t(std::to_integer<uint8_t>(p[2]))<<8 |
+           uint32_t(std::to_integer<uint8_t>(p[3]));
+  };
+  const uint32_t address=be32(meta.data()),bytes=be32(meta.data()+4);
+  if(!address || bytes<6 || bytes>(8u<<20) ||
+     uint64_t(address)+bytes>uint64_t(UINT32_MAX)+1u)return {};
+  // A hard per-guest-frame budget prevents huge duplicate uploads when the
+  // same original buffer is used by thousands of Draws.
+  uint64_t prior=g_original_capture_bytes.load(std::memory_order_relaxed);
+  do {
+    if(prior>64ull<<20 || bytes>(64ull<<20)-prior)return {};
+  } while(!g_original_capture_bytes.compare_exchange_weak(
+      prior,prior+bytes,std::memory_order_relaxed));
+  auto result=std::make_shared<OriginalGuestBufferBytes>();
+  result->guest_object=object;
+  result->guest_address=address;
+  result->guest_size=bytes;
+  result->bytes.resize(bytes);
+  if(!ReadGuest(guest_base,address,result->bytes.data(),bytes))return {};
+  return result;
 }
 bool CaptureEnabled() { return REXCVAR_GET(hulk_eor_xdk_capture); }
 std::optional<DeliveredFrame> TakeCompletedPpcFrame() {
@@ -211,6 +245,21 @@ void CapturePpcDraw(Kind kind, uint32_t guest, const PPCContext& ctx,
       }
     }
   }
+  // Only a requested direct Vulkan render performs byte-exact guest
+  // resource capture; diagnostics-only XDK observer is unaffected.
+  if(REXCVAR_GET(hulk_eor_vulkan_replay) && draw.observed_vs_matrices) {
+    try {
+      const auto& state=*draw.observed_vs_matrices;
+      draw.source_vb0=SourceGpuBuffer(
+          state.original_vertex_buffer_guest_objects[0],guest_base);
+      if(kind==Kind::DrawIndexedVertices)
+        draw.source_ib=SourceGpuBuffer(
+            state.original_index_buffer_guest_object,guest_base);
+    } catch (const std::bad_alloc&) {
+      draw.source_vb0.reset();
+      draw.source_ib.reset();
+    }
+  }
   std::lock_guard lock(g_mutex);
   g_collector.Record(draw);
 }
@@ -237,6 +286,7 @@ void EndPpcHook(native_x_renderer::Call kind) {
   {
     std::lock_guard lock(g_mutex);
     frame = g_collector.Finish();
+    g_original_capture_bytes.store(0,std::memory_order_relaxed);
     g_callsite_evidence.Observe(frame);
     if(frame.sequence<=5 || frame.sequence%600==0) {
       hot=g_callsite_evidence.HotCallsites(8);

@@ -18,6 +18,9 @@ struct UploadedNativeMesh {
   // reference only a subrange with a different signed BaseVertex. Global
   // min/max must NOT invalidate legal local subranges.
   std::vector<uint32_t> host_indices;
+  // Exact original vertex buffer bytes, retained for comparison against
+  // real live XDK objects before any EoR material/mesh GPU submission.
+  std::vector<std::byte> original_source_vertex_bytes;
   // Native float4 slots decoded from verified Xbox attribute layouts.
   std::vector<uint64_t> decoded_attribute_buffers;
   std::vector<std::array<std::byte,4>> original_attribute_declarations;

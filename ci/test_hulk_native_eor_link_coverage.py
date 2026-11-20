@@ -269,6 +269,21 @@ class NativeEorLinkCoverage(unittest.TestCase):
         self.assertIn("0x8268BFE4u",cpp)
         self.assertIn("fanGpuDraw[0].draw.index_count==6",cpp)
 
+    def test_live_original_xdk_buffer_bytes_match_original_gpu_resident_mesh(self):
+        hook=(ROOT / "native_port/src/eor_xdk_hook_bridge.cpp").read_text()
+        geom=(ROOT / "native_port/src/eor_native_draw_geometry.cpp").read_text()
+        source=(ROOT / "native_port/src/eor_native_mesh_upload.cpp").read_text()
+        test=(ROOT / "ci/eor_native_draw_geometry_test.cpp").read_text()
+        self.assertIn("SourceGpuBuffer(",hook)
+        self.assertIn("state.original_vertex_buffer_guest_objects[0]",hook)
+        self.assertIn("state.original_index_buffer_guest_object",hook)
+        self.assertIn("g_original_capture_bytes.store(0",hook)
+        self.assertIn("rec.original_source_vertex_bytes=m.original_vertex_stream;",source)
+        self.assertIn("IdentifyExactOriginalGuestMesh(",geom)
+        self.assertIn("if(be==le)continue;",geom)
+        self.assertIn("Actual original XDK buffer bytes disprove engine mesh owner",geom)
+        self.assertIn("wrongIb->bytes[0]=std::byte{0xFA};",test)
+
     def test_native_worker_fallback_only_suppressed_after_gpu_begin_attempt(self):
         bridge = (ROOT / "native_port/src/eor_aot_draw_bridge.cpp").read_text()
         worker = (ROOT / "native_port/src/eor_xdk_hook_bridge.cpp").read_text()

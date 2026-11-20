@@ -5,6 +5,59 @@
 #include <stdexcept>
 
 namespace hulk::eor::native {
+
+std::optional<ExactOriginalGuestMesh> IdentifyExactOriginalGuestMesh(
+    const xdk::RawDraw& draw,
+    std::span<const model::UploadedOriginalModel* const> residents) {
+  if(!draw.observed_vs_matrices || !draw.source_vb0)return std::nullopt;
+  const auto& state=*draw.observed_vs_matrices;
+  const auto& vb=*draw.source_vb0;
+  if(!vb.guest_object || !vb.guest_address ||
+     vb.guest_object!=state.original_vertex_buffer_guest_objects[0] ||
+     vb.bytes.empty() || vb.guest_size!=vb.bytes.size())return std::nullopt;
+  const auto indexed=xdk::DecodeOriginalIndexedXdkCall(draw);
+  const auto plain=xdk::DecodeOriginalVerticesXdkCall(draw);
+  if(!indexed && !plain)return std::nullopt;
+  const xdk::OriginalGuestBufferBytes* ib=nullptr;
+  if(indexed) {
+    if(!draw.source_ib)return std::nullopt;
+    ib=draw.source_ib.get();
+    if(!ib->guest_object || !ib->guest_address ||
+       ib->guest_object!=state.original_index_buffer_guest_object ||
+       ib->guest_size!=ib->bytes.size() || ib->bytes.size()%2u)
+      return std::nullopt;
+  }
+  std::optional<ExactOriginalGuestMesh> unique;
+  for(const auto* model:residents) {
+    if(!model || !model->original_resource_hash ||
+       model->original_identity.platform!=model::Platform::Xbox360)continue;
+    for(const auto& mesh:model->meshes.meshes()) {
+      if(mesh.original_source_vertex_bytes.size()!=vb.bytes.size() ||
+         !std::equal(mesh.original_source_vertex_bytes.begin(),
+                     mesh.original_source_vertex_bytes.end(),
+                     vb.bytes.begin()) ||
+         mesh.host_indices.size()!=mesh.index_count)continue;
+      bool big_endian=false;
+      if(ib) {
+        if(ib->bytes.size()!=mesh.host_indices.size()*2u)continue;
+        bool be=true,le=true;
+        for(size_t j=0;j<mesh.host_indices.size();++j) {
+          const auto a=uint32_t(std::to_integer<uint8_t>(ib->bytes[j*2u]));
+          const auto b=uint32_t(std::to_integer<uint8_t>(ib->bytes[j*2u+1u]));
+          be=be && ((a<<8u)|b)==mesh.host_indices[j];
+          le=le && ((b<<8u)|a)==mesh.host_indices[j];
+          if(!be && !le)break;
+        }
+        if(be==le)continue; // no ambiguous source index byte order
+        big_endian=be;
+      }
+      if(unique)return std::nullopt; // two meshes share same bytes: no owner
+      unique=ExactOriginalGuestMesh{
+          model->original_resource_hash,mesh.original_header_offset,big_endian};
+    }
+  }
+  return unique;
+}
 std::vector<aot::BoundIndexedDraw> BindVerifiedGeometryDraws(
     std::span<const VerifiedDrawSource> sources,
     std::span<const model::UploadedOriginalModel* const> residents,
@@ -360,7 +413,18 @@ std::vector<VerifiedDrawSource> ResolveCapturedResourceDraws(
   }
   // Revalidate every primitive, real source index/vertex window, shader
   // identity and owner through the existing mixed PPC native bridge.
-  return MatchCapturedMixedDraws(frame,matched,residents);
+  const auto resolved=MatchCapturedMixedDraws(frame,matched,residents);
+  for(size_t i=0;i<frame.calls.size();++i) {
+    const auto& draw=frame.calls[i];
+    if(!draw.source_vb0 ||
+       (xdk::DecodeOriginalIndexedXdkCall(draw) && !draw.source_ib))continue;
+    const auto exact=IdentifyExactOriginalGuestMesh(draw,residents);
+    if(exact && (exact->model_hash!=resolved[i].original_model_hash ||
+       exact->mesh_header_offset!=resolved[i].original_mesh_header_offset))
+      throw std::invalid_argument(
+          "Actual original XDK buffer bytes disprove engine mesh owner");
+  }
+  return resolved;
 }
 void ReplayCapturedResourceScene(
     const xdk::Frame& captured,
