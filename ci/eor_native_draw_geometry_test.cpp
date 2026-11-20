@@ -26,6 +26,7 @@ model::LoadedNativeGeometry MakeModel() {
   model::SurfaceMaterials surf;
   surf.ordinal=0;surf.original_material_name="brick";
   surf.material_data_offset=22;
+  surf.indexed_texture_references.push_back({0xBEEFu,56u,{0xBEEFu,512u,64u,0u}});
   m.original_surfaces.push_back(surf);
   model::NativeIndexedMesh mesh;
   mesh.source_header_offset=40;mesh.source_indices_offset=67;
@@ -170,6 +171,12 @@ int main(){
   valid_sampler.original_shader_fetch_slot_verified=true;
   valid_sampler.original_texture_format_and_mips_verified=true;
   original.original_sampler_slots={valid_sampler};
+  const auto identified=native::IdentifyOriginalMaterialSurface(
+      resident,original.original_sampler_slots);
+  assert(identified && *identified==0);
+  auto bad_texture=original.original_sampler_slots;
+  bad_texture[0].original_texture_hash=0xFEEDu;
+  assert(!native::IdentifyOriginalMaterialSurface(resident,bad_texture));
   const auto good=native::BindVerifiedGeometryDraws(
      std::span<const native::VerifiedDrawSource>(&original,1),models,effects);
   assert(good.size()==1 && good[0].original_samplers.size()==1 &&
@@ -223,6 +230,35 @@ int main(){
   check([](auto& v){v.original_sampler_slots[0].original_texture_hash=0;});
   check([](auto& v){v.original_sampler_slots[0].original_surface_ordinal=1;});
   check([](auto& v){v.original_sampler_slots[0].original_shader_fetch_slot_verified=false;});
+  auto twoSurfaces=MakeModel();
+  twoSurfaces.model.source.surface_records=2;
+  auto secondSurface=twoSurfaces.original_surfaces[0];
+  secondSurface.ordinal=1;
+  secondSurface.original_material_name="metal";
+  secondSurface.material_data_offset=60;
+  secondSurface.indexed_texture_references[0].original_texture_hash=0xFEEDu;
+  secondSurface.indexed_texture_references[0].original_resource.hash=0xFEEDu;
+  twoSurfaces.original_surfaces.push_back(secondSurface);
+  Fake twoGpu;
+  auto twoOwner=model::UploadOriginalModel(std::move(twoSurfaces),twoGpu);
+  std::vector<const model::UploadedOriginalModel*> twoModels{&twoOwner};
+  auto wrongMaterial=original;
+  wrongMaterial.original_surface_ordinal=1;
+  wrongMaterial.original_surface_name="metal";
+  wrongMaterial.original_sampler_slots[0].original_surface_ordinal=1;
+  Reject([&]{(void)native::BindVerifiedGeometryDraws(
+      std::span<const native::VerifiedDrawSource>(&wrongMaterial,1),
+      twoModels,effects);});
+  auto indistinguishable=MakeModel();
+  indistinguishable.model.source.surface_records=2;
+  auto clone=indistinguishable.original_surfaces[0];
+  clone.ordinal=1;clone.original_material_name="metal";
+  clone.material_data_offset=60;
+  indistinguishable.original_surfaces.push_back(clone);
+  Fake duplicateGpu;
+  auto ambiguous=model::UploadOriginalModel(std::move(indistinguishable),duplicateGpu);
+  assert(!native::IdentifyOriginalMaterialSurface(
+      ambiguous,original.original_sampler_slots));
   Reject([&]{std::vector<const model::UploadedOriginalModel*> dup{&resident,&resident};
             (void)native::BindVerifiedGeometryDraws(
                 std::span<const native::VerifiedDrawSource>(&original,1),dup,effects);});

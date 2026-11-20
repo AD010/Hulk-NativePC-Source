@@ -299,6 +299,15 @@ class NativeEorLinkCoverage(unittest.TestCase):
         self.assertIn("distinctShaderObjects.original_vs_guest_object^=4u;",cpp)
         self.assertIn("std::map<std::pair<Digest,Digest>,OriginalEffectPass> reverse_",header)
 
+    def test_verified_material_texture_owner_matches_original_surface(self):
+        geometry=(ROOT / "native_port/src/eor_native_draw_geometry.cpp").read_text()
+        cpp=(ROOT / "ci/eor_native_draw_geometry_test.cpp").read_text()
+        self.assertIn("IdentifyOriginalMaterialSurface(",geometry)
+        self.assertIn("surface.indexed_texture_references",geometry)
+        self.assertIn("Original static material textures disprove live EoR surface owner",geometry)
+        self.assertIn("wrongMaterial.original_surface_name=",cpp)
+        self.assertIn("ambiguous,original.original_sampler_slots",cpp)
+
     def test_native_worker_fallback_only_suppressed_after_gpu_begin_attempt(self):
         bridge = (ROOT / "native_port/src/eor_aot_draw_bridge.cpp").read_text()
         worker = (ROOT / "native_port/src/eor_xdk_hook_bridge.cpp").read_text()

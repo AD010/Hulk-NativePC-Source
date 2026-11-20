@@ -124,6 +124,37 @@ void ValidateLiveOriginalShaderPasses(
           "Same live XDK PS guest object claimed two original source shaders");
   }
 }
+std::optional<uint32_t> IdentifyOriginalMaterialSurface(
+    const model::UploadedOriginalModel& model,
+    std::span<const gpu::VerifiedEorSampler> samplers) noexcept {
+  if(!model.original_resource_hash || samplers.empty())
+    return std::nullopt;
+  for(const auto& sampler:samplers)
+    if(sampler.original_model_hash!=model.original_resource_hash ||
+       !sampler.original_texture_hash ||
+       !sampler.original_material_ownership_verified ||
+       !sampler.original_shader_fetch_slot_verified ||
+       !sampler.original_texture_format_and_mips_verified)
+      return std::nullopt;
+  std::optional<uint32_t> unique;
+  for(const auto& surface:model.original_surface_candidates) {
+    bool all_found=true;
+    for(const auto& sampler:samplers) {
+      bool found=false;
+      for(const auto& indexed:surface.indexed_texture_references)
+        if(indexed.original_texture_hash==sampler.original_texture_hash &&
+           indexed.original_resource.hash==sampler.original_texture_hash &&
+           indexed.original_resource.size && !indexed.original_resource.reserved) {
+          found=true;break;
+        }
+      if(!found) {all_found=false;break;}
+    }
+    if(!all_found)continue;
+    if(unique)return std::nullopt;
+    unique=surface.ordinal;
+  }
+  return unique;
+}
 std::vector<aot::BoundIndexedDraw> BindVerifiedGeometryDraws(
     std::span<const VerifiedDrawSource> sources,
     std::span<const model::UploadedOriginalModel* const> residents,
@@ -188,6 +219,12 @@ std::vector<aot::BoundIndexedDraw> BindVerifiedGeometryDraws(
        int64_t(*range.second)+src.host_base_vertex >= mesh->vertex_count)
       throw std::invalid_argument("Source-proven EoR Draw index window exceeds host vertices");
     gpu::ValidateOriginalEorSamplers(src.original_sampler_slots);
+    const auto archive_material_surface=IdentifyOriginalMaterialSurface(
+        *model,src.original_sampler_slots);
+    if(archive_material_surface &&
+       *archive_material_surface!=src.original_surface_ordinal)
+      throw std::invalid_argument(
+          "Original static material textures disprove live EoR surface owner");
     for (const auto& sampler:src.original_sampler_slots)
       if (sampler.original_model_hash!=src.original_model_hash ||
           sampler.original_surface_ordinal!=src.original_surface_ordinal ||

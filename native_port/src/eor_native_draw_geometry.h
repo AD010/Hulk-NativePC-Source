@@ -109,6 +109,11 @@ void ValidateLiveOriginalShaderPasses(
     const xdk::Frame& original_frame,
     std::span<const VerifiedDrawSource> original_draws,
     const aot::EffectCatalog& effects);
+// Material surface identity from independently verified source shader sampler
+// texture hashes and exact original indexed EoR model material records.
+std::optional<uint32_t> IdentifyOriginalMaterialSurface(
+    const model::UploadedOriginalModel& original_model,
+    std::span<const gpu::VerifiedEorSampler> live_sampler_evidence) noexcept;
 struct VerifiedXdkResourceWitness {
   OriginalXdkResourceIdentity original_resources;
   VerifiedXdkDrawSubmission original_source_submission;
