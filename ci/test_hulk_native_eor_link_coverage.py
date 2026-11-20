@@ -147,6 +147,16 @@ class NativeEorLinkCoverage(unittest.TestCase):
         self.assertIn("if(!used_slots[i])return false;", helper,
                       "No unexplained source GPU buffers may enter a verified Draw")
         self.assertIn("layout.size()>DILIGENT_MAX_LAYOUT_ELEMENTS", helper)
+        # The constructor and preflight must agree with live DrawIndexed:
+        # one source-proven GPU buffer can supply multiple vertex attributes.
+        constructor = backend.split("DiligentEorDirectBackend::DiligentEorDirectBackend(", 1)[1]
+        constructor = constructor.split("DiligentEorDirectBackend::~DiligentEorDirectBackend(", 1)[0]
+        self.assertNotIn("(used_slots & (1u << v.BufferSlot))", constructor)
+        self.assertIn("(used_slots & (used_slots+1u))!=0", constructor)
+        preflight = backend.split("bool DiligentEorDirectBackend::PreflightOriginalScene(", 1)[1]
+        preflight = preflight.split("bool DiligentEorDirectBackend::BeginScene(", 1)[0]
+        self.assertIn("!HasExactSourceVertexSlots(", preflight)
+        self.assertNotIn("mesh->second.host_vertex_slots.size()!=", preflight)
 
 
     def test_live_draw_vertex_slot_count_cannot_overrun_host_arrays(self):

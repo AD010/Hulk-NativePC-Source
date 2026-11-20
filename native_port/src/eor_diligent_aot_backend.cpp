@@ -344,7 +344,7 @@ DiligentEorDirectBackend::DiligentEorDirectBackend(
       throw std::invalid_argument("Native Vulkan PSO format/sample contract disagrees with scene");
     uint32_t used_slots=0;
     for(const auto& v:pass.exact_host_input_layout) {
-      if(v.BufferSlot>=16 || (used_slots & (1u << v.BufferSlot)) ||
+      if(v.BufferSlot>=16 ||
          v.ValueType!=Diligent::VT_FLOAT32 ||
          v.Frequency!=Diligent::INPUT_ELEMENT_FREQUENCY_PER_VERTEX ||
          (v.RelativeOffset!=0 &&
@@ -358,9 +358,13 @@ DiligentEorDirectBackend::DiligentEorDirectBackend(
         throw std::invalid_argument("EoR host position buffer requires float3 XYZ");
       used_slots |= 1u << v.BufferSlot;
     }
-    const uint32_t count=static_cast<uint32_t>(pass.exact_host_input_layout.size());
-    if(count==0 || count>16 || used_slots!=((1u << count)-1u))
-      throw std::invalid_argument("EoR shader vertex inputs have gaps/duplicates");
+    const uint32_t attributes=static_cast<uint32_t>(pass.exact_host_input_layout.size());
+    // Input layouts count attributes; SetVertexBuffers counts unique streams.
+    // Several source-verified attributes may point to the same BufferSlot.
+    // The resident slots must still be contiguous with no missing owners.
+    if(attributes==0 || attributes>16 || used_slots==0 ||
+       (used_slots & (used_slots+1u))!=0)
+      throw std::invalid_argument("EoR shader vertex inputs have noncontiguous resident streams");
     if(!effects.HasPair(pass.original_effect_hash,pass.original_pass_index,
                         pass.original_vertex_shader_sha256,
                         pass.original_pixel_shader_sha256))
@@ -672,8 +676,9 @@ bool DiligentEorDirectBackend::PreflightOriginalScene(
        mesh->second.original_mesh_header_offset!=
            item.original_mesh_header_offset ||
        mesh->second.index_handle!=d.index_buffer ||
-       mesh->second.host_vertex_slots.size()!=
-           selected->pipeline.exact_host_input_layout.size() ||
+       !HasExactSourceVertexSlots(
+           selected->pipeline.exact_host_input_layout,
+           mesh->second.host_vertex_slots) ||
        !s.meshes.IndexWindowInRange(d.index_buffer,d.first_index,
                                     d.index_count,d.base_vertex,
                                     mesh->second.vertex_count))
