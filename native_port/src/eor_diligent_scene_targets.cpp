@@ -133,8 +133,10 @@ bool DiligentSceneTargets::BeginScene() {
     auto* rtv=state_->color->GetDefaultView(Diligent::TEXTURE_VIEW_RENDER_TARGET);
     auto* dsv=state_->depth->GetDefaultView(Diligent::TEXTURE_VIEW_DEPTH_STENCIL);
     if(!rtv || !dsv)return false;
-    state_->context->SetRenderTargets(1,&rtv,dsv,Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+    // A driver may bind the target and then throw (device loss/resize).
+    // Record ownership first so AbortScene always attempts to detach it.
     state_->bound=true;
+    state_->context->SetRenderTargets(1,&rtv,dsv,Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
     // Diligent's viewport constructor takes (left,top,width,height).
     // Passing just physical width/height must never be interpreted as a
     // top-left coordinate and lose the real screen-sized Vulkan viewport.

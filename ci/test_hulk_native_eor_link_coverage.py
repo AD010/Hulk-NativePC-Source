@@ -142,6 +142,20 @@ class NativeEorLinkCoverage(unittest.TestCase):
                         "A failing Draw must consume previous material/matrix bindings")
         self.assertIn("!source_bindings_ready", draw)
 
+    def test_live_vulkan_begin_scene_detaches_after_partial_bind_failure(self):
+        source = (ROOT / "native_port" / "src" /
+                  "eor_diligent_scene_targets.cpp").read_text(encoding="utf-8")
+        begin = source.split("bool DiligentSceneTargets::BeginScene() {", 1)[1]
+        begin = begin.split("bool DiligentSceneTargets::ClearVerifiedOriginalXdk(", 1)[0]
+        abort = source.split("void DiligentSceneTargets::AbortScene() noexcept {", 1)[1]
+        abort = abort.split("void DiligentSceneTargets::Reset() noexcept {", 1)[0]
+        self.assertLess(begin.index("state_->bound=true;"),
+                        begin.index("state_->context->SetRenderTargets(1,"),
+                        "Even a partially successful, throwing Vulkan bind must be detached")
+        self.assertIn("catch (...) {AbortScene();return false;}", begin)
+        self.assertIn("if (state_->bound)", abort)
+        self.assertIn("state_->context->SetRenderTargets(0,nullptr,nullptr,", abort)
+
     def test_live_vulkan_resolve_waits_for_original_source_resolve(self):
         backend = (ROOT / "native_port" / "src" /
                    "eor_diligent_aot_backend.cpp").read_text(encoding="utf-8")
