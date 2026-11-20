@@ -345,6 +345,37 @@ bool InstallVerifiedWorkerEorFrame(
   g_verified_worker_frame=std::move(complete);
   return true;
 }
+bool InstallVerifiedWorkerEorFrameWithResidents(
+    std::shared_ptr<const VerifiedWorkerEorFrame> frame,
+    const native::VerifiedOriginalResidentLookup& lookup) {
+  if(!frame || !frame->original_frame_sequence ||
+     frame->witnesses.empty() || !lookup)
+    return false;
+  std::shared_ptr<const Frame> source;
+  {
+    std::lock_guard lock(g_mutex);
+    source=g_frames_for_native.Peek();
+    if(!source || source->sequence!=frame->original_frame_sequence ||
+       g_frames_for_native.MissedSinceTake()!=0)
+      return false;
+  }
+  try {
+    // Original EoR model/mesh/surface owner must already have been proven
+    // by actual engine ABI. This stage uses the existing USA archive stream
+    // GPU buffers, not reconstructed or guessed XDK shader state.
+    auto residents=native::RetainVerifiedOriginalFrameResidents(
+        *source,frame->witnesses,lookup);
+    if(residents.empty())return false;
+    auto complete=std::make_shared<VerifiedWorkerEorFrame>(*frame);
+    complete->residents=std::move(residents);
+    // A newer XDK Present can replace source while retrieving models.
+    // Leave the final exact frame check to TryWorkerEorFrame and replay.
+    return InstallVerifiedWorkerEorFrame(std::move(complete));
+  } catch (...) {
+    // No GPU work started. Keep the established NativeX presentation.
+    return false;
+  }
+}
 void ClearVerifiedWorkerEorFrame() noexcept {
   std::lock_guard lock(g_mutex);
   g_verified_worker_frame.reset();

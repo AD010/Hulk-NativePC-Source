@@ -294,6 +294,25 @@ class NativeEorLinkCoverage(unittest.TestCase):
         self.assertNotIn("ReplayAotScene(", app,
                          "A bank without verified EoR draw ABI is NOT a real game frame")
 
+    def test_verified_original_models_are_handed_to_live_vulkan_worker(self):
+        bridge=(ROOT / "native_port/src/eor_xdk_hook_bridge.cpp").read_text()
+        header=(ROOT / "native_port/src/eor_xdk_hook_bridge.h").read_text()
+        source=(ROOT / "native_port/src/eor_native_draw_geometry.cpp").read_text()
+        streamer=(ROOT / "native_port/src/eor_native_world_stream.cpp").read_text()
+        fn=bridge.split("bool InstallVerifiedWorkerEorFrameWithResidents(",1)[1]
+        fn=fn.split("void ClearVerifiedWorkerEorFrame()",1)[0]
+        self.assertIn("InstallVerifiedWorkerEorFrameWithResidents(", header)
+        self.assertIn("native::RetainVerifiedOriginalFrameResidents(", fn)
+        self.assertIn("g_frames_for_native.Peek()", fn)
+        self.assertIn("source->sequence!=frame->original_frame_sequence", fn)
+        self.assertIn("complete->residents=std::move(residents)", fn)
+        self.assertIn("InstallVerifiedWorkerEorFrame(std::move(complete))", fn)
+        self.assertIn("ResolveCapturedResourceDraws(frame,witnesses,borrowed)", source)
+        self.assertIn("std::shared_ptr<const model::UploadedOriginalModel>", source)
+        self.assertIn("ResidentShared(uint32_t hash)", streamer)
+        self.assertLess(fn.index("native::RetainVerifiedOriginalFrameResidents("),
+                        fn.index("InstallVerifiedWorkerEorFrame(std::move(complete))"))
+
     def test_private_shader_pack_reaches_existing_gpu_worker(self):
         game = (ROOT / "native_port/src/incredible_hulk_app.h").read_text()
         bridge = (ROOT / "native_port/src/eor_xdk_hook_bridge.cpp").read_text()

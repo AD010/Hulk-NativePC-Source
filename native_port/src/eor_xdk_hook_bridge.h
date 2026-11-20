@@ -58,6 +58,14 @@ void ClearVerifiedSourceShaderPack() noexcept;
 // The backend MUST use BindNativeEorVulkanBackbuffer, not Present itself.
 bool InstallVerifiedWorkerEorFrame(
     std::shared_ptr<const VerifiedWorkerEorFrame> frame);
+// A real original EoR Draw owner can now supply only its authenticated
+// XDK resource witnesses and an existing NativeWorldStream::ResidentShared
+// lookup: retain matching, fully uploaded Xbox model buffers from the
+// same captured Present. No archive or shader source is guessed here.
+// Invoke after USA Present capture, before the sole Vulkan worker's frame.
+bool InstallVerifiedWorkerEorFrameWithResidents(
+    std::shared_ptr<const VerifiedWorkerEorFrame> frame,
+    const native::VerifiedOriginalResidentLookup& lookup);
 void ClearVerifiedWorkerEorFrame() noexcept;
 native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(
     native_x_renderer::Device& device) noexcept;
