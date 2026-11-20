@@ -57,6 +57,27 @@ bool HasExactSourceSamplerBijection(
   }
   return matched.size()==resident.size();
 }
+// A Diligent input layout describes ATTRIBUTES, not unique GPU buffers.
+// Position/normal/UV may all share an original vertex stream. Require every
+// resident decoded stream to have an exact source-proven attribute owner,
+// while safely allowing repeated references to the same BufferSlot.
+bool HasExactSourceVertexSlots(
+    std::span<const Diligent::LayoutElement> layout,
+    std::span<const uint64_t> slots) {
+  if(slots.empty() || slots.size()>DILIGENT_MAX_LAYOUT_ELEMENTS ||
+     slots.size()>16 || layout.empty() ||
+     layout.size()>DILIGENT_MAX_LAYOUT_ELEMENTS)
+    return false;
+  std::array<bool,16> used_slots{};
+  for(const auto& item:layout) {
+    if(item.BufferSlot>=slots.size() || !slots[item.BufferSlot])
+      return false;
+    used_slots[item.BufferSlot]=true;
+  }
+  for(size_t i=0;i<slots.size();++i)
+    if(!used_slots[i])return false;
+  return true;
+}
 }
 std::vector<NativeEorPassResources> AcquireVerifiedNativeMaterialPasses(
     std::span<const VerifiedNativeMaterialPass> verified,
@@ -862,14 +883,9 @@ bool DiligentEorDirectBackend::DrawIndexed(const native::IndexedDraw& draw) {
     return false;
   const auto& slots=resident.host_vertex_slots;
   const auto& layout=s.selected->pipeline.exact_host_input_layout;
-  if(slots.size()!=layout.size() || slots.empty() ||
-     slots.size()>DILIGENT_MAX_LAYOUT_ELEMENTS || slots.size()>16)
-    return false;
-  // Every bound slot must be source-decoded; no unconverted BE attributes,
-  // missing slots, or silent host default vertex layout.
-  for(const auto& item:layout)
-    if(item.BufferSlot>=slots.size() || !slots[item.BufferSlot])
-      return false;
+  // Several source-proven attributes can share one resident GPU stream.
+  // Still reject absent, extra or out-of-range original buffer slots.
+  if(!HasExactSourceVertexSlots(layout,slots))return false;
   std::array<Diligent::IBuffer*,16> buffers{};
   std::array<Diligent::Uint64,16> offsets{};
   for(size_t i=0;i<slots.size();++i) {

@@ -105,6 +105,24 @@ class NativeEorLinkCoverage(unittest.TestCase):
         self.assertIn("s.material_lookup.find(", bind_effect)
         self.assertIn("s.selected=item->second;", bind_effect)
 
+    def test_live_draw_accepts_multiple_attributes_per_original_vertex_stream(self):
+        backend = (ROOT / "native_port" / "src" /
+                   "eor_diligent_aot_backend.cpp").read_text(encoding="utf-8")
+        draw = backend.split("bool DiligentEorDirectBackend::DrawIndexed(", 1)[1]
+        draw = draw.split("bool DiligentEorDirectBackend::ResolveScene(", 1)[0]
+        helper = backend.split("bool HasExactSourceVertexSlots(", 1)[1]
+        helper = helper.split("\n}", 1)[0]
+        self.assertNotIn("slots.size()!=layout.size()", draw,
+                         "Layout elements are attributes, not distinct GPU streams")
+        self.assertIn("HasExactSourceVertexSlots(layout,slots)", draw)
+        self.assertIn("std::array<bool,16> used_slots{}", helper)
+        self.assertIn("used_slots[item.BufferSlot]=true;", helper)
+        self.assertIn("if(item.BufferSlot>=slots.size() || !slots[item.BufferSlot])", helper)
+        self.assertIn("if(!used_slots[i])return false;", helper,
+                      "No unexplained source GPU buffers may enter a verified Draw")
+        self.assertIn("layout.size()>DILIGENT_MAX_LAYOUT_ELEMENTS", helper)
+
+
     def test_live_draw_vertex_slot_count_cannot_overrun_host_arrays(self):
         backend = (ROOT / "native_port" / "src" /
                    "eor_diligent_aot_backend.cpp").read_text(encoding="utf-8")
