@@ -313,6 +313,14 @@ class NativeEorLinkCoverage(unittest.TestCase):
         self.assertIn("Result::kFailedAfterGpu", worker)
         self.assertIn("Result::kNotReady", worker)
         self.assertIn("ready->witnesses,ready->output,residents,", worker)
+        self.assertIn("original_frame_sequence", header)
+        self.assertIn("source_sequence!=ready->original_frame_sequence", worker)
+        self.assertIn("original.native_draw.original_frame_sequence ==", hook)
+        self.assertLess(worker.index("preview.reset();"),
+                        worker.index("(void)g_frames_for_native.TakeIfSequence(source_sequence)"))
+        self.assertLess(worker.index("g_frames_for_native.TakeIfSequence(source_sequence)"),
+                        worker.index("ReplayNextVerifiedPpcFrame("))
+        self.assertNotIn("if(lost)return Result::kNotReady", worker)
         self.assertIn("native_x_renderer::SetHulkEorPresentCallback(nullptr);", app)
         self.assertIn("ClearVerifiedWorkerEorFrame();", app)
 

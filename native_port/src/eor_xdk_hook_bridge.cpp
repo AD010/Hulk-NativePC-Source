@@ -14,6 +14,7 @@
 #include <memory>
 #include <new>
 #include <utility>
+#include <variant>
 #ifdef _WIN32
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -271,7 +272,8 @@ void EndPpcHook(native_x_renderer::Call kind) {
 }
 bool InstallVerifiedWorkerEorFrame(
     std::shared_ptr<const VerifiedWorkerEorFrame> frame) {
-  if(!frame || !frame->device || !frame->output.direct_engine_path_ready ||
+  if(!frame || !frame->original_frame_sequence || !frame->device ||
+     !frame->output.direct_engine_path_ready ||
      !native::HasFullNativeCompositePixels(
         frame->output.world,frame->output.composite,frame->output.backbuffer) ||
      frame->witnesses.empty() || frame->residents.empty() ||
@@ -283,6 +285,13 @@ bool InstallVerifiedWorkerEorFrame(
     return false;
   for(const auto& model:frame->residents)
     if(!model || !model->original_resource_hash)return false;
+  for(const auto& witness:frame->witnesses) {
+    const bool same_frame=std::visit([&](const auto& original) {
+      return original.native_draw.original_frame_sequence ==
+          frame->original_frame_sequence;
+    },witness.original_source_submission);
+    if(!same_frame)return false;
+  }
   std::lock_guard lock(g_mutex);
   g_verified_worker_frame=std::move(frame);
   return true;
@@ -297,15 +306,25 @@ native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(
   if(!CaptureEnabled() || !REXCVAR_GET(hulk_eor_vulkan_replay))
     return Result::kNotReady;
   std::shared_ptr<const VerifiedWorkerEorFrame> ready;
-  bool pending=false;
-  bool lost=false;
+  uint64_t source_sequence=0;
   {
     std::lock_guard lock(g_mutex);
     ready=g_verified_worker_frame;
-    pending=bool(g_frames_for_native.Peek());
-    lost=g_frames_for_native.MissedSinceTake()!=0;
+    if(!ready)return Result::kNotReady;
+    auto preview=g_frames_for_native.Peek();
+    if(!preview)return Result::kNotReady;
+    source_sequence=preview->sequence;
+    if(g_frames_for_native.MissedSinceTake()) {
+      // A dropped mailbox epoch is never permitted to touch Vulkan.
+      // Discard it atomically while still under the original Present lock,
+      // release the temporary preview first, and let the NEXT frame compete.
+      preview.reset();
+      (void)g_frames_for_native.TakeIfSequence(source_sequence);
+      return Result::kNotReady;
+    }
   }
-  if(!ready || !pending || ready->device!=&host || !host.swap_chain())
+  if(source_sequence!=ready->original_frame_sequence ||
+     ready->device!=&host || !host.swap_chain())
     return Result::kNotReady;
   const auto& desc=host.swap_chain()->GetDesc();
   if(desc.Width!=ready->output.backbuffer.width ||
@@ -321,7 +340,6 @@ native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(
     const bool submitted=ReplayNextVerifiedPpcFrame(
         ready->witnesses,ready->output,residents,
         *ready->shaders,*ready->effects,*ready->reflection,*ready->gpu);
-    if(lost)return Result::kNotReady; // stale mailbox epoch was discarded pre-GPU
     return submitted ? Result::kBackbufferReady : Result::kFailedAfterGpu;
   } catch (...) {
     // An exception after GPU state changes cannot fall back to a second

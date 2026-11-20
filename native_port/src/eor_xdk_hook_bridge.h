@@ -30,6 +30,9 @@ bool ReplayNextVerifiedPpcFrame(
 // All host buffers/PSO/SRV references and their source owners must stay live
 // until the GPU completion fence; a missing producer means NativeX fallback.
 struct VerifiedWorkerEorFrame {
+  // Immutable original USA Present sequence. Never replay resources or
+  // materials from a different frame after an asynchronous GPU worker delay.
+  uint64_t original_frame_sequence=0;
   native_x_renderer::Device* device=nullptr;
   native::FrameGeometry output{};
   std::vector<native::VerifiedXdkResourceWitness> witnesses;
