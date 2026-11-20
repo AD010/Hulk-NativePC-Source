@@ -865,6 +865,31 @@ HRESULT STDMETHODCALLTYPE OnSampler(IDirect3DDevice9* dev,DWORD sampler,
     if(trackMip)mipPointRequested[sampler]=pointRequested;
     if(trackMin)minLinearRequested[sampler]=linearRequested;
   }
+  // An earlier texture may have used our anisotropic MIN override. When the
+  // game next requests LINEAR but the new binding does not support AF, the
+  // normal SetSamplerState succeeds without entering the AF path above.
+  // Retire our MAX override here as well, not just on non-LINEAR requests.
+  // Otherwise an old forced maximum leaks into the new texture's sampler.
+  if(SUCCEEDED(hr) && trackMin && linearRequested) {
+    bool overridden=false;
+    DWORD originalMaximum=0;
+    {
+      std::lock_guard lock(mipMutex);
+      overridden=afMaximumOverridden[sampler];
+      originalMaximum=afOriginalMaximum[sampler];
+    }
+    if(overridden) {
+      const HRESULT restoreHr=realSampler(
+          dev,sampler,D3DSAMP_MAXANISOTROPY,originalMaximum);
+      if(SUCCEEDED(restoreHr)) {
+        std::lock_guard lock(mipMutex);
+        afMaximumOverridden[sampler]=false;
+      } else {
+        Log("[D3D9] AF maximum restore on unsupported LINEAR failed stage=%lu hr=0x%08lX\r\n",
+            (unsigned long)sampler,(unsigned long)(unsigned int)restoreHr);
+      }
+    }
+  }
   return hr;
 }
 } // namespace
