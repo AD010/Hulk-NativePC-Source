@@ -44,6 +44,113 @@ def patch_text(source: str) -> tuple[str, bool]:
     return source.replace(OLD, NEW), True
 
 
+
+# Only the pinned NativeX Vulkan worker owns Device/SwapChain. The Hulk
+# original EoR renderer can replace ONE display frame there, not from PPC
+# EndPpcHook or UI OnPostSetup. This opt-in callback is *not* registered until
+# verified game meshes/materials/camera and an actual EoR backend exist.
+# No callback: NativeX behavior is byte-for-byte unchanged.
+def checked(source: str, before: str, after: str, name: str) -> tuple[str,bool]:
+    if source.count(after) == 1:
+        return source,False
+    if source.count(before) != 1:
+        raise ValueError("Pinned NativeX " + name + " source anchor changed")
+    return source.replace(before,after),True
+
+
+API_BEFORE = "namespace native_x_renderer {\n"
+API_AFTER = API_BEFORE + """// A game-specific, opt-in full-original-scene compositor on the EXISTING
+// NativeX Vulkan render worker. kNotReady MUST NOT touch any GPU state.
+// kBackbufferReady already drew the entire host backbuffer but MUST NOT
+// Present; the worker runs overlays and the only physical Present.
+// kFailedAfterGpu never falls back to an unrelated Xenos/NativeX image.
+class Device;
+enum class HulkEorPresentResult : uint8_t {
+  kNotReady, kBackbufferReady, kFailedAfterGpu
+};
+using HulkEorPresentCallback = HulkEorPresentResult (*)(Device&) noexcept;
+void SetHulkEorPresentCallback(HulkEorPresentCallback callback) noexcept;
+
+"""
+INTERNAL_BEFORE = "void OnFrameEnd(uint32_t frame);\n"
+INTERNAL_AFTER = INTERNAL_BEFORE + """// Used only from native_x_renderer::SetHulkEorPresentCallback.
+void SetHulkEorPresentCallback(HulkEorPresentCallback callback) noexcept;
+"""
+DISPATCH_BEFORE = "bool Renders() { return g_renderer; }\n"
+DISPATCH_AFTER = DISPATCH_BEFORE + """
+void SetHulkEorPresentCallback(HulkEorPresentCallback callback) noexcept {
+  renderer::SetHulkEorPresentCallback(callback);
+}
+"""
+WORKER_DEVICE_BEFORE = "std::unique_ptr<Device> g_device;"
+WORKER_DEVICE_AFTER = WORKER_DEVICE_BEFORE + """
+// Written before guest rendering starts, read only by the Vulkan worker.
+std::atomic<HulkEorPresentCallback> g_hulk_eor_present{nullptr};"""
+WORKER_SETTER_BEFORE = "bool Initialize(const Profile& profile, rex::system::IGraphicsSystem* graphics, rex::ui::Window* window,"
+WORKER_SETTER_AFTER = """void SetHulkEorPresentCallback(HulkEorPresentCallback callback) noexcept {
+  g_hulk_eor_present.store(callback, std::memory_order_release);
+}
+
+""" + WORKER_SETTER_BEFORE
+WORKER_PRESENT_BEFORE = "  FrameImage* image = with_swap ? NextFrameImage() : nullptr;"
+WORKER_PRESENT_AFTER = """  // Exact source-proven EoR ownership can replace ONE native display
+  // frame on this Vulkan worker. Never run the callback from PPC guest hooks,
+  // with pending guest-swap frames or while frame generation is active.
+  // The callback does not call Present: FinishPresent does that once here.
+  if (!g_present_with_swaps && !g_frame_generation) {
+    auto callback = g_hulk_eor_present.load(std::memory_order_acquire);
+    if (callback) {
+      const HulkEorPresentResult result = callback(*g_device);
+      if (result != HulkEorPresentResult::kNotReady) {
+        if (g_draw) g_draw->TargetsChanged();
+        if (result == HulkEorPresentResult::kBackbufferReady) {
+          // Exactly one host Present, plus the existing SDK diagnostics UI.
+          auto* back = g_device->swap_chain()->GetCurrentBackBufferRTV();
+          if (back) {
+            g_overlay.Present(g_device->context(), back,
+                              desc.Width, desc.Height, g_window);
+            FinishPresent();
+          } else {
+            g_timer.End(g_device->context());
+            g_device->FinishHiddenFrame();
+            g_timer.Begin(g_device->context());
+          }
+        } else {
+          // The EoR backend may have already touched Vulkan resources.
+          // Never compose NativeX's PM4 front buffer as a fallback.
+          g_timer.End(g_device->context());
+          g_device->FinishHiddenFrame();
+          g_timer.Begin(g_device->context());
+        }
+        return;
+      }
+    }
+  }
+""" + WORKER_PRESENT_BEFORE
+
+
+def patch_worker_sources(contents: dict[str,str]) -> dict[str,str]:
+    expected = {
+        "include/native_x_renderer/native_x_renderer.h": [(API_BEFORE,API_AFTER)],
+        "src/renderer.h": [(INTERNAL_BEFORE,INTERNAL_AFTER)],
+        "src/native_x_renderer.cpp": [(DISPATCH_BEFORE,DISPATCH_AFTER)],
+        "src/renderer.cpp": [
+            ("#include <algorithm>\n", "#include <atomic>\n#include <algorithm>\n"),
+            (WORKER_DEVICE_BEFORE,WORKER_DEVICE_AFTER),
+            (WORKER_SETTER_BEFORE,WORKER_SETTER_AFTER),
+            (WORKER_PRESENT_BEFORE,WORKER_PRESENT_AFTER),
+        ],
+    }
+    # Validate ALL pinned anchors before writing a single upstream file.
+    updated = dict(contents)
+    for file, operations in expected.items():
+        if file not in updated:
+            raise ValueError("Missing pinned upstream NativeX file: " + file)
+        for before, after in operations:
+            updated[file], _ = checked(updated[file],before,after,file)
+    return updated
+
+
 def main() -> None:
     if len(sys.argv) != 2:
         raise SystemExit("usage: patch_native_x_hulk_present_semantics.py <NativeXRenderer checkout>")
@@ -53,9 +160,20 @@ def main() -> None:
         raise ValueError(f"Unexpected NativeXRenderer revision {sha}, expected {PIN}")
     target = root / "src" / "renderer.cpp"
     updated, changed = patch_text(target.read_text(encoding="utf-8"))
-    if changed:
-        target.write_text(updated, encoding="utf-8", newline="\n")
-    print("NativeX Hulk Swap frame-end:", "telemetry patched" if changed else "already patched")
+    files = [
+        "include/native_x_renderer/native_x_renderer.h",
+        "src/renderer.h", "src/native_x_renderer.cpp", "src/renderer.cpp",
+    ]
+    originals = {name:(root/name).read_text(encoding="utf-8") for name in files}
+    originals["src/renderer.cpp"] = updated
+    patched = patch_worker_sources(originals)
+    # Mutate only after every source file passed pinned revision and anchors.
+    for name in files:
+        if patched[name] != (root/name).read_text(encoding="utf-8"):
+            (root/name).write_text(patched[name],encoding="utf-8",newline="\n")
+    print("NativeX Hulk Swap frame-end:",
+          "telemetry patched" if changed else "already patched",
+          "; EoR Vulkan worker callback ready (unregistered until source proof)")
 
 
 if __name__ == "__main__":
