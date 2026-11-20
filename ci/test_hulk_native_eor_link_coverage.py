@@ -156,6 +156,29 @@ class NativeEorLinkCoverage(unittest.TestCase):
         self.assertIn("if (state_->bound)", abort)
         self.assertIn("state_->context->SetRenderTargets(0,nullptr,nullptr,", abort)
 
+    def test_native_eor_one_present_attempt_per_source_frame(self):
+        backend = (ROOT / "native_port" / "src" /
+                   "eor_diligent_aot_backend.cpp").read_text(encoding="utf-8")
+        self.assertIn("bool composite_attempted=false;", backend)
+        for name, end in (("BeginScene", "AbortScene"),
+                          ("AbortScene", "BindOriginalSurface")):
+            segment = backend.split(
+                f"void DiligentEorDirectBackend::{name}(", 1)[1] if name == "AbortScene" else backend.split(
+                "bool DiligentEorDirectBackend::BeginScene(", 1)[1]
+            segment = segment.split(f"DiligentEorDirectBackend::{end}(", 1)[0]
+            self.assertIn("s.composite_attempted=false;", segment)
+        present = backend.split(
+            "bool DiligentEorDirectBackend::Composite(", 1)[1]
+        self.assertIn("s.composite_attempted ||", present)
+        self.assertLess(present.index("s.composite_attempted ||"),
+                        present.index("s.scene.ResolvedColorSRV()"))
+        self.assertLess(present.index("if(!image)return false;"),
+                        present.index("s.composite_attempted=true;"))
+        self.assertLess(present.index("s.composite_attempted=true;"),
+                        present.index("s.composite(image,dest,output)"))
+        self.assertLess(present.index("s.composite(image,dest,output)"),
+                        present.index("s.scene_open=false;"))
+
     def test_live_vulkan_resolve_waits_for_original_source_resolve(self):
         backend = (ROOT / "native_port" / "src" /
                    "eor_diligent_aot_backend.cpp").read_text(encoding="utf-8")

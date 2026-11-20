@@ -210,6 +210,8 @@ struct DiligentEorDirectBackend::State {
   bool source_timeline_active=false;
   bool source_resolve_recorded=false;
   bool source_present_recorded=false;
+  // One source frame can authorize at most one physical host Present attempt.
+  bool composite_attempted=false;
 };
 DiligentEorDirectBackend::DiligentEorDirectBackend(
     Diligent::IRenderDevice* device,Diligent::IDeviceContext* context,
@@ -710,6 +712,7 @@ bool DiligentEorDirectBackend::BeginScene(native::Size world,uint32_t samples) {
   s.source_timeline_active=false;
   s.source_resolve_recorded=false;
   s.source_present_recorded=false;
+  s.composite_attempted=false;
   s.requested_model=0;s.requested_surface=UINT32_MAX;s.surface_ready=false;
   s.constants_ready=s.program_ready=s.textures_ready=false;
   return true;
@@ -725,6 +728,7 @@ void DiligentEorDirectBackend::AbortScene() noexcept {
   s.source_timeline_active=false;
   s.source_resolve_recorded=false;
   s.source_present_recorded=false;
+  s.composite_attempted=false;
   s.requested_model=0;s.requested_surface=UINT32_MAX;s.surface_ready=false;
   s.constants_ready=s.program_ready=s.textures_ready=false;
 }
@@ -957,12 +961,17 @@ bool DiligentEorDirectBackend::ResolveScene(native::Size physical) {
 }
 bool DiligentEorDirectBackend::Composite(native::Rect dest,native::Size output) {
   auto& s=*state_;
-  if(!s.scene_open || !s.finished ||
+  if(!s.scene_open || !s.finished || s.composite_attempted ||
      (s.source_timeline_active && !s.source_present_recorded) ||
      !Same(dest,s.frame.composite) || !Same(output,s.frame.backbuffer))
     return false;
   auto* image=s.scene.ResolvedColorSRV();
-  if(!image || !s.composite(image,dest,output))return false;
+  if(!image)return false;
+  // Present may have been queued even if the callback throws or reports a
+  // lost device. Consume authorization before entering external GPU code:
+  // retrying the same original Present could submit a second host frame.
+  s.composite_attempted=true;
+  if(!s.composite(image,dest,output))return false;
   s.active={};s.selected=nullptr;s.scene_open=false;
   s.requested_model=0;s.requested_surface=UINT32_MAX;s.surface_ready=false;
   return true;
