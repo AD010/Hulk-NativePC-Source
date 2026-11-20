@@ -273,7 +273,16 @@ class NativeEorLinkCoverage(unittest.TestCase):
         scene = (ROOT / "native_port/src/eor_native_draw_geometry.cpp").read_text(encoding="utf-8")
         self.assertIn("g_frames_for_native.TakeIfSequence(sequence)", hook)
         self.assertLess(hook.index("gpu.CanReplayOriginalXdkTimeline(*preview)"),
-                        hook.index("g_frames_for_native.TakeIfSequence(sequence)"))
+                        hook.rindex("g_frames_for_native.TakeIfSequence(sequence)"))
+        # A dropped Present must NOT permanently disable native Vulkan
+        # replay: consume the stale epoch before expensive PSO/frame preflight.
+        self.assertIn("if(missed) {", hook)
+        self.assertLess(hook.index("if(missed) {"),
+                        hook.index("gpu.CanReplayOriginalXdkTimeline(*preview)"))
+        self.assertLess(hook.index("preview.reset(); // release immutable ownership"),
+                        hook.index("(void)g_frames_for_native.TakeIfSequence(sequence)"))
+        self.assertLess(hook.index("(void)g_frames_for_native.TakeIfSequence(sequence)"),
+                        hook.index("if(!ValidateOriginalCommandTimeline(*preview))"))
         self.assertIn("native::ReplayDeliveredResourceScene(*delivered,witnesses", hook)
         self.assertIn("if(delivered.overwritten_since_take)", scene)
         self.assertIn("ReplayCapturedResourceScene(delivered.frame,verified,frame,residents,", scene)

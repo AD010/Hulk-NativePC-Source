@@ -111,9 +111,20 @@ bool ReplayNextVerifiedPpcFrame(
     preview=g_frames_for_native.Peek();
     missed=g_frames_for_native.MissedSinceTake();
   }
-  if(!preview || missed || !ValidateOriginalCommandTimeline(*preview))
-    return false;
+  if(!preview)return false;
   const uint64_t sequence=preview->sequence;
+  // A worker stalled behind the PPC producer can lose one or more complete
+  // mailbox frames. Reject the newest frame if any intervening Present was
+  // overwritten, but DISCARD that stale epoch by exact sequence; otherwise
+  // MissedSinceTake stays nonzero forever and native replay can never recover.
+  // The next independent fully captured frame starts with zero missed loss.
+  if(missed) {
+    preview.reset(); // release immutable ownership before TakeIfSequence
+    std::lock_guard lock(g_mutex);
+    (void)g_frames_for_native.TakeIfSequence(sequence);
+    return false;
+  }
+  if(!ValidateOriginalCommandTimeline(*preview))return false;
   try {
     // This eligibility check is read-only: no PSO, RT or GPU writes.
     if(!gpu.CanReplayOriginalXdkTimeline(*preview))return false;

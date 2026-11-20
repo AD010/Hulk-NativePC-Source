@@ -325,6 +325,20 @@ int main() {
          latest->overwritten_since_take==1 &&
          latest->frame.calls.size()==2);
   mailbox.Reset();
+  // Worker/render-thread loss recovery: discard the overwritten epoch
+  // without accidentally authorizing its newest frame, then accept the
+  // next independent original Present with a clean loss counter.
+  mailbox.Publish(Frame{80,0,{a}});
+  mailbox.Publish(Frame{81,0,{a,b}});
+  assert(mailbox.MissedSinceTake()==1);
+  auto discarded_epoch=mailbox.TakeIfSequence(81);
+  assert(discarded_epoch && discarded_epoch->overwritten_since_take==1 &&
+         !mailbox.Peek() && mailbox.MissedSinceTake()==0);
+  mailbox.Publish(Frame{82,0,{a}});
+  auto recovered_epoch=mailbox.TakeIfSequence(82);
+  assert(recovered_epoch && recovered_epoch->frame.sequence==82 &&
+         recovered_epoch->overwritten_since_take==0);
+  mailbox.Reset();
   assert(capture.Finish().sequence==2);
   assert(capture.Finish().calls.empty());
   for(size_t i=0;i<FrameCapture::kMaxDraws+3;++i)capture.Record(a);
