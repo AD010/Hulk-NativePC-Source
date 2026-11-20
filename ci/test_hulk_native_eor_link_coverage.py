@@ -294,6 +294,28 @@ class NativeEorLinkCoverage(unittest.TestCase):
         self.assertNotIn("ReplayAotScene(", app,
                          "A bank without verified EoR draw ABI is NOT a real game frame")
 
+    def test_active_native_vulkan_worker_reaches_original_ppc_replay(self):
+        hook = (ROOT / "native_port/src/eor_xdk_hook_bridge.cpp").read_text()
+        header = (ROOT / "native_port/src/eor_xdk_hook_bridge.h").read_text()
+        game = (ROOT / "native_port/src/native_x_renderer_hulk.cpp").read_text()
+        app = (ROOT / "native_port/src/incredible_hulk_app.h").read_text()
+        begin = game.index("native_x_renderer::SetHulkEorPresentCallback(")
+        launch = game.index("native_x_renderer::Initialize(", begin)
+        self.assertLess(begin, launch)
+        self.assertIn("&hulk::eor::xdk::TryWorkerEorFrame", game)
+        self.assertIn("native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(", header)
+        self.assertIn("g_verified_worker_frame", hook)
+        self.assertIn("ready->device!=&host", hook)
+        self.assertIn("desc.Width!=ready->output.backbuffer.width", hook)
+        worker = hook.split("native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(",1)[1]
+        self.assertIn("ReplayNextVerifiedPpcFrame(", worker)
+        self.assertIn("Result::kBackbufferReady", worker)
+        self.assertIn("Result::kFailedAfterGpu", worker)
+        self.assertIn("Result::kNotReady", worker)
+        self.assertIn("ready->witnesses,ready->output,residents,", worker)
+        self.assertIn("native_x_renderer::SetHulkEorPresentCallback(nullptr);", app)
+        self.assertIn("ClearVerifiedWorkerEorFrame();", app)
+
     def test_actual_present_mailbox_can_feed_verified_native_eor_scene(self):
         hook = (ROOT / "native_port/src/eor_xdk_hook_bridge.cpp").read_text(encoding="utf-8")
         scene = (ROOT / "native_port/src/eor_native_draw_geometry.cpp").read_text(encoding="utf-8")

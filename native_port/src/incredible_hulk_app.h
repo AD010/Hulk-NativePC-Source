@@ -12,6 +12,7 @@
 
 #include "assets_locator.h"
 #include "eor_spirv_bank.h"
+#include "eor_xdk_hook_bridge.h"
 #include "eor_effect_catalog.h"
 #include "eor_shader_reflection.h"
 #include "native_pc_save_path.h"
@@ -212,6 +213,13 @@ class IncredibleHulkApp : public rex::ReXApp {
     REXLOG_INFO("[HULK/PCMENU] NativePC UI registered; F10 opens controls and Exit");
   }
   void OnShutdown() override {
+    // Stop new worker callbacks and discard frame ownership before the
+    // original offline AOT sources are released; GPU fences remain owned by
+    // the active renderer, not by the guest PPC mailbox.
+#if defined(HULK_NATIVE_X_LINKED)
+    native_x_renderer::SetHulkEorPresentCallback(nullptr);
+    hulk::eor::xdk::ClearVerifiedWorkerEorFrame();
+#endif
     hulk::ReportAutomaticGpuDiagnostics();
     eor_reflection_.reset();
     eor_effects_.reset();

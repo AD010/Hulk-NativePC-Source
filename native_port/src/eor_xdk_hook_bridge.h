@@ -25,4 +25,26 @@ bool ReplayNextVerifiedPpcFrame(
     std::span<const model::UploadedOriginalModel* const> residents,
     const aot::ShaderBank& shaders,const aot::EffectCatalog& effects,
     const aot::ReflectionBank& reflection,aot::ShaderBindingBackend& gpu);
+// A source-verified, immutable per-Present snapshot, built by the actual
+// EoR material/mesh owner. No automatic XDK register->EoR ownership guesses.
+// All host buffers/PSO/SRV references and their source owners must stay live
+// until the GPU completion fence; a missing producer means NativeX fallback.
+struct VerifiedWorkerEorFrame {
+  native_x_renderer::Device* device=nullptr;
+  native::FrameGeometry output{};
+  std::vector<native::VerifiedXdkResourceWitness> witnesses;
+  std::vector<std::shared_ptr<const model::UploadedOriginalModel>> residents;
+  std::shared_ptr<const aot::ShaderBank> shaders;
+  std::shared_ptr<const aot::EffectCatalog> effects;
+  std::shared_ptr<const aot::ReflectionBank> reflection;
+  std::shared_ptr<aot::ShaderBindingBackend> gpu;
+};
+// Thread-safe source submission. A complete source-proven EoR engine owner
+// must supply this per-frame; startup AOT shader banks alone are insufficient.
+// The backend MUST use BindNativeEorVulkanBackbuffer, not Present itself.
+bool InstallVerifiedWorkerEorFrame(
+    std::shared_ptr<const VerifiedWorkerEorFrame> frame);
+void ClearVerifiedWorkerEorFrame() noexcept;
+native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(
+    native_x_renderer::Device& device) noexcept;
 }

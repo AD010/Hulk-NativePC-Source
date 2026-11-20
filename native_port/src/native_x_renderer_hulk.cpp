@@ -1,5 +1,6 @@
 
 #include "native_x_hulk_profile.h"
+#include "eor_xdk_hook_bridge.h"
 
 #include <native_x_renderer/native_x_renderer.h>
 #include <rex/logging.h>
@@ -281,6 +282,12 @@ bool NativeXInitialize(
   // NativeXRenderer owns Vulkan instance/device/surface
   // initialization through the ReXGlue host window.
   // Do not create a competing VkSurfaceKHR here.
+  // Actual EoR source-to-native-worker rendezvous; without a verified
+  // EoR material/mesh/PSO/frame bundle this is a zero-GPU fallback.
+  // Must be installed BEFORE renderer worker startup and only on this
+  // existing Vulkan device/swapchain (no competing presenter).
+  native_x_renderer::SetHulkEorPresentCallback(
+      &hulk::eor::xdk::TryWorkerEorFrame);
   native_x_renderer::Initialize(
       g_profile->profile,
       graphics,

@@ -2,6 +2,8 @@
 // Never writes guest memory, never bypasses the original NativeX or Xenos.
 // This is an input provenance oracle, not a completed Vulkan renderer.
 #include "eor_xdk_hook_bridge.h"
+#include "device.h"
+#include "SwapChain.h"
 #include <rex/cvar.h>
 #include <rex/logging.h>
 #include <algorithm>
@@ -32,6 +34,7 @@ std::mutex g_mutex;
 FrameCapture g_collector;
 XdkCallsiteEvidence g_callsite_evidence;
 CompletedFrameMailbox g_frames_for_native;
+std::shared_ptr<const VerifiedWorkerEorFrame> g_verified_worker_frame;
 // ReXGlue's guest base is NOT directly an original Xbox VA; use the same
 // guest high-memory padding convention as native_camera_direct.cpp, and
 // reject inaccessible ranges without reading unverified game memory.
@@ -264,6 +267,66 @@ void EndPpcHook(native_x_renderer::Call kind) {
   {
     std::lock_guard lock(g_mutex);
     g_frames_for_native.Publish(std::move(frame));
+  }
+}
+bool InstallVerifiedWorkerEorFrame(
+    std::shared_ptr<const VerifiedWorkerEorFrame> frame) {
+  if(!frame || !frame->device || !frame->output.direct_engine_path_ready ||
+     !native::HasFullNativeCompositePixels(
+        frame->output.world,frame->output.composite,frame->output.backbuffer) ||
+     frame->witnesses.empty() || frame->residents.empty() ||
+     !frame->shaders || !frame->shaders->size() ||
+     !frame->effects || !frame->effects->EffectCount() ||
+     !frame->reflection || !frame->gpu ||
+     frame->effects->ShaderCount()!=frame->shaders->expected() ||
+     frame->reflection->size()!=frame->shaders->expected())
+    return false;
+  for(const auto& model:frame->residents)
+    if(!model || !model->original_resource_hash)return false;
+  std::lock_guard lock(g_mutex);
+  g_verified_worker_frame=std::move(frame);
+  return true;
+}
+void ClearVerifiedWorkerEorFrame() noexcept {
+  std::lock_guard lock(g_mutex);
+  g_verified_worker_frame.reset();
+}
+native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(
+    native_x_renderer::Device& host) noexcept {
+  using Result=native_x_renderer::HulkEorPresentResult;
+  if(!CaptureEnabled() || !REXCVAR_GET(hulk_eor_vulkan_replay))
+    return Result::kNotReady;
+  std::shared_ptr<const VerifiedWorkerEorFrame> ready;
+  bool pending=false;
+  bool lost=false;
+  {
+    std::lock_guard lock(g_mutex);
+    ready=g_verified_worker_frame;
+    pending=bool(g_frames_for_native.Peek());
+    lost=g_frames_for_native.MissedSinceTake()!=0;
+  }
+  if(!ready || !pending || ready->device!=&host || !host.swap_chain())
+    return Result::kNotReady;
+  const auto& desc=host.swap_chain()->GetDesc();
+  if(desc.Width!=ready->output.backbuffer.width ||
+     desc.Height!=ready->output.backbuffer.height)
+    return Result::kNotReady; // resize requires a fresh exact source frame
+  try {
+    std::vector<const model::UploadedOriginalModel*> residents;
+    residents.reserve(ready->residents.size());
+    for(const auto& model:ready->residents)residents.push_back(model.get());
+    // ReplayNextVerifiedPpcFrame owns its original timeline preflight and
+    // sequence-matched claim. This is the REAL NativeX Vulkan worker; its
+    // callback must have CompositeToBackbuffer bound, never a second Present.
+    const bool submitted=ReplayNextVerifiedPpcFrame(
+        ready->witnesses,ready->output,residents,
+        *ready->shaders,*ready->effects,*ready->reflection,*ready->gpu);
+    if(lost)return Result::kNotReady; // stale mailbox epoch was discarded pre-GPU
+    return submitted ? Result::kBackbufferReady : Result::kFailedAfterGpu;
+  } catch (...) {
+    // An exception after GPU state changes cannot fall back to a second
+    // Xenos/NativeX compositing operation on the same backbuffer.
+    return Result::kFailedAfterGpu;
   }
 }
 }  // namespace hulk::eor::xdk
