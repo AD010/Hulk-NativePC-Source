@@ -607,10 +607,15 @@ HRESULT STDMETHODCALLTYPE OnVSConstants(IDirect3DDevice9* dev,UINT reg,
   // Require a texture-backed render target, not an arbitrary plain surface:
   // the intended scene-composite path renders to a texture and samples it
   // later. This is an additional safeguard, not proof of camera semantics.
-  IDirect3DBaseTexture9* sceneTexture=nullptr;
+  // D3D9 surfaces created as texture levels have an IDirect3DTexture9
+  // container. Query that concrete interface first: some implementations
+  // (including wrappers) do not expose the base-texture IID directly through
+  // GetContainer even though the returned texture inherits that interface.
+  // Never accept a cube face or a plain offscreen surface as a 2D scene RT.
+  IDirect3DTexture9* sceneTexture=nullptr;
   const bool textureBacked=allowOffscreenHorPlus && !isBackbuffer &&
       SUCCEEDED(renderTarget->GetContainer(
-          IID_IDirect3DBaseTexture9,
+          IID_IDirect3DTexture9,
           reinterpret_cast<void**>(&sceneTexture))) && sceneTexture;
   if(sceneTexture)sceneTexture->Release();
   if(!eligible && textureBacked && SUCCEEDED(descHr) &&
