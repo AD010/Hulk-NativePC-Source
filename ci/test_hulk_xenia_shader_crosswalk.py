@@ -6,6 +6,7 @@ from pathlib import Path
 import struct
 import tempfile
 import unittest
+import zipfile
 from hulk_xenia_shader_crosswalk import (original_shaders,load_pairs,
                                          inspect_dump_dir,generate)
 
@@ -73,11 +74,62 @@ class XeniaShaderCrosswalkTests(unittest.TestCase):
             output=base/'private'/'crosswalk.json'
             report=generate(a,e,output,dump_dir=d,source_root=base/'public')
             self.assertEqual((report['shader_sources'],report['original_effect_passes']), (6,3))
+            self.assertEqual(report['dump_coverage']['matched_files'],2)
+            self.assertFalse(report['dump_coverage']['candidates_are_live_draw_evidence'])
             self.assertEqual((report['uniquely_matched_ucode_pairs'],report['ambiguous_ucode_pairs']),(1,2))
             self.assertTrue(output.is_file())
             self.assertNotIn(vs,output.read_bytes())
             with self.assertRaisesRegex(ValueError,'public source tree'):
                 generate(a,e,base/'public'/'crosswalk.json',source_root=base/'public')
+
+    def test_zipped_vulkan_and_d3d12_dumps_and_pass_coverage(self):
+        archive,ledger,vs,ps,_=fixtures()
+        with tempfile.TemporaryDirectory() as folder:
+            base=Path(folder)
+            source=base/'original.arc'
+            source.write_bytes(archive)
+            catalog=base/'effects.bin'
+            catalog.write_bytes(ledger)
+            zipped=base/'captured.zip'
+            with zipfile.ZipFile(zipped,'w') as output:
+                output.writestr('Vulkan/boot.bin.vs',vs)
+                output.writestr('D3D12/menu.bin.fs',ps)
+                output.writestr('D3D12/generated/boot.dxil',b'not original')
+                output.writestr('Vulkan/generated/boot.spv',b'not original')
+            result=generate(source,catalog,base/'private'/'report.json',
+                            dump_dir=zipped,source_root=base/'public')
+            self.assertEqual(result['dump_coverage']['raw_dump_files'],2)
+            self.assertEqual(result['dump_coverage']['matched_files'],2)
+            self.assertEqual(result['dump_coverage']['unique_matched_shader_sources'],4)
+            self.assertEqual(len(result['dump_coverage']['both_stages_seen_pass_candidates']),2)
+            self.assertFalse(result['dump_coverage']['candidates_are_live_draw_evidence'])
+            self.assertEqual(
+                {x['filename'] for x in result['xenia_dump_matches']},
+                {'Vulkan/boot.bin.vs','D3D12/menu.bin.fs'})
+
+    def test_zip_path_traversal_and_oversized_shader_rejected(self):
+        archive,ledger,vs,ps,_=fixtures()
+        with tempfile.TemporaryDirectory() as folder:
+            base=Path(folder)
+            source=base/'original.arc';source.write_bytes(archive)
+            catalog=base/'effects.bin';catalog.write_bytes(ledger)
+            zipped=base/'unsafe.zip'
+            with zipfile.ZipFile(zipped,'w') as output:
+                output.writestr('../bad.bin.vs',vs)
+            with self.assertRaisesRegex(ValueError,'Unsafe Xenia shader ZIP path'):
+                generate(source,catalog,base/'private'/'report.json',
+                         dump_dir=zipped,source_root=base/'public')
+            with zipfile.ZipFile(zipped,'w') as output:
+                output.writestr('vulkan/huge.bin.vs',b'x'*(1<<20)+b'abcd')
+            with self.assertRaisesRegex(ValueError,'dump size'):
+                generate(source,catalog,base/'private'/'report.json',
+                         dump_dir=zipped,source_root=base/'public')
+            with zipfile.ZipFile(zipped,'w') as output:
+                output.writestr('dup.bin.vs',vs)
+                output.writestr('dup.bin.vs',vs)
+            with self.assertRaisesRegex(ValueError,'Duplicate Xenia shader ZIP member'):
+                generate(source,catalog,base/'private'/'report.json',
+                         dump_dir=zipped,source_root=base/'public')
 
     def test_rejects_invalid_archive_and_dump(self):
         with self.assertRaises(ValueError):
