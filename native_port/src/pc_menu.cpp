@@ -70,7 +70,7 @@ class PcMenu final : public rex::ui::ImGuiDialog {
     ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0.31f, 0.42f, 0.20f, 1.0f));
     ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(0.36f, 0.51f, 0.24f, 1.0f));
     bool open = true;
-    if (ImGui::Begin("The Incredible Hulk | PC Settings (F10)", &open,
+    if (ImGui::Begin("The Incredible Hulk | PC Settings (F10 / Esc)", &open,
                      ImGuiWindowFlags_NoCollapse)) {
       ImGui::TextUnformatted("THE INCREDIBLE HULK");
       ImGui::SameLine();
@@ -447,7 +447,7 @@ class PcMenu final : public rex::ui::ImGuiDialog {
       ImGui::EndChild();
       ImGui::Separator();
       ImGui::TextDisabled("Changes saved to incredible_hulk.toml"
-                          "  |  F8: recapture mouse  |  F10: close settings");
+                          "  |  F8: recapture mouse  |  F10/Esc: close settings");
       if (last_save_ok_.has_value()) {
         if (*last_save_ok_) {
           ImGui::TextUnformatted("Settings saved successfully.");

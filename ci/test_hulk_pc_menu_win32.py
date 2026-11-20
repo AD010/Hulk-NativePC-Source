@@ -11,10 +11,23 @@ class TestWin32Menu(unittest.TestCase):
         self.assertIn("msg == WM_KEYDOWN", win)
         self.assertIn("msg == WM_SYSKEYUP", win)
         self.assertIn("wp == VK_F10", win)
-        self.assertIn("[HULK/PCMENU] F10 message=",win)
+        self.assertIn("[HULK/PCMENU] shortcut={} message={} open={}",win)
         self.assertIn("PcMenuToggle();",win)
         self.assertIn("NativeInputReleaseCapture();",win)
         self.assertIn("wp == VK_F11",win)
+        self.assertIn("wp == VK_ESCAPE",win)
+        self.assertIn("!NativeInputUsesEscape()",win)
+        self.assertIn("msg == WM_KEYDOWN && wp == VK_ESCAPE",win)
+        self.assertIn("!(lp & (1L << 29))",win)
+        inputcode=(R/"native_port/src/launcher/native_input_win.cpp").read_text()
+        guard=inputcode.split("bool NativeInputUsesEscape() {",1)[1]
+        guard=guard.split("\nnamespace {",1)[0]
+        for name in ("hulk_bind_forward", "hulk_bind_backward", "hulk_bind_left", "hulk_bind_right", "hulk_bind_menu_up", "hulk_bind_menu_down", "hulk_bind_menu_left",
+                     "hulk_bind_menu_right", "hulk_bind_confirm", "hulk_bind_back", "hulk_bind_primary", "hulk_bind_secondary", "hulk_bind_alt_back", "hulk_bind_lb",
+                     "hulk_bind_rb", "hulk_bind_lt", "hulk_bind_rt", "hulk_bind_start", "hulk_bind_select", "hulk_bind_rstick_click", "hulk_bind_walk"):
+            self.assertIn("REXCVAR_GET("+name+")",guard)
+        self.assertIn("token==\"Esc\"",guard)
+        self.assertIn("F10 / Esc", (R/"native_port/src/pc_menu.cpp").read_text())
         ui=(R/"native_port/src/pc_menu.cpp").read_text()
         self.assertIn("visible.exchange(open",ui)
         self.assertIn("RequestPaint();",ui)

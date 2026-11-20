@@ -81,6 +81,34 @@ REXCVAR_DEFINE_BOOL(hulk_mouse_diagnostics, true, "Hulk/PC Controls/Diagnostics"
                     "Report Win32 Raw Input and mapped stick motion every 5 seconds");
 
 namespace hulk {
+// Do not steal Escape from any user-rebound game action. The native PC
+// settings shortcut is available only while Escape is not bound to guest
+// movement, combat, or the original pause/menu controller input.
+bool NativeInputUsesEscape() {
+  const auto escape=[](std::string_view token) { return token=="Esc"; };
+  return
+      escape(REXCVAR_GET(hulk_bind_forward)) ||
+      escape(REXCVAR_GET(hulk_bind_backward)) ||
+      escape(REXCVAR_GET(hulk_bind_left)) ||
+      escape(REXCVAR_GET(hulk_bind_right)) ||
+      escape(REXCVAR_GET(hulk_bind_menu_up)) ||
+      escape(REXCVAR_GET(hulk_bind_menu_down)) ||
+      escape(REXCVAR_GET(hulk_bind_menu_left)) ||
+      escape(REXCVAR_GET(hulk_bind_menu_right)) ||
+      escape(REXCVAR_GET(hulk_bind_confirm)) ||
+      escape(REXCVAR_GET(hulk_bind_back)) ||
+      escape(REXCVAR_GET(hulk_bind_primary)) ||
+      escape(REXCVAR_GET(hulk_bind_secondary)) ||
+      escape(REXCVAR_GET(hulk_bind_alt_back)) ||
+      escape(REXCVAR_GET(hulk_bind_lb)) ||
+      escape(REXCVAR_GET(hulk_bind_rb)) ||
+      escape(REXCVAR_GET(hulk_bind_lt)) ||
+      escape(REXCVAR_GET(hulk_bind_rt)) ||
+      escape(REXCVAR_GET(hulk_bind_start)) ||
+      escape(REXCVAR_GET(hulk_bind_select)) ||
+      escape(REXCVAR_GET(hulk_bind_rstick_click)) ||
+      escape(REXCVAR_GET(hulk_bind_walk));
+}
 namespace {
 std::atomic<bool> g_capture{true};
 std::atomic<int32_t> g_dx{0}, g_dy{0};

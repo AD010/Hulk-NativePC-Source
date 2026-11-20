@@ -38,6 +38,7 @@ void NativeInputSetCapture(bool enabled);
 void NativeInputReleaseCapture();
 bool NativeInputEnabled();
 bool NativeInputCapturing();
+bool NativeInputUsesEscape();
 void NativeInputWheel(int steps);
 void NativeInputRawMouse(int dx, int dy);
 #if defined(_WIN32)
@@ -80,16 +81,22 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     g_restore_after_focus = false;
     g_restore_after_menu = false;
   }
-  // F10 host PC menu is not an Xbox guest controller command.
-  // It releases RawInput capture so UI mouse clicks work.
-  // F10 is a Windows system key, so it may arrive as WM_SYSKEYDOWN.
-  if ((msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN) && wp == VK_F10 &&
+  // F10 always opens the actual host PC settings. Escape is also
+  // supported, but ONLY when the user has not rebound it to guest controls;
+  // Alt+Escape must remain a Windows system task-switch shortcut.
+  const bool escape_menu_shortcut =
+      msg == WM_KEYDOWN && wp == VK_ESCAPE &&
+      !(lp & (1L << 29)) &&
+      (PcMenuIsOpen() || !NativeInputUsesEscape());
+  if ((msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN) &&
+      (wp == VK_F10 || escape_menu_shortcut) &&
       !(lp & (1L << 30))) {
     const bool opening = !PcMenuIsOpen();
     if (opening)
       g_restore_after_menu.store(NativeInputCapturing(), std::memory_order_release);
     PcMenuToggle();
-    REXLOG_INFO("[HULK/PCMENU] F10 message={} open={}",
+    REXLOG_INFO("[HULK/PCMENU] shortcut={} message={} open={}",
+                wp == VK_F10 ? "F10" : "Escape",
                 msg == WM_SYSKEYDOWN ? "WM_SYSKEYDOWN" : "WM_KEYDOWN",
                 PcMenuIsOpen());
     if (PcMenuIsOpen()) NativeInputReleaseCapture();
@@ -101,8 +108,12 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                  MAKELPARAM(HTCLIENT, WM_MOUSEMOVE));
     return 0;
   }
-  // Suppress Win32 menu activation when F10 is released.
-  if ((msg == WM_KEYUP || msg == WM_SYSKEYUP) && wp == VK_F10) return 0;
+  // Suppress Win32 menu activation when F10 is released. Only swallow
+  // Escape-up if it was a host shortcut, not a user-remapped guest key.
+  if ((msg == WM_KEYUP || msg == WM_SYSKEYUP) &&
+      (wp == VK_F10 ||
+       (wp == VK_ESCAPE && !NativeInputUsesEscape())))
+    return 0;
   // F11 only produces a GPU verification report if the observer is active.
   // Log delivery without swallowing the SDK's own F11 bind.
   if ((msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN) && wp == VK_F11 &&
