@@ -242,7 +242,8 @@ bool ValidateOriginalCommandTimeline(const Frame& frame) noexcept {
       // and nesting depth are internally valid. A copied unverified
       // engine attribution must not enter Vulkan's source timeline.
       if(!ValidOriginalDecalGeometryBinding(original) ||
-         !ValidOriginalDecalItemMaterialBinding(original))
+         !ValidOriginalDecalItemMaterialBinding(original) ||
+         !ValidOriginalShaderPassStageBinding(original))
         return false;
       if(const auto& shader=original.original_engine_shader_method;shader) {
         if(!shader->original_shader_method_vtable_verified ||
