@@ -38,12 +38,28 @@ if len(sys.argv) == 5:
 # decrypted USA PPC image; the generic NativeX Enter/Leave path must NOT
 # run for these game-class virtual methods.
 SOURCE_EOR_SHADER_METHODS = {
-    "8265B420",  # Decal
-    "82668D50",  # TexturedRect
-    "82669630",  # EScreenRectShader
-    "8266A0C0",  # EFontShader
-    "8266CC28",  # ESkyShader
-    "8266DDD0",  # EFlatShadowShader
+    # 52 source-matched original class vtables, 20 unique guest methods.
+    # 826432F0 is shared by 33 classes: the live BE32 this[0] disambiguates.
+    "826432F0",
+    "82651978",
+    "82652420",
+    "82652B60",
+    "8265B420",
+    "82662780",
+    "82665288",
+    "82665500",
+    "82668D50",
+    "82669630",
+    "8266A0C0",
+    "8266C668",
+    "8266CC28",
+    "8266D6D0",
+    "8266DDD0",
+    "8266E520",
+    "8266EB88",
+    "8266F198",
+    "8266FEF8",
+    "82670738",
 }
 if len(sys.argv) == 5 and (set(mandatory) & SOURCE_EOR_SHADER_METHODS):
     raise SystemExit("Original EoR shader method incorrectly declared an XDK profile entry")
