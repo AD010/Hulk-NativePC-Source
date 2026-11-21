@@ -120,6 +120,13 @@ struct VerifiedWorkerEorFrame {
   // ownership relation for an XDK Draw. Must not synthesize one.
   std::shared_ptr<const aot::OriginalVirtualShaderIdentity> virtual_ids;
 };
+// Install only the exact private HEORVRT1 source-header index for
+// Xenos-visible read-only Draw observation. This is deliberately independent
+// of HEORSPV1, material uploads or any Vulkan output: source identities can
+// be recovered before a complete compiled shader bank exists.
+bool InstallOriginalShaderCaptureIndex(
+    std::shared_ptr<const aot::OriginalVirtualShaderIdentity> original) noexcept;
+void ClearOriginalShaderCaptureIndex() noexcept;
 // Register the REAL private USA offline ShaderEffects bank, effect/pass index,
 // and reflection together. The game owns the source generations; the GPU
 // worker holds shared immutable references, never detached naked pointers.
