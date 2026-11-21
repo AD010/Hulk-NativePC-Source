@@ -90,6 +90,12 @@ def scan_direct_calls(
                     continue
                 if current is None:
                     continue
+                # ReXGlue emits a closing brace at column zero for each
+                # DEFINE_REX_FUNC. Do not attribute trailing comments or
+                # other generated C++ to the previous guest function.
+                if line.startswith('}') and line.strip() == '}':
+                    current = None
+                    continue
                 match = LABEL.match(line)
                 if match:
                     address = int(match.group(1), 16)
