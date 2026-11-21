@@ -41,6 +41,11 @@ def synthetic_usa_decal_image():
         0x8265B524:ppc_dform(14,5,0,0),
         0x8265B528:ppc_dform(14,4,0,4),
         0x8265B538:ppc_bl(0x8265B538,0x8288E318),
+        0x8287E65C:ppc_mr(5,30),
+        0x8287E664:ppc_mr(4,29),
+        0x8287E6C0:ppc_dform(14,11,29,3115),
+        0x8287E808:ppc_mr(4,29),
+        0x8287E87C:ppc_dform(36,29,31,12436),
     }
     for addr,word in instructions.items():
         off=addr-GUEST_BASE
@@ -57,15 +62,18 @@ class OriginalDecalGeometryPpcTests(unittest.TestCase):
     def test_source_proven_original_eor_gpu_chain_identified(self):
         proof=audit(self.image,strict_source=False)
         self.assertEqual(proof,self.original)
-        self.assertEqual(proof["source_ppc_register_and_branch_checks_passed"],15)
+        self.assertEqual(proof["source_ppc_register_and_branch_checks_passed"],20)
         self.assertTrue(proof["engine_decal_to_guest_vb_ib_abi_verified"])
         self.assertEqual(proof["original_geometry_guest_ptr_be32_offset_from_render_item"],60)
         self.assertEqual(proof["original_geometry_vb_descriptor_offset"],24)
         self.assertEqual(proof["original_geometry_ib_descriptor_offset"],56)
+        self.assertEqual(proof["xdk_device_shadow_original_vb0_guest_offset"],12460)
+        self.assertEqual(proof["xdk_device_shadow_original_ib_guest_offset"],12436)
+        self.assertTrue(proof["actual_original_xdk_setters_prove_device_shadow_binding"])
         self.assertFalse(proof["engine_material_effect_pass_shader_pair_verified"])
         self.assertTrue(proof["all_game_code_and_source_assets_remain_private"])
 
-    def test_all_fifteen_real_guest_instruction_witnesses_are_mandatory(self):
+    def test_all_twenty_real_guest_instruction_witnesses_are_mandatory(self):
         for guest in self.instructions:
             with self.subTest(address=hex(guest)):
                 corrupted=bytearray(self.image)
