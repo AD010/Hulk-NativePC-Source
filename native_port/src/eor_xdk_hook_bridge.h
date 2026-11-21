@@ -20,6 +20,10 @@ class ScopedOriginalEorShaderMethod final {
       const ScopedOriginalEorShaderMethod&)=delete;
  private:
   bool active_=false;
+  // A rejected/re-entrant unverified original class method must mask
+  // any enclosing source owner, never leak an outer shader's identity
+  // onto an unrelated inner XDK Draw.
+  bool suppressed_=false;
 };
 bool CaptureEnabled();
 void CapturePpcDraw(Kind kind, uint32_t guest, const PPCContext& ctx,
