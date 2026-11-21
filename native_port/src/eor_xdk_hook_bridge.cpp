@@ -35,6 +35,7 @@ namespace {
 std::mutex g_mutex;
 std::atomic<uint64_t> g_eor_ready_backbuffers{0};
 std::atomic<uint64_t> g_eor_gpu_failures{0};
+OriginalEorSourceCoverage g_original_source_coverage; // guarded by g_mutex
 FrameCapture g_collector;
 XdkCallsiteEvidence g_callsite_evidence;
 CompletedFrameMailbox g_frames_for_native;
@@ -834,6 +835,28 @@ void EndPpcHook(native_x_renderer::Call kind) {
     frame = g_collector.Finish();
     g_original_buffers.Reset();
     g_callsite_evidence.Observe(frame);
+    // This independent original PPC telemetry also works with the
+    // compatibility Xenos renderer and NO compiled SPIR-V shader bank.
+    // Compute once per real Present, not on every ImGui refresh. A late
+    // UI query can never see half-updated VS/PS/effect counts.
+    OriginalEorSourceCoverage coverage{};
+    coverage.original_frame_sequence=frame.sequence;
+    coverage.original_xdk_draws=static_cast<uint32_t>(frame.calls.size());
+    coverage.complete_xdk_timeline=
+        !frame.dropped && !frame.dropped_commands &&
+        ValidateOriginalCommandTimeline(frame);
+    for(const auto& draw:frame.calls) {
+      if(draw.observed_live_vertex_shader_header)
+        ++coverage.original_vs_headers;
+      if(draw.observed_live_pixel_shader_header)
+        ++coverage.original_ps_headers;
+      if(draw.observed_live_vertex_shader_header &&
+         draw.observed_live_pixel_shader_header)
+        ++coverage.original_vs_ps_pairs;
+      if(draw.observed_live_eor_effect_pass)
+        ++coverage.original_effect_passes;
+    }
+    g_original_source_coverage=coverage;
     if(frame.sequence<=5 || frame.sequence%600==0) {
       hot=g_callsite_evidence.HotCallsites(8);
       untracked=g_callsite_evidence.UntrackedCalls();
@@ -1113,6 +1136,10 @@ void ClearVerifiedWorkerEorFrame() noexcept {
 EorWorkerStatus GetEorWorkerStatus() noexcept {
   return {g_eor_ready_backbuffers.load(std::memory_order_relaxed),
           g_eor_gpu_failures.load(std::memory_order_relaxed)};
+}
+OriginalEorSourceCoverage GetOriginalEorSourceCoverage() noexcept {
+  std::lock_guard lock(g_mutex);
+  return g_original_source_coverage;
 }
 native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(
     native_x_renderer::Device& host) noexcept {
