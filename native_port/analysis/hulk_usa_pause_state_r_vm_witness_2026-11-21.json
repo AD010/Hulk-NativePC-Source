@@ -19,7 +19,15 @@
     "registered_original_native_ppc_handler": "0x8264C798",
     "first_native_ppc_context_arg": "r3",
     "vm_native_parameter_and_return_types_fully_verified": false,
-    "actual_pause_page_event_dispatcher_abi_verified": false
+    "actual_pause_page_event_dispatcher_abi_verified": false,
+    "original_vm_state_transition_ppc_instructions_verified": 8,
+    "original_vm_frame_input_owner_offset": 0,
+    "original_vm_frame_output_owner_offset": 4,
+    "original_vm_input_nested_offset": 8,
+    "original_vm_nested_state_owner_offset": 0,
+    "original_vm_desired_state_value_offset": 12,
+    "original_vm_output_state_value_offset": 12,
+    "original_vm_page_owner_identity_verified": false
   },
   "global_vm_getter_is_not_unique_pause_ui_dispatcher": true,
   "no_original_game_instruction_or_script_bytes_published": true,
