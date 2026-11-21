@@ -79,10 +79,10 @@ struct VerifiedWorkerEorFrame {
   std::shared_ptr<const aot::ShaderBank> shaders;
   std::shared_ptr<const aot::EffectCatalog> effects;
   std::shared_ptr<const aot::ReflectionBank> reflection;
-  // Original Source shader reflection/texture sampler register declarations.
+  std::shared_ptr<aot::ShaderBindingBackend> gpu;
+  // Append so older verified-worker aggregate initializers keep their ABI.
   // A source sampler slot is not automatically an XDK texture fetch slot.
   std::shared_ptr<const aot::OriginalXdkShaderSamplers> samplers;
-  std::shared_ptr<aot::ShaderBindingBackend> gpu;
 };
 // Register the REAL private USA offline ShaderEffects bank, effect/pass index,
 // and reflection together. The game owns the source generations; the GPU
