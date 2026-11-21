@@ -47,7 +47,7 @@ def field_fixture(endian):
         "StateExit_z": "Hidden",
         "ActivateUpgradeMenu_z": "CurrentStatusMenu",
     }
-    parts = [b"UIPage_Pause_Settings\\0"]
+    parts = [b"UIPage_Pause_Settings" + bytes([0])]
     for method, owner in names.items():
         identity = (zlib.crc32(owner.upper().encode("ascii")) &
                     0xffffffff).to_bytes(4, endian)
@@ -58,7 +58,7 @@ def field_fixture(endian):
     return b"".join(parts)
 
 
-class OriginalPauseScriptTests(unittest.TestCase):
+class OriginalPauseFieldHashTests(unittest.TestCase):
     def test_authentic_field_hash_references_are_endian_invariant(self):
         xbox = original_pause_ui_field_refs(
             field_fixture("big"), "xbox_360_source")
@@ -81,12 +81,13 @@ class OriginalPauseScriptTests(unittest.TestCase):
             original_pause_ui_field_refs(original, "arbitrary_guest")
         with self.assertRaises(ValueError):
             original_pause_ui_field_refs(
-                original.replace(b"StateEnter_z\\0", b"NotStateEnt_z\\0"),
+                original.replace(b"StateEnter_z" + bytes([0]),
+                                 b"NotStateEnt_z" + bytes([0])),
                 "xbox_360_source")
         with self.assertRaises(ValueError):
             original_pause_ui_field_refs(
-                original.replace(b"Init_z\\0" + (6).to_bytes(4, "big"),
-                                 b"Init_z\\0" + (2000).to_bytes(4, "big")),
+                original.replace(b"Init_z" + bytes([0]) + (6).to_bytes(4, "big"),
+                                 b"Init_z" + bytes([0]) + (2000).to_bytes(4, "big")),
                 "xbox_360_source")
 
 class OriginalPauseScriptTests(unittest.TestCase):
