@@ -402,6 +402,32 @@ inline bool ValidOriginalShaderPassStageBinding(
          live.original_vs_guest_object==owner.original_pass_vs_xdk_guest_object &&
          live.original_ps_guest_object==owner.original_pass_ps_xdk_guest_object;
 }
+// Per-pass XDK sampler STATE register writes are source-verified from the
+// original EoR source program's +87 count/+80 first index and material
+// +196 table. Shader sampling all *active textures* is not established:
+// a slot in the state table proves a stage sampler *state operation*,
+// not which ShaderEffects fetch/pixel program reads that texture.
+inline bool ValidOriginalShaderPassSamplerStateAtDraw(
+    const RawDraw& call) noexcept {
+  if(!call.original_engine_shader_method)return true;
+  const auto& owner=*call.original_engine_shader_method;
+  if(!owner.original_pass_sampler_slots_verified)
+    return owner.original_pass_sampler_slot_mask==0u &&
+           !owner.original_pass_live_texture_objects_present;
+  if(!ValidOriginalShaderPassStageBinding(call))return false;
+  if(owner.original_pass_live_texture_objects_present) {
+    if(!call.observed_vs_matrices)return false;
+    for(uint32_t slot=0;slot<16u;++slot) {
+      if((owner.original_pass_sampler_slot_mask&
+          (uint16_t(1u)<<slot)) &&
+         !call.observed_vs_matrices->original_texture_guest_objects[slot])
+        return false;
+    }
+  }
+  // True presence requires the EXACT live original device state,
+  // but false presence is not promoted to a GPU texture proof.
+  return true;
+}
 // Verified USA XDK 2.0.6534 method ABI from the original wrapper:
 // DrawIndexedVertices(dev, prim, baseVertex, startIndex, indexCount).
 // The primitive enum and guest buffer ownership remain real game state,
