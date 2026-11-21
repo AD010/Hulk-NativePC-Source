@@ -53,6 +53,7 @@ OriginalGuestBufferSnapshots g_original_buffers; // guarded by g_mutex
 thread_local std::array<OriginalEorShaderMethodAtDraw,16>
     g_source_shader_method_stack{};
 thread_local uint8_t g_source_shader_method_depth=0;
+thread_local uint32_t g_source_shader_rejected_nesting=0;
 // ReXGlue's guest base is NOT directly an original Xbox VA; use the same
 // guest high-memory padding convention as native_camera_direct.cpp, and
 // reject inaccessible ranges without reading unverified game memory.
@@ -105,22 +106,34 @@ ScopedOriginalEorShaderMethod::ScopedOriginalEorShaderMethod(
     uint8_t* original_guest_base) noexcept {
   const uint32_t expected_vtable=
       ProvenUsaEorShaderVtableForMethod(original_method_guest);
-  if(!expected_vtable || !CaptureEnabled() || !original_guest_base ||
+  if(!expected_vtable || !CaptureEnabled())return;
+  const auto suppress_unverified=[&]() noexcept {
+    ++g_source_shader_rejected_nesting;
+    suppressed_=true;
+  };
+  if(g_source_shader_rejected_nesting || !original_guest_base ||
      !original_ctx.r3.u32 ||
-     g_source_shader_method_depth>=g_source_shader_method_stack.size())
+     g_source_shader_method_depth>=g_source_shader_method_stack.size()) {
+    suppress_unverified();
     return;
+  }
   // Original PPC object layout: first BE32 is a real .rdata shader vtable.
   // The game memory is probed with checked VirtualQuery and never mutated.
   std::array<std::byte,4> guest_vtable{};
   if(!ReadGuest(original_guest_base,original_ctx.r3.u32,
-                guest_vtable.data(),guest_vtable.size()))
+                guest_vtable.data(),guest_vtable.size())) {
+    suppress_unverified();
     return;
+  }
   const uint32_t actual_vtable=
       uint32_t(std::to_integer<uint8_t>(guest_vtable[0]))<<24 |
       uint32_t(std::to_integer<uint8_t>(guest_vtable[1]))<<16 |
       uint32_t(std::to_integer<uint8_t>(guest_vtable[2]))<<8 |
       uint32_t(std::to_integer<uint8_t>(guest_vtable[3]));
-  if(actual_vtable!=expected_vtable)return;
+  if(actual_vtable!=expected_vtable) {
+    suppress_unverified();
+    return;
+  }
   OriginalEorShaderMethodAtDraw original{};
   original.original_shader_method_guest=original_method_guest;
   original.original_shader_instance_guest=original_ctx.r3.u32;
@@ -135,6 +148,8 @@ ScopedOriginalEorShaderMethod::ScopedOriginalEorShaderMethod(
   active_=true;
 }
 ScopedOriginalEorShaderMethod::~ScopedOriginalEorShaderMethod() noexcept {
+  if(suppressed_ && g_source_shader_rejected_nesting)
+    --g_source_shader_rejected_nesting;
   if(active_ && g_source_shader_method_depth)
     --g_source_shader_method_depth;
 }
@@ -262,7 +277,7 @@ void CapturePpcDraw(Kind kind, uint32_t guest, const PPCContext& ctx,
   // this object, and its first word matched the original USA vtable.
   // Preserve the CALLER of this inner original XDK draw. No new witness
   // flags are inferred: the original mesh/material/effect remains separate.
-  if(g_source_shader_method_depth)
+  if(!g_source_shader_rejected_nesting && g_source_shader_method_depth)
     draw.original_engine_shader_method=
         g_source_shader_method_stack[g_source_shader_method_depth-1];
   // The original source-proven USA 6534 device holds actual VS constants
