@@ -107,3 +107,26 @@
 # shader objects verified against device shadow at exact guest Draw.
 # Read-only original PPC call-through; NOT an XDK method.
 825F84C0
+8263DCD0
+82642370
+82662108
+82663270
+82663AA8
+82663EF8
+82664338
+82664630
+82664EE0
+82664F88
+82665160
+826656C8
+82665988
+82666090
+826664F8
+82666808
+82666C70
+826672D0
+8266B218
+8266B588
+8266B8B8
+8266C8D0
+# Above: original EoR shader vtable slot+44 per-item virtual PPC methods, 52 source classes / 22 unique targets; require real source LR 0x82642BD8
