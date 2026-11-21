@@ -28,6 +28,12 @@
 
 REXCVAR_DEFINE_BOOL(hulk_eor_xdk_capture, false, "Hulk/Diagnostics",
                     "Opt-in original XDK Draw/Present call snapshot; no rendering redirection");
+// Real original GPU vertex/index byte snapshots can be requested separately.
+// They remain read-only and are retained only for the current Present.
+// This permits source-model identity research with Xenos still presenting,
+// without enabling a second Vulkan renderer or guessing material owners.
+REXCVAR_DEFINE_BOOL(hulk_eor_xdk_source_mesh_capture, false, "Hulk/Diagnostics",
+                    "Read-only original XDK VB/IB bytes; 64 MiB frame cap");
 REXCVAR_DEFINE_BOOL(hulk_eor_vulkan_replay, false, "Hulk/Diagnostics",
                     "Opt-in direct EoR Vulkan replay; requires verified sole presenter");
 namespace hulk::eor::xdk {
@@ -780,7 +786,9 @@ void CapturePpcDraw(Kind kind, uint32_t guest, const PPCContext& ctx,
   }
   // Only a requested direct Vulkan render performs byte-exact guest
   // resource capture; diagnostics-only XDK observer is unaffected.
-  if(REXCVAR_GET(hulk_eor_vulkan_replay) && draw.observed_vs_matrices) {
+  if((REXCVAR_GET(hulk_eor_vulkan_replay) ||
+      REXCVAR_GET(hulk_eor_xdk_source_mesh_capture)) &&
+     draw.observed_vs_matrices) {
     try {
       const auto& state=*draw.observed_vs_matrices;
       // Source snapshots are deduplicated by the existing per-Present
