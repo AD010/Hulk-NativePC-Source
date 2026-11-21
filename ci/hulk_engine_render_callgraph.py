@@ -73,6 +73,7 @@ def scan_direct_calls(
     if not files:
         raise ValueError('Missing ReXGlue *_recomp.NUM.cpp source files')
     functions = 0
+    seen_functions: set[int] = set()
     for file in files:
         current = None
         address = 0
@@ -82,6 +83,11 @@ def scan_direct_calls(
                 if match:
                     current = int(match.group(1), 16)
                     address = current
+                    if current in seen_functions:
+                        if current in wanted_hooks:
+                            raise ValueError(f"Duplicate USA XDK function 0x{current:08X}")
+                        raise ValueError(f"Duplicate guest function 0x{current:08X}")
+                    seen_functions.add(current)
                     functions += 1
                     if current in wanted_hooks:
                         if current in found_hooks:
