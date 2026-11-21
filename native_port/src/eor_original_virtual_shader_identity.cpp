@@ -1,0 +1,147 @@
+#include "eor_original_virtual_shader_identity.h"
+#include <array>
+#include <fstream>
+#include <stdexcept>
+#include <vector>
+#include <set>
+
+namespace hulk::eor::aot {
+namespace {
+constexpr std::array<uint32_t,64> kShaConstants{
+  0x428a2f98u,0x71374491u,0xb5c0fbcfu,0xe9b5dba5u,
+  0x3956c25bu,0x59f111f1u,0x923f82a4u,0xab1c5ed5u,
+  0xd807aa98u,0x12835b01u,0x243185beu,0x550c7dc3u,
+  0x72be5d74u,0x80deb1feu,0x9bdc06a7u,0xc19bf174u,
+  0xe49b69c1u,0xefbe4786u,0x0fc19dc6u,0x240ca1ccu,
+  0x2de92c6fu,0x4a7484aau,0x5cb0a9dcu,0x76f988dau,
+  0x983e5152u,0xa831c66du,0xb00327c8u,0xbf597fc7u,
+  0xc6e00bf3u,0xd5a79147u,0x06ca6351u,0x14292967u,
+  0x27b70a85u,0x2e1b2138u,0x4d2c6dfcu,0x53380d13u,
+  0x650a7354u,0x766a0abbu,0x81c2c92eu,0x92722c85u,
+  0xa2bfe8a1u,0xa81a664bu,0xc24b8b70u,0xc76c51a3u,
+  0xd192e819u,0xd6990624u,0xf40e3585u,0x106aa070u,
+  0x19a4c116u,0x1e376c08u,0x2748774cu,0x34b0bcb5u,
+  0x391c0cb3u,0x4ed8aa4au,0x5b9cca4fu,0x682e6ff3u,
+  0x748f82eeu,0x78a5636fu,0x84c87814u,0x8cc70208u,
+  0x90befffau,0xa4506cebu,0xbef9a3f7u,0xc67178f2u,
+};
+constexpr uint32_t Rotate(uint32_t v,unsigned n) noexcept {
+  return (v>>n)|(v<<(32-n));
+}
+uint32_t Be32(const uint8_t* data) noexcept {
+  return (uint32_t(data[0])<<24)|(uint32_t(data[1])<<16)|
+         (uint32_t(data[2])<<8)|uint32_t(data[3]);
+}
+uint32_t Le32(const uint8_t* data) noexcept {
+  return uint32_t(data[0])|(uint32_t(data[1])<<8)|
+         (uint32_t(data[2])<<16)|(uint32_t(data[3])<<24);
+}
+void Transform(std::array<uint32_t,8>& state,const uint8_t* block) noexcept {
+  std::array<uint32_t,64> words{};
+  for(unsigned i=0;i<16;++i)words[i]=Be32(block+4*i);
+  for(unsigned i=16;i<64;++i) {
+    const auto x=words[i-15],y=words[i-2];
+    const auto s0=Rotate(x,7)^Rotate(x,18)^(x>>3);
+    const auto s1=Rotate(y,17)^Rotate(y,19)^(y>>10);
+    words[i]=words[i-16]+s0+words[i-7]+s1;
+  }
+  auto [a,b,c,d,e,f,g,h]=state;
+  for(unsigned i=0;i<64;++i) {
+    const auto choice=(e&f)^(~e&g);
+    const auto majority=(a&b)^(a&c)^(b&c);
+    const auto t1=h+(Rotate(e,6)^Rotate(e,11)^Rotate(e,25))+
+                  choice+kShaConstants[i]+words[i];
+    const auto t2=(Rotate(a,2)^Rotate(a,13)^Rotate(a,22))+majority;
+    h=g;g=f;f=e;e=d+t1;d=c;c=b;b=a;a=t1+t2;
+  }
+  state[0]+=a;state[1]+=b;state[2]+=c;state[3]+=d;
+  state[4]+=e;state[5]+=f;state[6]+=g;state[7]+=h;
+}
+} // namespace
+
+Digest OriginalShaderVirtualSha256(std::span<const uint8_t> bytes) noexcept {
+  std::array<uint32_t,8> state{
+      0x6a09e667u,0xbb67ae85u,0x3c6ef372u,0xa54ff53au,
+      0x510e527fu,0x9b05688cu,0x1f83d9abu,0x5be0cd19u};
+  size_t index=0;
+  while(bytes.size()-index>=64) {
+    Transform(state,bytes.data()+index);
+    index+=64;
+  }
+  std::array<uint8_t,128> tail{};
+  const size_t remain=bytes.size()-index;
+  for(size_t j=0;j<remain;++j)tail[j]=bytes[index+j];
+  tail[remain]=0x80;
+  const size_t total=remain+1+8<=64 ? 64 : 128;
+  const uint64_t bitlength=static_cast<uint64_t>(bytes.size())*8u;
+  for(size_t j=0;j<8;++j)
+    tail[total-8+j]=uint8_t(bitlength>>(8*(7-j)));
+  Transform(state,tail.data());
+  if(total==128)Transform(state,tail.data()+64);
+  Digest out{};
+  for(size_t i=0;i<8;++i)
+    for(size_t j=0;j<4;++j)
+      out[i*4+j]=uint8_t(state[i]>>(8*(3-j)));
+  return out;
+}
+
+void OriginalVirtualShaderIdentity::Load(
+    const std::filesystem::path& private_bank) {
+  std::ifstream file(private_bank,std::ios::binary|std::ios::ate);
+  if(!file)throw std::invalid_argument("Original private virtual shader index absent");
+  const auto size=file.tellg();
+  if(size<16 || size>16ll+72ll*16384)
+    throw std::invalid_argument("Original virtual shader index too large");
+  std::vector<uint8_t> bytes(static_cast<size_t>(size));
+  file.seekg(0);
+  if(!file.read(reinterpret_cast<char*>(bytes.data()),
+                static_cast<std::streamsize>(bytes.size())))
+    throw std::invalid_argument("Original virtual shader bank truncated");
+  if(std::string(bytes.begin(),bytes.begin()+8)!="HEORVRT1")
+    throw std::invalid_argument("Unknown source virtual-shader identity bank");
+  const auto count=Le32(bytes.data()+8);
+  const auto version=Le32(bytes.data()+12);
+  if(version!=1 || count==0 || count>16384 ||
+     bytes.size()!=16ull+72ull*count)
+    throw std::invalid_argument("Original virtual-shader source record count invalid");
+  std::map<Digest,Entry> next;
+  std::set<Digest> unique_original_sources;
+  for(size_t i=0;i<count;++i) {
+    const auto base=16ull+i*72ull;
+    Digest virtual_sha{},full_sha{};
+    for(size_t b=0;b<32;++b) {
+      virtual_sha[b]=bytes[base+b];
+      full_sha[b]=bytes[base+32+b];
+    }
+    const auto stage=Le32(bytes.data()+base+64);
+    const auto virtual_size=Le32(bytes.data()+base+68);
+    if(virtual_sha==Digest{} || full_sha==Digest{} ||
+       (stage!=1u && stage!=2u) ||
+       virtual_size<36u || virtual_size>(8u<<20) ||
+       !unique_original_sources.insert(full_sha).second ||
+       !next.emplace(virtual_sha,
+                     Entry{full_sha,static_cast<Stage>(stage),virtual_size}).second)
+      throw std::invalid_argument("Original source virtual SHA identity collision");
+  }
+  original_.swap(next); // Failed generation leaves older verified bank unchanged.
+}
+
+std::optional<Digest> OriginalVirtualShaderIdentity::FindOriginalSource(
+    std::span<const uint8_t> exact_header,Stage expected_stage) const noexcept {
+  if((expected_stage!=Stage::Vertex && expected_stage!=Stage::Pixel) ||
+     exact_header.size()<36 || exact_header.size()>(8u<<20))
+    return std::nullopt;
+  const uint32_t flags=Be32(exact_header.data());
+  if((flags&0xffffff00u)!=0x102a1100u ||
+     ((flags&1u)?Stage::Vertex:Stage::Pixel)!=expected_stage ||
+     Be32(exact_header.data()+4)!=exact_header.size() ||
+     Be32(exact_header.data()+8)==0u)
+    return std::nullopt;
+  const auto virtual_sha=OriginalShaderVirtualSha256(exact_header);
+  const auto it=original_.find(virtual_sha);
+  if(it==original_.end() || it->second.stage!=expected_stage ||
+     it->second.virtual_bytes!=exact_header.size())
+    return std::nullopt;
+  return it->second.full_source_sha;
+}
+} // namespace hulk::eor::aot
