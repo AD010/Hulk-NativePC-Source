@@ -96,7 +96,17 @@ def stage_report(log: str, cap: int = 8) -> list[str]:
                        if name.startswith(("test_", "patch_", "audit_", "repair_",
                                            "check_", "seed_", "run_", "hulk_"))
                        and name.endswith(".py") and not SECRET.search(name)), "")
-        stages.append(tool + (" script=" + script if script else ""))
+        label = tool + (" script=" + script if script else "")
+        # Three distinct source mutations share a filename. The 21-Nov
+        # Windows failure redacted their modes, so an index fix and a mip fix
+        # were indistinguishable. Only literal audited mode names are safe.
+        if script == "patch_sdk_hulk_xenia_edge.py":
+            modes = [mode for mode in ("index-pool", "packed-mip", "spirv-scalar")
+                     if re.search(r"(?<![A-Za-z0-9_-])" + re.escape(mode) +
+                                  r"(?![A-Za-z0-9_-])", command)]
+            if len(modes) == 1:
+                label += " mode=" + modes[0]
+        stages.append(label)
     if not stages:
         return ["last_commands=unavailable"]
     return ["last_commands=" + " -> ".join(stages[-cap:])]
