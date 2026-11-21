@@ -125,7 +125,8 @@ struct VerifiedWorkerEorFrame {
 // of HEORSPV1, material uploads or any Vulkan output: source identities can
 // be recovered before a complete compiled shader bank exists.
 bool InstallOriginalShaderCaptureIndex(
-    std::shared_ptr<const aot::OriginalVirtualShaderIdentity> original) noexcept;
+    std::shared_ptr<const aot::OriginalVirtualShaderIdentity> original,
+    std::shared_ptr<const aot::EffectCatalog> original_effects={}) noexcept;
 void ClearOriginalShaderCaptureIndex() noexcept;
 // Register the REAL private USA offline ShaderEffects bank, effect/pass index,
 // and reflection together. The game owns the source generations; the GPU
