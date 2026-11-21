@@ -110,7 +110,9 @@ class TestHulkPcMenu(unittest.TestCase):
         self.assertIn("display::FitOriginalPicture(", menu)
         self.assertIn("options::SaveWindowSize(", menu)
         self.assertIn("display::kWindowPresets", menu)
-        self.assertIn("std::array<WindowPreset, 11>", host)
+        # The full native PC menu now exposes 17 validated presets,
+        # including 2560x1600 (16:10) and ultrawide resolutions.
+        self.assertIn("std::array<WindowPreset, 17>", host)
         self.assertIn("std::min(horizontal, vertical)", host)
         self.assertIn("std::max(1.0, fit)", host)
         self.assertIn("SaveWindowSize(", store)

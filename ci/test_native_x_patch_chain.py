@@ -123,9 +123,19 @@ def run(sha=SHA):
     # Fail fast, with PUBLIC synthetic-only test output, BEFORE touching
     # copyrighted inputs. Re-run these again during the private build as
     # defense in depth. The same builder is the source of both lists.
+    failures=[]
     for name in source_only_host_tests():
-        checked([sys.executable, str(ROOT/name)])
-        print("[Hulk/public-host-preflight] OK", name, flush=True)
+        try:
+            checked([sys.executable, str(ROOT/name)])
+            print("[Hulk/public-host-preflight] OK", name, flush=True)
+        except RuntimeError:
+            failures.append(name)
+    # A source-only failure must still fail the Windows build. Collect all
+    # independent public test failures in this single runner invocation,
+    # rather than wasting a full Actions dispatch on each stale assertion.
+    if failures:
+        raise RuntimeError(
+            "Public source-only preflight failed: " + ", ".join(failures))
     # Every separate Hulk patch script compares its *actual* checkout HEAD
     # with this value. The candidate is not disguised as the old revision.
     os.environ["HULK_NATIVEX_SOURCE_SHA"] = sha
