@@ -69,6 +69,9 @@ class ScopedOriginalEorRenderItem final {
   uint32_t previous_method_=0;
   uint32_t previous_item_=0;
   uint32_t previous_context_=0;
+  uint32_t previous_item_vtable_=0;
+  uint32_t previous_material_=0;
+  bool previous_material_verified_=false;
   bool previous_verified_=false;
 };
 bool CaptureEnabled();
