@@ -266,6 +266,21 @@ struct OriginalEorShaderMethodAtDraw {
   uint32_t original_decal_material_word0=0;
   uint32_t original_decal_material_word8=0;
   bool original_decal_item_material_binding_verified=false;
+  // Original 0x825F84C0 generic EoR state-slot binder. At source entry
+  // r3 is the original material context, r4 is 1-based pass STATE
+  // index (the original PDB/ShaderEffects ordinal remains unverified).
+  // Original source pass record stride=92 bytes, VS/PS table indexes
+  // at pass+84,+85; original source shader handle tables at material
+  // +124 (VS) and +136 (PS), eight bytes per handle.
+  // Exact original SetVertexShader / SetPixelShader device shadow
+  // identities must agree at a subsequent SAME-thread XDK Draw.
+  uint32_t original_pass_material_context_guest=0;
+  uint32_t original_pass_state_one_based=0;
+  uint32_t original_pass_vertex_handle_entry_guest=0;
+  uint32_t original_pass_pixel_handle_entry_guest=0;
+  uint32_t original_pass_vs_xdk_guest_object=0;
+  uint32_t original_pass_ps_xdk_guest_object=0;
+  bool original_pass_vs_ps_xdk_binding_verified=false;
 };
 struct RawDraw {
   Kind kind{};
