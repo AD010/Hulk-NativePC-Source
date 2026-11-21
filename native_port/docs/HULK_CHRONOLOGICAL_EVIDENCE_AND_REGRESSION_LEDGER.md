@@ -4,6 +4,60 @@
 
 > Source-safe summary. No proprietary game microcode, original assets, raw GPU dumps or full user logs are republished.
 
+## Continuation: 17–21 November 2026 (USA/main; source-safe)
+
+This section extends the **16 November** audit below. Its 72-log/67-unique
+counts still end on **15 November**; no fresh gameplay capture is attributed to
+the current binary. All dates here are UTC unless otherwise stated.
+
+| Date | Recoverable milestone | What it does NOT prove |
+|---|---|---|
+| 17 Nov | Native EoR indexed Draw/SPIR-V/mip resource code and original archive streaming progressed; commit `3ef24cb23af302c0e6b474f9acb498fae1e7c5f3` observed | No real completed direct EoR Vulkan gameplay image |
+| 18 Nov | The native host output/source provenance report recorded `2cd854fe5454be9e316e23ed8c080e72d9be95c0` and a checked Vulkan output/composite contract | A compositor contract does not create authenticated EoR draw witnesses |
+| 19 Nov | Genuine USA XDK Present/Draw snapshot, strict worker ownership and Vulkan preflight became the intended path; camera/material/effect identity still source-gated | No invented ABI for `UIPage_Pause_Settings` or mesh/material owners |
+| 20 Nov | Original draw-geometry capture lifetime and MSVC test fixes advanced; `96d1e27` was reported during the day | Source unit tests are not Windows GPU image confirmation |
+| 21 Nov 09:15–09:42 | Original PC menu art in the native menu, direct EoR Vulkan worker selection, complete per-slot live Xbox vertex-stream capture, viewport/scissor reset per indexed draw, deduplicated original mesh search, and USA callgraph duplicate checks, through `8a9bbad85ff78c152a83a2bb7b849cecc97d2d2b` | The Xbox pause page is not redirected into native Settings; source-backed `VerifiedWorkerEorFrame` producer remains absent |
+| 21 Nov 09:52 | `2de0aabf670ea1fe26ab30ffd1076b4af0502966` and `15e98540b62825aa272cbff5198386065a0d86c2` correct index-width bounds for original 32-bit guest IB reads and add a negative test | Source change plus committed test; neither an executed Windows test nor a released full port |
+
+### Current verified path and exact missing producer
+
+The existing source contains `CapturePpcDraw` → immutable XDK
+`CompletedFrameMailbox` → `TryWorkerEorFrame` →
+`ReplayNextVerifiedPpcFrame` → `ReplayDeliveredResourceScene` →
+`ReplayAotScene` → native Vulkan backend. However
+`InstallVerifiedWorkerEorFrame` / `InstallVerifiedWorkerEorFrameWithResidents`
+require an **independent source-authenticated original engine producer**
+to supply every model/mesh/surface/effect-pass/VS/PS/camera witness for the
+same original Present. XDK objects, callsite LR and indexed archive names
+alone do not prove these bindings; no full real-world frame should be
+declared successful until that producer exists and runs.
+
+`UIPage_Pause_Settings` is still only a real game/UI resource identifier
+and a Ghidra xref analysis target. The separate F10 PC ImGui menu persists
+working Windows options but has **not** intercepted the game's actual
+Pause Settings selection, original guest event ABI, focus and return path.
+`ci/ghidra_hulk_ui_xrefs.py` and the original-PC/Xbox UI asset index
+are the source-safe starting evidence, not proof of a callable USA hook.
+
+### 21 November Windows Release evidence
+
+The latest observed manual workflow run before these two source changes,
+[44886654922](https://github.com/AD010/Hulk-NativePC-Source/actions/runs/44886654922),
+ended in **failure** at “Compile Vulkan NativeXRenderer Hulk under Windows”.
+The public job reports exit 1 and points to private diagnostics; it does not
+expose a reliable MSVC error in the public log. Private
+`Hulk-PrivateRunner-Diagnostics.zip` was updated at 08:55:58 UTC, but its
+contents were not inspected in this continuation. **No executable/ZIP from
+the 09:52 commits has been built, published or gameplay-tested.**
+
+Next implementation must prioritize the *actual* USA engine EoR Draw owner
+and pause UI dispatch ABI; no new repository, workflow, speculative guest
+offsets, or public redistribution of proprietary XEX/ARC/TU is authorized.
+Preserve the existing manual-only Release workflow and the private
+`AD010/hulk-cloud` resource boundary.
+
+---
+
 ## What was actually checked
 
 - **72 accessible uploaded log files** (`incredible_hulk_*.log`) dated 2026-11-07 to 2026-11-15; **67 distinct byte streams** after SHA-256 deduplication. Every line was scanned for a fixed diagnostic category set. This is not an exhaustive human reinterpretation of every individual event.
