@@ -102,26 +102,27 @@ class PcMenu final : public rex::ui::ImGuiDialog {
       art->AddRectFilled(
           ImVec2(top.x,top.y),ImVec2(top.x+5.0f*menu_scale,top.y+extent.y),
           IM_COL32(121,203,64,255));
-      // The actual 2008 EoR menu texture is drawn by ReXGlue's Vulkan
-      // ImmediateDrawer from owner-supplied PC archives, not from a
-      // fake generated banner or an unverified Xbox UI object.
+      // Retail Hulk's original PC UI textures are atlases, NOT full
+      // screen wallpapers. Use the authored horizontal menu-band sprite
+      // and gold selection strip, never scale a complete atlas into a
+      // giant illegible square. UVs select only the real source pixels.
+      const float art_left=top.x+(extent.x-menu_width)*0.5f;
+      const float art_top=top.y+(extent.y-menu_height)*0.5f;
       if(original_bands_gpu_) {
-        const float art_height=std::min(285.0f*menu_scale,extent.y*0.56f);
-        const ImVec2 p(top.x+extent.x-art_height-12.0f,
-                       top.y+12.0f);
+        const ImVec2 p(art_left,art_top);
         art->AddImage(
             reinterpret_cast<ImTextureID>(original_bands_gpu_.get()),
-            p,ImVec2(p.x+art_height,p.y+art_height),
-            ImVec2(0,0),ImVec2(1,1),IM_COL32(255,255,255,210));
+            p,ImVec2(p.x+menu_width,p.y+66.0f*menu_scale),
+            ImVec2(0.0f,0.02f),ImVec2(1.0f,0.34f),
+            IM_COL32(255,255,255,230));
       }
       if(original_items_gpu_) {
-        const float art_width=std::min(260.0f*menu_scale,extent.x*0.26f);
-        const ImVec2 p(top.x+extent.x-art_width-12.0f,
-                       top.y+extent.y-art_width*0.5f-12.0f);
+        const ImVec2 p(art_left,art_top+55.0f*menu_scale);
         art->AddImage(
             reinterpret_cast<ImTextureID>(original_items_gpu_.get()),
-            p,ImVec2(p.x+art_width,p.y+art_width*0.5f),
-            ImVec2(0,0),ImVec2(1,1),IM_COL32(255,255,255,240));
+            p,ImVec2(p.x+menu_width,p.y+5.0f*menu_scale),
+            ImVec2(0.0f,0.15f),ImVec2(0.48f,0.22f),
+            IM_COL32(255,255,255,235));
       }
       const float panel_left=std::max(16.0f,(extent.x-menu_width)*0.5f);
       const float panel_top=std::max(14.0f,(extent.y-menu_height)*0.5f);
