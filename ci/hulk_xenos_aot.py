@@ -17,7 +17,8 @@ import struct
 import subprocess
 import tempfile
 from hulk_spirv_resource_contract import validate_named_spirv_images
-from hulk_xenos_to_spirv import spirv_info
+from hulk_xenos_to_spirv import (
+    spirv_info, ADAPTER_MARKER, GRADIENT_ADAPTER_MARKER)
 
 SHA = re.compile(r"^[0-9a-f]{64}$")
 MAX_INPUT = 2 << 20
@@ -113,6 +114,16 @@ def compile_bank(bank: Path, out: Path, xenos: Path, dxc: Path, common: Path,
                 capture_output=True, timeout=120, check=False)
             if translate.returncode or not hlsl.is_file() or not hlsl.stat().st_size:
                 raise RuntimeError(f"XenosRecomp exit={translate.returncode}")
+            # The parallel compiler must obey the EXACT same original
+            # Hulk Xenos LOD/grad translation contract as the strict
+            # HEORSPV1 complete-bank compiler. A stale/unpatched translator
+            # can emit valid-looking but wrong textures, then be cached by SHA.
+            generated=hlsl.read_text(encoding="utf-8")
+            if ("void main(" not in generated or
+                ADAPTER_MARKER not in generated or
+                GRADIENT_ADAPTER_MARKER not in generated):
+                raise RuntimeError(
+                    "Missing Hulk original XenosRecomp LOD/gradient shader adapter")
             # DXC requires an explicit shader entry point. The original
             # complete-bank compiler already supplies -E main; without it
             # this incremental AOT route may reject valid XenosRecomp HLSL.
