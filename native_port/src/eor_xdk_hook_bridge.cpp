@@ -731,6 +731,36 @@ void CapturePpcDraw(Kind kind, uint32_t guest, const PPCContext& ctx,
   }
   // Keep buffer revisions and their Draw in the same Present epoch.
   std::lock_guard lock(g_mutex);
+  // Original USA PPC guarantees that the EoR stage handle row+0 is the
+  // actual XDK shader object. Row+4 is NOT assumed to be a header:
+  // examine it only as an opt-in candidate, and accept it solely if its
+  // complete guest ShaderContainer resolves to one unique HEORVRT1 SHA.
+  // The caller's real Present epoch and Draw ordinal come from the
+  // collector WHILE holding the same mutex as Record()/Finish().
+  if(REXCVAR_GET(hulk_eor_vulkan_replay) &&
+     g_offline_shader_pack && g_offline_shader_pack->virtual_ids &&
+     draw.original_engine_shader_method && draw.observed_vs_matrices) {
+    const auto& owner=*draw.original_engine_shader_method;
+    const auto& live=*draw.observed_vs_matrices;
+    if(owner.original_pass_vs_ps_xdk_binding_verified &&
+       owner.original_pass_vertex_handle_entry_guest &&
+       owner.original_pass_pixel_handle_entry_guest &&
+       g_collector.NextDrawOrdinal()<FrameCapture::kMaxDraws) {
+      const auto& sources=*g_offline_shader_pack->virtual_ids;
+      const uint64_t frame=g_collector.NextFrameSequence();
+      const uint32_t ordinal=g_collector.NextDrawOrdinal();
+      draw.observed_live_vertex_shader_header=
+          aot::ObserveOriginalLiveXdkShaderHandleEntry(
+              sources,owner.original_pass_vertex_handle_entry_guest,
+              live.original_vs_guest_object,aot::Stage::Vertex,
+              ReadGuest,guest_base,frame,ordinal);
+      draw.observed_live_pixel_shader_header=
+          aot::ObserveOriginalLiveXdkShaderHandleEntry(
+              sources,owner.original_pass_pixel_handle_entry_guest,
+              live.original_ps_guest_object,aot::Stage::Pixel,
+              ReadGuest,guest_base,frame,ordinal);
+    }
+  }
   // Only a requested direct Vulkan render performs byte-exact guest
   // resource capture; diagnostics-only XDK observer is unaffected.
   if(REXCVAR_GET(hulk_eor_vulkan_replay) && draw.observed_vs_matrices) {
