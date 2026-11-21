@@ -5,6 +5,7 @@
 // are embedded or shipped in source. Does NOT infer which currently bound
 // XDK shader object owns a recovered guest header.
 #include "eor_spirv_bank.h"
+#include "eor_effect_catalog.h"
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
@@ -51,6 +52,25 @@ struct OriginalLiveXdkShaderHeaderWitness {
   uint64_t original_frame_sequence=0;
   uint32_t original_call_ordinal=UINT32_MAX;
 };
+// Decode the actual source digest from an original, byte-exact live
+// ShaderContainer header, only if object/header pointer ABI and the
+// exact original XDK Present ordinal are independently authenticated.
+std::optional<Digest> ResolveOriginalLiveXdkShaderSource(
+    const OriginalVirtualShaderIdentity& identities,
+    const OriginalLiveXdkShaderHeaderWitness& source,
+    uint32_t currently_bound_xdk_shader_object,
+    Stage expected_stage,
+    uint64_t exact_frame_sequence, uint32_t exact_call_ordinal) noexcept;
+// Resolve the genuine ShaderEffects effect/pass from both XDK shader objects.
+// The original effect ledger rejects duplicate source VS/PS pairs; there is
+// no name-based class->effect shortcut or guessed technique index.
+std::optional<OriginalEffectPass> ResolveOriginalLiveEorEffectPass(
+    const OriginalVirtualShaderIdentity& identities,
+    const EffectCatalog& effects,
+    const OriginalLiveXdkShaderHeaderWitness& vertex,
+    const OriginalLiveXdkShaderHeaderWitness& pixel,
+    uint32_t bound_vertex_xdk_object,uint32_t bound_pixel_xdk_object,
+    uint64_t exact_frame_sequence,uint32_t exact_call_ordinal) noexcept;
 // Check stage, exact live object and byte-identical HEORVRT1 digest before
 // accepting a runtime shader binding. No guessed object offsets are read.
 bool MatchesOriginalLiveXdkShaderSource(
