@@ -412,6 +412,18 @@ struct OriginalEorShaderMethodAtDraw {
   // observed nonzero original device+12544 texture object pointer.
   // No texture payload SHA/PSO/format/mip identity inferred from that.
   bool original_pass_live_texture_objects_present=false;
+  // Original 0x82642A88 invokes the shader instance's OWN virtual
+  // model/surface item method (vtable slot+44) via PPC bctrl
+  // 0x82642BD4. On that call r3 is the same source shader instance,
+  // r4 is the ACTUAL per-render-item guest owner, r5 original
+  // rendering context. This is 52 source-proven class mappings across
+  // 22 unique original per-item virtual method addresses.
+  // This does NOT by itself identify the model archive CRC32, the
+  // surface ordinal or render-target pass; no invented model hash.
+  uint32_t original_engine_item_method_guest=0;
+  uint32_t original_engine_render_item_guest=0;
+  uint32_t original_engine_render_item_context_guest=0;
+  bool original_engine_item_abi_verified=false;
 };
 struct RawDraw {
   Kind kind{};
