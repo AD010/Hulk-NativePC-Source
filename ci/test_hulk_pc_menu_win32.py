@@ -40,7 +40,7 @@ class TestWin32Menu(unittest.TestCase):
         self.assertIn("GetForegroundWindow() == hwnd", win)
         self.assertIn('ImGui::Button("Exit to Windows"',ui)
         app=(R/"native_port/src/incredible_hulk_app.h").read_text()
-        self.assertIn("NativePC UI registered; F10",app)
+        self.assertIn("native full-screen game menu registered; Esc/F10",app)
         self.assertIn("window()->RequestClose();",app)
     def test_observer_inactive_message(self):
         source=(R/"native_port/src/native_x_renderer_hulk.cpp").read_text()

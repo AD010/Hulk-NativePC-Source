@@ -6,3 +6,5 @@ Do not publish game XEX, asset ARC, shaders, or private input data publicly.
 Retry 2: source-only CI assertion fixed; packaged TOML no longer contains a developer comment.
 
 Retry 3: corrected obsolete native display 11-preset test; collect all independent public-only regression failures per run.
+
+Retry 4: F10 Win32 test now expects the actual integrated fullscreen Esc/F10 native menu registration log.
