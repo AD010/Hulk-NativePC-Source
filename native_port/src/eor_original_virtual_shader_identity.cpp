@@ -144,12 +144,11 @@ std::optional<Digest> OriginalVirtualShaderIdentity::FindOriginalSource(
     return std::nullopt;
   return it->second.full_source_sha;
 }
-bool MatchesOriginalLiveXdkShaderSource(
+std::optional<Digest> ResolveOriginalLiveXdkShaderSource(
     const OriginalVirtualShaderIdentity& identities,
     const OriginalLiveXdkShaderHeaderWitness& source,
     uint32_t currently_bound_xdk_shader_object,
     Stage expected_stage,
-    const Digest& expected_original_full_shader_sha256,
     uint64_t exact_frame_sequence,uint32_t exact_call_ordinal) noexcept {
   if(!exact_frame_sequence || exact_call_ordinal==UINT32_MAX ||
      source.original_frame_sequence!=exact_frame_sequence ||
@@ -158,11 +157,40 @@ bool MatchesOriginalLiveXdkShaderSource(
      !source.original_xdk_shader_guest_object ||
      source.original_xdk_shader_guest_object!=currently_bound_xdk_shader_object ||
      !source.original_virtual_header_guest_address ||
-     (source.original_virtual_header_guest_address&3u) ||
-     expected_original_full_shader_sha256==Digest{})
-    return false;
-  const auto matched=identities.FindOriginalSource(
+     (source.original_virtual_header_guest_address&3u))
+    return std::nullopt;
+  return identities.FindOriginalSource(
       source.exact_original_guest_virtual_header,expected_stage);
-  return matched && *matched==expected_original_full_shader_sha256;
+}
+
+std::optional<OriginalEffectPass> ResolveOriginalLiveEorEffectPass(
+    const OriginalVirtualShaderIdentity& identities,
+    const EffectCatalog& effects,
+    const OriginalLiveXdkShaderHeaderWitness& vertex,
+    const OriginalLiveXdkShaderHeaderWitness& pixel,
+    uint32_t bound_vertex_xdk_object,uint32_t bound_pixel_xdk_object,
+    uint64_t exact_frame_sequence,uint32_t exact_call_ordinal) noexcept {
+  const auto vs=ResolveOriginalLiveXdkShaderSource(
+      identities,vertex,bound_vertex_xdk_object,Stage::Vertex,
+      exact_frame_sequence,exact_call_ordinal);
+  const auto ps=ResolveOriginalLiveXdkShaderSource(
+      identities,pixel,bound_pixel_xdk_object,Stage::Pixel,
+      exact_frame_sequence,exact_call_ordinal);
+  if(!vs || !ps)return std::nullopt;
+  return effects.FindOriginalPass(*vs,*ps);
+}
+
+bool MatchesOriginalLiveXdkShaderSource(
+    const OriginalVirtualShaderIdentity& identities,
+    const OriginalLiveXdkShaderHeaderWitness& source,
+    uint32_t currently_bound_xdk_shader_object,
+    Stage expected_stage,
+    const Digest& expected_original_full_shader_sha256,
+    uint64_t exact_frame_sequence,uint32_t exact_call_ordinal) noexcept {
+  if(expected_original_full_shader_sha256==Digest{})return false;
+  const auto digest=ResolveOriginalLiveXdkShaderSource(
+      identities,source,currently_bound_xdk_shader_object,
+      expected_stage,exact_frame_sequence,exact_call_ordinal);
+  return digest && *digest==expected_original_full_shader_sha256;
 }
 } // namespace hulk::eor::aot
