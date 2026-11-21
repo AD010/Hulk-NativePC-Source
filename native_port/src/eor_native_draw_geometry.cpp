@@ -599,7 +599,8 @@ std::vector<VerifiedXdkResourceWitness> AttachLiveEorShaderMethodParents(
       throw std::invalid_argument(
           "Stale original engine shader method vs Xbox Draw sequence");
     const auto& original_call=exact_original.calls[source.original_call_ordinal];
-    if(!xdk::ValidOriginalDecalGeometryBinding(original_call) ||
+    if(!xdk::ValidOriginalEorSourceRenderItem(original_call) ||
+       !xdk::ValidOriginalDecalGeometryBinding(original_call) ||
        !xdk::ValidOriginalDecalItemMaterialBinding(original_call) ||
        !xdk::ValidOriginalShaderPassStageBinding(original_call) ||
        !xdk::ValidOriginalShaderPassSamplerStateAtDraw(original_call))
