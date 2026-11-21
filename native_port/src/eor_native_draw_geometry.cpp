@@ -560,6 +560,12 @@ bool SameOriginalEorShaderMethod(
              b.original_engine_render_item_guest &&
          a.original_engine_render_item_context_guest==
              b.original_engine_render_item_context_guest &&
+         a.original_engine_render_item_vtable_guest==
+             b.original_engine_render_item_vtable_guest &&
+         a.original_engine_render_item_material_guest==
+             b.original_engine_render_item_material_guest &&
+         a.original_engine_item_material_source_verified==
+             b.original_engine_item_material_source_verified &&
          a.original_engine_item_abi_verified==
              b.original_engine_item_abi_verified;
 }
