@@ -160,6 +160,19 @@ struct EorWorkerStatus {
   uint64_t failed_after_gpu=0;
 };
 EorWorkerStatus GetEorWorkerStatus() noexcept;
+// Source-only per-Present coverage. This is a read-only original XDK
+// counter, NOT a Vulkan rendering readiness score; one present may contain
+// unverified Draws, unknown model owners or uncompiled shader modules.
+struct OriginalEorSourceCoverage {
+  uint64_t original_frame_sequence=0;
+  uint32_t original_xdk_draws=0;
+  uint32_t original_vs_headers=0;
+  uint32_t original_ps_headers=0;
+  uint32_t original_vs_ps_pairs=0;
+  uint32_t original_effect_passes=0;
+  bool complete_xdk_timeline=false;
+};
+OriginalEorSourceCoverage GetOriginalEorSourceCoverage() noexcept;
 native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(
     native_x_renderer::Device& device) noexcept;
 }
