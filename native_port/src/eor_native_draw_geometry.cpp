@@ -529,6 +529,9 @@ bool ValidOriginalEorShaderMethod(
     const xdk::OriginalEorShaderMethodAtDraw& source) noexcept {
   return source.original_shader_method_vtable_verified &&
          source.original_shader_instance_guest &&
+         source.original_shader_vtable_guest &&
+         xdk::ProvenUsaEorShaderVtableForMethod(
+             source.original_shader_method_guest)!=0u &&
          source.nesting_depth && source.nesting_depth<=16 &&
          xdk::ProvenUsaEorShaderVtableForMethod(
              source.original_shader_method_guest)==
