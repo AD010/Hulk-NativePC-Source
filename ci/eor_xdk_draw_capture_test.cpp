@@ -229,6 +229,40 @@ int main() {
   pass.observed_vs_matrices->original_vs_guest_object=0xA3210000u;
   pass.observed_vs_matrices->original_ps_guest_object=0xA3211000u;
   assert(ValidOriginalShaderPassStageBinding(pass));
+  // Original 0x825F84C0 source material pass state has its own
+  // 4-byte sampler STATE table at context+196; index/count at
+  // state record +80 (BE16) and +87. Here source slot0 and slot3
+  // have REAL guest XDK device+12544 texture objects at this Draw.
+  pass.original_engine_shader_method->
+      original_pass_sampler_slot_mask=(uint16_t(1u)<<0)|
+                                      (uint16_t(1u)<<3);
+  pass.original_engine_shader_method->
+      original_pass_sampler_slots_verified=true;
+  pass.original_engine_shader_method->
+      original_pass_live_texture_objects_present=true;
+  pass.observed_vs_matrices->original_texture_guest_objects[0]=0xA3331000u;
+  pass.observed_vs_matrices->original_texture_guest_objects[3]=0xA3334000u;
+  assert(ValidOriginalShaderPassSamplerStateAtDraw(pass));
+  auto wrong_sampler=pass;
+  wrong_sampler.observed_vs_matrices->
+      original_texture_guest_objects[3]=0u;
+  assert(!ValidOriginalShaderPassSamplerStateAtDraw(wrong_sampler));
+  wrong_sampler=pass;
+  wrong_sampler.original_engine_shader_method->
+      original_pass_vs_ps_xdk_binding_verified=false;
+  assert(!ValidOriginalShaderPassSamplerStateAtDraw(wrong_sampler));
+  wrong_sampler=pass;
+  wrong_sampler.original_engine_shader_method->
+      original_pass_sampler_slots_verified=false;
+  assert(!ValidOriginalShaderPassSamplerStateAtDraw(wrong_sampler));
+  // A read-only source pass with no stated sampler-state table cannot
+  // invent a proven texture fetch, even when stale guest textures linger.
+  wrong_sampler=pass;
+  wrong_sampler.original_engine_shader_method->
+      original_pass_sampler_slot_mask=0;
+  wrong_sampler.original_engine_shader_method->
+      original_pass_live_texture_objects_present=false;
+  assert(ValidOriginalShaderPassSamplerStateAtDraw(wrong_sampler));
   auto mismatched_pass=pass;
   mismatched_pass.observed_vs_matrices->
       original_ps_guest_object=0xA3211004u;
