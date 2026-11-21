@@ -1,16 +1,32 @@
 #!/usr/bin/env python3
 """Synthetic original EoR UI VM route tests; no proprietary archive in source."""
 import unittest
+import zlib
 from audit_hulk_original_pause_ui_objects import (
     PAUSE_SEQUENCE, inspect_actions, inspect_objects,
 )
 
 
-def object_fixture(extra_after_options=0):
+def object_fixture(endian="big", extra_after_options=0):
+    methods = {
+        "uiwidget_pausemenu_z", "ChangeState_r", "Init_z",
+        "ActivateUpgradeMenu_z", "ActivateCurrentStatusMenu_z",
+    }
     parts = []
     for name in PAUSE_SEQUENCE:
         parts.append(name.encode("ascii") + b"\0")
-        if name == "OptionsMenuState":
+        if name in methods:
+            if name == "ChangeState_r":
+                # Synthetic opaque VM operand with the original 13-byte shape,
+                # never a copied original game opcode program.
+                payload = b"\x31\x02\x37\x01\x28" + (0xDEADBEEF).to_bytes(4, endian) + b"\x0e\x02\x35\x00"
+            else:
+                payload = b"\x31\x02"
+            parts.append(len(payload).to_bytes(4, endian))
+            parts.append(payload)
+            parts.append((zlib.crc32(name.upper().encode()) & 0xffffffff).to_bytes(4, endian))
+            parts.append(b"\0" * 7)
+        elif name == "OptionsMenuState":
             parts.append(b"\x01" * extra_after_options)
         else:
             parts.append(b"\x01" * 16)
@@ -24,20 +40,27 @@ def object_fixture(extra_after_options=0):
 class OriginalPauseScriptTests(unittest.TestCase):
     def test_source_route_and_game_settings_init(self):
         data = object_fixture()
-        out = inspect_objects(data, "synthetic")
+        out = inspect_objects(data, "xbox_360_source")
         self.assertEqual(list(out["pause_route_offsets_from_page"]), list(PAUSE_SEQUENCE))
         self.assertTrue(out["game_settings_script_present"])
         self.assertGreater(out["game_settings_init_relative"], 0)
+        self.assertEqual(out["change_state_vm_opaque_0x28_operand"], "DEADBEEF")
+        self.assertEqual(out["pause_vm_method_payload_lengths"]["ChangeState_r"], 13)
+        self.assertFalse(out["opaque_operand_is_verified_guest_function"])
         self.assertFalse(out["guest_ppc_event_handler_abi_verified"])
         self.assertFalse(out["native_windows_pause_menu_binding_installed"])
 
     def test_cross_platform_shared_method_order_not_hardcoded_offsets(self):
-        pc = inspect_objects(object_fixture(0), "pc")
-        xbox = inspect_objects(object_fixture(72), "xbox")
+        pc = inspect_objects(object_fixture("little", 0), "pc_2008_comparator")
+        xbox = inspect_objects(object_fixture("big", 72), "xbox_360_source")
         self.assertEqual(list(pc["pause_route_offsets_from_page"]),
                          list(xbox["pause_route_offsets_from_page"]))
         self.assertNotEqual(pc["pause_route_offsets_from_page"]["Settings_Page"],
                             xbox["pause_route_offsets_from_page"]["Settings_Page"])
+        self.assertEqual(pc["pause_vm_method_payload_lengths"],
+                         xbox["pause_vm_method_payload_lengths"])
+        self.assertEqual(pc["change_state_vm_opaque_0x28_operand"],
+                         xbox["change_state_vm_opaque_0x28_operand"])
 
     def test_missing_reordered_duplicate_or_missing_init_refused(self):
         source = object_fixture()
@@ -47,10 +70,13 @@ class OriginalPauseScriptTests(unittest.TestCase):
             source.replace(b"ChangeState_r\0", b"ChangeState_X\0", 1),
             source.replace(b"uipage_pause_gamesettings_z\0", b"uipage_unknown_gamesettings_z\0", 1),
             source.replace(b"Init_z\0", b"Init_X\0"),
+            source.replace(b"\x28\xde\xad\xbe\xef", b"\x29\xde\xad\xbe\xef", 1),
+            source.replace((zlib.crc32(b"ChangeState_r".upper()) & 0xffffffff).to_bytes(4, "big"),
+                           b"\x00\x00\x00\x00", 1),
         ]
         for data in bad:
             with self.subTest(data=data[-30:]), self.assertRaises(ValueError):
-                inspect_objects(data, "bad")
+                inspect_objects(data, "xbox_360_source")
 
     def test_original_action_names_are_only_an_address_level_symbol_pair(self):
         valid = b"prefix\0UI_ActivateOptions\0HUD\0UI_OptionScreen\0"
