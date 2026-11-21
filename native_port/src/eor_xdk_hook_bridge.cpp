@@ -101,6 +101,50 @@ bool ReadGuest(void* state,uint32_t address,std::byte* output,size_t length) noe
 }
 }
 
+void ObserveOriginalEorVmState_r(
+    uint32_t original_method_guest,const PPCContext& original_ctx,
+    uint8_t* original_guest_base) noexcept {
+  if(!CaptureEnabled() || original_method_guest!=0x8264C798u ||
+     !original_guest_base || !original_ctx.r3.u32)
+    return;
+  const uint32_t call_lr=static_cast<uint32_t>(original_ctx.lr);
+  if(call_lr<0x82000000u || call_lr>=0x84000000u ||
+     (call_lr&3u))
+    return;
+  // USA original native state_r is registered in .rdata as
+  // 0x82E2EB8C -> (state_r,0x8264C798). PPC method r3 is an
+  // original VM call context, not a UIPage_Pause_Settings pointer.
+  // The first two levels are SOURCE OBSERVATIONS only; no VM type
+  // offsets or page identities are invented.
+  const auto read32=[&](uint32_t guest)->std::optional<uint32_t> {
+    if(!guest || guest>UINT32_MAX-4u)return std::nullopt;
+    std::array<std::byte,4> raw{};
+    if(!ReadGuest(original_guest_base,guest,raw.data(),raw.size()))
+      return std::nullopt;
+    return uint32_t(std::to_integer<uint8_t>(raw[0]))<<24 |
+           uint32_t(std::to_integer<uint8_t>(raw[1]))<<16 |
+           uint32_t(std::to_integer<uint8_t>(raw[2]))<<8 |
+           uint32_t(std::to_integer<uint8_t>(raw[3]));
+  };
+  const auto vm_frame=read32(original_ctx.r3.u32);
+  const auto input=vm_frame ? read32(*vm_frame):std::nullopt;
+  const auto output=vm_frame && *vm_frame<=UINT32_MAX-4u
+      ? read32(*vm_frame+4u) : std::nullopt;
+  static std::atomic<uint64_t> calls{0};
+  const auto n=calls.fetch_add(1,std::memory_order_relaxed)+1u;
+  // Bound log cost and preserve only original PPC virtual addresses.
+  // This common VM getter/setter must NEVER be promoted to a native
+  // Windows menu event merely because ChangeState_r calls it.
+  if(n<=8u || (n%8192u)==0u)
+    REXLOG_INFO("[HULK/EOR-VM-STATE-R] calls={} original_native=0x{:08X} "
+                "guest_LR=0x{:08X} VM_r3=0x{:08X} frame=0x{:08X} "
+                "in=0x{:08X} out=0x{:08X}; "
+                "PAGE-OWNER UNKNOWN, not native Pause Settings event",
+                n,original_method_guest,call_lr,original_ctx.r3.u32,
+                vm_frame.value_or(0u),input.value_or(0u),
+                output.value_or(0u));
+}
+
 ScopedOriginalEorShaderMethod::ScopedOriginalEorShaderMethod(
     uint32_t original_method_guest,const PPCContext& original_ctx,
     uint8_t* original_guest_base) noexcept {
