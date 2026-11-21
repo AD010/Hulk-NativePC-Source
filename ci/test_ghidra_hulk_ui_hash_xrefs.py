@@ -100,6 +100,16 @@ class EorUiHashXrefsTests(unittest.TestCase):
         self.assertIn('"original_pause_vm_xex_constant_candidates"', source)
         self.assertIn('"PowerPC_lis_ori"', source)
         self.assertIn('"proves_original_pause_event_handler": False', source)
+        self.assertIn('values = list(PAUSE_VM_METHOD_HASHES)', source)
+        self.assertNotIn('("ChangeState_r_opaque_0x28_operand",', source)
+        self.assertIn('"reused_global_vm_call_operand_excluded_from_pause_dispatch"', source)
+        self.assertEqual(
+            reference["sources"]["xbox360_object_archive"]["shared_opcode_0x28_vm_uses"],
+            314)
+        self.assertEqual(
+            reference["sources"]["pc_2008_comparator"]["shared_opcode_0x28_vm_uses"],
+            303)
+        self.assertTrue(reference["operand_0x28_cannot_prove_original_ppc_dispatcher"])
 
     def test_menu_xref_search_does_not_claim_abi_or_embed_game_data(self):
         source = SCRIPT.read_text(encoding="utf-8")
