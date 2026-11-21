@@ -802,12 +802,16 @@ void EndPpcHook(native_x_renderer::Call kind) {
     uint32_t original_source_sampler_state_verified=0;
     uint32_t original_live_xdk_texture_slot_present=0;
     uint32_t original_engine_render_item_parented=0;
+    uint32_t original_engine_item_material_verified=0;
     for (const RawDraw& call : frame.calls) {
       if(const auto& source=call.original_engine_shader_method;source) {
         ++original_shader_parented;
         if(source->original_engine_item_abi_verified &&
-           ValidOriginalEorSourceRenderItem(call))
+           ValidOriginalEorSourceRenderItem(call)) {
           ++original_engine_render_item_parented;
+          if(source->original_engine_item_material_source_verified)
+            ++original_engine_item_material_verified;
+        }
         if(source->original_shader_method_guest==0x8266A0C0u)
           ++original_font_draws;
         if(source->original_decal_xdk_vb_ib_binding_verified &&
@@ -842,7 +846,8 @@ void EndPpcHook(native_x_renderer::Call kind) {
                 "eor_pass_stage_vs_ps_xdk_verified={} "
                 "eor_pass_sampler_state_verified={} "
                 "xdk_sampler_texture_object_presence={} "
-                "original_engine_render_item_parented={}; "
+                "original_engine_render_item_parented={} "
+                "original_engine_item_material_verified={}; "
                 "source model hash/texture fetch identity remains unverified",
                 frame.sequence,indexed,verts,up,frame.dropped,
                 frame.commands.size(),frame.dropped_commands,
@@ -853,7 +858,8 @@ void EndPpcHook(native_x_renderer::Call kind) {
                 live_original_pass_vs_ps_verified,
                 original_source_sampler_state_verified,
                 original_live_xdk_texture_slot_present,
-                original_engine_render_item_parented);
+                original_engine_render_item_parented,
+                original_engine_item_material_verified);
     for (const auto& site: hot) {
       REXLOG_INFO("[HULK/EOR-XDK-CALLSITE] XDK=0x{:08X} LR=0x{:08X} "
                   "kind={} draws={} frames={} first={} last={} "
