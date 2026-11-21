@@ -37,6 +37,15 @@ struct VerifiedDrawSource {
   uint32_t original_call_ordinal = UINT32_MAX;
   std::optional<xdk::OriginalVsMatrices> original_vs_matrices;
   std::shared_ptr<const xdk::OriginalShaderRegisters> original_shader_constants;
+  // Optional original XDK ShaderObject -> ORIGINAL guest ShaderContainer
+  // header evidence for the exact Draw. The producer must actually
+  // capture these bytes through its independently verified original PPC
+  // object/header pointer ABI. No 52-class name or pass-index guessing.
+  // When HEORVRT1 is loaded, the Vulkan worker requires BOTH proofs.
+  std::optional<aot::OriginalLiveXdkShaderHeaderWitness>
+      original_live_vertex_shader_header;
+  std::optional<aot::OriginalLiveXdkShaderHeaderWitness>
+      original_live_pixel_shader_header;
   // Explicit engine ABI, material ownership, converted host vertex layout and
   // fixed-function pass/depth/RT state. Never silently set these to true.
   bool engine_draw_verified = false;
