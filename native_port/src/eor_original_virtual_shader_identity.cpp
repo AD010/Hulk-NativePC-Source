@@ -144,6 +144,74 @@ std::optional<Digest> OriginalVirtualShaderIdentity::FindOriginalSource(
     return std::nullopt;
   return it->second.full_source_sha;
 }
+std::optional<OriginalLiveXdkShaderHeaderWitness>
+ObserveOriginalLiveXdkShaderHandleEntry(
+    const OriginalVirtualShaderIdentity& identities,
+    uint32_t original_eor_handle_row_guest,
+    uint32_t current_bound_xdk_shader_object,
+    Stage stage,
+    ReadOriginalGuestShaderBytes reader,void* original_guest_base,
+    uint64_t exact_frame_sequence,uint32_t exact_call_ordinal) noexcept {
+  // The stage setter reads row+0; row+4 has no proven PPC semantic.
+  // Do not promote it to a pointer until its entire original virtual
+  // header matches the archived cryptographic content-addressed index.
+  if(!reader || !original_guest_base || !identities.size() ||
+     !original_eor_handle_row_guest ||
+     (original_eor_handle_row_guest&3u) ||
+     original_eor_handle_row_guest>UINT32_MAX-8u ||
+     !current_bound_xdk_shader_object ||
+     !exact_frame_sequence || exact_call_ordinal==UINT32_MAX ||
+     (stage!=Stage::Vertex && stage!=Stage::Pixel))
+    return std::nullopt;
+  try {
+    std::array<std::byte,8> row{};
+    if(!reader(original_guest_base,original_eor_handle_row_guest,
+               row.data(),row.size()))
+      return std::nullopt;
+    const auto be32=[](const std::byte* p) noexcept -> uint32_t {
+      return (uint32_t(std::to_integer<uint8_t>(p[0]))<<24) |
+             (uint32_t(std::to_integer<uint8_t>(p[1]))<<16) |
+             (uint32_t(std::to_integer<uint8_t>(p[2]))<<8) |
+              uint32_t(std::to_integer<uint8_t>(p[3]));
+    };
+    const uint32_t object=be32(row.data());
+    const uint32_t header_address=be32(row.data()+4);
+    if(object!=current_bound_xdk_shader_object ||
+       !header_address || (header_address&3u) ||
+       header_address>UINT32_MAX-12u)
+      return std::nullopt;
+    std::array<std::byte,12> preamble{};
+    if(!reader(original_guest_base,header_address,
+               preamble.data(),preamble.size()))
+      return std::nullopt;
+    const uint32_t signature=be32(preamble.data());
+    const uint32_t virtual_bytes=be32(preamble.data()+4);
+    const uint32_t physical_bytes=be32(preamble.data()+8);
+    if(signature!=(stage==Stage::Vertex?0x102a1101u:0x102a1100u) ||
+       !physical_bytes || virtual_bytes<36u ||
+       virtual_bytes>(1u<<20) ||
+       uint64_t(header_address)+virtual_bytes>
+           uint64_t(UINT32_MAX)+1u)
+      return std::nullopt;
+    std::vector<uint8_t> header(virtual_bytes);
+    if(!reader(original_guest_base,header_address,
+               reinterpret_cast<std::byte*>(header.data()),header.size()))
+      return std::nullopt;
+    if(!identities.FindOriginalSource(header,stage))
+      return std::nullopt;
+    // Proven at THIS live state: authentic EoR row+0 == current XDK
+    // shader, row+4 references an exact source-indexed container.
+    // This is a content-addressed runtime link, not an assertion
+    // that any unrelated EoR handle row has identical semantics.
+    return OriginalLiveXdkShaderHeaderWitness{
+        object,header_address,true,std::move(header),
+        exact_frame_sequence,exact_call_ordinal};
+  } catch (...) {
+    // A guest read, allocation or checksum error is never gameplay-fatal.
+    return std::nullopt;
+  }
+}
+
 std::optional<Digest> ResolveOriginalLiveXdkShaderSource(
     const OriginalVirtualShaderIdentity& identities,
     const OriginalLiveXdkShaderHeaderWitness& source,
