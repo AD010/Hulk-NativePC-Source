@@ -582,6 +582,10 @@ int main(){
   wrongVb->guest_object^=4u;
   realBufferDraw.source_vb0=wrongVb;
   assert(!native::IdentifyExactOriginalGuestMesh(realBufferDraw,models));
+  // Restore the real source buffer before testing actual EoR witness
+  // disambiguation; the negative ownership check above must not poison
+  // the following positive test with deliberately forged object identity.
+  realBufferDraw.source_vb0=vb;
   // Two otherwise valid original EoR material witnesses can share XDK
   // guest VS/PS/texture objects. The only real mesh is the one proven by
   // the CURRENT bound VB+IB bytes and guest index window.
