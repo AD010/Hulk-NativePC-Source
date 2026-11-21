@@ -139,7 +139,7 @@ def generate(manifest: Path, destination: Path, source_root: Path) -> dict:
         pixel = sorted(stages['PS'])
         if len(vertex) != len(pixel) or not vertex:
             raise ValueError("EoR effect stage counts differ or stage absent")
-        if len({p for p, _ in vertex}) != len(vertex) or len({p for p, _ in pixel}) != len(pixel):
+        if len({offset for offset, _, _ in vertex}) != len(vertex) or len({offset for offset, _, _ in pixel}) != len(pixel):
             raise ValueError("Duplicate original EoR effect shader offset")
         if vertex[-1][0] >= pixel[0][0]:
             raise ValueError("EoR VS/PS archive grouping is not as verified")

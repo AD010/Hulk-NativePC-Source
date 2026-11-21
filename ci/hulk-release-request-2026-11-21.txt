@@ -18,3 +18,5 @@ Retry 7: update native GPU diagnostic test to real confirmed Exit-to-Windows pat
 Retry 8: synchronize source-coverage tests with exact shared VB/IB 16/32-bit endian-aware guest source provenance and actual verified rebase.
 
 Retry 9: block duplicate marker-stripped converted-index pool arithmetic, not only full replacement marker.
+
+Retry 10: repair original shader effect pass ledger 3-field stage tuple unpack; tests stage-offset uniqueness and verified PDB technique.
