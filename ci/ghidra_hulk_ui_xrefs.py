@@ -53,6 +53,32 @@ VERIFIED_UI_RESOURCE_HASHES = (
 )
 
 
+# Cross-platform source CRC32(ASCII_UPPER) method identities established
+# against the owner's ORIGINAL Xbox/PC OBJECTS.ARC VM script records.
+# These are asset/VM identities, NOT source-proven USA PPC handler addresses.
+PAUSE_VM_METHOD_HASHES = (
+    ("UIPage_Pause_Settings", 0xD7A9E027),
+    ("Settings_Page", 0x9764DDF6),
+    ("uiwidget_pausemenu_z", 0xBAC4D6AA),
+    ("ChangeState_r", 0x1FAE473D),
+    ("Init_z", 0x45627485),
+    ("ActivateUpgradeMenu_z", 0x75BD9107),
+    ("ActivateCurrentStatusMenu_z", 0xA94F807C),
+)
+# Both source archives have this same endian-reversed 0x28 VM operand
+# in ChangeState_r. Its semantic target and native ABI remain UNVERIFIED.
+PAUSE_VM_OPAQUE_CHANGE_STATE_OPERAND = 0xF7A5B1D1
+
+
+def ppc_lis_ori_words(value, register):
+    """Exact PowerPC addis(lis) + ori encoding, never a caller ABI."""
+    if not 0 <= value <= 0xFFFFFFFF or not 1 <= register <= 31:
+        raise ValueError("Invalid PPC literal load register or value")
+    return (0x3C000000 | (register << 21) | (value >> 16),
+            0x60000000 | (register << 21) | (register << 16) |
+            (value & 0xFFFF))
+
+
 def search_exact_binary(program, needle, limit=MAX_MATCHES):
     """Bounded binary pattern scan; works with Ghidra's signed Java bytes.
 
@@ -221,6 +247,66 @@ def resource_hash_candidates(program):
     return candidates
 
 
+def original_pause_vm_ppc_candidates(program):
+    """Search original source-derived VM IDs in real, decoded PPC code.
+
+    A VM event hash in XEX code may be constructed by lis/ori instead of
+    stored as a contiguous 32-bit data constant. Both require a genuine
+    imported/decoded USA XEX; an asset name alone never yields a hook ABI.
+    """
+    results = []
+    for name, value in PAUSE_VM_METHOD_HASHES:
+        if zlib.crc32(name.upper()) & 0xFFFFFFFF != value:
+            raise ValueError("Original EoR pause VM CRC mismatch: " + name)
+    values = list(PAUSE_VM_METHOD_HASHES) + [
+        ("ChangeState_r_opaque_0x28_operand",
+         PAUSE_VM_OPAQUE_CHANGE_STATE_OPERAND)
+    ]
+    funcs = program.getFunctionManager()
+    listing = program.getListing()
+    for name, value in values:
+        occurrences = []
+        for endian, order in ((">I", "big"), ("<I", "little")):
+            for addr in search_exact_binary(program, struct.pack(endian, value), 64):
+                monitor.checkCancelled()
+                fn = funcs.getFunctionContaining(addr)
+                occurrences.append({
+                    "address": str(addr),
+                    "source_encoding": order + "_word",
+                    "function_entry": str(fn.getEntryPoint()) if fn else None,
+                    "direct_guest_ui_abi_verified": False,
+                })
+        # Original Xbox PPC can load a 32-bit literal using two instructions.
+        # Check decoded code units and never treat a data-table coincidence as
+        # a callable original UI event handler.
+        if name == "ChangeState_r_opaque_0x28_operand" and \
+                "PowerPC" in str(program.getLanguageID()):
+            for reg in range(1, 32):
+                pattern = struct.pack(">II", *ppc_lis_ori_words(value, reg))
+                for addr in search_exact_binary(program, pattern, 32):
+                    monitor.checkCancelled()
+                    if listing.getInstructionAt(addr) is None or \
+                            listing.getInstructionAt(addr.add(4)) is None:
+                        continue
+                    fn = funcs.getFunctionContaining(addr)
+                    occurrences.append({
+                        "address": str(addr),
+                        "source_encoding": "PowerPC_lis_ori",
+                        "loaded_register": reg,
+                        "function_entry": str(fn.getEntryPoint()) if fn else None,
+                        "direct_guest_ui_abi_verified": False,
+                    })
+        results.append({
+            "source_verified_archive_name_or_operand": name,
+            "original_source_hash": "%08X" % value,
+            "occurrences": occurrences[:MAX_MATCHES],
+            "truncated": len(occurrences) > MAX_MATCHES,
+            "candidate_only": True,
+            "proves_original_pause_event_handler": False,
+        })
+    return results
+
+
 def main():
     arguments = getScriptArgs()
     if len(arguments) != 1:
@@ -237,6 +323,8 @@ def main():
         "whitelist_only": True,
         "identifiers": [export_item(name, currentProgram) for name in NAMES],
         "original_ui_hash_constant_candidates": resource_hash_candidates(currentProgram),
+        "original_pause_vm_xex_constant_candidates":
+            original_pause_vm_ppc_candidates(currentProgram),
         "hash_reference_is_not_ui_dispatch_proof": True,
     }
     folder = os.path.dirname(target)
