@@ -96,6 +96,50 @@ Pause Settings event hook was established, and no new Windows Release
 or gameplay-tested ZIP was created by this investigation.
 
 ---
+### 21 November later continuation — actual original VM graph and draw capture budget
+
+Read-only investigation of the owner's actual Xbox OBJECTS.ARC
+(SHA256 35c9a1d502f62a0fd4e3ef73da204195ead4598f132f21763f66d168d7801815)
+and independent PC OBJECTS(2).ARC
+(SHA256 2d080575a4608f6ebf0fb04f1005a3f8b2ec96233fb4cb6e5e790af7d0d4f7b5)
+showed the bytecode opcode+operand 28 F7A5B1D1 occurs **314 times** in
+Xbox and **303 times** in PC, including unrelated HUD/frontend/gameplay
+scripts. It is a globally reused VM invocation operand, NOT a unique
+Pause Settings event/callback address. The Ghidra candidate filter now
+excludes this immediate from alleged pause-specific PowerPC hooks.
+
+Exact uppercase-CRC32 **field** references inside original pause object
+scripts were independently reconstructed in both source byte orders:
+Init_z **13**, StateEnter_z **25**, StateExit_z **2**,
+ActivateUpgradeMenu_z **1**; **all 41 names and relative VM byte offsets**
+match Xbox BE and PC LE. Notable genuine source field IDs include
+inputDeviceListener_Pause 3C13623E, UISystem_Pause_CurrentStatus
+D8A1E3F5, SetCanReturnToCity_b F615984D.
+These identify original script references, not Windows PPC function args.
+Exact whitelisted reference metadata is in the original pause UI JSON
+witness file and script `ci/audit_hulk_original_pause_ui_objects.py`;
+synthetic source-only regressions were added. No raw VM instructions or
+proprietary game payloads were committed.
+
+Original XDK per-Draw capture also received:
+- 4204049 / e7c810a: release per-Present allocation budget when a dynamic
+  guest buffer's replaced immutable revision has no captured Draw owners;
+  keep budget charged while earlier Draws still own their old revision.
+- 0285225 / 8d7f4de: treat two endian interpretations of an identical
+  physical 16-bit guest index window as one source mesh; still reject
+  duplicate resident model owners or distinct source geometry.
+
+**Still unavailable:** source-proven USA guest VM dispatcher address/PPC
+ABI and an end-to-end live producer supplying a FULL verified engine
+model/surface/effect/shader/sampler owner for each original USA XDK Draw.
+Private pinned USA default.xex and the latest release-only diagnostics
+are present as access-controlled GitHub release assets but raw asset bytes
+could not be retrieved through the current connected API. The Library XEX
+copies do not match the USA source SHA. No Windows Release was launched;
+no fully native gameplay frame or original Xbox Pause Settings handler
+has been verified in the actual running game.
+
+---
 ### Current verified path and exact missing producer
 
 The existing source contains `CapturePpcDraw` → immutable XDK
