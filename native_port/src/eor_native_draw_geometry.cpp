@@ -696,7 +696,8 @@ std::vector<VerifiedDrawSource> ResolveCapturedResourceDraws(
       // permission to attach it to another EoR shader class invocation.
       // Strong original engine Decal r28 source item/geometry must
       // agree with the real GPU VB/IB descriptors at THIS guest Draw.
-      if(!xdk::ValidOriginalDecalGeometryBinding(call) ||
+      if(!xdk::ValidOriginalEorSourceRenderItem(call) ||
+         !xdk::ValidOriginalDecalGeometryBinding(call) ||
          !xdk::ValidOriginalDecalItemMaterialBinding(call) ||
          !xdk::ValidOriginalShaderPassStageBinding(call) ||
          !xdk::ValidOriginalShaderPassSamplerStateAtDraw(call))
