@@ -830,6 +830,13 @@ HRESULT STDMETHODCALLTYPE OnSampler(IDirect3DDevice9* dev,DWORD sampler,
   const bool trackMin=type==D3DSAMP_MINFILTER && sampler<16;
   const bool pointRequested=value==D3DTEXF_POINT;
   const bool linearRequested=value==D3DTEXF_LINEAR;
+  // Query the calling device, not the last device created. Multiple D3D9
+  // devices (including DXVK-backed devices) may advertise different caps.
+  // Only query when an enhancement could actually use them.
+  D3DCAPS9 currentCaps{};
+  const bool haveCaps=(forceTrilinearMip && trackMip && pointRequested) ||
+                      (anisotropy && trackMin && linearRequested);
+  const bool capsValid=haveCaps && SUCCEEDED(dev->GetDeviceCaps(&currentCaps));
   // Preserve NONE (no mip sampling) and MIN/MAG filters. Use the capability
   // for the actual bound texture kind rather than requiring every texture
   // class to support linear mip filtering. GetTexture returns an AddRef'd
@@ -840,9 +847,9 @@ HRESULT STDMETHODCALLTYPE OnSampler(IDirect3DDevice9* dev,DWORD sampler,
     if(SUCCEEDED(dev->GetTexture(sampler,&texture)) && texture) {
       DWORD supported=0;
       switch(texture->GetType()) {
-        case D3DRTYPE_TEXTURE: supported=mipLinearCaps2D; break;
-        case D3DRTYPE_CUBETEXTURE: supported=mipLinearCapsCube; break;
-        case D3DRTYPE_VOLUMETEXTURE: supported=mipLinearCapsVolume; break;
+        case D3DRTYPE_TEXTURE: supported=capsValid ? (currentCaps.TextureFilterCaps & D3DPTFILTERCAPS_MIPFLINEAR) : 0; break;
+        case D3DRTYPE_CUBETEXTURE: supported=capsValid ? (currentCaps.CubeTextureFilterCaps & D3DPTFILTERCAPS_MIPFLINEAR) : 0; break;
+        case D3DRTYPE_VOLUMETEXTURE: supported=capsValid ? (currentCaps.VolumeTextureFilterCaps & D3DPTFILTERCAPS_MIPFLINEAR) : 0; break;
         default: break;
       }
       // Preserve the original filter on single-level textures (often HUD,
@@ -853,8 +860,8 @@ HRESULT STDMETHODCALLTYPE OnSampler(IDirect3DDevice9* dev,DWORD sampler,
       if(supported && levels>1)value=D3DTEXF_LINEAR;
     }
   }
-  if(anisotropy && maxAnisotropy>1 && sampler<16) {
-    const unsigned maximum=std::min(anisotropy,maxAnisotropy);
+  if(anisotropy && capsValid && currentCaps.MaxAnisotropy>1 && sampler<16) {
+    const unsigned maximum=std::min(anisotropy,currentCaps.MaxAnisotropy);
     // Do not rewrite the game's independent MAXANISOTROPY requests.
     // The optional AF path sets its own maximum only when a compatible
     // bound texture actually accepts an anisotropic MIN filter. Rewriting
@@ -866,9 +873,9 @@ HRESULT STDMETHODCALLTYPE OnSampler(IDirect3DDevice9* dev,DWORD sampler,
       DWORD supported=0;
       if(SUCCEEDED(dev->GetTexture(sampler,&bound)) && bound) {
         switch(bound->GetType()) {
-          case D3DRTYPE_TEXTURE: supported=anisotropicCaps2D; break;
-          case D3DRTYPE_CUBETEXTURE: supported=anisotropicCapsCube; break;
-          case D3DRTYPE_VOLUMETEXTURE: supported=anisotropicCapsVolume; break;
+          case D3DRTYPE_TEXTURE: supported=currentCaps.TextureFilterCaps & D3DPTFILTERCAPS_MINFANISOTROPIC; break;
+          case D3DRTYPE_CUBETEXTURE: supported=currentCaps.CubeTextureFilterCaps & D3DPTFILTERCAPS_MINFANISOTROPIC; break;
+          case D3DRTYPE_VOLUMETEXTURE: supported=currentCaps.VolumeTextureFilterCaps & D3DPTFILTERCAPS_MINFANISOTROPIC; break;
           default: break;
         }
         bound->Release();
