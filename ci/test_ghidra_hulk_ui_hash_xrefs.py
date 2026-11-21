@@ -2,6 +2,7 @@
 """Source-only regression for original EoR UI hash-provenance Ghidra scan."""
 import ast
 import csv
+import json
 from pathlib import Path
 import re
 import unittest
@@ -59,6 +60,46 @@ class EorUiHashXrefsTests(unittest.TestCase):
         self.assertIn("ref.getReferenceType().isCall()", source)
         self.assertIn('"direct_caller_candidates": bounded_direct_callers(func, program)', source)
         self.assertIn('"guest_callback_abi_proven": False', source)
+
+    def test_original_vm_pause_method_hashes_and_guest_ppc_literal_pattern(self):
+        source = SCRIPT.read_text(encoding="utf-8")
+        parsed = ast.parse(source)
+        assignment = next(node for node in parsed.body
+                          if isinstance(node, ast.Assign)
+                          and any(isinstance(t, ast.Name)
+                                  and t.id == "PAUSE_VM_METHOD_HASHES"
+                                  for t in node.targets))
+        verified = dict(ast.literal_eval(assignment.value))
+        self.assertEqual(len(verified), 7)
+        for name, original_crc in verified.items():
+            self.assertEqual(zlib.crc32(name.upper().encode("ascii")) & 0xffffffff,
+                             original_crc)
+        method = next(node for node in parsed.body
+                      if isinstance(node, ast.FunctionDef) and
+                      node.name == "ppc_lis_ori_words")
+        isolated = ast.Module(body=[method], type_ignores=[])
+        ns = {}
+        exec(compile(isolated, str(SCRIPT), "exec"), ns)
+        load = ns["ppc_lis_ori_words"]
+        # These are actual big-endian PowerPC instruction words for
+        # lis r3,0xF7A5 / ori r3,r3,0xB1D1; they do not prove a caller.
+        self.assertEqual(load(0xF7A5B1D1, 3),
+                         (0x3C60F7A5, 0x6063B1D1))
+        for value, reg in [(-1, 3), (0x100000000, 3), (0, 0), (0, 32)]:
+            with self.assertRaises(ValueError):
+                load(value, reg)
+        reference = json.loads((ROOT / "native_port/analysis/"
+                               "eor_original_pause_ui_source_witness_2026-11-21.json")
+                               .read_text(encoding="utf-8"))
+        for platform in ("xbox360_object_archive", "pc_2008_comparator"):
+            original = reference["sources"][platform]
+            self.assertEqual(original["change_state_vm_opaque_0x28_operand"],
+                             "F7A5B1D1")
+            for name in ("ChangeState_r", "Init_z", "uiwidget_pausemenu_z"):
+                self.assertIn(name, original["pause_vm_method_payload_lengths"])
+        self.assertIn('"original_pause_vm_xex_constant_candidates"', source)
+        self.assertIn('"PowerPC_lis_ori"', source)
+        self.assertIn('"proves_original_pause_event_handler": False', source)
 
     def test_menu_xref_search_does_not_claim_abi_or_embed_game_data(self):
         source = SCRIPT.read_text(encoding="utf-8")
