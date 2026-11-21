@@ -35,4 +35,23 @@ class OriginalVirtualShaderIdentity {
                 uint32_t virtual_bytes=0;};
   std::map<Digest,Entry> original_;
 };
+// A live XDK shader object can be linked to a source SHA only when the
+// ORIGINAL guest object -> ShaderContainer header pointer ABI is proven,
+// and the exact guest header bytes are captured from that pointer.
+// The object address alone, a ShaderEffects class name, or a pass index
+// cannot establish the microcode digest.
+struct OriginalLiveXdkShaderHeaderWitness {
+  uint32_t original_xdk_shader_guest_object=0;
+  uint32_t original_virtual_header_guest_address=0;
+  bool original_object_to_header_abi_verified=false;
+  std::vector<uint8_t> exact_original_guest_virtual_header;
+};
+// Check stage, exact live object and byte-identical HEORVRT1 digest before
+// accepting a runtime shader binding. No guessed object offsets are read.
+bool MatchesOriginalLiveXdkShaderSource(
+    const OriginalVirtualShaderIdentity& identities,
+    const OriginalLiveXdkShaderHeaderWitness& source,
+    uint32_t currently_bound_xdk_shader_object,
+    Stage expected_stage,
+    const Digest& expected_original_full_shader_sha256) noexcept;
 } // namespace hulk::eor::aot
