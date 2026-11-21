@@ -128,10 +128,27 @@ void ObserveOriginalEorVmState_r(
            uint32_t(std::to_integer<uint8_t>(raw[2]))<<8 |
            uint32_t(std::to_integer<uint8_t>(raw[3]));
   };
+  // Exact original USA state_r PPC source:
+  //   0x8264C7AC: frame=BE32(r3+0)
+  //   0x8264C7B0: inputOwner=BE32(frame+0)
+  //   0x8264C7B4: returnObject=BE32(frame+4)
+  //   0x8264C7B8: nested=BE32(inputOwner+8)
+  //   0x8264C7BC: stateOwner=BE32(nested+0)
+  //   0x8264C7C0: requestedState=BE32(stateOwner+12)
+  //   0x8264C7C4: BE32(returnObject+12)=requestedState.
+  // These pointers are ORIGINAL guest VM objects, not the original page
+  // NAME/ID. Never invoke PC settings on this shared global callback.
   const auto vm_frame=read32(original_ctx.r3.u32);
   const auto input=vm_frame ? read32(*vm_frame):std::nullopt;
   const auto output=vm_frame && *vm_frame<=UINT32_MAX-4u
       ? read32(*vm_frame+4u) : std::nullopt;
+  const auto nested=input && *input<=UINT32_MAX-8u
+      ? read32(*input+8u) : std::nullopt;
+  const auto owner=nested ? read32(*nested) : std::nullopt;
+  const auto requested=owner && *owner<=UINT32_MAX-12u
+      ? read32(*owner+12u) : std::nullopt;
+  const auto previous=output && *output<=UINT32_MAX-12u
+      ? read32(*output+12u) : std::nullopt;
   static std::atomic<uint64_t> calls{0};
   const auto n=calls.fetch_add(1,std::memory_order_relaxed)+1u;
   // Bound log cost and preserve only original PPC virtual addresses.
@@ -140,11 +157,15 @@ void ObserveOriginalEorVmState_r(
   if(n<=8u || (n%8192u)==0u)
     REXLOG_INFO("[HULK/EOR-VM-STATE-R] calls={} original_native=0x{:08X} "
                 "guest_LR=0x{:08X} VM_r3=0x{:08X} frame=0x{:08X} "
-                "in=0x{:08X} out=0x{:08X}; "
+                "input_owner=0x{:08X} output_owner=0x{:08X} "
+                "vm_state_before=0x{:08X} vm_state_requested=0x{:08X} "
+                "complete_ppc_source_chain={}; "
                 "PAGE-OWNER UNKNOWN, not native Pause Settings event",
                 n,original_method_guest,call_lr,original_ctx.r3.u32,
                 vm_frame.value_or(0u),input.value_or(0u),
-                output.value_or(0u));
+                output.value_or(0u),previous.value_or(0u),
+                requested.value_or(0u),
+                static_cast<bool>(requested && previous));
 }
 
 void ObserveOriginalEorMaterialDescriptor(
