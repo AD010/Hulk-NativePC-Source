@@ -573,8 +573,9 @@ std::vector<VerifiedXdkResourceWitness> AttachLiveEorShaderMethodParents(
       throw std::invalid_argument(
           "Stale original engine shader method vs Xbox Draw sequence");
     const auto& original_call=exact_original.calls[source.original_call_ordinal];
-    if(!xdk::ValidOriginalDecalGeometryBinding(original_call))
-      throw std::invalid_argument("Original Decal engine GPU geometry provenance invalid");
+    if(!xdk::ValidOriginalDecalGeometryBinding(original_call) ||
+       !xdk::ValidOriginalDecalItemMaterialBinding(original_call))
+      throw std::invalid_argument("Original Decal geometry/material source provenance invalid");
     const auto& observed=original_call.original_engine_shader_method;
     if(!observed) {
       if(witness.original_source_engine_shader_method)
