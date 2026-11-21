@@ -89,12 +89,39 @@ def registered_native_state(image:bytes, strict_source=True)->dict:
         ((word>>21)&31)!=3 or ((word>>16)&31)!=31 or
         ((word>>11)&31)!=3):
         raise ValueError("Original PPC state_r first argument register differs")
+    # The exact seven PPC instructions following the prologue prove the
+    # original VM argument and output state pointer-chain ABI. This is
+    # GLOBAL state_r, not a unique UIPage_Pause_Settings page instance.
+    # PPC D-form load/store: opcode (lwz=32,stw=36), rt, ra, signed imm16.
+    for guest,opcode,target,base,disp in (
+        (0x8264C7AC,32,11,31,0),   # frame=BE32(r3+0)
+        (0x8264C7B0,32,10,11,0),   # inputOwner=BE32(frame+0)
+        (0x8264C7B4,32,11,11,4),   # outputOwner=BE32(frame+4)
+        (0x8264C7B8,32,10,10,8),   # inputNested=BE32(inputOwner+8)
+        (0x8264C7BC,32,10,10,0),   # stateOwner=BE32(inputNested+0)
+        (0x8264C7C0,32,30,10,12),  # newState=BE32(stateOwner+12)
+        (0x8264C7C4,36,30,11,12),  # BE32(outputOwner+12)=newState
+    ):
+        instruction=be32(guest)
+        if (instruction>>26)!=opcode or (
+            (instruction>>21)&31)!=target or (
+            (instruction>>16)&31)!=base or (
+            instruction&0xffff)!=(disp&0xffff):
+            raise ValueError("Original USA VM state_r argument/output PPC ABI drift")
     return {
         "native_global_vm_method":"state_r",
         "original_guest_method_registration":"0x%08X"%STATE_NATIVE_REGISTRATION_GUEST,
         "registered_guest_name_pointer":"0x%08X"%STATE_NATIVE_NAME_GUEST,
         "registered_original_native_ppc_handler":"0x%08X"%STATE_NATIVE_HANDLER_GUEST,
         "first_native_ppc_context_arg":"r3",
+        "original_vm_state_transition_ppc_instructions_verified":8,
+        "original_vm_frame_input_owner_offset":0,
+        "original_vm_frame_output_owner_offset":4,
+        "original_vm_input_nested_offset":8,
+        "original_vm_nested_state_owner_offset":0,
+        "original_vm_desired_state_value_offset":12,
+        "original_vm_output_state_value_offset":12,
+        "original_vm_page_owner_identity_verified":False,
         "vm_native_parameter_and_return_types_fully_verified":False,
         "actual_pause_page_event_dispatcher_abi_verified":False,
     }
