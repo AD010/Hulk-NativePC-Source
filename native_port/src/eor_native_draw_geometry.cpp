@@ -140,7 +140,23 @@ std::optional<ExactOriginalGuestMesh> IdentifyExactOriginalGuestMesh(
                 }
               }
               if(!window_valid)continue;
-              if(unique)return std::nullopt;
+              if(unique) {
+                // A byte-palindromic original index stream (e.g. a mesh
+                // with a degenerate zero-index triangle) can decode to
+                // IDENTICAL vertex numbers in both byte orders. These
+                // two interpretations are one physical guest mesh window,
+                // not two competing engine owners. Preserve first (Xbox
+                // BE) match. Still reject any different model, source
+                // window, index width or a duplicate resident witness.
+                if(unique->model_hash==model->original_resource_hash &&
+                   unique->mesh_header_offset==mesh.original_header_offset &&
+                   unique->guest_first_vertex==origin &&
+                   unique->guest_first_index==first &&
+                   unique->original_index_element_bytes==index_bytes &&
+                   unique->original_index_big_endian!=big)
+                  continue;
+                return std::nullopt;
+              }
               unique=ExactOriginalGuestMesh{
                   model->original_resource_hash,mesh.original_header_offset,
                   big,static_cast<uint32_t>(origin),
