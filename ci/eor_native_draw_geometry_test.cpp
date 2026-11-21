@@ -1,5 +1,18 @@
 #include "../native_port/src/eor_native_draw_geometry.h"
 #include <cassert>
+#include <cstdio>
+#include <cstdlib>
+// Leave the exact failing original Draw/provenance assertion visible in
+// Windows GitHub Actions instead of silently returning a generic exit 3.
+#undef assert
+#define assert(check) do { \
+  if (!(check)) { \
+    std::fprintf(stderr,"[HULK/EOR-DRAW-TEST] %s:%d: %s\\n", \
+                 __FILE__,__LINE__,#check); \
+    std::fflush(stderr); \
+    std::abort(); \
+  } \
+} while(false)
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
@@ -159,6 +172,7 @@ struct TimelineGpu final:aot::ShaderBindingBackend {
 }
 
 int main(){
+  try {
   Fake gpu;
   auto resident=model::UploadOriginalModel(MakeModel(),gpu);
   const auto effects=Catalog();
@@ -875,4 +889,11 @@ int main(){
   catalog[0].original_xdk_texture_slot_mapping_verified=false;
   Reject([&]{(void)native::ResolveCapturedResourceDraws(transformed,catalog,models);});
   assert(gpu.next==3);
+  } catch(const std::exception& e) {
+    std::fprintf(stderr,"[HULK/EOR-DRAW-EXCEPTION] %s\\n",e.what());
+    return 1;
+  } catch(...) {
+    std::fprintf(stderr,"[HULK/EOR-DRAW-EXCEPTION] unknown\\n");
+    return 1;
+  }
 }
