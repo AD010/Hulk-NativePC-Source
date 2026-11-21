@@ -89,6 +89,31 @@ class OriginalPauseVmTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     registered_native_state(bytes(b),strict_source=False)
 
+    def test_real_original_vm_native_callback_is_separate_from_xdk_and_ui(self):
+        root=ROOT/"native_port"
+        rows=(root/"analysis/guest_host_mapping.csv").read_text(
+            encoding="utf-8-sig")
+        self.assertIn("0x8264C798,0x001427F9EA0",rows)
+        hooks=(root/"native_hook_addresses.txt").read_text(encoding="utf-8")
+        self.assertIn("8264C798",hooks)
+        generated=(root/"tools/gen_native_x_hooks.py").read_text(
+            encoding="utf-8")
+        self.assertIn('SOURCE_EOR_VM_METHODS = {"8264C798"}',generated)
+        self.assertIn("HULK_EOR_VM_STATE_TRACE_HOOK",generated)
+        self.assertIn("ObserveOriginalEorVmState_r(0x##addr,ctx,base)",generated)
+        self.assertIn("__imp__sub_##addr(ctx,base);",generated)
+        bridge=(root/"src/eor_xdk_hook_bridge.cpp").read_text(encoding="utf-8")
+        self.assertIn("void ObserveOriginalEorVmState_r(",bridge)
+        self.assertIn("original_method_guest!=0x8264C798u",bridge)
+        self.assertIn("const auto vm_frame=read32(original_ctx.r3.u32)",bridge)
+        self.assertIn("PAGE-OWNER UNKNOWN",bridge)
+        self.assertNotIn("UIPage_Pause_Settings event dispatched",bridge)
+        # The original global method is NOT a render device operation.
+        import configparser
+        cfg=configparser.ConfigParser(interpolation=None)
+        self.assertTrue(cfg.read(root/"hulk_native_x_profile.ini"))
+        self.assertNotIn("0x8264C798",cfg["hooks"])
+
     def test_corrupted_original_pause_opcode_name_hash_and_platform_rejected(self):
         for endian in ("big","little"):
             script=vm_script(endian)
