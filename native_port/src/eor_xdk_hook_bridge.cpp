@@ -746,9 +746,13 @@ void EndPpcHook(native_x_renderer::Call kind) {
     uint32_t live_original_pass_vs_ps_verified=0;
     uint32_t original_source_sampler_state_verified=0;
     uint32_t original_live_xdk_texture_slot_present=0;
+    uint32_t original_engine_render_item_parented=0;
     for (const RawDraw& call : frame.calls) {
       if(const auto& source=call.original_engine_shader_method;source) {
         ++original_shader_parented;
+        if(source->original_engine_item_abi_verified &&
+           ValidOriginalEorSourceRenderItem(call))
+          ++original_engine_render_item_parented;
         if(source->original_shader_method_guest==0x8266A0C0u)
           ++original_font_draws;
         if(source->original_decal_xdk_vb_ib_binding_verified &&
@@ -782,8 +786,9 @@ void EndPpcHook(native_x_renderer::Call kind) {
                 "original_decal_material_descriptor_verified={} "
                 "eor_pass_stage_vs_ps_xdk_verified={} "
                 "eor_pass_sampler_state_verified={} "
-                "xdk_sampler_texture_object_presence={}; "
-                "actual original source fetch->texture remains unverified",
+                "xdk_sampler_texture_object_presence={} "
+                "original_engine_render_item_parented={}; "
+                "source model hash/texture fetch identity remains unverified",
                 frame.sequence,indexed,verts,up,frame.dropped,
                 frame.commands.size(),frame.dropped_commands,
                 ValidateOriginalCommandTimeline(frame),
@@ -792,7 +797,8 @@ void EndPpcHook(native_x_renderer::Call kind) {
                 decal_original_material_descriptor_verified,
                 live_original_pass_vs_ps_verified,
                 original_source_sampler_state_verified,
-                original_live_xdk_texture_slot_present);
+                original_live_xdk_texture_slot_present,
+                original_engine_render_item_parented);
     for (const auto& site: hot) {
       REXLOG_INFO("[HULK/EOR-XDK-CALLSITE] XDK=0x{:08X} LR=0x{:08X} "
                   "kind={} draws={} frames={} first={} last={} "
