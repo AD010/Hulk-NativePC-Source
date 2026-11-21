@@ -104,9 +104,10 @@ bool ReadGuest(void* state,uint32_t address,std::byte* output,size_t length) noe
 ScopedOriginalEorShaderMethod::ScopedOriginalEorShaderMethod(
     uint32_t original_method_guest,const PPCContext& original_ctx,
     uint8_t* original_guest_base) noexcept {
-  const uint32_t expected_vtable=
-      ProvenUsaEorShaderVtableForMethod(original_method_guest);
-  if(!expected_vtable || !CaptureEnabled())return;
+  // The same original method entry is used by 33 distinct shader classes.
+  // Only the LIVE original this[0] vtable disambiguates its real owner.
+  if(!ProvenUsaEorShaderMethodEntry(original_method_guest) ||
+     !CaptureEnabled())return;
   const auto suppress_unverified=[&]() noexcept {
     ++g_source_shader_rejected_nesting;
     suppressed_=true;
@@ -130,7 +131,8 @@ ScopedOriginalEorShaderMethod::ScopedOriginalEorShaderMethod(
       uint32_t(std::to_integer<uint8_t>(guest_vtable[1]))<<16 |
       uint32_t(std::to_integer<uint8_t>(guest_vtable[2]))<<8 |
       uint32_t(std::to_integer<uint8_t>(guest_vtable[3]));
-  if(actual_vtable!=expected_vtable) {
+  if(!ProvenUsaEorShaderMethodVtablePair(
+         original_method_guest,actual_vtable)) {
     suppress_unverified();
     return;
   }
