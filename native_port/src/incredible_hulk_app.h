@@ -126,11 +126,28 @@ class IncredibleHulkApp : public rex::ReXApp {
     // are the local cache destinations, never files published in source.
     if (runtime()) {
       const auto offline = runtime()->cache_root() / "eor_offline";
-      const auto private_bank = offline / "hulk_shader_bank.bin";
-      const auto private_effects = offline / "hulk_effect_ledger.bin";
-      const auto private_reflection = offline / "hulk_shader_reflection.bin";
-      const auto private_samplers = offline / "hulk_sampler_bank.bin";
-      const auto private_virtual = offline / "hulk_shader_virtual_fingerprints.bin";
+      // Accept both the established private runtime filenames and the
+      // exact HEOR* filenames in the owner's archived metadata ZIP.
+      // The file parsers verify binary magic, count and unique SHA IDs.
+      // Keep the canonical generated name authoritative if both exist.
+      const auto source_file=[&](const char* canonical,
+                                 const char* archived) {
+        const auto original=offline/canonical;
+        std::error_code ec;
+        if(std::filesystem::is_regular_file(original,ec) && !ec)
+          return original;
+        return offline/archived;
+      };
+      const auto private_bank=source_file(
+          "hulk_shader_bank.bin","HEORSPV1.bin");
+      const auto private_effects=source_file(
+          "hulk_effect_ledger.bin","HEORMAT2.bin");
+      const auto private_reflection=source_file(
+          "hulk_shader_reflection.bin","HEORREF1.bin");
+      const auto private_samplers=source_file(
+          "hulk_sampler_bank.bin","HEORSMP1.bin");
+      const auto private_virtual=source_file(
+          "hulk_shader_virtual_fingerprints.bin","HEORVRT1.bin");
       std::error_code error;
       if (std::filesystem::is_regular_file(private_bank, error) && !error) {
         try {
@@ -227,7 +244,9 @@ class IncredibleHulkApp : public rex::ReXApp {
       // uploaded model, or guess about guest->archive material ownership.
       // The worker remains locked out until the full shader pack exists.
       if(!eor_virtual_ids_) {
-        const auto private_virtual=offline/"hulk_shader_virtual_fingerprints.bin";
+        // Same validated pathname selection as the complete AOT path.
+        const auto private_virtual=source_file(
+            "hulk_shader_virtual_fingerprints.bin","HEORVRT1.bin");
         std::error_code metadata_error;
         if(std::filesystem::is_regular_file(private_virtual,metadata_error) &&
            !metadata_error) {
@@ -254,7 +273,8 @@ class IncredibleHulkApp : public rex::ReXApp {
       // ordered pass, without requiring 5194 Vulkan modules to compile.
       // Material surfaces/texture GPU identity remain independently gated.
       if(eor_virtual_ids_ && !eor_effects_) {
-        const auto original_effects=offline/"hulk_effect_ledger.bin";
+        const auto original_effects=source_file(
+            "hulk_effect_ledger.bin","HEORMAT2.bin");
         std::error_code ledger_error;
         if(std::filesystem::is_regular_file(original_effects,ledger_error) &&
            !ledger_error) {
