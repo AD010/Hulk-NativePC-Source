@@ -140,10 +140,6 @@ struct RawDraw {
   Kind kind{};
   uint32_t function = 0, lr = 0;
   std::array<uint32_t, 8> gpr{}; // r3..r10 from original USA PPC call.
-  // Source-proven original shader virtual-method scope, if the actual
-  // source Draw occurred before the corresponding engine method returned.
-  // This is NOT a fabricated VerifiedXdkResourceWitness.
-  std::optional<OriginalEorShaderMethodAtDraw> original_engine_shader_method;
   // Read BEFORE the guest Draw mutates the XDK device shadow state.
   // A missing snapshot is not a verified camera or constant ABI.
   std::optional<OriginalVsMatrices> observed_vs_matrices;
@@ -160,6 +156,10 @@ struct RawDraw {
   // Slot 0 aliases source_vb0 for historical source mesh verification.
   std::array<std::shared_ptr<const OriginalGuestBufferBytes>,16>
       source_vertex_streams{};
+  // Source-proven original shader virtual-method scope, if the actual
+  // source Draw occurred before the corresponding engine method returned.
+  // This is NOT a fabricated VerifiedXdkResourceWitness.
+  std::optional<OriginalEorShaderMethodAtDraw> original_engine_shader_method;
 };
 // Verified USA XDK 2.0.6534 method ABI from the original wrapper:
 // DrawIndexedVertices(dev, prim, baseVertex, startIndex, indexCount).
