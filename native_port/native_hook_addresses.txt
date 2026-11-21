@@ -99,3 +99,6 @@
 # Pause Settings page dispatcher. Guest function verified from USA PPC
 # registry entry 0x82E2EB8C and source hash F7A5B1D1. Read-only observer.
 8264C798
+# Original USA EoR material descriptor setter, actual PPC from Decal
+# 0x82642CB0 BL (LR=0x82642CB4); read-only capture, call-through.
+825F8A50
