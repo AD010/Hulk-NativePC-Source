@@ -368,7 +368,13 @@ void EndPpcHook(native_x_renderer::Call kind) {
   }
   if (frame.sequence <= 5 || frame.sequence % 600 == 0) {
     uint32_t indexed = 0, verts = 0, up = 0;
+    uint32_t original_shader_parented=0,original_font_draws=0;
     for (const RawDraw& call : frame.calls) {
+      if(const auto& source=call.original_engine_shader_method;source) {
+        ++original_shader_parented;
+        if(source->original_shader_method_guest==0x8266A0C0u)
+          ++original_font_draws;
+      }
       switch (call.kind) {
       case Kind::DrawVertices: ++verts; break;
       case Kind::DrawIndexedVertices: ++indexed; break;
@@ -377,11 +383,13 @@ void EndPpcHook(native_x_renderer::Call kind) {
     }
     REXLOG_INFO("[HULK/EOR-XDK-PROVENANCE] frame={} real PPC: "
                 "indexed={} vertices={} UP={} dropped={} "
-                "commands={} dropped_commands={} complete_timeline={}; "
-                "native EoR per-pass GPU ownership still source-gated",
+                "commands={} dropped_commands={} complete_timeline={} "
+                "source_shader_parented={} original_font_draws={}; "
+                "per-pass GPU material ownership remains source-gated",
                 frame.sequence,indexed,verts,up,frame.dropped,
                 frame.commands.size(),frame.dropped_commands,
-                ValidateOriginalCommandTimeline(frame));
+                ValidateOriginalCommandTimeline(frame),
+                original_shader_parented,original_font_draws);
     for (const auto& site: hot) {
       REXLOG_INFO("[HULK/EOR-XDK-CALLSITE] XDK=0x{:08X} LR=0x{:08X} "
                   "kind={} draws={} frames={} first={} last={} "
