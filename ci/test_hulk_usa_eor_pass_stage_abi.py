@@ -99,7 +99,7 @@ class OriginalDualStagePassTests(unittest.TestCase):
                 previous=self.image[offset:offset+4]
                 self.image[offset:offset+4]=b"\0\0\0\0"
                 try:
-                    with self.assertRaisesRegex(ValueError,"PPC source drift"):
+                    with self.assertRaisesRegex(ValueError,"XDK source drift"):
                         inspect(self.image,strict=False)
                 finally:
                     self.image[offset:offset+4]=previous
