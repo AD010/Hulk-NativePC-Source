@@ -47,8 +47,22 @@ class OriginalPauseScriptTests(unittest.TestCase):
         self.assertEqual(out["change_state_vm_opaque_0x28_operand"], "DEADBEEF")
         self.assertEqual(out["pause_vm_method_payload_lengths"]["ChangeState_r"], 13)
         self.assertFalse(out["opaque_operand_is_verified_guest_function"])
+        self.assertEqual(out["shared_opcode_0x28_vm_uses"], 1)
+        self.assertFalse(out["opaque_operand_is_pause_specific"])
         self.assertFalse(out["guest_ppc_event_handler_abi_verified"])
         self.assertFalse(out["native_windows_pause_menu_binding_installed"])
+
+    def test_common_vm_call_operand_cannot_identify_original_pause_callback(self):
+        data = object_fixture()
+        # The actual original user archives have hundreds of these VM
+        # call operations in entirely unrelated scripts, so a PPC hook
+        # cannot be inferred from this number.
+        shared = b"\\x28" + (0xDEADBEEF).to_bytes(4, "big")
+        many = inspect_objects(data + shared * 24, "xbox_360_source")
+        self.assertEqual(many["shared_opcode_0x28_vm_uses"], 25)
+        self.assertTrue(many["opaque_operand_shared_across_unrelated_scripts"])
+        self.assertFalse(many["opaque_operand_is_pause_specific"])
+        self.assertFalse(many["guest_ppc_event_handler_abi_verified"])
 
     def test_cross_platform_shared_method_order_not_hardcoded_offsets(self):
         pc = inspect_objects(object_fixture("little", 0), "pc_2008_comparator")
