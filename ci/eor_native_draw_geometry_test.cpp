@@ -213,6 +213,13 @@ int main(){
   auto bad_texture=original.original_sampler_slots;
   bad_texture[0].original_texture_hash=0xFEEDu;
   assert(!native::IdentifyOriginalMaterialSurface(resident,bad_texture));
+  // An authenticated XDK sampler whose original IND/ARC hash belongs to
+  // no surface must never reach Vulkan just because its other flags pass.
+  auto no_archive_surface=original;
+  no_archive_surface.original_sampler_slots=bad_texture;
+  Reject([&]{(void)native::BindVerifiedGeometryDraws(
+      std::span<const native::VerifiedDrawSource>(&no_archive_surface,1),
+      models,effects);});
   const auto good=native::BindVerifiedGeometryDraws(
      std::span<const native::VerifiedDrawSource>(&original,1),models,effects);
   assert(good.size()==1 && good[0].original_samplers.size()==1 &&
