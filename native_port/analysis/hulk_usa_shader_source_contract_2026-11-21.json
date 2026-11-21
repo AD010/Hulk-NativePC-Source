@@ -1,0 +1,307 @@
+{
+  "schema": "hulk_usa_original_shader_source_contract_v1",
+  "original_usa_index_sha256": "46e6c6ec9f7428ba3a1737ab7ebad564c1b027b006c3e35156d2e036ab8b2820",
+  "original_usa_shader_effects_sha256": "c335e0ad39be455e34dcf6e02dfbcac74d17184c6a39ceb38411cf9be42e89dd",
+  "original_source_effect_records": 233,
+  "effects_with_programs": 231,
+  "original_unique_effect_pass_vs_ps_pairs": 2597,
+  "original_unique_source_shader_containers": 5194,
+  "original_unique_authored_techniques": 42,
+  "shader_sources_with_sampler_declarations": 1306,
+  "shader_sources_with_no_sampler_declarations": 3888,
+  "total_original_sampler_declarations": 4420,
+  "largest_original_sampler_register": 7,
+  "source_shader_class_name_effect_matches": [
+    {
+      "original_engine_shader_class": "ESkyDomeDynamicShader",
+      "original_shader_class_guest_vtable": "0x82065E78",
+      "same_name_source_effect_crc32": "0xDF45EC5D",
+      "runtime_class_to_effect_binding_verified": false
+    },
+    {
+      "original_engine_shader_class": "EVolumetricCloudsShader",
+      "original_shader_class_guest_vtable": "0x82065F20",
+      "same_name_source_effect_crc32": "0xEBE8A92D",
+      "runtime_class_to_effect_binding_verified": false
+    },
+    {
+      "original_engine_shader_class": "EVolumetricFogBoxShader",
+      "original_shader_class_guest_vtable": "0x82065F84",
+      "same_name_source_effect_crc32": "0x547EDF17",
+      "runtime_class_to_effect_binding_verified": false
+    },
+    {
+      "original_engine_shader_class": "EIntersectionSunRayShader",
+      "original_shader_class_guest_vtable": "0x82066020",
+      "same_name_source_effect_crc32": "0xFA24A51B",
+      "runtime_class_to_effect_binding_verified": false
+    },
+    {
+      "original_engine_shader_class": "EVolumePointLightOutsideShader",
+      "original_shader_class_guest_vtable": "0x82066074",
+      "same_name_source_effect_crc32": "0xC6F8BBAB",
+      "runtime_class_to_effect_binding_verified": false
+    },
+    {
+      "original_engine_shader_class": "EVolumePointLightInsideShader",
+      "original_shader_class_guest_vtable": "0x820660E4",
+      "same_name_source_effect_crc32": "0x74AE7C13",
+      "runtime_class_to_effect_binding_verified": false
+    },
+    {
+      "original_engine_shader_class": "EVolumeSpotLightOutsideShader",
+      "original_shader_class_guest_vtable": "0x82066154",
+      "same_name_source_effect_crc32": "0x91AC76C8",
+      "runtime_class_to_effect_binding_verified": false
+    },
+    {
+      "original_engine_shader_class": "EVolumeSpotLightInsideShader",
+      "original_shader_class_guest_vtable": "0x820661C4",
+      "same_name_source_effect_crc32": "0x48D63A67",
+      "runtime_class_to_effect_binding_verified": false
+    },
+    {
+      "original_engine_shader_class": "EGroundFogPlaneShader",
+      "original_shader_class_guest_vtable": "0x82066234",
+      "same_name_source_effect_crc32": "0x6B237630",
+      "runtime_class_to_effect_binding_verified": false
+    },
+    {
+      "original_engine_shader_class": "EBuildingWithWindowsShader",
+      "original_shader_class_guest_vtable": "0x82066294",
+      "same_name_source_effect_crc32": "0x2D16F6E9",
+      "runtime_class_to_effect_binding_verified": false
+    },
+    {
+      "original_engine_shader_class": "ESkyDomeShader",
+      "original_shader_class_guest_vtable": "0x8206636C",
+      "same_name_source_effect_crc32": "0xF31CFA81",
+      "runtime_class_to_effect_binding_verified": false
+    },
+    {
+      "original_engine_shader_class": "ERipplePuddleShader",
+      "original_shader_class_guest_vtable": "0x820663F4",
+      "same_name_source_effect_crc32": "0x603578F8",
+      "runtime_class_to_effect_binding_verified": false
+    },
+    {
+      "original_engine_shader_class": "EBuildingRoofShader",
+      "original_shader_class_guest_vtable": "0x82066450",
+      "same_name_source_effect_crc32": "0xA534EB5C",
+      "runtime_class_to_effect_binding_verified": false
+    },
+    {
+      "original_engine_shader_class": "ELensFlareShader",
+      "original_shader_class_guest_vtable": "0x820664AC",
+      "same_name_source_effect_crc32": "0xD8EE7B1B",
+      "runtime_class_to_effect_binding_verified": false
+    },
+    {
+      "original_engine_shader_class": "Decal",
+      "original_shader_class_guest_vtable": "0x82066504",
+      "same_name_source_effect_crc32": "0x234FE1FD",
+      "runtime_class_to_effect_binding_verified": false
+    },
+    {
+      "original_engine_shader_class": "ECollisionShader",
+      "original_shader_class_guest_vtable": "0x82066544",
+      "same_name_source_effect_crc32": "0x1F0F3D51",
+      "runtime_class_to_effect_binding_verified": false
+    },
+    {
+      "original_engine_shader_class": "EOverheadCloudsShader",
+      "original_shader_class_guest_vtable": "0x8206659C",
+      "same_name_source_effect_crc32": "0x70480799",
+      "runtime_class_to_effect_binding_verified": false
+    },
+    {
+      "original_engine_shader_class": "ESurfaceEmitterShader",
+      "original_shader_class_guest_vtable": "0x820665FC",
+      "same_name_source_effect_crc32": "0x5074775C",
+      "runtime_class_to_effect_binding_verified": false
+    },
+    {
+      "original_engine_shader_class": "ESurfaceDripShader",
+      "original_shader_class_guest_vtable": "0x8206665C",
+      "same_name_source_effect_crc32": "0xAC8DA465",
+      "runtime_class_to_effect_binding_verified": false
+    },
+    {
+      "original_engine_shader_class": "ELeafClusterShader",
+      "original_shader_class_guest_vtable": "0x820666B4",
+      "same_name_source_effect_crc32": "0xAEB162FE",
+      "runtime_class_to_effect_binding_verified": false
+    },
+    {
+      "original_engine_shader_class": "EExplosionDistortionShader",
+      "original_shader_class_guest_vtable": "0x82066744",
+      "same_name_source_effect_crc32": "0x58593A4D",
+      "runtime_class_to_effect_binding_verified": false
+    },
+    {
+      "original_engine_shader_class": "EEnergyShieldShader",
+      "original_shader_class_guest_vtable": "0x82066804",
+      "same_name_source_effect_crc32": "0xB9A0422F",
+      "runtime_class_to_effect_binding_verified": false
+    },
+    {
+      "original_engine_shader_class": "EOceanFastShader",
+      "original_shader_class_guest_vtable": "0x82066860",
+      "same_name_source_effect_crc32": "0x47730325",
+      "runtime_class_to_effect_binding_verified": false
+    },
+    {
+      "original_engine_shader_class": "ECameraParticleBoxShader",
+      "original_shader_class_guest_vtable": "0x820668F0",
+      "same_name_source_effect_crc32": "0xFA0DE215",
+      "runtime_class_to_effect_binding_verified": false
+    },
+    {
+      "original_engine_shader_class": "Debug",
+      "original_shader_class_guest_vtable": "0x8206D5A0",
+      "same_name_source_effect_crc32": "0x9BF18517",
+      "runtime_class_to_effect_binding_verified": false
+    },
+    {
+      "original_engine_shader_class": "ELightConeShader",
+      "original_shader_class_guest_vtable": "0x8206D64C",
+      "same_name_source_effect_crc32": "0xDD627D3C",
+      "runtime_class_to_effect_binding_verified": false
+    },
+    {
+      "original_engine_shader_class": "Ribbon",
+      "original_shader_class_guest_vtable": "0x8206D760",
+      "same_name_source_effect_crc32": "0x01E1C422",
+      "runtime_class_to_effect_binding_verified": false
+    },
+    {
+      "original_engine_shader_class": "TexturedRect",
+      "original_shader_class_guest_vtable": "0x8206EBFC",
+      "same_name_source_effect_crc32": "0x9DA7A534",
+      "runtime_class_to_effect_binding_verified": false
+    },
+    {
+      "original_engine_shader_class": "EScreenRectShader",
+      "original_shader_class_guest_vtable": "0x8206ECAC",
+      "same_name_source_effect_crc32": "0x4FD7B844",
+      "runtime_class_to_effect_binding_verified": false
+    },
+    {
+      "original_engine_shader_class": "EFontShader",
+      "original_shader_class_guest_vtable": "0x8206ED6C",
+      "same_name_source_effect_crc32": "0xE601E566",
+      "runtime_class_to_effect_binding_verified": false
+    },
+    {
+      "original_engine_shader_class": "EEmissiveTranslucentUVAnimShader",
+      "original_shader_class_guest_vtable": "0x8206EEE4",
+      "same_name_source_effect_crc32": "0xD632AD1F",
+      "runtime_class_to_effect_binding_verified": false
+    },
+    {
+      "original_engine_shader_class": "EEmissiveTranslucentUVScrollShader",
+      "original_shader_class_guest_vtable": "0x8206EF5C",
+      "same_name_source_effect_crc32": "0x35507B65",
+      "runtime_class_to_effect_binding_verified": false
+    },
+    {
+      "original_engine_shader_class": "ESkinnedMultiMatEnvPartialEmissiveScrollShader",
+      "original_shader_class_guest_vtable": "0x8206EFF8",
+      "same_name_source_effect_crc32": "0x0761080D",
+      "runtime_class_to_effect_binding_verified": false
+    },
+    {
+      "original_engine_shader_class": "EHairShader",
+      "original_shader_class_guest_vtable": "0x8206F0AC",
+      "same_name_source_effect_crc32": "0xAA628CAD",
+      "runtime_class_to_effect_binding_verified": false
+    },
+    {
+      "original_engine_shader_class": "ETransparencyCharacterShader",
+      "original_shader_class_guest_vtable": "0x8206F13C",
+      "same_name_source_effect_crc32": "0xEC190388",
+      "runtime_class_to_effect_binding_verified": false
+    },
+    {
+      "original_engine_shader_class": "ETransparencyShader",
+      "original_shader_class_guest_vtable": "0x8206F1AC",
+      "same_name_source_effect_crc32": "0x62D4D251",
+      "runtime_class_to_effect_binding_verified": false
+    },
+    {
+      "original_engine_shader_class": "FillRect",
+      "original_shader_class_guest_vtable": "0x8206F4E8",
+      "same_name_source_effect_crc32": "0x1EDD5ADF",
+      "runtime_class_to_effect_binding_verified": false
+    },
+    {
+      "original_engine_shader_class": "EDistortionShader",
+      "original_shader_class_guest_vtable": "0x8206F530",
+      "same_name_source_effect_crc32": "0x6BA57684",
+      "runtime_class_to_effect_binding_verified": false
+    },
+    {
+      "original_engine_shader_class": "ESkyShader",
+      "original_shader_class_guest_vtable": "0x8206F5DC",
+      "same_name_source_effect_crc32": "0x90813665",
+      "runtime_class_to_effect_binding_verified": false
+    },
+    {
+      "original_engine_shader_class": "ERopeShader",
+      "original_shader_class_guest_vtable": "0x8206F710",
+      "same_name_source_effect_crc32": "0x878B3A83",
+      "runtime_class_to_effect_binding_verified": false
+    },
+    {
+      "original_engine_shader_class": "EFlatShadowShader",
+      "original_shader_class_guest_vtable": "0x8206F7CC",
+      "same_name_source_effect_crc32": "0x4E69045D",
+      "runtime_class_to_effect_binding_verified": false
+    },
+    {
+      "original_engine_shader_class": "ERippleGenShader",
+      "original_shader_class_guest_vtable": "0x8206F8A8",
+      "same_name_source_effect_crc32": "0xFB52140D",
+      "runtime_class_to_effect_binding_verified": false
+    },
+    {
+      "original_engine_shader_class": "ESSAOShader",
+      "original_shader_class_guest_vtable": "0x8206F994",
+      "same_name_source_effect_crc32": "0x9907CDFC",
+      "runtime_class_to_effect_binding_verified": false
+    },
+    {
+      "original_engine_shader_class": "ELaserSightShader",
+      "original_shader_class_guest_vtable": "0x8206FA6C",
+      "same_name_source_effect_crc32": "0x9AE5F612",
+      "runtime_class_to_effect_binding_verified": false
+    },
+    {
+      "original_engine_shader_class": "EGPURainShader",
+      "original_shader_class_guest_vtable": "0x8206FB2C",
+      "same_name_source_effect_crc32": "0x403E64C0",
+      "runtime_class_to_effect_binding_verified": false
+    },
+    {
+      "original_engine_shader_class": "EGroundFogGlobalShader",
+      "original_shader_class_guest_vtable": "0x8206FCE4",
+      "same_name_source_effect_crc32": "0x18A0889C",
+      "runtime_class_to_effect_binding_verified": false
+    }
+  ],
+  "source_shader_class_name_effect_matches_count": 46,
+  "unmatched_original_shader_classes": [
+    "ECRIMovieShader",
+    "EBuildingWithWindowsShader2UV",
+    "ECloudLayerShader",
+    "system_white",
+    "pingPong",
+    "ESkinMorphShader"
+  ],
+  "all_authored_pairs_and_sampler_slots_source_verified": true,
+  "runtime_xdk_program_to_original_source_digest_verified": false,
+  "runtime_shader_class_to_effect_hash_verified": false,
+  "runtime_effect_pass_to_material_verified": false,
+  "runtime_sampler_to_guest_texture_verified": false,
+  "no_original_shader_or_other_game_bytes_published": true
+}
