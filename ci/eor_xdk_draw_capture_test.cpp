@@ -207,6 +207,48 @@ int main() {
   invalid_material.original_engine_shader_method->
       original_decal_xdk_vb_ib_binding_verified=false;
   assert(!ValidOriginalDecalItemMaterialBinding(invalid_material));
+  // Original USA material 0x825F84C0 selects a 1-based source
+  // state from the actual 92-byte table; indices at +84/+85 pick
+  // unique stage entries in independent source VS/PS tables. Actual
+  // 0x82874390/0x82874090 writes shader guest IDs to XDK device
+  // +12696/+12692, independently observed on this SAME PPC Draw.
+  auto pass=exact_decal;
+  pass.original_engine_shader_method->
+      original_pass_material_context_guest=0xA3100040u;
+  pass.original_engine_shader_method->original_pass_state_one_based=2u;
+  pass.original_engine_shader_method->
+      original_pass_vertex_handle_entry_guest=0xA3102008u;
+  pass.original_engine_shader_method->
+      original_pass_pixel_handle_entry_guest=0xA3103010u;
+  pass.original_engine_shader_method->
+      original_pass_vs_xdk_guest_object=0xA3210000u;
+  pass.original_engine_shader_method->
+      original_pass_ps_xdk_guest_object=0xA3211000u;
+  pass.original_engine_shader_method->
+      original_pass_vs_ps_xdk_binding_verified=true;
+  pass.observed_vs_matrices->original_vs_guest_object=0xA3210000u;
+  pass.observed_vs_matrices->original_ps_guest_object=0xA3211000u;
+  assert(ValidOriginalShaderPassStageBinding(pass));
+  auto mismatched_pass=pass;
+  mismatched_pass.observed_vs_matrices->
+      original_ps_guest_object=0xA3211004u;
+  assert(!ValidOriginalShaderPassStageBinding(mismatched_pass));
+  mismatched_pass=pass;
+  mismatched_pass.observed_vs_matrices->
+      original_vs_guest_object=0xA3210004u;
+  assert(!ValidOriginalShaderPassStageBinding(mismatched_pass));
+  mismatched_pass=pass;
+  mismatched_pass.original_engine_shader_method->
+      original_pass_vs_ps_xdk_binding_verified=false;
+  assert(!ValidOriginalShaderPassStageBinding(mismatched_pass));
+  mismatched_pass=pass;
+  mismatched_pass.original_engine_shader_method->
+      original_pass_material_context_guest=0u;
+  assert(!ValidOriginalShaderPassStageBinding(mismatched_pass));
+  mismatched_pass=pass;
+  mismatched_pass.original_engine_shader_method->
+      original_pass_state_one_based=0u;
+  assert(!ValidOriginalShaderPassStageBinding(mismatched_pass));
   auto incorrect_decal=exact_decal;
   incorrect_decal.observed_vs_matrices->
       original_index_buffer_guest_object=0xA0000040u;
