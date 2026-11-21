@@ -140,6 +140,64 @@ no fully native gameplay frame or original Xbox Pause Settings handler
 has been verified in the actual running game.
 
 ---
+### 21 November — original USA decrypted PPC code and ShaderClass runtime ownership
+
+The owner's original 5.87 GB Windows crash dump, recovered from their
+previously provided six-part private 7z, contains a fully mapped
+Xbox-360 PPC executable image at guest base 0x82000000.
+**Private-only** mapped PE SHA-256:
+`fa1d06e634146318c994678dc7cc1d770ac158e7292d07b30dcaf573a0964386`.
+The loaded executable is PPC PE machine 0x1F2, 0x140E200-byte image,
+entry 0x824C6158; genuine DrawIndexedVertices 0x8288E318 and
+DrawVertices 0x8288DF30 original PPC prologues match the
+SHA-pinned USA 98,726-function AOT diagnostic report. Neither the
+private dump nor the original mapped instructions were committed.
+Linux LLVM PPC disassembler can now decode the original source in
+private local analysis instead of looking only at European XEX copies.
+
+The original source .rdata supplied **52 named EoR shader class
+virtual method tables** (recorded as addresses/names ONLY in
+`native_port/analysis/hulk_usa_eor_shader_vtables_2026-11-21.json`).
+The source-only verification command is
+`python ci/hulk_usa_eor_shader_vtables.py --private-usa-mapped-image PRIVATE.bin --output PRIVATE_REPORT.json`.
+Independent real guest heap instances contain those exact class-vtable
+pointers, including Decal, TexturedRect, EScreenRectShader, EFontShader,
+ESkyShader and EFlatShadowShader. Original object first word is the
+BE original guest vtable; six original slot-4 methods can be
+verified without treating unrelated PPC LR or shader hashes as
+engine model ownership.
+
+The existing single generated AOT hook unit now has **six source-only
+shader-method wrappers** separate from real XDK hook methods; their
+guest-to-native AOT mappings and original method addresses have been
+added to the existing mapping and hook allowlists. Every wrapper
+calls the original PPC implementation unchanged. A Windows
+checked-memory vtable check and bounded host thread-local RAII
+scope capture the authentic original shader instance and original
+r4..r7 values before a nested XDK Draw, then restore the prior
+scope at method return. A wrong/unreadable vtable suppresses
+attribution; no guest memory or proprietary bytes are modified.
+
+That exact per-Draw source-parent snapshot flows via
+`RawDraw::original_engine_shader_method` and
+`AttachLiveEorShaderMethodParents` into the **existing sole EoR
+Vulkan worker**. The original XDK command timeline and material
+resolver reject a candidate whose asserted engine shader parent
+does not match the same guest Draw. The per-Present log now counts
+source-parented original draws and original EFontShader draws.
+Source-only regression checks are added to the existing manual
+Release workflow; Release was NOT launched.
+
+IMPORTANT: This closes a real portion of the original engine
+shader class -> XDK Draw provenance chain, but does NOT yet
+identify every model/mesh/surface, effect/pass and original shader
+sampler slot or supply a finished VerifiedXdkResourceWitness for
+all Draws. Nor does EFontShader class discovery prove the original
+UIPage_Pause_Settings guest VM event dispatcher or its PPC ABI.
+No authentic independent end-to-end EoR/Vulkan gameplay frame
+and no playable Windows ZIP have been verified yet.
+
+---
 ### Current verified path and exact missing producer
 
 The existing source contains `CapturePpcDraw` → immutable XDK
