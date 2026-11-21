@@ -146,6 +146,11 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Original USA 52 shader class vtables and 20 shared/unique PPC entry hooks invalid' }
           python ci/test_hulk_usa_decal_guest_geometry_abi.py
           if ($LASTEXITCODE -ne 0) { throw 'Original USA Decal per-item geometry->XDK VB/IB PPC ABI proof invalid' }
+          # Real source 92-byte EoR material-state selector -> two actual
+          # original XDK shader setters. 19 PPC instruction signatures;
+          # never claim it proves archived ShaderEffects PDB pass index.
+          python ci/test_hulk_usa_eor_pass_stage_abi.py
+          if ($LASTEXITCODE -ne 0) { throw 'USA original EoR dual-stage VS/PS XDK material pass source ABI regression failed' }
           python ci/test_hulk_ghidra_xdk_crosscheck.py
           if ($LASTEXITCODE -ne 0) { throw 'Ghidra/ReXGlue/live XDK triple-evidence verifier failed' }
           # Single source-only suite; real ReXGlue source anchors are
