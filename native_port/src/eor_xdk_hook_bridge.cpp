@@ -145,6 +145,67 @@ void ObserveOriginalEorVmState_r(
                 output.value_or(0u));
 }
 
+void ObserveOriginalEorMaterialDescriptor(
+    uint32_t original_method_guest,const PPCContext& original_ctx,
+    uint8_t* original_guest_base) noexcept {
+  if(!CaptureEnabled() || original_method_guest!=0x825F8A50u ||
+     !original_guest_base || !g_source_shader_method_depth ||
+     g_source_shader_rejected_nesting)
+    return;
+  auto& scope=g_source_shader_method_stack[g_source_shader_method_depth-1u];
+  if(scope.original_shader_method_guest!=0x8265B420u ||
+     scope.original_shader_vtable_guest!=0x82066504u ||
+     !scope.original_shader_method_vtable_verified)
+    return;
+  const uint32_t source_lr=static_cast<uint32_t>(original_ctx.lr);
+  // In the original source 0x82642C68, the first material call
+  // 0x82642C90 installs the default. ALWAYS invalidate the preceding
+  // per-item binding, otherwise a stale descriptor could be attached
+  // to the next Draw when the real item virtual method fails to bind.
+  if(source_lr==0x82642C94u) {
+    scope.original_decal_material_descriptor_guest=0;
+    scope.original_decal_material_context_guest=0;
+    scope.original_decal_material_word0=0;
+    scope.original_decal_material_word8=0;
+    scope.original_decal_item_material_binding_verified=false;
+    return;
+  }
+  // 0x82642C94 reads the item vtable, calls its slot+48 at +0xCA4,
+  // then 0x82642CA8 passes the virtual return in PPC r4 to the
+  // original native setter at 0x82642CB0, returning LR +4.
+  if(source_lr!=0x82642CB4u || !original_ctx.r4.u32 ||
+     scope.original_shader_instance_guest>UINT32_MAX-52u)
+    return;
+  const auto be32=[](const std::byte* p) noexcept {
+    return uint32_t(std::to_integer<uint8_t>(p[0]))<<24 |
+           uint32_t(std::to_integer<uint8_t>(p[1]))<<16 |
+           uint32_t(std::to_integer<uint8_t>(p[2]))<<8 |
+           uint32_t(std::to_integer<uint8_t>(p[3]));
+  };
+  // PPC source: Decal's r3 shader instance at virtual method entry
+  // becomes r31 in 0x82642C68 and r3=BE32(shader+48) at 0x82642CAC.
+  // Validate that this is genuinely the same game material context.
+  std::array<std::byte,4> source_context{};
+  if(!ReadGuest(original_guest_base,
+                scope.original_shader_instance_guest+48u,
+                source_context.data(),source_context.size()) ||
+     be32(source_context.data())!=original_ctx.r3.u32)
+    return;
+  // Actual native material setter PPC loads r4[8] and r4[0].
+  // Snapshot both words at the original call; these are opaque source
+  // material IDENTIFIERS, not verified effect/PS/Vulkan resources.
+  if(original_ctx.r4.u32>UINT32_MAX-12u)return;
+  std::array<std::byte,12> material{};
+  if(!ReadGuest(original_guest_base,original_ctx.r4.u32,
+                material.data(),material.size()))
+    return;
+  scope.original_decal_material_descriptor_guest=original_ctx.r4.u32;
+  scope.original_decal_material_context_guest=original_ctx.r3.u32;
+  scope.original_decal_material_word0=be32(material.data());
+  scope.original_decal_material_word8=be32(material.data()+8);
+  scope.original_decal_item_material_binding_verified=true;
+}
+
 ScopedOriginalEorShaderMethod::ScopedOriginalEorShaderMethod(
     uint32_t original_method_guest,const PPCContext& original_ctx,
     uint8_t* original_guest_base) noexcept {
