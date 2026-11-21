@@ -82,6 +82,21 @@ def audit(image:bytes,strict_source=True)->dict:
             dform(0x8265B520,14,6,0,0)),
         ("genuine direct indexed guest Draw",
             guest_bl(DECAL_DRAW_BL_SITE,ORIGINAL_XDK_DRAW_INDEXED)),
+        # Verify the *actual original XDK implementation* writes those
+        # descriptor pointers into the captured device-shadow fields.
+        # Geometry+24 and Geometry+56 are not inferred from one side of
+        # the call boundary: this completes the original EoR->XDK->snapshot
+        # identity chain with independent PowerPC instructions.
+        ("XDK SetStreamSource original r5 -> stored buffer r30",
+            mr(0x8287E65C,5,30)),
+        ("XDK SetStreamSource original stream-slot r4 -> r29",
+            mr(0x8287E664,4,29)),
+        ("XDK VB slot (3115+stream_index)*4 from device origin",
+            dform(0x8287E6C0,14,11,29,3115)),
+        ("XDK SetIndices original r4 -> stored index r29",
+            mr(0x8287E808,4,29)),
+        ("XDK IB device-shadow original +12436 writes r29",
+            dform(0x8287E87C,36,29,31,12436)),
     )
     bad=[name for name,valid in checks if not valid]
     if bad:
@@ -98,6 +113,9 @@ def audit(image:bytes,strict_source=True)->dict:
         "original_geometry_guest_ptr_be32_offset_from_render_item":60,
         "original_geometry_vb_descriptor_offset":24,
         "original_geometry_ib_descriptor_offset":56,
+        "xdk_device_shadow_original_vb0_guest_offset":12460,
+        "xdk_device_shadow_original_ib_guest_offset":12436,
+        "actual_original_xdk_setters_prove_device_shadow_binding":True,
         "original_material_prepare_guest_call":"0x%08X"%SOURCE_MATERIAL_PREPARE,
         "original_xdk_set_vb_guest_call":"0x%08X"%ORIGINAL_XDK_SET_VERTEX_STREAM,
         "original_xdk_set_ib_guest_call":"0x%08X"%ORIGINAL_XDK_SET_INDEX_STREAM,
