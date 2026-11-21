@@ -53,6 +53,9 @@ set(INCREDIBLEHULK_SOURCES
     src/eor_motion_vectors.cpp
     src/eor_native_frame.cpp
     src/eor_spirv_bank.cpp
+    # Collision-free original Xbox virtual-header -> full source program
+    # identity. No proprietary shader bytes or guest assets linked here.
+    src/eor_original_virtual_shader_identity.cpp
     src/eor_native_shader_constants.cpp
     src/eor_spirv_texture_bindings.cpp
     src/eor_aot_draw_bridge.cpp
