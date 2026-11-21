@@ -2,6 +2,7 @@
 #include "eor_xdk_draw_capture.h"
 #include "eor_native_draw_geometry.h"
 #include "eor_original_shader_samplers.h"
+#include "eor_original_virtual_shader_identity.h"
 #include <rex/ppc/context.h>
 #include <native_x_renderer/native_x_renderer.h>
 
@@ -83,6 +84,9 @@ struct VerifiedWorkerEorFrame {
   // Append so older verified-worker aggregate initializers keep their ABI.
   // A source sampler slot is not automatically an XDK texture fetch slot.
   std::shared_ptr<const aot::OriginalXdkShaderSamplers> samplers;
+  // Index only: does NOT prove a guest shader-object -> virtual-header
+  // ownership relation for an XDK Draw. Must not synthesize one.
+  std::shared_ptr<const aot::OriginalVirtualShaderIdentity> virtual_ids;
 };
 // Register the REAL private USA offline ShaderEffects bank, effect/pass index,
 // and reflection together. The game owns the source generations; the GPU
@@ -92,7 +96,8 @@ bool InstallVerifiedSourceShaderPack(
     std::shared_ptr<const aot::ShaderBank> shaders,
     std::shared_ptr<const aot::EffectCatalog> effects,
     std::shared_ptr<const aot::ReflectionBank> reflection,
-    std::shared_ptr<const aot::OriginalXdkShaderSamplers> samplers = {});
+    std::shared_ptr<const aot::OriginalXdkShaderSamplers> samplers = {},
+    std::shared_ptr<const aot::OriginalVirtualShaderIdentity> virtual_ids = {});
 void ClearVerifiedSourceShaderPack() noexcept;
 // Thread-safe source submission. A complete source-proven EoR engine owner
 // must supply this per-frame; startup AOT shader banks alone are insufficient.
