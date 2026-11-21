@@ -43,6 +43,20 @@ class RedactionTests(unittest.TestCase):
         self.assertNotIn('PASSWORD', stages + hints)
         self.assertIn('invalid-cli-arguments', hints)
 
+    def test_xenia_edge_failure_reports_exact_safe_stage_mode(self):
+        raw = (
+            "RUN: python D:\\work\\ci\\patch_sdk_hulk_xenia_edge.py "
+            "index-pool D:\\private\\sdk\\default.xex\n"
+            "RUN: python D:\\work\\ci\\patch_sdk_hulk_xenia_edge.py "
+            "packed-mip D:\\private\\sdk\\default.xex\n"
+            "ValueError: private source data sub_821ABCDE\n"
+        )
+        stages = " ".join(stage_report(raw))
+        self.assertIn("script=patch_sdk_hulk_xenia_edge.py mode=index-pool", stages)
+        self.assertIn("script=patch_sdk_hulk_xenia_edge.py mode=packed-mip", stages)
+        self.assertNotIn("default.xex", stages)
+        self.assertNotIn("821ABCDE", stages)
+
     def test_safe_source_test_name_without_xex_or_guest_backtrace(self):
         raw = (
             "FAIL: test_shader_exec_stage_bounds "
