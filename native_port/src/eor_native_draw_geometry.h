@@ -141,7 +141,21 @@ struct VerifiedXdkResourceWitness {
   // with different firstIndex/baseVertex/count using the real live values.
   // Never infer this proof from shared shaders, LR, or resource pointers.
   bool original_linear_index_stream_verified=false;
+  // Read-only original ENGINE shader method parent, sampled from the
+  // same thread and exact original XDK Draw before the guest GPU API.
+  // It is attached to INDEPENDENT original material/mesh witnesses, and
+  // never substitutes for that original owner verification.
+  std::optional<xdk::OriginalEorShaderMethodAtDraw>
+      original_source_engine_shader_method;
 };
+// Pair already verified EoR material/mesh candidate witnesses with their
+// EXACT original PPC shader class method at Draw, if one was observed.
+// Never set engine_draw_verified or original material/texture/PSO flags.
+// Multiple candidate material owners may share one original shader method;
+// downstream resolution still rejects ambiguity or missing material proofs.
+std::vector<VerifiedXdkResourceWitness> AttachLiveEorShaderMethodParents(
+    const xdk::Frame& exact_original,
+    std::span<const VerifiedXdkResourceWitness> material_owner_witnesses);
 // The actual original GPU archive streamer owns strong uploaded Vulkan
 // positions, indices and source-decoded attribute buffers. Retain only
 // those real models whose engine-verified Draws match the original XDK
