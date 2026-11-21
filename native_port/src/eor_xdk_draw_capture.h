@@ -2,6 +2,7 @@
 // Keep original PPC call-through and memory untouched. Opt-in audit only.
 #pragma once
 #include "eor_xdk_guest_constants.h"
+#include "eor_original_virtual_shader_identity.h"
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -457,6 +458,13 @@ struct RawDraw {
   // source Draw occurred before the corresponding engine method returned.
   // This is NOT a fabricated VerifiedXdkResourceWitness.
   std::optional<OriginalEorShaderMethodAtDraw> original_engine_shader_method;
+  // Runtime content-addressed shader source identity from SAME Draw's
+  // original material stage table, only when row+4 really points to a
+  // full HEORVRT1-identified ShaderContainer. Missing means unproven.
+  std::optional<aot::OriginalLiveXdkShaderHeaderWitness>
+      observed_live_vertex_shader_header;
+  std::optional<aot::OriginalLiveXdkShaderHeaderWitness>
+      observed_live_pixel_shader_header;
 };
 // Original USA Decal direct XDK call is at guest 0x8265B538.
 // An engine render-item->geometry witness, if present, must match the
@@ -667,6 +675,13 @@ class FrameCapture {
  public:
   static constexpr std::size_t kMaxDraws = 8192;
   static constexpr std::size_t kMaxCommands = 65536;
+  // Only call under the same collector mutex as Record()/Finish().
+  // These values label the authentic next Present and Draw, not a
+  // synthetic draw-order index created by the Vulkan worker.
+  uint64_t NextFrameSequence() const noexcept {return seq_+1;}
+  uint32_t NextDrawOrdinal() const noexcept {
+    return static_cast<uint32_t>(calls_.size());
+  }
   void Record(const RawDraw& call);
   void RecordCommand(const RawCommand& command);
   Frame Finish();
