@@ -18,12 +18,26 @@ ROOT = Path(__file__).resolve().parents[1]
 PORT = ROOT / "native_port"
 WITNESS = PORT / "analysis/hulk_usa_eor_shader_vtables_2026-11-21.json"
 EXPECTED_NATIVE = {
+    0x82651978: 0x00141BA5CE0,
+    0x82652420: 0x0014255E620,
+    0x82662780: 0x00141BF8440,
+    0x82665288: 0x00142CE1B90,
+    0x82665500: 0x00141F88630,
+    0x82669630: 0x00141574F00,
+    0x82670738: 0x001411851E0,
+    0x826432F0: 0x00140A0BBC0,
+    0x82652B60: 0x00140D4B950,
     0x8265B420: 0x0014025EDC0,
     0x82668D50: 0x001419B0F10,
-    0x82669630: 0x00141574F00,
     0x8266A0C0: 0x00142BE0180,
+    0x8266C668: 0x001413252B0,
     0x8266CC28: 0x00140D9E2D0,
+    0x8266D6D0: 0x0014195F3B0,
     0x8266DDD0: 0x001421CC520,
+    0x8266E520: 0x00140916E30,
+    0x8266EB88: 0x001406D5C50,
+    0x8266F198: 0x00141089960,
+    0x8266FEF8: 0x00142C34880,
 }
 
 
@@ -53,7 +67,7 @@ class OriginalEorShaderClassesTests(unittest.TestCase):
         self.assertFalse(report["original_pause_ui_event_dispatch_abi_verified"])
         self.assertTrue(report["all_guest_code_and_original_assets_remain_private"])
 
-    def test_six_source_engine_hooks_match_original_AOT_guest_to_host(self):
+    def test_twenty_eor_shader_methods_cover_all_52_real_classes(self):
         with (PORT / "analysis/guest_host_mapping.csv").open(encoding="utf-8-sig",
                                                              newline="") as fp:
             rows = list(csv.DictReader(fp))
@@ -75,6 +89,14 @@ class OriginalEorShaderClassesTests(unittest.TestCase):
         self.assertIn("HULK_EOR_SHADER_TRACE_HOOK", generator)
         self.assertIn("ScopedOriginalEorShaderMethod", generator)
         self.assertIn("if addr in SOURCE_EOR_SHADER_METHODS", generator)
+        original_methods = {int(e["original_guest_method_slot_4"], 16)
+                            for e in json.loads(WITNESS.read_text(
+                                encoding="utf-8"))["original_shader_vtables"]}
+        self.assertEqual(set(EXPECTED_NATIVE), original_methods)
+        self.assertEqual(len(original_methods), 20)
+        encoded = generator.split("SOURCE_EOR_SHADER_METHODS = {",1)[1].split("}",1)[0]
+        emitted = {int(a, 16) for a in re.findall(r'"([0-9A-F]{8})"', encoded)}
+        self.assertEqual(emitted, original_methods)
 
     def test_original_engine_method_observer_is_read_only_and_fail_closed(self):
         header = (PORT / "src/eor_xdk_draw_capture.h").read_text(
@@ -84,10 +106,26 @@ class OriginalEorShaderClassesTests(unittest.TestCase):
         for name, (_, method) in HIGHLIGHTS.items():
             self.assertIn("case 0x%08Xu:" % method, header, name)
         self.assertIn("ProvenUsaEorShaderVtableForMethod", header)
+        full = json.loads(WITNESS.read_text(encoding="utf-8"))
+        pair_code = header.split(
+            "inline constexpr bool ProvenUsaEorShaderMethodVtablePair(",1
+        )[1].split("inline constexpr uint32_t ProvenUsaEorShaderVtableForMethod(",1)[0]
+        for record in full["original_shader_vtables"]:
+            original_method = record["original_guest_method_slot_4"].lower()
+            original_vtable = record["original_guest_vtable"].lower()
+            self.assertIn("case " + original_method + "u:", pair_code)
+            if original_method == "0x826432f0":
+                self.assertIn("case " + original_vtable + "u:", pair_code)
+            else:
+                self.assertIn(
+                    "case " + original_method + "u: return vtable==" +
+                    original_vtable + "u;", pair_code)
+        self.assertIn("if(!method || !vtable)return false;",pair_code)
+        self.assertIn("default: return false;",pair_code)
         self.assertIn("g_source_shader_method_stack", bridge)
         self.assertIn("ScopedOriginalEorShaderMethod::~ScopedOriginalEorShaderMethod", bridge)
         self.assertIn("g_source_shader_rejected_nesting", bridge)
-        self.assertIn("actual_vtable!=expected_vtable", bridge)
+        self.assertIn("ProvenUsaEorShaderMethodVtablePair(", bridge)
         self.assertIn("ReadGuest(original_guest_base,original_ctx.r3.u32", bridge)
         self.assertIn("draw.original_engine_shader_method=", bridge)
         self.assertIn("g_source_shader_method_stack[g_source_shader_method_depth-1]", bridge)
