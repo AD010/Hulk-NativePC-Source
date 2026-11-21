@@ -46,6 +46,16 @@ def synthesized_original_material_abi():
         0x82874114:ppc_d(36,29,30,12692),
         0x826432A4:ppc_d(32,3,30,48),
         0x826432B0:ppc_bl(0x826432B0,0x825F84C0),
+        0x825F8570:ppc_d(34,27,30,87),
+        0x825F8578:ppc_d(40,30,30,80),
+        0x825F8590:ppc_d(32,11,31,196),
+        0x825F859C:ppc_d(34,11,30,0),
+        0x825F85A0:ppc_d(34,5,30,1),
+        0x825F85AC:ppc_bl(0x825F85AC,0x82675E00),
+        0x825F85BC:ppc_d(34,6,30,3),
+        0x825F85C0:ppc_d(34,5,30,2),
+        0x825F85C4:ppc_bl(0x825F85C4,0x82675EA0),
+        0x825F85D8:ppc_d(14,26,26,4),
     }
     image=bytearray(0x1400000)
     image[:2]=b"MZ"
@@ -64,7 +74,7 @@ class OriginalDualStagePassTests(unittest.TestCase):
     def test_exact_usa_eor_technique_pass_proof_matches_public_abi(self):
         result=inspect(self.image,strict=False)
         self.assertEqual(result,self.proof)
-        self.assertEqual(result["original_source_ppc_instruction_checks"],19)
+        self.assertEqual(result["original_source_ppc_instruction_checks"],29)
         self.assertEqual(result["original_runtime_pass_record_stride"],92)
         self.assertEqual(result["original_vs_pass_record_index_byte_offset"],84)
         self.assertEqual(result["original_ps_pass_record_index_byte_offset"],85)
@@ -74,6 +84,13 @@ class OriginalDualStagePassTests(unittest.TestCase):
         self.assertFalse(result["source_xenos_shader_sha256_to_live_xdk_shader_object_verified"])
         self.assertFalse(result["runtime_state_index_to_source_pdb_pass_ordinal_verified"])
         self.assertFalse(result["original_shader_sampler_gpu_texture_binding_verified"])
+        self.assertEqual(result["original_sampler_state_record_count_byte_offset"],87)
+        self.assertEqual(result["original_sampler_state_first_record_be16_offset"],80)
+        self.assertEqual(result["original_sampler_state_table_guest_offset"],196)
+        self.assertEqual(result["original_sampler_state_record_stride"],4)
+        self.assertTrue(result["engine_pass_sampler_state_register_list_verified"])
+        self.assertFalse(result[
+            "engine_pass_sampler_state_equals_shader_texture_fetch_mapping"])
 
     def test_all_original_pass_pointer_chain_instructions_must_match(self):
         for address in self.instructions:
@@ -117,6 +134,12 @@ class OriginalDualStagePassTests(unittest.TestCase):
         self.assertIn("owner.original_pass_vs_xdk_guest_object",bridge)
         self.assertIn("owner.original_pass_ps_xdk_guest_object",bridge)
         self.assertIn("ValidOriginalShaderPassStageBinding(",capture)
+        self.assertIn("ValidOriginalShaderPassSamplerStateAtDraw(",capture)
+        self.assertIn("const auto sampler_table=read32(*material_ctx+196u)",bridge)
+        self.assertIn("std::to_integer<uint8_t>(shader_slots[7])",bridge)
+        self.assertIn("source sampler",capture.lower())
+        self.assertIn("original_pass_sampler_slots_verified",bridge)
+        self.assertIn("original_pass_live_texture_objects_present",bridge)
         self.assertIn("ValidOriginalShaderPassStageBinding(original_call)",resolver)
         self.assertIn("ValidOriginalShaderPassStageBinding(call)",resolver)
         self.assertNotIn("original_guest_resource_to_material_mapping_verified=true",
