@@ -16,6 +16,7 @@
 #include "eor_effect_catalog.h"
 #include "eor_shader_reflection.h"
 #include "eor_original_shader_samplers.h"
+#include "eor_original_virtual_shader_identity.h"
 #include "native_pc_save_path.h"
 #include "native_pc_save_format.h"
 #include "native_gpu_autodiag.h"
@@ -129,6 +130,7 @@ class IncredibleHulkApp : public rex::ReXApp {
       const auto private_effects = offline / "hulk_effect_ledger.bin";
       const auto private_reflection = offline / "hulk_shader_reflection.bin";
       const auto private_samplers = offline / "hulk_sampler_bank.bin";
+      const auto private_virtual = offline / "hulk_shader_virtual_fingerprints.bin";
       std::error_code error;
       if (std::filesystem::is_regular_file(private_bank, error) && !error) {
         try {
@@ -170,6 +172,23 @@ class IncredibleHulkApp : public rex::ReXApp {
             eor_effects_ = std::move(effects);
             eor_reflection_ = std::move(reflection);
             eor_samplers_ = std::move(original_samplers);
+            const bool have_virtual =
+                std::filesystem::is_regular_file(private_virtual,error) &&
+                !error;
+            if(have_virtual) {
+              auto virtual_ids =
+                  std::make_shared<hulk::eor::aot::OriginalVirtualShaderIdentity>();
+              virtual_ids->Load(private_virtual);
+              if(virtual_ids->size()!=bank->expected())
+                throw std::invalid_argument(
+                    "Original virtual shader identity bank does not match "
+                    "complete USA ShaderEffects source digest count");
+              eor_virtual_ids_ = std::move(virtual_ids);
+              REXLOG_INFO("[HULK/EOR-ORIGINAL-VIRTUAL-ID] {} source keys "
+                          "loaded; live guest XDK ShaderObject header "
+                          "ownership not yet proven",
+                          eor_virtual_ids_->size());
+            }
             REXLOG_INFO("[HULK/EOR-XDK-SAMPLERS] original source shaders={} "
                         "complete={} (real XDK texture fetch owner still "
                         "requires exact engine Draw proof)",
@@ -196,6 +215,7 @@ class IncredibleHulkApp : public rex::ReXApp {
           eor_effects_.reset();
           eor_reflection_.reset();
           eor_samplers_.reset();
+          eor_virtual_ids_.reset();
           REXLOG_WARN("[HULK/EOR-AOT] rejected private EoR source pack: {}",
                       e.what());
         }
@@ -207,7 +227,8 @@ class IncredibleHulkApp : public rex::ReXApp {
     // bindings. Keep them resident for the sole Vulkan worker.
     if(eor_aot_ && eor_effects_ && eor_reflection_ &&
        !hulk::eor::xdk::InstallVerifiedSourceShaderPack(
-           eor_aot_,eor_effects_,eor_reflection_,eor_samplers_))
+           eor_aot_,eor_effects_,eor_reflection_,eor_samplers_,
+           eor_virtual_ids_))
       REXLOG_WARN("[HULK/EOR-AOT] coherent private source pack rejected "
                   "at Vulkan worker handoff");
     const bool vulkan_active = hulk::NativeXInitialize(
@@ -255,6 +276,7 @@ class IncredibleHulkApp : public rex::ReXApp {
     hulk::ReportAutomaticGpuDiagnostics();
     eor_reflection_.reset();
     eor_samplers_.reset();
+    eor_virtual_ids_.reset();
     eor_effects_.reset();
     eor_aot_.reset();
     pc_menu_.reset();
@@ -269,6 +291,7 @@ class IncredibleHulkApp : public rex::ReXApp {
   std::shared_ptr<hulk::eor::aot::EffectCatalog> eor_effects_;
   std::shared_ptr<hulk::eor::aot::ReflectionBank> eor_reflection_;
   std::shared_ptr<hulk::eor::aot::OriginalXdkShaderSamplers> eor_samplers_;
+  std::shared_ptr<hulk::eor::aot::OriginalVirtualShaderIdentity> eor_virtual_ids_;
   std::filesystem::path native_pc_config_;
   std::unique_ptr<rex::ui::ImGuiDialog> pc_menu_;
 };
