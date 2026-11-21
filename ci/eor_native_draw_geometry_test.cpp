@@ -469,6 +469,44 @@ int main(){
   witness.original_xdk_texture_slot_mapping_verified=true;
   witness.original_guest_resource_to_material_mapping_verified=true;
   std::vector<native::VerifiedXdkResourceWitness> catalog{witness};
+  // Real ShaderClass -> original XDK Draw identity, sourced from the
+  // independently validated original PPC virtual method and vtable.
+  // Attaching its parent to an ALREADY independent material witness
+  // must not change the authenticated mesh/effect/surface claims.
+  auto shaderParentRuntime=runtime;
+  xdk::OriginalEorShaderMethodAtDraw engineParent{};
+  engineParent.original_shader_method_guest=0x8265B420u; // Decal
+  engineParent.original_shader_instance_guest=0xA38A2918u;
+  engineParent.original_shader_vtable_guest=0x82066504u;
+  engineParent.source_r4_through_r7={11u,22u,33u,44u};
+  engineParent.nesting_depth=1u;
+  engineParent.original_shader_method_vtable_verified=true;
+  shaderParentRuntime.calls[0].original_engine_shader_method=engineParent;
+  const auto originalScopes=native::AttachLiveEorShaderMethodParents(
+      shaderParentRuntime,catalog);
+  assert(originalScopes.size()==1 &&
+         originalScopes[0].original_source_engine_shader_method &&
+         originalScopes[0].original_source_engine_shader_method->
+             original_shader_instance_guest==0xA38A2918u &&
+         originalScopes[0].original_guest_resource_to_material_mapping_verified);
+  auto parentBound=native::ResolveCapturedResourceDraws(
+      shaderParentRuntime,originalScopes,models);
+  assert(parentBound.size()==1 && parentBound[0].original_model_hash==0xCAFE);
+  // The same material witness WITHOUT original shader entry ownership
+  // must never attach to a genuinely observed different EoR class Draw.
+  Reject([&]{(void)native::ResolveCapturedResourceDraws(
+      shaderParentRuntime,catalog,models);});
+  auto wrongParent=originalScopes;
+  wrongParent[0].original_source_engine_shader_method->
+      original_shader_vtable_guest=0x8206ED6Cu;
+  Reject([&]{(void)native::AttachLiveEorShaderMethodParents(
+      shaderParentRuntime,wrongParent);});
+  Reject([&]{(void)native::ResolveCapturedResourceDraws(
+      shaderParentRuntime,wrongParent,models);});
+  auto missingParent=shaderParentRuntime;
+  missingParent.calls[0].original_engine_shader_method.reset();
+  Reject([&]{(void)native::AttachLiveEorShaderMethodParents(
+      missingParent,originalScopes);});
   // Guest XDK GPU byte identity is matched directly to the ORIGINAL model
   // stream, not inferred from a shared shader or an EoR CRC32 name hash.
   auto realModel=MakeModel();
