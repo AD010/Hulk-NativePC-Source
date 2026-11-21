@@ -45,8 +45,9 @@ class OriginalUsaPpcDrawAbiTests(unittest.TestCase):
         result = inspect(synthetic_evidence())
         draws = result["draw_xdk_abis"]
         self.assertEqual(set(draws), {"DrawIndexedVertices", "DrawVertices"})
-        self.assertEqual([len(v["source_defined_direct_callers"])
-                          for v in draws.values()], [6, 2])
+        self.assertEqual({name: len(v["source_defined_direct_callers"])
+                          for name, v in draws.items()},
+                         {"DrawIndexedVertices": 6, "DrawVertices": 2})
         for name, data in draws.items():
             self.assertEqual(
                 len(data["source_verified_original_ppc_argument_registers"]),
