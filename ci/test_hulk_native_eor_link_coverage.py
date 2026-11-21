@@ -357,6 +357,19 @@ class NativeEorLinkCoverage(unittest.TestCase):
         self.assertIn('native_requested=selected &&',source)
         self.assertIn('preserving Xenos',source)
 
+    def test_native_backend_resets_viewport_and_scissor_per_actual_eor_draw(self):
+        source=(ROOT / "native_port/src/eor_diligent_aot_backend.cpp").read_text()
+        start=source.index("bool DiligentEorDirectBackend::DrawIndexed(")
+        end=source.index("bool DiligentEorDirectBackend::ResolveScene(",start)
+        render=source[start:end]
+        self.assertIn("native::Rect viewport_area{",render)
+        self.assertIn("VerifiedOriginalViewSpace::OriginalAspectHud",render)
+        self.assertIn("s.context->SetViewports(1,&original_viewport",render)
+        self.assertIn("s.context->SetScissorRects(1,&original_scissor",render)
+        self.assertLess(render.index("SetViewports("),
+                        render.index("SetPipelineState("))
+        self.assertNotIn("if(s.frame.widescreen_camera) {",render)
+
     def test_native_worker_fallback_only_suppressed_after_gpu_begin_attempt(self):
         bridge = (ROOT / "native_port/src/eor_aot_draw_bridge.cpp").read_text()
         worker = (ROOT / "native_port/src/eor_xdk_hook_bridge.cpp").read_text()

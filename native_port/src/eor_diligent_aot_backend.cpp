@@ -924,34 +924,38 @@ bool DiligentEorDirectBackend::DrawIndexed(const native::IndexedDraw& draw) {
       s.textures_ready=false;
       return false;
     }
-    if(s.frame.widescreen_camera) {
-      // Independent native aspect pass layout: world covers all physical
-      // pixels; verified HUD draws only to the centered original 16:9
-      // host area. Reset state on EVERY draw to prevent a HUD viewport
-      // leaking into the next original 3D draw or vice versa.
-      native::Rect v{0,0,s.frame.world.width,s.frame.world.height};
-      if(s.selected->pipeline.original_view_space==
+    // Set a known viewport and scissor EVERY original EoR draw. Before
+    // this correction, the ordinary 16:9 path inherited stale dynamic
+    // state from whichever native/UI pass previously touched the Vulkan
+    // context; a partial rectangle could silently clip whole buildings.
+    native::Rect viewport_area{
+        0,0,s.frame.world.width,s.frame.world.height};
+    if(s.frame.widescreen_camera &&
+       s.selected->pipeline.original_view_space==
            VerifiedOriginalViewSpace::OriginalAspectHud) {
-        const auto fitted=display::FitOriginalPicture(
-            s.frame.world.width,s.frame.world.height,
-            s.frame.original_guest.width,s.frame.original_guest.height);
-        if(!fitted.valid || !fitted.width || !fitted.height)
-          return false;
-        v={fitted.x,fitted.y,fitted.width,fitted.height};
-      }
-      const Diligent::Viewport viewport{
-          static_cast<float>(v.left),static_cast<float>(v.top),
-          static_cast<float>(v.width),static_cast<float>(v.height),
-          0.f,1.f};
-      const Diligent::Rect scissor{
-          static_cast<int>(v.left),static_cast<int>(v.top),
-          static_cast<int>(v.left+v.width),
-          static_cast<int>(v.top+v.height)};
-      s.context->SetViewports(1,&viewport,
-                            s.frame.world.width,s.frame.world.height);
-      s.context->SetScissorRects(1,&scissor,
-                               s.frame.world.width,s.frame.world.height);
+      // Source-verified HUD is letterboxed to the original 16:9 area
+      // without changing the independent native 3D scene's aspect.
+      const auto fitted=display::FitOriginalPicture(
+          s.frame.world.width,s.frame.world.height,
+          s.frame.original_guest.width,s.frame.original_guest.height);
+      if(!fitted.valid || !fitted.width || !fitted.height)
+        return false;
+      viewport_area={fitted.x,fitted.y,fitted.width,fitted.height};
     }
+    const Diligent::Viewport original_viewport{
+        static_cast<float>(viewport_area.left),
+        static_cast<float>(viewport_area.top),
+        static_cast<float>(viewport_area.width),
+        static_cast<float>(viewport_area.height),0.f,1.f};
+    const Diligent::Rect original_scissor{
+        static_cast<int>(viewport_area.left),
+        static_cast<int>(viewport_area.top),
+        static_cast<int>(viewport_area.left+viewport_area.width),
+        static_cast<int>(viewport_area.top+viewport_area.height)};
+    s.context->SetViewports(1,&original_viewport,
+                           s.frame.world.width,s.frame.world.height);
+    s.context->SetScissorRects(1,&original_scissor,
+                              s.frame.world.width,s.frame.world.height);
     s.context->SetPipelineState(s.active.pipeline.RawPtr());
     s.context->CommitShaderResources(s.active.bindings.RawPtr(),
         Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
