@@ -61,6 +61,7 @@ class AotTests(unittest.TestCase):
             self.assertEqual(report["failed_count"],0)
             self.assertFalse(report["native_renderer_ready"])
             self.assertIn("-fvk-invert-y",calls[1])
+            self.assertEqual(calls[1][calls[1].index("-E")+1],"main")
             self.assertIn("-fspv-reflect",calls[1])
             self.assertNotIn("-Qstrip_debug",calls[1])
             self.assertEqual(json.loads((out/"aot_manifest.json").read_text()),report)
