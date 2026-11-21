@@ -66,13 +66,18 @@ with tempfile.TemporaryDirectory() as d:
         "0x8289D730,0x140001000\n"
         "0x8289D888,0x140002000\n"
         "0x8265B420,0x14025EDC0\n"
-        "0x8266A0C0,0x142BE0180\n")
-    addresses.write_text("8289D730\n8289D888\n8265B420\n8266A0C0\n")
+        "0x8266A0C0,0x142BE0180\n"
+        "0x8264C798,0x1427F9EA0\n")
+    addresses.write_text("8289D730\n8289D888\n8265B420\n"
+                         "8266A0C0\n8264C798\n")
     subprocess.run([sys.executable,str(s),str(addresses),
                     str(mapping),str(generated),str(profile)],check=True)
     cpp = generated.read_text()
     assert "HULK_EOR_SHADER_TRACE_HOOK(8265B420)" in cpp
     assert "HULK_EOR_SHADER_TRACE_HOOK(8266A0C0)" in cpp
+    assert "HULK_EOR_VM_STATE_TRACE_HOOK(8264C798)" in cpp
+    assert "HULK_NATIVE_X_HOOK(8264C798" not in cpp
+    assert "ObserveOriginalEorVmState_r(0x##addr,ctx,base)" in cpp
     assert "HULK_NATIVE_X_HOOK(8265B420" not in cpp
     assert "HULK_NATIVE_X_HOOK(8266A0C0" not in cpp
     engine = cpp[cpp.index("#define HULK_EOR_SHADER_TRACE_HOOK"): ]
