@@ -502,10 +502,17 @@ bool InstallVerifiedWorkerEorFrameWithResidents(
     // Original EoR model/mesh/surface owner must already have been proven
     // by actual engine ABI. This stage uses the existing USA archive stream
     // GPU buffers, not reconstructed or guessed XDK shader state.
+    // Pair the ORIGINAL shader class invocation at each XDK Draw with
+    // independently authenticated engine mesh/material candidates from
+    // this exact Present. This is a real producer of SOURCE-PARENT data,
+    // NOT a generator of missing material/pass/texture GPU witnesses.
+    auto source_parents=native::AttachLiveEorShaderMethodParents(
+        *source,frame->witnesses);
     auto residents=native::RetainVerifiedOriginalFrameResidents(
-        *source,frame->witnesses,lookup);
+        *source,source_parents,lookup);
     if(residents.empty())return false;
     auto complete=std::make_shared<VerifiedWorkerEorFrame>(*frame);
+    complete->witnesses=std::move(source_parents);
     complete->residents=std::move(residents);
     // A newer XDK Present can replace source while retrieving models.
     // Leave the final exact frame check to TryWorkerEorFrame and replay.
