@@ -112,6 +112,11 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw '27-word shader/PM4 provenance classifier regression failed' }
           python ci/test_audit_hulk_pc_x360_ui_assets.py
           if ($LASTEXITCODE -ne 0) { throw 'Original EoR UI archive/index regression failed (no game assets used)' }
+          # Assert the actual original Xbox pause-page serialized VM symbol
+          # route before the private build. No proprietary OBJECTS.ARC is
+          # required to execute this synthetic-only regression.
+          python ci/test_audit_hulk_original_pause_ui_objects.py
+          if ($LASTEXITCODE -ne 0) { throw 'Original Xbox pause VM route regression failed' }
           python ci/test_audit_hulk_havok_pair.py
           if ($LASTEXITCODE -ne 0) { throw 'Original user-indexed PC/Xbox Havok 5.1 section/fixup synthetic regression failed' }
           python ci/test_hulk_eor_extract_named_assets.py
