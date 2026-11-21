@@ -19,6 +19,39 @@ the current binary. All dates here are UTC unless otherwise stated.
 | 21 Nov 09:15–09:42 | Original PC menu art in the native menu, direct EoR Vulkan worker selection, complete per-slot live Xbox vertex-stream capture, viewport/scissor reset per indexed draw, deduplicated original mesh search, and USA callgraph duplicate checks, through `8a9bbad85ff78c152a83a2bb7b849cecc97d2d2b` | The Xbox pause page is not redirected into native Settings; source-backed `VerifiedWorkerEorFrame` producer remains absent |
 | 21 Nov 09:52 | `2de0aabf670ea1fe26ab30ffd1076b4af0502966` and `15e98540b62825aa272cbff5198386065a0d86c2` correct index-width bounds for original 32-bit guest IB reads and add a negative test | Source change plus committed test; neither an executed Windows test nor a released full port |
 
+### 21 November 10:03–10:10 UTC: continuation, applied to `main`
+
+- `f37d819` / `8748d0c`: the original `UIPage_Pause_Settings`
+  Ghidra name search now handles exact ASCII, UTF-16LE and UTF-16BE
+  references with per-hit byte-order attribution and synthetic regression.
+- `ac19b97` / `ad08e61`: the same xref report now provides direct
+  Ghidra call-site/caller-function candidates rather than treating a
+  resource/string address as an event-dispatch ABI.
+- `f46da44` / `51a4754`: original guest indexed Draw snapshots
+  prioritize source VB0 and source index-buffer bytes BEFORE secondary
+  bound vertex streams consume the shared immutable per-Present budget;
+  all 16 slots are still captured when available. This reduces a known
+  ordering-related missing-index-snapshot path, NOT missing engine
+  mesh/material shader witnesses.
+- `3c6c5b0` / `ff9b49e`: the redacted CI failure classifier now
+  retains only the whitelisted `index-pool`/`packed-mip`/
+  `spirv-scalar` mode of the source-safe Xenia Edge patch.
+  This is needed because the previous public failure showed a
+  `ValueError` near repeated uses of that script with **no mode**
+  and no underlying private error message.
+
+The previously failed `44886654922` Windows run remains **failed**,
+not a test of any of the above commits. Original uploaded Library XEX
+files inspected during continuation are **not** SHA-identical to the
+pinned USA source `346A7369...`; no addresses or original game content
+from them were transplanted into the USA runtime. The appropriate
+private source input remains in `AD010/hulk-cloud`, and could not be
+materialized into the current development container.
+
+Source-level sanity checks confirmed current source patterns and
+exactly matching pinned ReXGlue upstream texture/index patch anchors,
+but **no current Windows game executable or new gameplay frame was run**.
+
 ### Current verified path and exact missing producer
 
 The existing source contains `CapturePpcDraw` → immutable XDK
