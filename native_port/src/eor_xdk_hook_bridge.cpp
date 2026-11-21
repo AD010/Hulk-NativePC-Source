@@ -1069,6 +1069,31 @@ native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(
         *source_snapshot,ready->witnesses,residents);
     if(source.size()!=source_snapshot->calls.size())
       return Result::kNotReady;
+    // HEORVRT1 is a real source-program bank, NOT automatically a
+    // live XDK shader-object identity. Refuse any Draw without TWO exact
+    // original ShaderContainer header proofs, obtained from a separately
+    // source-verified object->header ABI and sampled at this Draw.
+    // Comparison is performed before creating any host GPU state.
+    if(ready->virtual_ids) {
+      for(size_t i=0;i<source.size();++i) {
+        const auto& guest=source_snapshot->calls[i];
+        const auto& draw=source[i];
+        if(!guest.observed_vs_matrices ||
+           !draw.original_live_vertex_shader_header ||
+           !draw.original_live_pixel_shader_header)
+          return Result::kNotReady;
+        const auto& live=*guest.observed_vs_matrices;
+        if(!aot::MatchesOriginalLiveXdkShaderSource(
+                *ready->virtual_ids,*draw.original_live_vertex_shader_header,
+                live.original_vs_guest_object,aot::Stage::Vertex,
+                draw.vertex_source_sha256) ||
+           !aot::MatchesOriginalLiveXdkShaderSource(
+                *ready->virtual_ids,*draw.original_live_pixel_shader_header,
+                live.original_ps_guest_object,aot::Stage::Pixel,
+                draw.pixel_source_sha256))
+          return Result::kNotReady;
+      }
+    }
     const auto bound=native::BindVerifiedGeometryDraws(
         source,residents,*ready->effects);
     if(bound.size()!=source.size())return Result::kNotReady;
