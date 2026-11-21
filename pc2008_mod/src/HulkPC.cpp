@@ -595,10 +595,18 @@ HRESULT STDMETHODCALLTYPE OnVSConstants(IDirect3DDevice9* dev,UINT reg,
                                         const float* data,UINT count) {
   if(!realVSConst)return D3DERR_INVALIDCALL;
   if(!fixAspect || !data || !count || count>256)return realVSConst(dev,reg,data,count);
+  // Query the shader bound to THIS device, not the last shader set on
+  // any device. The latter is shared process-wide and can apply a camera
+  // matrix correction to a different device's UI or postprocessing pass.
+  // GetVertexShader returns an AddRef'd pointer; release it in all cases.
+  IDirect3DVertexShader9* boundShader=nullptr;
+  if(FAILED(dev->GetVertexShader(&boundShader)) || !boundShader)
+    return realVSConst(dev,reg,data,count);
   ShaderInfo reflected{};
   {std::lock_guard lock(shaderMutex);
-   const auto it=shaderMap.find(activeVS);
+   const auto it=shaderMap.find(boundShader);
    if(it!=shaderMap.end())reflected=it->second;}
+  boundShader->Release();
   // D3D9 permits partial constant-register updates. Correct the intersection
   // with the four ViewProj columns, not only a single four-register upload.
   // Use widened arithmetic: a caller can supply a high register index.
