@@ -15,6 +15,12 @@ namespace hulk::eor::xdk {
 void ObserveOriginalEorVmState_r(
     uint32_t original_method_guest,const PPCContext& original_ctx,
     uint8_t* original_guest_base) noexcept;
+// Source-verified original 0x825F84C0 EoR material state slot to
+// both original VS/PS XDK shader objects. 92-byte records and exact
+// SetVertexShader/SetPixelShader handle sources are proven in USA PPC.
+void ObserveOriginalEorShaderPass(
+    uint32_t original_method_guest,const PPCContext& original_ctx,
+    uint8_t* original_guest_base) noexcept;
 // Genuine original USA Decal render-item material binding stage:
 // 0x82642CB0 -> guest 0x825F8A50; the original r4 points to a
 // 12-byte source material descriptor. Read-only invocation capture,
