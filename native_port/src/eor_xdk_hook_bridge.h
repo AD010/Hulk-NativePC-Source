@@ -13,6 +13,14 @@ namespace hulk::eor::xdk {
 void ObserveOriginalEorVmState_r(
     uint32_t original_method_guest,const PPCContext& original_ctx,
     uint8_t* original_guest_base) noexcept;
+// Genuine original USA Decal render-item material binding stage:
+// 0x82642CB0 -> guest 0x825F8A50; the original r4 points to a
+// 12-byte source material descriptor. Read-only invocation capture,
+// verified against current Decal shader's original BE32(this+48).
+// Never claim this is a ShaderEffects hash/pass or invoke the game twice.
+void ObserveOriginalEorMaterialDescriptor(
+    uint32_t original_method_guest,const PPCContext& original_ctx,
+    uint8_t* original_guest_base) noexcept;
 // RAII, read-only source EoR engine shader-method parent capture. The
 // ORIGINAL USA method is always called through unchanged; this observes
 // only r3/vtable and r4..r7 at entry so inner XDK Draws can retain their
