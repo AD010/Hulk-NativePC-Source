@@ -378,6 +378,15 @@ class NativeEorLinkCoverage(unittest.TestCase):
         self.assertIn("draw.source_vertex_streams[slot]=SourceGpuBuffer(",src)
         self.assertIn("draw.source_vb0=draw.source_vertex_streams[0]",src)
         self.assertIn("draw.source_vertex_streams={};",src)
+        # Under the fixed per-Present budget the required indexed buffer
+        # MUST be captured ahead of stale secondary vertex bindings.
+        start=src.index("void CapturePpcDraw(")
+        end=src.index("void CapturePpcCommand(",start)
+        capture=src[start:end]
+        self.assertLess(capture.index("draw.source_vb0=draw.source_vertex_streams[0]"),
+                        capture.index("draw.source_ib=SourceGpuBuffer("))
+        self.assertLess(capture.index("draw.source_ib=SourceGpuBuffer("),
+                        capture.index("for(size_t slot=1;"))
         self.assertIn("call.source_vertex_streams[slot]",geo)
         self.assertIn("source_streams_present=false;break;",geo)
         self.assertIn("if(!source_streams_present)continue;",geo)
