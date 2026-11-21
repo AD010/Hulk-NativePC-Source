@@ -52,6 +52,50 @@ Source-level sanity checks confirmed current source patterns and
 exactly matching pinned ReXGlue upstream texture/index patch anchors,
 but **no current Windows game executable or new gameplay frame was run**.
 
+### 21 November — original pause UI VM source recovered from real archives
+
+Original supplied Xbox OBJECTS.ARC SHA256 35c9a1d502f62a0fd4e3ef73da204195ead4598f132f21763f66d168d7801815
+and PC-2008 OBJECTS(2).ARC SHA256 2d080575a4608f6ebf0fb04f1005a3f8b2ec96233fb4cb6e5e790af7d0d4f7b5
+were inspected locally; no copyrighted bytes were published. Both encode the
+same ordered page/event route: OptionsMode_Pause, UIPage_Pause_Settings,
+OptionsMenuState, Settings_Page, uiwidget_pausemenu_z, ChangeState_r,
+Init_z, StateEnter_z and StateExit_z. Both include an independent
+uipage_pause_gamesettings_z object with Init_z. QUICKDAT.ARC contains
+the adjacent original UI_ActivateOptions and UI_OptionScreen symbols.
+
+Five real Xbox big-endian method lengths and CRC32(ASCII_UPPER(name))
+footers agree with the PC little-endian definitions. For
+uiwidget_pausemenu_z, ChangeState_r, Init_z, ActivateUpgradeMenu_z,
+ActivateCurrentStatusMenu_z, the payload lengths are 51, 13, 263,
+58, 15 bytes in BOTH archives. ChangeState_r contains an opaque original
+0x28 VM word followed by an operand F7A5B1D1 after byte-order normalization.
+This is NOT a verified native PPC function address or caller ABI.
+
+The reproducible private-asset scanner is
+ci/audit_hulk_original_pause_ui_objects.py. Its synthetic regression is
+ci/test_audit_hulk_original_pause_ui_objects.py and is included in the
+existing single manual Windows Release workflow. A source-only JSON witness
+resides in native_port/analysis/eor_original_pause_ui_source_witness_2026-11-21.json.
+It contains source hashes, symbol offsets and method metadata, never VM code
+or raw game assets. Ghidra's existing ci/ghidra_hulk_ui_xrefs.py now searches
+these original VM identity CRCs and candidate PPC lis/ori immediate loads.
+Any resulting source address remains a CANDIDATE pending decoded USA XEX
+guest VM dispatcher validation and real PPC ABI reconstruction.
+
+The user's Library default.xex, default(1).xex and bruce.xex are NOT
+SHA-identical to pinned USA XEX 346a73690303f6633bfdaf9850e78793fe07cdbfb8f849b89fbee320630b11f0.
+They were not used for USA hook addresses. A previously released native
+Windows executable also contained no contiguous literal word matching
+the identified UI VM method CRCs or opaque ChangeState operand.
+
+Separately, main commits 1bcb604 / e3df028 reject a real captured
+indexed original Xbox vertex/index allocation that contradicts an EoR
+mesh, even if a single possible material witness exists. No producer
+of complete authentic Vulkan frame Draw witnesses or original guest
+Pause Settings event hook was established, and no new Windows Release
+or gameplay-tested ZIP was created by this investigation.
+
+---
 ### Current verified path and exact missing producer
 
 The existing source contains `CapturePpcDraw` → immutable XDK
