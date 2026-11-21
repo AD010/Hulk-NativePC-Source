@@ -241,7 +241,8 @@ bool ValidateOriginalCommandTimeline(const Frame& frame) noexcept {
       // only if the exact source method/vtable pair, original guest this
       // and nesting depth are internally valid. A copied unverified
       // engine attribution must not enter Vulkan's source timeline.
-      if(!ValidOriginalDecalGeometryBinding(original) ||
+      if(!ValidOriginalEorSourceRenderItem(original) ||
+         !ValidOriginalDecalGeometryBinding(original) ||
          !ValidOriginalDecalItemMaterialBinding(original) ||
          !ValidOriginalShaderPassStageBinding(original) ||
          !ValidOriginalShaderPassSamplerStateAtDraw(original))
