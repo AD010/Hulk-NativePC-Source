@@ -132,6 +132,11 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Native Vulkan sampled-image descriptor/name preflight failed' }
           python ci/test_hulk_eor_xdk_callsite_crosswalk.py
           if ($LASTEXITCODE -ne 0) { throw 'Hulk USA engine PPC/XDK runtime callsite correlation test failed' }
+          # Exact SHA-pinned original USA PPC XDK entry ABI + all eight
+          # direct source callers; synthetic only, no private code/asset
+          # bytes in public Windows jobs. Material/guest UI ABI not inferred.
+          python ci/test_hulk_verify_original_usa_xdk_draw_abi.py
+          if ($LASTEXITCODE -ne 0) { throw 'Original USA PPC XDK entry ABI source witness regression failed' }
           python ci/test_hulk_ghidra_xdk_crosscheck.py
           if ($LASTEXITCODE -ne 0) { throw 'Ghidra/ReXGlue/live XDK triple-evidence verifier failed' }
           # Single source-only suite; real ReXGlue source anchors are
