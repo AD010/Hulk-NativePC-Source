@@ -503,6 +503,13 @@ int main(){
       shaderParentRuntime,wrongParent);});
   Reject([&]{(void)native::ResolveCapturedResourceDraws(
       shaderParentRuntime,wrongParent,models);});
+  auto unknownEngine=shaderParentRuntime;
+  unknownEngine.calls[0].original_engine_shader_method->
+      original_shader_method_guest=0x82000010u;
+  unknownEngine.calls[0].original_engine_shader_method->
+      original_shader_vtable_guest=0u;
+  Reject([&]{(void)native::AttachLiveEorShaderMethodParents(
+      unknownEngine,catalog);});
   auto missingParent=shaderParentRuntime;
   missingParent.calls[0].original_engine_shader_method.reset();
   Reject([&]{(void)native::AttachLiveEorShaderMethodParents(
