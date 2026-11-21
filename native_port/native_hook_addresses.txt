@@ -78,3 +78,20 @@
 8266A0C0
 8266CC28
 8266DDD0
+# Further original EoR virtual method entries, completing the 52 named
+# source-verified shader vtables. 33 classes share 826432F0: verify live
+# this[0] vtable instead of attributing method address alone.
+826432F0
+82651978
+82652420
+82652B60
+82662780
+82665288
+82665500
+8266C668
+8266D6D0
+8266E520
+8266EB88
+8266F198
+8266FEF8
+82670738
