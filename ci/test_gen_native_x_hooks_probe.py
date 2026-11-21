@@ -69,10 +69,12 @@ with tempfile.TemporaryDirectory() as d:
         "0x8266A0C0,0x142BE0180\n"
         "0x8264C798,0x1427F9EA0\n"
         "0x825F8A50,0x142B864A0\n"
-        "0x825F84C0,0x1419FCDC0\n")
+        "0x825F84C0,0x1419FCDC0\n"
+        "0x82642370,0x1404A3720\n"
+        "0x8263DCD0,0x1408C14B0\n")
     addresses.write_text("8289D730\n8289D888\n8265B420\n"
                          "8266A0C0\n8264C798\n825F8A50\n"
-                         "825F84C0\n")
+                         "825F84C0\n82642370\n8263DCD0\n")
     subprocess.run([sys.executable,str(s),str(addresses),
                     str(mapping),str(generated),str(profile)],check=True)
     cpp = generated.read_text()
@@ -87,6 +89,14 @@ with tempfile.TemporaryDirectory() as d:
     assert "HULK_EOR_SHADER_PASS_TRACE_HOOK(825F84C0)" in cpp
     assert "HULK_NATIVE_X_HOOK(825F84C0" not in cpp
     assert "ObserveOriginalEorShaderPass(0x##addr,ctx,base)" in cpp
+    assert "HULK_EOR_RENDER_ITEM_TRACE_HOOK(82642370)" in cpp
+    assert "HULK_EOR_RENDER_ITEM_TRACE_HOOK(8263DCD0)" in cpp
+    assert "HULK_NATIVE_X_HOOK(82642370" not in cpp
+    assert "HULK_NATIVE_X_HOOK(8263DCD0" not in cpp
+    assert "ScopedOriginalEorRenderItem source_render_item" in cpp
+    assert cpp.index("ScopedOriginalEorRenderItem source_render_item") < (
+        cpp.index("__imp__sub_##addr(ctx,base)",cpp.index(
+            "#define HULK_EOR_RENDER_ITEM_TRACE_HOOK")))
     assert "HULK_NATIVE_X_HOOK(8265B420" not in cpp
     assert "HULK_NATIVE_X_HOOK(8266A0C0" not in cpp
     engine = cpp[cpp.index("#define HULK_EOR_SHADER_TRACE_HOOK"): ]
