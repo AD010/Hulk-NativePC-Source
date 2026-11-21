@@ -79,6 +79,32 @@ int main() {
   assert(!bank.FindOriginalSource(corrupt,Stage::Vertex));
   assert(!bank.FindOriginalSource(
       std::span<const uint8_t>(vs.data(),35),Stage::Vertex));
+  // Runtime proof must match the SAME live XDK object, authentic guest
+  // header, stage AND original full source SHA. No class-name shortcut.
+  OriginalLiveXdkShaderHeaderWitness live{
+      0x81234000u,0x89001000u,true,
+      std::vector<uint8_t>(vs.begin(),vs.end())};
+  Digest expected_vertex{};expected_vertex.fill(0x11u);
+  Digest expected_pixel{};expected_pixel.fill(0x22u);
+  assert(MatchesOriginalLiveXdkShaderSource(
+      bank,live,0x81234000u,Stage::Vertex,expected_vertex));
+  assert(!MatchesOriginalLiveXdkShaderSource(
+      bank,live,0x81234004u,Stage::Vertex,expected_vertex));
+  assert(!MatchesOriginalLiveXdkShaderSource(
+      bank,live,0x81234000u,Stage::Pixel,expected_pixel));
+  assert(!MatchesOriginalLiveXdkShaderSource(
+      bank,live,0x81234000u,Stage::Vertex,expected_pixel));
+  live.original_object_to_header_abi_verified=false;
+  assert(!MatchesOriginalLiveXdkShaderSource(
+      bank,live,0x81234000u,Stage::Vertex,expected_vertex));
+  live.original_object_to_header_abi_verified=true;
+  live.original_virtual_header_guest_address=0x89001001u;
+  assert(!MatchesOriginalLiveXdkShaderSource(
+      bank,live,0x81234000u,Stage::Vertex,expected_vertex));
+  live.original_virtual_header_guest_address=0x89001000u;
+  live.exact_original_guest_virtual_header[34]^=0x55u;
+  assert(!MatchesOriginalLiveXdkShaderSource(
+      bank,live,0x81234000u,Stage::Vertex,expected_vertex));
   auto original=blob;
   blob[0]='X';Write(p,blob);
   Reject([&] {bank.Load(p);}); assert(bank.size()==2);
