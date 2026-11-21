@@ -348,6 +348,44 @@ void CapturePpcDraw(Kind kind, uint32_t guest, const PPCContext& ctx,
       }
     }
   }
+  // ORIGINAL USA Decal engine PPC (0x8265B420) directly calls XDK
+  // DrawIndexedVertices from 0x8265B538 after loading its per-Draw
+  // source render-item into r28. The decoded original instructions are:
+  //   guest geometry = PPC BE32(r28+0x3C)
+  //   SetStreamSource VB descriptor = geometry+0x18
+  //   SetIndices      IB descriptor = geometry+0x38
+  // Do not apply this ABI to any OTHER shader class/Draw. Verify the
+  // live XDK device actually holds these same original guest identities
+  // before tagging a real engine->GPU geometry ownership edge.
+  if(kind==Kind::DrawIndexedVertices && draw.lr==0x8265B53Cu &&
+     draw.original_engine_shader_method && draw.observed_vs_matrices) {
+    auto& owner=*draw.original_engine_shader_method;
+    const auto& gpu=*draw.observed_vs_matrices;
+    if(owner.original_shader_method_guest==0x8265B420u &&
+       owner.original_shader_vtable_guest==0x82066504u &&
+       owner.original_shader_method_vtable_verified &&
+       owner.original_shader_instance_guest==ctx.r31.u32 &&
+       owner.source_r4_through_r7[3]==ctx.r27.u32 &&
+       ctx.r28.u32 && ctx.r28.u32<=UINT32_MAX-0x3Cu-4u) {
+      std::array<std::byte,4> original{};
+      if(ReadGuest(guest_base,ctx.r28.u32+0x3Cu,
+                   original.data(),original.size())) {
+        const uint32_t geometry=
+            uint32_t(std::to_integer<uint8_t>(original[0]))<<24 |
+            uint32_t(std::to_integer<uint8_t>(original[1]))<<16 |
+            uint32_t(std::to_integer<uint8_t>(original[2]))<<8 |
+            uint32_t(std::to_integer<uint8_t>(original[3]));
+        if(geometry && geometry<=UINT32_MAX-0x38u &&
+           gpu.original_vertex_buffer_guest_objects[0]==geometry+0x18u &&
+           gpu.original_index_buffer_guest_object==geometry+0x38u &&
+           gpu.original_guest_device==draw.gpr[0]) {
+          owner.original_decal_render_item_guest=ctx.r28.u32;
+          owner.original_decal_geometry_guest=geometry;
+          owner.original_decal_xdk_vb_ib_binding_verified=true;
+        }
+      }
+    }
+  }
   // Keep buffer revisions and their Draw in the same Present epoch.
   std::lock_guard lock(g_mutex);
   // Only a requested direct Vulkan render performs byte-exact guest
