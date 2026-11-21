@@ -26,3 +26,5 @@ Retry 11: assert safe preflight before real mailbox handoff, not before stale ma
 Retry 12: MSVC /W4 /WX C4456 shadowed 'exact' in real native Draw matcher; renamed the typed XDK equality guard without affecting verified source mesh owner.
 
 Retry 13: report exact C++ native EoR Draw test failed line/exception from real Windows runtime rather than generic process exit.
+
+Retry 14: correct MSVC Draw witness regression: restore original source VB after deliberately wrong XDK resource object; continue full private Windows Release compilation at latest main.
