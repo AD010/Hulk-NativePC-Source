@@ -32,7 +32,10 @@
       },
       "change_state_vm_opaque_0x28_operand": "F7A5B1D1",
       "opaque_operand_is_verified_guest_function": false,
-      "vm_method_footers_crc32_upper_verified": true
+      "vm_method_footers_crc32_upper_verified": true,
+      "shared_opcode_0x28_vm_uses": 314,
+      "opaque_operand_shared_across_unrelated_scripts": true,
+      "opaque_operand_is_pause_specific": false
     },
     "pc_2008_comparator": {
       "sha256": "2d080575a4608f6ebf0fb04f1005a3f8b2ec96233fb4cb6e5e790af7d0d4f7b5",
@@ -64,7 +67,10 @@
       },
       "change_state_vm_opaque_0x28_operand": "F7A5B1D1",
       "opaque_operand_is_verified_guest_function": false,
-      "vm_method_footers_crc32_upper_verified": true
+      "vm_method_footers_crc32_upper_verified": true,
+      "shared_opcode_0x28_vm_uses": 303,
+      "opaque_operand_shared_across_unrelated_scripts": true,
+      "opaque_operand_is_pause_specific": false
     },
     "quick_data": {
       "sha256": "0fc4d0354772c0430a410d6d4ca242c5a9cd7dc4a33dcf9dad677ae820f2acbb",
@@ -83,5 +89,7 @@
   "windows_settings_attached_to_original_guest_event": false,
   "reproduction": "python ci/audit_hulk_original_pause_ui_objects.py --xbox-objects ORIGINAL_OBJECTS.ARC --pc-objects ORIGINAL_PC_OBJECTS.ARC --quick-data ORIGINAL_QUICKDAT.ARC --output PRIVATE_REPORT.json",
   "change_state_vm_operand_matched_across_original_pc_and_xbox_archives": true,
-  "original_change_state_native_dispatch_abi_verified": false
+  "original_change_state_native_dispatch_abi_verified": false,
+  "operand_0x28_is_common_vm_operation_not_pause_specific": true,
+  "operand_0x28_cannot_prove_original_ppc_dispatcher": true
 }
