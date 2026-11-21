@@ -47,6 +47,19 @@ class EorRuntimeCallsiteTests(unittest.TestCase):
         self.assertEqual(analyze(trace(), other, REVERSE)
                          ['matched_direct_callsite_count'], 1)
 
+    def test_conflicting_function_ownership_cannot_verify_bl(self):
+        ambiguous = dict(REVERSE)
+        ambiguous[0x8288E318] = REVERSE[0x8288E318] + [
+            (0x82500100, 0x82500020)]
+        result = analyze(trace(), HOOKS, ambiguous)
+        self.assertEqual(result['matched_direct_callsite_count'], 0)
+        self.assertEqual(result['unmatched_callsite_count'], 1)
+        row = result['unmatched'][0]
+        self.assertEqual(row['source_defined_guest_callers'],
+                         ['0x82500000', '0x82500100'])
+        self.assertFalse(row['verified_direct_bl_link'])
+        self.assertIsNone(row['static_direct_bl_site'])
+
     def test_unknown_return_address_stays_unmatched(self):
         result = analyze(trace(lr='82500030'), HOOKS, REVERSE)
         self.assertEqual(result['matched_direct_callsite_count'], 0)
