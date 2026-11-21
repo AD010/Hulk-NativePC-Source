@@ -168,6 +168,81 @@ void ObserveOriginalEorVmState_r(
                 static_cast<bool>(requested && previous));
 }
 
+void ObserveOriginalEorShaderPass(
+    uint32_t original_method_guest,const PPCContext& original_ctx,
+    uint8_t* original_guest_base) noexcept {
+  if(!CaptureEnabled() || original_method_guest!=0x825F84C0u ||
+     !original_guest_base || !g_source_shader_method_depth ||
+     g_source_shader_rejected_nesting)return;
+  auto& scope=g_source_shader_method_stack[g_source_shader_method_depth-1u];
+  // Every source 0x825F84C0 pass resets the existing stage evidence.
+  // If a new pass fails to materialize, the previous pass CANNOT be
+  // carried over to a Draw from a different material/state slot.
+  scope.original_pass_material_context_guest=0u;
+  scope.original_pass_state_one_based=0u;
+  scope.original_pass_vertex_handle_entry_guest=0u;
+  scope.original_pass_pixel_handle_entry_guest=0u;
+  scope.original_pass_vs_xdk_guest_object=0u;
+  scope.original_pass_ps_xdk_guest_object=0u;
+  scope.original_pass_vs_ps_xdk_binding_verified=false;
+  if(!scope.original_shader_method_vtable_verified ||
+     !ProvenUsaEorShaderMethodVtablePair(
+         scope.original_shader_method_guest,
+         scope.original_shader_vtable_guest) ||
+     !scope.original_shader_instance_guest ||
+     scope.original_shader_instance_guest>UINT32_MAX-48u ||
+     original_ctx.r4.u32==0u || original_ctx.r4.u32>512u ||
+     original_ctx.r3.u32==0u ||
+     original_ctx.r3.u32>UINT32_MAX-136u)
+    return;
+  const auto read32=[&](uint32_t guest)->std::optional<uint32_t> {
+    if(!guest || guest>UINT32_MAX-4u)return std::nullopt;
+    std::array<std::byte,4> bytes{};
+    if(!ReadGuest(original_guest_base,guest,bytes.data(),bytes.size()))
+      return std::nullopt;
+    return uint32_t(std::to_integer<uint8_t>(bytes[0]))<<24 |
+           uint32_t(std::to_integer<uint8_t>(bytes[1]))<<16 |
+           uint32_t(std::to_integer<uint8_t>(bytes[2]))<<8 |
+           uint32_t(std::to_integer<uint8_t>(bytes[3]));
+  };
+  // USA EoR class methods e.g. 0x826432F0 load shader+48 as the
+  // material context passed to 0x825F84C0. It is not XDK device.
+  const auto material_ctx=read32(scope.original_shader_instance_guest+48u);
+  if(!material_ctx || *material_ctx!=original_ctx.r3.u32)return;
+  const auto records=read32(*material_ctx+112u);
+  const auto vstable=read32(*material_ctx+124u);
+  const auto pstable=read32(*material_ctx+136u);
+  if(!records || !vstable || !pstable ||
+     !*records || !*vstable || !*pstable)return;
+  const uint64_t start=uint64_t(*records)+
+      uint64_t(original_ctx.r4.u32-1u)*92u;
+  if(start>UINT32_MAX-86u)return;
+  // The original material pass selector 0x825F84C0 reads byte
+  // slot indexes at original 92-byte state record +84 (VS), +85 (PS),
+  // multiplying each by 8 and reading the stage table entry's first
+  // BE32 guest shader object ID. This is independently confirmed by
+  // 0x82675C70/0x82675D20 and XDK 0x82874390/0x82874090.
+  std::array<std::byte,2> shader_slots{};
+  if(!ReadGuest(original_guest_base,static_cast<uint32_t>(start+84u),
+                shader_slots.data(),shader_slots.size()))return;
+  const uint32_t vs_index=std::to_integer<uint8_t>(shader_slots[0]);
+  const uint32_t ps_index=std::to_integer<uint8_t>(shader_slots[1]);
+  const uint64_t vs_entry=uint64_t(*vstable)+8u*vs_index;
+  const uint64_t ps_entry=uint64_t(*pstable)+8u*ps_index;
+  if(vs_entry>UINT32_MAX-4u || ps_entry>UINT32_MAX-4u)return;
+  const auto bound_vs=read32(static_cast<uint32_t>(vs_entry));
+  const auto bound_ps=read32(static_cast<uint32_t>(ps_entry));
+  if(!bound_vs || !bound_ps || !*bound_vs || !*bound_ps)return;
+  scope.original_pass_material_context_guest=*material_ctx;
+  scope.original_pass_state_one_based=original_ctx.r4.u32;
+  scope.original_pass_vertex_handle_entry_guest=static_cast<uint32_t>(vs_entry);
+  scope.original_pass_pixel_handle_entry_guest=static_cast<uint32_t>(ps_entry);
+  scope.original_pass_vs_xdk_guest_object=*bound_vs;
+  scope.original_pass_ps_xdk_guest_object=*bound_ps;
+  // Only the later real XDK Draw's captured device shadow, not the
+  // EoR setter itself, may prove these two source GPU objects are live.
+}
+
 void ObserveOriginalEorMaterialDescriptor(
     uint32_t original_method_guest,const PPCContext& original_ctx,
     uint8_t* original_guest_base) noexcept {
