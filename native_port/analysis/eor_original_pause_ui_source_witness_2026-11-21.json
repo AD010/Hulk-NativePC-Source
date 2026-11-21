@@ -22,7 +22,17 @@
         "PreviousTabEvent_z": 2078
       },
       "game_settings_script": "uipage_pause_gamesettings_z",
-      "game_settings_init_relative": 47
+      "game_settings_init_relative": 47,
+      "pause_vm_method_payload_lengths": {
+        "uiwidget_pausemenu_z": 51,
+        "ChangeState_r": 13,
+        "Init_z": 263,
+        "ActivateUpgradeMenu_z": 58,
+        "ActivateCurrentStatusMenu_z": 15
+      },
+      "change_state_vm_opaque_0x28_operand": "F7A5B1D1",
+      "opaque_operand_is_verified_guest_function": false,
+      "vm_method_footers_crc32_upper_verified": true
     },
     "pc_2008_comparator": {
       "sha256": "2d080575a4608f6ebf0fb04f1005a3f8b2ec96233fb4cb6e5e790af7d0d4f7b5",
@@ -44,7 +54,17 @@
         "PreviousTabEvent_z": 1964
       },
       "game_settings_script": "uipage_pause_gamesettings_z",
-      "game_settings_init_relative": 47
+      "game_settings_init_relative": 47,
+      "pause_vm_method_payload_lengths": {
+        "uiwidget_pausemenu_z": 51,
+        "ChangeState_r": 13,
+        "Init_z": 263,
+        "ActivateUpgradeMenu_z": 58,
+        "ActivateCurrentStatusMenu_z": 15
+      },
+      "change_state_vm_opaque_0x28_operand": "F7A5B1D1",
+      "opaque_operand_is_verified_guest_function": false,
+      "vm_method_footers_crc32_upper_verified": true
     },
     "quick_data": {
       "sha256": "0fc4d0354772c0430a410d6d4ca242c5a9cd7dc4a33dcf9dad677ae820f2acbb",
@@ -61,5 +81,7 @@
   "event_handler_guest_address_proven": false,
   "ppc_call_abi_proven": false,
   "windows_settings_attached_to_original_guest_event": false,
-  "reproduction": "python ci/audit_hulk_original_pause_ui_objects.py --xbox-objects ORIGINAL_OBJECTS.ARC --pc-objects ORIGINAL_PC_OBJECTS.ARC --quick-data ORIGINAL_QUICKDAT.ARC --output PRIVATE_REPORT.json"
+  "reproduction": "python ci/audit_hulk_original_pause_ui_objects.py --xbox-objects ORIGINAL_OBJECTS.ARC --pc-objects ORIGINAL_PC_OBJECTS.ARC --quick-data ORIGINAL_QUICKDAT.ARC --output PRIVATE_REPORT.json",
+  "change_state_vm_operand_matched_across_original_pc_and_xbox_archives": true,
+  "original_change_state_native_dispatch_abi_verified": false
 }
