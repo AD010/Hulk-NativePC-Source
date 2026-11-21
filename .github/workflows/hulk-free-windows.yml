@@ -166,6 +166,11 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Original EoR camera/constant register reflection regression failed' }
           python ci/test_hulk_eor_shader_samplers.py
           if ($LASTEXITCODE -ne 0) { throw 'Original shader sampler register provenance/reflection regression failed' }
+          # Full source-only pinned USA Xbox ShaderEffects census:
+          # 2597 original PDB VS/PS pairs, 5194 unique shaders,
+          # 4420 sampler declarations. No proprietary shader bytes in CI.
+          python ci/test_hulk_verify_usa_original_shader_effects.py
+          if ($LASTEXITCODE -ne 0) { throw 'Original USA full ShaderEffects and live Vulkan sampler-source contract regression failed' }
           python ci/test_ghidra_hulk_ui_hash_xrefs.py
           if ($LASTEXITCODE -ne 0) { throw 'Original pause-menu resource CRC32 cross-reference scanner regression failed' }
           # Compile the real native C++ asset backend against the Windows
