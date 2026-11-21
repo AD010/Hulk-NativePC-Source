@@ -249,10 +249,37 @@ class IncredibleHulkApp : public rex::ReXApp {
           }
         }
       }
+      // A separate source-only HEORMAT2 catalog resolves the current
+      // authentic VS+PS pair to its original ShaderEffects effect and
+      // ordered pass, without requiring 5194 Vulkan modules to compile.
+      // Material surfaces/texture GPU identity remain independently gated.
+      if(eor_virtual_ids_ && !eor_effects_) {
+        const auto original_effects=offline/"hulk_effect_ledger.bin";
+        std::error_code ledger_error;
+        if(std::filesystem::is_regular_file(original_effects,ledger_error) &&
+           !ledger_error) {
+          try {
+            auto effects=std::make_shared<hulk::eor::aot::EffectCatalog>();
+            effects->Load(original_effects);
+            if(effects->EffectCount()!=233u ||
+               effects->ShaderCount()!=eor_virtual_ids_->size())
+              throw std::invalid_argument(
+                  "USA ShaderEffects source-only original pass corpus incomplete");
+            eor_effects_=std::move(effects);
+            REXLOG_INFO("[HULK/EOR-OBSERVER] {} original effects ready "
+                        "for live VS/PS -> effect/pass source recovery",
+                        eor_effects_->EffectCount());
+          } catch(const std::exception& e) {
+            REXLOG_WARN("[HULK/EOR-OBSERVER] original "
+                        "ShaderEffects effect catalog rejected: {}",e.what());
+          }
+        }
+      }
     }
 #if defined(HULK_NATIVE_X_LINKED)
     if(eor_virtual_ids_ &&
-       !hulk::eor::xdk::InstallOriginalShaderCaptureIndex(eor_virtual_ids_))
+       !hulk::eor::xdk::InstallOriginalShaderCaptureIndex(
+           eor_virtual_ids_,eor_effects_))
       REXLOG_WARN("[HULK/EOR-OBSERVER] USA original shader "
                   "capture index rejected at PPC Draw observer");
     // These are authentic private ShaderEffects inputs already verified
