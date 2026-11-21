@@ -523,7 +523,11 @@ bool SameOriginalEorShaderMethod(
          a.source_r4_through_r7==b.source_r4_through_r7 &&
          a.nesting_depth==b.nesting_depth &&
          a.original_shader_method_vtable_verified==
-             b.original_shader_method_vtable_verified;
+             b.original_shader_method_vtable_verified &&
+         a.original_decal_render_item_guest==b.original_decal_render_item_guest &&
+         a.original_decal_geometry_guest==b.original_decal_geometry_guest &&
+         a.original_decal_xdk_vb_ib_binding_verified==
+             b.original_decal_xdk_vb_ib_binding_verified;
 }
 bool ValidOriginalEorShaderMethod(
     const xdk::OriginalEorShaderMethodAtDraw& source) noexcept {
@@ -560,8 +564,10 @@ std::vector<VerifiedXdkResourceWitness> AttachLiveEorShaderMethodParents(
        source.original_call_ordinal>=exact_original.calls.size())
       throw std::invalid_argument(
           "Stale original engine shader method vs Xbox Draw sequence");
-    const auto& observed=exact_original.calls[source.original_call_ordinal]
-                          .original_engine_shader_method;
+    const auto& original_call=exact_original.calls[source.original_call_ordinal];
+    if(!xdk::ValidOriginalDecalGeometryBinding(original_call))
+      throw std::invalid_argument("Original Decal engine GPU geometry provenance invalid");
+    const auto& observed=original_call.original_engine_shader_method;
     if(!observed) {
       if(witness.original_source_engine_shader_method)
         throw std::invalid_argument("An engine shader parent was invented");
@@ -649,6 +655,9 @@ std::vector<VerifiedDrawSource> ResolveCapturedResourceDraws(
       // with matching current guest instance/vtable/call arguments. A
       // previously verified effect, mesh or XDK shader object is NOT
       // permission to attach it to another EoR shader class invocation.
+      // Strong original engine Decal r28 source item/geometry must
+      // agree with the real GPU VB/IB descriptors at THIS guest Draw.
+      if(!xdk::ValidOriginalDecalGeometryBinding(call))continue;
       const auto& live_engine=call.original_engine_shader_method;
       const auto& proven_engine=
           candidate.original_source_engine_shader_method;
