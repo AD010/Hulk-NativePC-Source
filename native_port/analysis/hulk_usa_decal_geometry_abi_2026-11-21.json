@@ -16,8 +16,11 @@
   "original_xdk_draw_guest_call": "0x8288E318",
   "original_xdk_draw_ppc_bl_site": "0x8265B538",
   "expected_original_guest_lr_at_draw": "0x8265B53C",
-  "source_ppc_register_and_branch_checks_passed": 15,
+  "source_ppc_register_and_branch_checks_passed": 20,
   "engine_decal_to_guest_vb_ib_abi_verified": true,
   "engine_material_effect_pass_shader_pair_verified": false,
-  "all_game_code_and_source_assets_remain_private": true
+  "all_game_code_and_source_assets_remain_private": true,
+  "xdk_device_shadow_original_vb0_guest_offset": 12460,
+  "xdk_device_shadow_original_ib_guest_offset": 12436,
+  "actual_original_xdk_setters_prove_device_shadow_binding": true
 }
