@@ -168,6 +168,9 @@ struct OriginalEorSourceCoverage {
   uint32_t original_xdk_draws=0;
   uint32_t original_vs_headers=0;
   uint32_t original_ps_headers=0;
+  uint32_t original_live_vb0=0;
+  uint32_t original_live_ib=0;
+  uint32_t original_indexed_with_exact_buffer_bytes=0;
   uint32_t original_vs_ps_pairs=0;
   uint32_t original_effect_passes=0;
   bool complete_xdk_timeline=false;
