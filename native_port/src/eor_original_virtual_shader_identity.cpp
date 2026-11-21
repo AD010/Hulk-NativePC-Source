@@ -149,8 +149,12 @@ bool MatchesOriginalLiveXdkShaderSource(
     const OriginalLiveXdkShaderHeaderWitness& source,
     uint32_t currently_bound_xdk_shader_object,
     Stage expected_stage,
-    const Digest& expected_original_full_shader_sha256) noexcept {
-  if(!source.original_object_to_header_abi_verified ||
+    const Digest& expected_original_full_shader_sha256,
+    uint64_t exact_frame_sequence,uint32_t exact_call_ordinal) noexcept {
+  if(!exact_frame_sequence || exact_call_ordinal==UINT32_MAX ||
+     source.original_frame_sequence!=exact_frame_sequence ||
+     source.original_call_ordinal!=exact_call_ordinal ||
+     !source.original_object_to_header_abi_verified ||
      !source.original_xdk_shader_guest_object ||
      source.original_xdk_shader_guest_object!=currently_bound_xdk_shader_object ||
      !source.original_virtual_header_guest_address ||
