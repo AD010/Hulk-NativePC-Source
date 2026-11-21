@@ -101,7 +101,7 @@ class OriginalVirtualShaderCrosswalkTests(unittest.TestCase):
             self.assertEqual(
                 result["private_virtual_to_original_sha256_bank_sha256"],
                 first_sha)
-            legacy_path,_=setup_source(root,real_list=False)
+            legacy_path,_=setup_source(root/"legacy",real_list=False)
             legacy_result=extract(legacy_path,private,public)
             self.assertEqual(private.read_bytes(),content)
             self.assertEqual(legacy_result["format"],"HEORVRT1")

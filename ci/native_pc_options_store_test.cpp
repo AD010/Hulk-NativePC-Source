@@ -70,6 +70,10 @@ int main() {
   Expect(hulk::options::IsBindingOption("hulk_bind_forward") &&
          !hulk::options::IsBindingOption("hulk_bind_fake_action"),
          "Only source-supported native actions may be rebound");
+  Expect(hulk::options::AnyBindingKey("Tab,  eScApE  ", hulk::options::IsEscapeKey) &&
+         hulk::options::AnyBindingKey(" Esc, Space", hulk::options::IsEscapeKey) &&
+         !hulk::options::AnyBindingKey("E, Escape2, ,", hulk::options::IsEscapeKey),
+         "Escape aliases and multi-key overrides select the intended game action");
   Expect(hulk::options::IsBindingToken("MouseRight") &&
          !hulk::options::IsBindingToken("MouseWheelDown"),
          "Keyboard/mouse selector accepted an unsupported token");

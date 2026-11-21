@@ -16,7 +16,8 @@ class TestWin32Menu(unittest.TestCase):
         self.assertIn("NativeInputReleaseCapture();",win)
         self.assertIn("wp == VK_F11",win)
         self.assertIn("wp == VK_ESCAPE",win)
-        self.assertIn("!NativeInputUsesEscape()",win)
+        self.assertIn("if (close_with_escape) NativeInputConsumeEscape(true);",win)
+        self.assertIn("NativeInputEscapeConsumed()",win)
         self.assertIn("msg == WM_KEYDOWN && wp == VK_ESCAPE",win)
         self.assertIn("!(lp & (1L << 29))",win)
         inputcode=(R/"native_port/src/launcher/native_input_win.cpp").read_text()
@@ -26,8 +27,12 @@ class TestWin32Menu(unittest.TestCase):
                      "hulk_bind_menu_right", "hulk_bind_confirm", "hulk_bind_back", "hulk_bind_primary", "hulk_bind_secondary", "hulk_bind_alt_back", "hulk_bind_lb",
                      "hulk_bind_rb", "hulk_bind_lt", "hulk_bind_rt", "hulk_bind_start", "hulk_bind_select", "hulk_bind_rstick_click", "hulk_bind_walk"):
             self.assertIn("REXCVAR_GET("+name+")",guard)
-        self.assertIn("token==\"Esc\"",guard)
-        self.assertIn("F10 / Esc", (R/"native_port/src/pc_menu.cpp").read_text())
+        self.assertIn("options::AnyBindingKey(names, options::IsEscapeKey)",guard)
+        self.assertIn('BindTokenDown("Esc") && !NativeInputUsesEscape()',inputcode)
+        self.assertIn("!g_host_escape && !Down(VK_MENU) && Down(VK_ESCAPE)",inputcode)
+        launcher=(R/"native_port/src/launcher/return_to_launcher.cpp").read_text()
+        self.assertIn("key.Seconds(!NativeInputEnabled() && EscHeld())",launcher)
+        self.assertIn("F10: PC settings", (R/"native_port/src/pc_menu.cpp").read_text())
         ui=(R/"native_port/src/pc_menu.cpp").read_text()
         self.assertIn("visible.exchange(open",ui)
         self.assertIn("RequestPaint();",ui)
@@ -40,7 +45,7 @@ class TestWin32Menu(unittest.TestCase):
         self.assertIn("GetForegroundWindow() == hwnd", win)
         self.assertIn('ImGui::Button("Exit to Windows"',ui)
         app=(R/"native_port/src/incredible_hulk_app.h").read_text()
-        self.assertIn("native full-screen game menu registered; Esc/F10",app)
+        self.assertIn("PC settings registered on F10",app)
         self.assertIn("window()->RequestClose();",app)
     def test_observer_inactive_message(self):
         source=(R/"native_port/src/native_x_renderer_hulk.cpp").read_text()

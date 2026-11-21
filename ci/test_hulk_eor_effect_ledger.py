@@ -28,16 +28,12 @@ class EorPassLedgerTests(unittest.TestCase):
             private = root / 'private'
             xenos = private / 'Xenos'
             xenos.mkdir(parents=True)
-            original_effect = (effect + '\0').encode() + b'0123456789abcdef'
-            (private / f'{key}.effect.bin').write_bytes(original_effect)
-            records = [{'hash': key, 'sha256': hashlib.sha256(original_effect).hexdigest(),
-                        'private_file': f'{key}.effect.bin',
-                        'bytes': len(original_effect)}]
+            archive_key = f'{key:08X}'
             def shader(stage, technique):
                 binary = SyntheticContainer(effect, technique, stage)
                 sha = hashlib.sha256(binary).hexdigest()
                 (xenos / f'{sha}.xenos.bin').write_bytes(binary)
-                return {'effect': key, 'stage': stage, 'relative_offset':
+                return {'effect': archive_key, 'stage': stage, 'relative_offset':
                         100 if stage == 'VS' else 1000,
                         'sha256': sha, 'bytes': len(binary)}
             vs = shader('VS', 'Deferred')
@@ -45,6 +41,15 @@ class EorPassLedgerTests(unittest.TestCase):
             manifest = private / 'manifest.json'
             out = private / 'HEORMAT2.bin'
             def save(pixel):
+                data = bytearray((effect + '\0').encode().ljust(1000, b'\0'))
+                for entry in (vs, pixel):
+                    binary = (xenos / f"{entry['sha256']}.xenos.bin").read_bytes()
+                    start = entry['relative_offset']
+                    data[start:start + len(binary)] = binary
+                filename = f'{archive_key}.effect.bin'
+                (private / filename).write_bytes(data)
+                records = [{'hash': archive_key, 'sha256': hashlib.sha256(data).hexdigest(),
+                            'private_file': filename, 'bytes': len(data)}]
                 manifest.write_text(json.dumps({
                     'bank_version': 1, 'platform': 'Xbox360',
                     'records': records, 'shader_containers': [vs, pixel]}))
@@ -55,6 +60,19 @@ class EorPassLedgerTests(unittest.TestCase):
             self.assertEqual(_shader_technique(
                 (xenos / f"{vs['sha256']}.xenos.bin").read_bytes(),
                 'VS', effect), 'Deferred')
+            # Even an authentic standalone module cannot be moved to an invented slot.
+            broken = json.loads(manifest.read_text())
+            broken['shader_containers'][0]['relative_offset'] += 4
+            manifest.write_text(json.dumps(broken))
+            with self.assertRaisesRegex(ValueError, 'recorded location'):
+                generate(manifest, out, public)
+            self.assertEqual(out.read_bytes(), first)
+            save(ps)
+            missing = json.loads(manifest.read_text())
+            missing['shader_containers'].pop()
+            manifest.write_text(json.dumps(missing))
+            with self.assertRaisesRegex(ValueError, 'omits shaders'):
+                generate(manifest, out, public)
             mismatched = shader('PS', 'ForwardLightmap')
             save(mismatched)
             with self.assertRaisesRegex(ValueError, 'technique names do not match'):

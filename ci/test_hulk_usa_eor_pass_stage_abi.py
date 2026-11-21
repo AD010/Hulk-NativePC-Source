@@ -126,9 +126,9 @@ class OriginalDualStagePassTests(unittest.TestCase):
         self.assertIn("void ObserveOriginalEorShaderPass(",bridge)
         self.assertIn("original_method_guest!=0x825F84C0u",bridge)
         self.assertIn("*92u",bridge)
-        self.assertIn("start+84u",bridge)
-        self.assertIn("start+85u",bridge) if False else None
-        self.assertIn("shader_slots[1]",bridge)
+        self.assertIn("start+80u",bridge)
+        self.assertIn("vs_index=std::to_integer<uint8_t>(shader_slots[4])",bridge)
+        self.assertIn("ps_index=std::to_integer<uint8_t>(shader_slots[5])",bridge)
         self.assertIn("8u*vs_index",bridge)
         self.assertIn("8u*ps_index",bridge)
         self.assertIn("owner.original_pass_vs_xdk_guest_object",bridge)

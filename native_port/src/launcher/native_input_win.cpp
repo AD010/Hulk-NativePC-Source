@@ -3,6 +3,7 @@
 // If a verified camera layout is supplied, mouse deltas update guest yaw/pitch directly.
 // Otherwise, the original right-stick fallback remains for playability.
 #include "native_input_map.h"
+#include "native_pc_bindings.h"
 #include "native_camera_direct.h"
 #include "pc_menu.h"
 #include <rex/cvar.h>
@@ -81,11 +82,11 @@ REXCVAR_DEFINE_BOOL(hulk_mouse_diagnostics, true, "Hulk/PC Controls/Diagnostics"
                     "Report Win32 Raw Input and mapped stick motion every 5 seconds");
 
 namespace hulk {
-// Do not steal Escape from any user-rebound game action. The native PC
-// settings shortcut is available only while Escape is not bound to guest
-// movement, combat, or the original pause/menu controller input.
+// Native pause can use Escape when no configured game action owns it.
 bool NativeInputUsesEscape() {
-  const auto escape=[](std::string_view token) { return token=="Esc"; };
+  const auto escape=[](std::string_view names) {
+    return options::AnyBindingKey(names, options::IsEscapeKey);
+  };
   return
       escape(REXCVAR_GET(hulk_bind_forward)) ||
       escape(REXCVAR_GET(hulk_bind_backward)) ||
@@ -111,6 +112,8 @@ bool NativeInputUsesEscape() {
 }
 namespace {
 std::atomic<bool> g_capture{true};
+// GetAsyncKeyState still sees the key after the host has consumed WM_KEYDOWN.
+std::atomic<bool> g_host_escape{false};
 std::atomic<int32_t> g_dx{0}, g_dy{0};
 std::atomic<uint32_t> g_raw_messages{0}, g_stick_motion_polls{0};
 std::atomic<uint64_t> g_raw_abs_x{0}, g_raw_abs_y{0};
@@ -128,22 +131,13 @@ std::atomic<HWND> g_game_window{nullptr};
 bool Down(int vk) { return (GetAsyncKeyState(vk) & 0x8000) != 0; }
 
 bool BindTokenDown(std::string_view token) {
-  while (!token.empty() && std::isspace(static_cast<unsigned char>(token.front())))
-    token.remove_prefix(1);
-  while (!token.empty() && std::isspace(static_cast<unsigned char>(token.back())))
-    token.remove_suffix(1);
   if (token.empty()) return false;
   if (token.size() == 1) {
     const char ch = char(std::toupper(static_cast<unsigned char>(token.front())));
     if ((ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9')) return Down(ch);
   }
   const auto is = [&](std::string_view key) {
-    if (key.size() != token.size()) return false;
-    for (size_t i = 0; i < key.size(); ++i) {
-      if (std::tolower(static_cast<unsigned char>(key[i])) !=
-          std::tolower(static_cast<unsigned char>(token[i]))) return false;
-    }
-    return true;
+    return options::KeyNameEquals(token,key);
   };
   if (is("Space")) return Down(VK_SPACE);
   if (is("Enter") || is("Return")) return Down(VK_RETURN);
@@ -151,7 +145,7 @@ bool BindTokenDown(std::string_view token) {
   if (is("Shift")) return Down(VK_SHIFT);
   if (is("Ctrl") || is("Control")) return Down(VK_CONTROL);
   if (is("Alt")) return Down(VK_MENU);
-  if (is("Esc") || is("Escape")) return Down(VK_ESCAPE);
+  if (options::IsEscapeKey(token)) return !g_host_escape && !Down(VK_MENU) && Down(VK_ESCAPE);
   if (is("Up")) return Down(VK_UP);
   if (is("Down")) return Down(VK_DOWN);
   if (is("Left")) return Down(VK_LEFT);
@@ -162,13 +156,7 @@ bool BindTokenDown(std::string_view token) {
   return false;
 }
 bool BindDown(std::string_view names) {
-  while (!names.empty()) {
-    const auto pos = names.find(',');
-    if (BindTokenDown(names.substr(0, pos))) return true;
-    if (pos == std::string_view::npos) break;
-    names.remove_prefix(pos + 1);
-  }
-  return false;
+  return options::AnyBindingKey(names, BindTokenDown);
 }
 #endif
 [[maybe_unused]] bool EnvEnabled() {
@@ -195,6 +183,8 @@ void StorePacket(uint8_t* state, uint32_t packet) {
   state[3] = uint8_t(packet);
 }
 }
+void NativeInputConsumeEscape(bool consumed) { g_host_escape.store(consumed); }
+bool NativeInputEscapeConsumed() { return g_host_escape.load(); }
 bool NativeInputEnabled() {
 #if defined(_WIN32)
   return EnvEnabled() || REXCVAR_GET(hulk_native_mnk);
@@ -286,6 +276,8 @@ bool NativeInputApply(uint32_t user, bool real_pad_connected, uint8_t* state, ui
     add(REXCVAR_GET(hulk_bind_lt), input::Shift);
     add(REXCVAR_GET(hulk_bind_rt), input::Ctrl);
     add(REXCVAR_GET(hulk_bind_start), input::Enter);
+    if (BindTokenDown("Esc") && !NativeInputUsesEscape())
+      f.keys |= input::Enter; // original game Start/Pause, including the title screen
     add(REXCVAR_GET(hulk_bind_select), input::Tab);
     // F8 releases mouse capture, not keyboard movement or menu controls.
     if (g_capture) {

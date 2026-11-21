@@ -19,7 +19,8 @@ EXEC_TYPES = frozenset((1, 2, 3, 4, 5, 6, 13, 14))
 DYNAMIC_TYPES = frozenset((7, 8, 9, 10, 11))
 
 
-def inspect_shader(blob: bytes, stage: str) -> dict:
+def original_instruction_bytes(blob: bytes, stage: str) -> memoryview:
+    """The Shader record addresses code relative to the physical section."""
     if stage not in ('VS', 'PS') or len(blob) < 60:
         raise ValueError('Invalid shader stage/length')
     flags, virtual, physical, _fc, ct, dt, so, f1, f2 = struct.unpack_from('>9I', blob)
@@ -31,9 +32,15 @@ def inspect_shader(blob: bytes, stage: str) -> dict:
     if so + 24 > virtual or f1 or f2 or (dt and not 36 <= dt < virtual):
         raise ValueError('Invalid original shader reflection')
     physical_offset, size = struct.unpack_from('>II', blob, so)
-    if size == 0 or size % 12 or physical_offset + size > physical:
+    if physical_offset % 4 or size == 0 or size % 12 or physical_offset + size > physical:
         raise ValueError('Invalid original Xenos instruction extent')
-    code = struct.unpack_from('>' + 'I' * (size // 4), blob, virtual + physical_offset)
+    start = virtual + physical_offset
+    return memoryview(blob)[start:start + size]
+
+
+def inspect_shader(blob: bytes, stage: str) -> dict:
+    program = original_instruction_bytes(blob, stage)
+    code = struct.unpack('>' + 'I' * (len(program) // 4), program)
     instructions = len(code) // 3
     limit = instructions
     flow = []

@@ -65,7 +65,14 @@ int main(){
  assert(!verified_layout({xyz,xyz}));
  assert(!verified_layout({xyz,{0,2,0,12,true,true}}));
  assert(!verified_layout({xyz,{1,2,0,automatic,true,true}}));
- assert(!verified_layout({xyz,{2,4,0,16,true,true}}));
+ assert(verified_layout({xyz,{2,4,0,16,true,true}})); // pass omits resident slot 1
+ // AUTO_OFFSET follows the largest prior end, including out-of-order declarations.
+ assert(verified_layout({xyz,{1,1,8,16,true,true},{1,1,0,16,true,true},
+                         {1,1,automatic,16,true,true}}));
+ assert(!verified_layout({xyz,{1,1,12,16,true,true},{1,1,0,16,true,true},
+                          {1,1,automatic,16,true,true}}));
+ // One explicit stride supplies every attribute in a partially consumed float4.
+ assert(verified_layout({xyz,{1,1,0,automatic,true,true},{1,1,4,16,true,true}}));
  assert(!verified_layout({xyz,tex0,{1,2,4,16,true,true}}));
  assert(!verified_layout({xyz,tex0,{1,2,12,16,true,true}}));
  assert(!verified_layout({xyz,{1,4,4,16,true,true}}));

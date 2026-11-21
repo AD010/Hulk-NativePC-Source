@@ -197,7 +197,7 @@ class PcMenu final : public rex::ui::ImGuiDialog {
               static_cast<unsigned long long>(replay.ready_backbuffers));
 #endif
           ImGui::TextDisabled(
-              "Esc / F10: menu  |  Enter: original game Start");
+              "F10: PC settings  |  Game Start: %s", Bind("hulk_bind_start").c_str());
           break;
         }
         case 0: {
@@ -607,7 +607,7 @@ class PcMenu final : public rex::ui::ImGuiDialog {
       ImGui::Separator();
       ImGui::SetCursorPosX(panel_left);
       ImGui::TextDisabled("Changes saved to incredible_hulk.toml"
-                          "  |  F8: recapture mouse  |  F10 / Esc: game menu");
+                          "  |  F8: recapture mouse  |  F10: PC settings  |  Esc: close settings");
       if (last_save_ok_.has_value()) {
         ImGui::SetCursorPosX(panel_left);
         if (*last_save_ok_) {

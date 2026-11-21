@@ -11,18 +11,20 @@ from hulk_xenia_shader_crosswalk import (original_shaders,load_pairs,
                                          inspect_dump_dir,generate)
 
 
-def container(stage: str, label: bytes, code: bytes) -> bytes:
-    assert len(code)==16 and len(label)<28
-    flags=0x102A1101 if stage=='VS' else 0x102A1100
-    header=struct.pack('>9I',flags,64,16,0,40,0,48,0,0)
-    return header+label.ljust(28,b'\0')+code
+def container(stage: str, label: bytes, code: bytes, prefix=b'', tail=b'') -> bytes:
+    assert len(code) % 12 == 0 and len(label) <= 12
+    physical = prefix + code + tail
+    flags = 0x102A1101 if stage == 'VS' else 0x102A1100
+    header = struct.pack('>9I', flags, 72, len(physical), 0, 36, 0, 48, 0, 0)
+    shader = struct.pack('>6I', len(prefix), len(code), 0, 0, 0, 0)
+    return header + label.ljust(12, b'\0') + shader + physical
 
 
 def fixtures():
-    v_code=b'VS-CODE-A-000001'
-    p_code=b'PS-CODE-A-000001'
-    third_vs=b'VS-CODE-B-000001'
-    third_ps=b'PS-CODE-B-000001'
+    v_code=b'VS-CODE-0001'
+    p_code=b'PS-CODE-0001'
+    third_vs=b'VS-CODE-0002'
+    third_ps=b'PS-CODE-0002'
     original=[container('VS',b'v1',v_code),container('PS',b'p1',p_code),
               container('VS',b'v2',v_code),container('PS',b'p2',p_code),
               container('VS',b'v3',third_vs),container('PS',b'p3',third_ps)]
@@ -38,6 +40,28 @@ def fixtures():
 
 
 class XeniaShaderCrosswalkTests(unittest.TestCase):
+    def test_only_declared_instructions_identify_a_dump(self):
+        code = b'VS-CODE-0001'
+        first = container('VS', b'a', code, b'X' * 64, b'pad!')
+        second = container('VS', b'b', code, b'Y' * 32)
+        shaders = original_shaders(first + second)
+        self.assertEqual(len(shaders), 2)
+        self.assertEqual(set(shaders.values()), {('VS', hashlib.sha256(code).hexdigest())})
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory)
+            (path / 'good.bin.vs').write_bytes(code)
+            (path / 'whole.bin.vs').write_bytes(first[72:])
+            good, whole = inspect_dump_dir(path, shaders)
+            self.assertEqual(good['status'], 'matched')
+            self.assertFalse(good['unique_source_shader'])
+            self.assertEqual(whole['status'], 'unmatched')
+        for offset, size in [(65, 12), (0, 0), (64, 16), (72, 12)]:
+            with self.subTest(offset=offset, size=size):
+                broken = bytearray(first)
+                struct.pack_into('>II', broken, 48, offset, size)
+                with self.assertRaisesRegex(ValueError, 'instruction extent'):
+                    original_shaders(bytes(broken))
+
     def test_original_unique_and_ambiguous_passes(self):
         archive,ledger,vs,ps,_=fixtures()
         shaders=original_shaders(archive)

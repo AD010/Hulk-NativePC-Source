@@ -19,24 +19,39 @@ import struct
 import tempfile
 import zlib
 
+from hulk_shader_effect_bank import scan_xenos_containers
+
 MAGIC = b'HEORMAT2'
 PDB_NAME = re.compile(rb'([A-Za-z0-9_]+_[vf]p\.updb)')
 
 
-def _effect_names(manifest: Path, records: list[dict]) -> dict[int, str]:
+def _effect_id(value: object) -> int:
+    # parse_index emits eight hexadecimal digits, including leading zeros.
+    # Integer IDs also occur in earlier manifests.
+    if isinstance(value, str) and re.fullmatch(r'[0-9A-Fa-f]{8}', value):
+        value = int(value, 16)
+    if type(value) is not int or not 0 < value <= 0xffffffff:
+        raise ValueError('Invalid original effect source identity')
+    return value
+
+
+def _effect_sources(manifest: Path, records: list[dict]) -> tuple[
+        dict[int, str], dict[tuple[int, int], tuple[str, str]]]:
     """Verify actual original effect names by source file digest and EoR CRC32.
 
     This metadata is never serialized into the public repository. A source
     archive absent from a synthetic ledger cannot assert PDB technique proof.
     """
     found: dict[int, str] = {}
+    containers = {}
     for row in records:
-        key, digest, size = row.get('hash'), row.get('sha256'), row.get('bytes')
-        if (not isinstance(key, int) or not 0 < key <= 0xffffffff or
-                not isinstance(digest, str) or len(digest) != 64 or
+        raw_key = row.get('hash')
+        key = _effect_id(raw_key)
+        digest, size = row.get('sha256'), row.get('bytes')
+        if (not isinstance(digest, str) or len(digest) != 64 or
                 any(c not in '0123456789abcdef' for c in digest) or
                 not isinstance(size, int) or size < 20 or size > (2 << 20) or
-                row.get('private_file') != f'{key}.effect.bin' or
+                row.get('private_file') != f'{raw_key}.effect.bin' or
                 key in found):
             raise ValueError('Invalid original effect source identity')
         payload = (manifest.parent / row['private_file']).read_bytes()
@@ -53,7 +68,9 @@ def _effect_names(manifest: Path, records: list[dict]) -> dict[int, str]:
                 (zlib.crc32(name.upper().encode('ascii')) & 0xffffffff) != key):
             raise ValueError('Original EoR ShaderEffect name/hash mismatch')
         found[key] = name
-    return found
+        for offset, stage, shader in scan_xenos_containers(payload):
+            containers[key, offset] = (stage, hashlib.sha256(shader).hexdigest())
+    return found, containers
 
 
 def _shader_technique(blob: bytes, stage: str, effect_name: str) -> str:
@@ -103,19 +120,18 @@ def generate(manifest: Path, destination: Path, source_root: Path) -> dict:
     records = info.get('records')
     if records is not None and not isinstance(records, list):
         raise ValueError('Malformed original ShaderEffects source record ledger')
-    effect_names = _effect_names(manifest, records) if records is not None else {}
+    effect_names, embedded = _effect_sources(manifest, records) if records is not None else ({}, {})
     shader_stages: dict[int, dict[str, list[tuple[int, bytes, str | None]]]] = defaultdict(
         lambda: {'VS': [], 'PS': []})
     # Original shader containers may be repeated at several effect/pass
     # locations. Reuse a SINGLE AOT module for the same source SHA/stage.
     seen: dict[str, str] = {}
     for row in entries:
-        effect = row.get('effect')
+        effect = _effect_id(row.get('effect'))
         stage = row.get('stage')
         identity = row.get('sha256')
         relative_offset = row.get('relative_offset')
-        if (not isinstance(effect, int) or effect <= 0 or effect > 0xffffffff or
-                stage not in ('VS', 'PS') or not isinstance(identity, str) or
+        if (stage not in ('VS', 'PS') or not isinstance(identity, str) or
                 len(identity) != 64 or any(c not in '0123456789abcdef' for c in identity) or
                 (identity in seen and seen[identity] != stage) or
                 not isinstance(relative_offset, int) or
@@ -128,10 +144,14 @@ def generate(manifest: Path, destination: Path, source_root: Path) -> dict:
             raise ValueError("Private original Xenos shader container changed")
         if records is not None and effect not in effect_names:
             raise ValueError('Original ShaderEffect record for shader is missing')
+        if records is not None and embedded.pop((effect, relative_offset), None) != (stage, identity):
+            raise ValueError('Shader does not match the recorded location in its original effect')
         technique = (_shader_technique(blob, stage, effect_names[effect])
                      if records is not None else None)
         shader_stages[effect][stage].append(
             (relative_offset, bytes.fromhex(identity), technique))
+    if embedded:
+        raise ValueError('Manifest omits shaders from the original effect records')
     pairs = []
     proven_techniques = 0
     for effect, stages in shader_stages.items():

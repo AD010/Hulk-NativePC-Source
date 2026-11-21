@@ -1,6 +1,6 @@
 // Back to the TRG launcher: holding Back and Start
 // together on the controller for a second, or holding Esc for a second and a
-// half, closes the game; the launcher comes back when the game exits. Only
+// half with the native PC controls disabled, closes the game; the launcher comes back when the game exits. Only
 // when the launcher started the game (it passes --hulk_from_launcher=true).
 // Called from the XInputGetState hook in input_hook.cpp, which the game
 // polls many times a second. On Linux the game's window is SDL's: Esc comes from SDL's keyboard state and the
@@ -26,9 +26,10 @@
 #include <rex/logging.h>
 
 REXCVAR_DEFINE_BOOL(hulk_from_launcher, false, "Launcher",
-                    "Started by the TRG launcher: hold Back and Start, or Esc, to return to it");
+                    "Started by the TRG launcher: hold Back and Start to return; Esc is also available with native controls disabled");
 
 namespace hulk {
+bool NativeInputEnabled();
 namespace {
 
 using Clock = std::chrono::steady_clock;
@@ -86,7 +87,7 @@ void ReturnToLauncherTick(uint32_t user, bool connected, uint16_t buttons) {
     constexpr uint16_t kStartBack = 0x0010 | 0x0020;  // XINPUT_GAMEPAD_START | XINPUT_GAMEPAD_BACK
     go = pad[user].Seconds(connected && (buttons & kStartBack) == kStartBack) >= 1.0;
   }
-  if (user == 0) go = go || key.Seconds(EscHeld()) >= 1.5;
+  if (user == 0) go = go || key.Seconds(!NativeInputEnabled() && EscHeld()) >= 1.5;
   if (!go || closing.exchange(true)) return;
   REXLOG_INFO("Hulk: back to the launcher");
   CloseGame();

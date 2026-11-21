@@ -146,18 +146,16 @@ class NativeEorLinkCoverage(unittest.TestCase):
                    "eor_diligent_aot_backend.cpp").read_text(encoding="utf-8")
         draw = backend.split("bool DiligentEorDirectBackend::DrawIndexed(", 1)[1]
         draw = draw.split("bool DiligentEorDirectBackend::ResolveScene(", 1)[0]
-        helper = backend.split("bool HasExactSourceVertexSlots(", 1)[1]
+        helper = backend.split("uint32_t SourceVertexSlotMask(", 1)[1]
         helper = helper.split("\n}", 1)[0]
         self.assertNotIn("slots.size()!=layout.size()", draw,
                          "Layout elements are attributes, not distinct GPU streams")
-        self.assertIn("HasExactSourceVertexSlots(layout,slots)", draw)
+        self.assertIn("SourceVertexSlotMask(layout,slots)", draw)
         self.assertIn("HasVerifiedHostAttributeLayout(layout)", helper)
-        self.assertIn("std::array<bool,16> used_slots{}", helper)
-        self.assertIn("used_slots[item.BufferSlot]=true;", helper)
-        self.assertIn("if(item.BufferSlot>=slots.size() || !slots[item.BufferSlot])", helper)
-        self.assertIn("if(!used_slots[i])return false;", helper,
-                      "No unexplained source GPU buffers may enter a verified Draw")
-        self.assertIn("layout.size()>DILIGENT_MAX_LAYOUT_ELEMENTS", helper)
+        self.assertIn("element.BufferSlot>=slots.size() || !slots[element.BufferSlot]", helper)
+        self.assertIn("mask |= 1u << element.BufferSlot", helper)
+        self.assertIn("if(!(used_slots & (1u << i)))continue", draw)
+        self.assertIn("SetVertexBuffers(0,binding_count", draw)
         # The constructor and preflight must agree with live DrawIndexed:
         # one source-proven GPU buffer can supply multiple vertex attributes.
         constructor = backend.split("DiligentEorDirectBackend::DiligentEorDirectBackend(", 1)[1]
@@ -166,7 +164,7 @@ class NativeEorLinkCoverage(unittest.TestCase):
         self.assertIn("!HasVerifiedHostAttributeLayout(pass.exact_host_input_layout)", constructor)
         preflight = backend.split("bool DiligentEorDirectBackend::PreflightOriginalScene(", 1)[1]
         preflight = preflight.split("bool DiligentEorDirectBackend::BeginScene(", 1)[0]
-        self.assertIn("!HasExactSourceVertexSlots(", preflight)
+        self.assertIn("!SourceVertexSlotMask(", preflight)
         self.assertNotIn("mesh->second.host_vertex_slots.size()!=", preflight)
 
 
@@ -182,9 +180,9 @@ class NativeEorLinkCoverage(unittest.TestCase):
         self.assertIn("slot == 0 && (attribute.components != 3 || offset != 0)", validator)
         preflight = backend.split("bool DiligentEorDirectBackend::PreflightOriginalScene(", 1)[1]
         preflight = preflight.split("bool DiligentEorDirectBackend::BeginScene(", 1)[0]
-        self.assertIn("!HasExactSourceVertexSlots(", preflight)
+        self.assertIn("!SourceVertexSlotMask(", preflight)
         draw = backend.split("bool DiligentEorDirectBackend::DrawIndexed(", 1)[1]
-        self.assertIn("!HasExactSourceVertexSlots(layout,slots)", draw)
+        self.assertIn("SourceVertexSlotMask(layout,slots)", draw)
         uploaded = (ROOT / "ci/eor_native_mesh_upload_test.cpp").read_text()
         self.assertIn("ValidateHostVertexLayout(", uploaded)
 
@@ -197,7 +195,7 @@ class NativeEorLinkCoverage(unittest.TestCase):
         self.assertIn("std::array<Diligent::Uint64,16> offsets{}", backend)
         self.assertRegex(
             backend,
-            r"slots\.size\(\)>DILIGENT_MAX_LAYOUT_ELEMENTS\s*\|\|\s*slots\.size\(\)>16",
+            r"slots\.size\(\)>16",
         )
 
 
@@ -318,7 +316,7 @@ class NativeEorLinkCoverage(unittest.TestCase):
         cpp=(ROOT / "ci/eor_native_draw_geometry_test.cpp").read_text()
         self.assertIn("IdentifyOriginalMaterialSurface(",geometry)
         self.assertIn("surface.indexed_texture_references",geometry)
-        self.assertIn("Original static material textures disprove live EoR surface owner",geometry)
+        self.assertIn("*archive_material_surface!=src.original_surface_ordinal",geometry)
         self.assertIn("wrongMaterial.original_surface_name=",cpp)
         self.assertIn("ambiguous,original.original_sampler_slots",cpp)
 

@@ -11,6 +11,7 @@
 #include "RefCntAutoPtr.hpp"
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <set>
 #include <tuple>
 #include <stdexcept>
@@ -83,23 +84,18 @@ bool HasVerifiedHostAttributeLayout(
 }
 // Attribute count is distinct from GPU stream count: multiple nonoverlapping
 // declared inputs may share a single decoded float4 source buffer.
-bool HasExactSourceVertexSlots(
+uint32_t SourceVertexSlotMask(
     std::span<const Diligent::LayoutElement> layout,
     std::span<const uint64_t> slots) {
-  if(slots.empty() || slots.size()>DILIGENT_MAX_LAYOUT_ELEMENTS ||
-     slots.size()>16 || layout.empty() ||
-     layout.size()>DILIGENT_MAX_LAYOUT_ELEMENTS)
-    return false;
-  if(!HasVerifiedHostAttributeLayout(layout))return false;
-  std::array<bool,16> used_slots{};
-  for(const auto& item:layout) {
-    if(item.BufferSlot>=slots.size() || !slots[item.BufferSlot])
-      return false;
-    used_slots[item.BufferSlot]=true;
+  if(slots.empty() || slots.size()>16 || !HasVerifiedHostAttributeLayout(layout))
+    return 0;
+  uint32_t mask=0;
+  for(const auto& element:layout) {
+    if(element.BufferSlot>=slots.size() || !slots[element.BufferSlot])
+      return 0;
+    mask |= 1u << element.BufferSlot;
   }
-  for(size_t i=0;i<slots.size();++i)
-    if(!used_slots[i])return false;
-  return true;
+  return mask;
 }
 }
 std::vector<NativeEorPassResources> AcquireVerifiedNativeMaterialPasses(
@@ -679,7 +675,7 @@ bool DiligentEorDirectBackend::PreflightOriginalScene(
        mesh->second.original_mesh_header_offset!=
            item.original_mesh_header_offset ||
        mesh->second.index_handle!=d.index_buffer ||
-       !HasExactSourceVertexSlots(
+       !SourceVertexSlotMask(
            selected->pipeline.exact_host_input_layout,
            mesh->second.host_vertex_slots) ||
        !s.meshes.IndexWindowInRange(d.index_buffer,d.first_index,
@@ -891,12 +887,15 @@ bool DiligentEorDirectBackend::DrawIndexed(const native::IndexedDraw& draw) {
     return false;
   const auto& slots=resident.host_vertex_slots;
   const auto& layout=s.selected->pipeline.exact_host_input_layout;
-  // Several source-proven attributes can share one resident GPU stream.
-  // Still reject absent, extra or out-of-range original buffer slots.
-  if(!HasExactSourceVertexSlots(layout,slots))return false;
+  // Different passes of the same mesh may consume different streams.
+  // Keep the original binding numbers even when a pass skips a slot.
+  const uint32_t used_slots=SourceVertexSlotMask(layout,slots);
+  if(!used_slots)return false;
+  const auto binding_count=std::bit_width(used_slots);
   std::array<Diligent::IBuffer*,16> buffers{};
   std::array<Diligent::Uint64,16> offsets{};
-  for(size_t i=0;i<slots.size();++i) {
+  for(uint32_t i=0;i<binding_count;++i) {
+    if(!(used_slots & (1u << i)))continue;
     if(s.meshes.KindOf(slots[i])!=(i==0?0u:3u))return false;
     buffers[i]=s.meshes.FindBuffer(slots[i]);
     if(!buffers[i])return false;
@@ -959,7 +958,7 @@ bool DiligentEorDirectBackend::DrawIndexed(const native::IndexedDraw& draw) {
     s.context->SetPipelineState(s.active.pipeline.RawPtr());
     s.context->CommitShaderResources(s.active.bindings.RawPtr(),
         Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
-    s.context->SetVertexBuffers(0,static_cast<Diligent::Uint32>(slots.size()),
+    s.context->SetVertexBuffers(0,binding_count,
         buffers.data(),offsets.data(),
         Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION,
         Diligent::SET_VERTEX_BUFFERS_FLAG_RESET);

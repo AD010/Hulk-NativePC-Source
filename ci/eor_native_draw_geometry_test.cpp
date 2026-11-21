@@ -489,8 +489,13 @@ int main(){
   engineParent.nesting_depth=1u;
   engineParent.original_shader_method_vtable_verified=true;
   shaderParentRuntime.calls[0].original_engine_shader_method=engineParent;
+  auto shaderParentWitness=witness;
+  auto& parentSource=std::get<native::VerifiedXdkIndexedSubmission>(
+      shaderParentWitness.original_source_submission).native_draw;
+  parentSource.original_frame_sequence=shaderParentRuntime.sequence;
+  parentSource.original_call_ordinal=0;
   const auto originalScopes=native::AttachLiveEorShaderMethodParents(
-      shaderParentRuntime,catalog);
+      shaderParentRuntime,std::vector{shaderParentWitness});
   assert(originalScopes.size()==1 &&
          originalScopes[0].original_source_engine_shader_method &&
          originalScopes[0].original_source_engine_shader_method->
@@ -516,11 +521,44 @@ int main(){
   unknownEngine.calls[0].original_engine_shader_method->
       original_shader_vtable_guest=0u;
   Reject([&]{(void)native::AttachLiveEorShaderMethodParents(
-      unknownEngine,catalog);});
+      unknownEngine,std::vector{shaderParentWitness});});
   auto missingParent=shaderParentRuntime;
   missingParent.calls[0].original_engine_shader_method.reset();
   Reject([&]{(void)native::AttachLiveEorShaderMethodParents(
       missingParent,originalScopes);});
+  // Two immutable Draws reuse the same XDK resources and index window.
+  // Their independently captured engine owners remain distinct in either order.
+  auto repeated=runtime;
+  repeated.calls.push_back(runtime.calls.front());
+  auto first=witness;
+  auto& first_source=std::get<native::VerifiedXdkIndexedSubmission>(
+      first.original_source_submission).native_draw;
+  first_source.original_frame_sequence=repeated.sequence;
+  first_source.original_call_ordinal=0;
+  auto next=first;
+  auto& next_link=std::get<native::VerifiedXdkIndexedSubmission>(next.original_source_submission);
+  next_link.native_draw.original_call_ordinal=1;
+  next_link.native_draw.first_index=3;
+  std::vector<native::VerifiedXdkResourceWitness> per_draw{next,first};
+  auto ordered=native::ResolveCapturedResourceDraws(repeated,per_draw,models);
+  assert(ordered.size()==2 && ordered[0].first_index==0 && ordered[1].first_index==3);
+  per_draw.push_back(first);
+  Reject([&]{(void)native::ResolveCapturedResourceDraws(repeated,per_draw,models);});
+  first_source.original_frame_sequence++;
+  Reject([&]{(void)native::ResolveCapturedResourceDraws(repeated,
+      std::vector{next,first},models);});
+  first_source.original_frame_sequence=0;
+  Reject([&]{(void)native::ResolveCapturedResourceDraws(repeated,
+      std::vector{next,first},models);});
+  next_link.native_draw.original_call_ordinal=2;
+  Reject([&]{(void)native::ResolveCapturedResourceDraws(repeated,
+      std::vector{next,witness},models);});
+  next_link.native_draw.original_call_ordinal=1;
+  next_link.original_guest_call.first_index++;
+  next.original_linear_index_stream_verified=true;
+  // A template must not replace a contradictory observation of this very Draw.
+  Reject([&]{(void)native::ResolveCapturedResourceDraws(repeated,
+      std::vector{next,witness},models);});
   // Guest XDK GPU byte identity is matched directly to the ORIGINAL model
   // stream, not inferred from a shared shader or an EoR CRC32 name hash.
   auto realModel=MakeModel();
@@ -621,6 +659,7 @@ int main(){
   // The historical /2 bounds check incorrectly admitted that range.
   auto beyond32=draw32;
   beyond32.gpr[3]=1u;
+  beyond32.gpr[4]=6u;
   assert(!native::IdentifyExactOriginalGuestMesh(beyond32,models));
   auto shared32=std::make_shared<xdk::OriginalGuestBufferBytes>(*ib32);
   shared32->bytes.insert(shared32->bytes.begin(),

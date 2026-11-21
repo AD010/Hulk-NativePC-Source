@@ -15,6 +15,9 @@ import stat
 import struct
 import zipfile
 
+from audit_hulk_eor_shader_coverage import original_instruction_bytes
+from hulk_shader_effect_bank import scan_xenos_containers
+
 MAGIC = b'HEORMAT2'
 MAX_ARCHIVE = 64 << 20
 MAX_DUMP = 1 << 20
@@ -30,33 +33,14 @@ def original_shaders(archive: bytes) -> dict[str, tuple[str, str]]:
     if not 36 <= len(archive) <= MAX_ARCHIVE:
         raise ValueError('Original ShaderEffects archive size invalid')
     result = {}
-    offset = 0
-    while True:
-        at = archive.find(b'\x10\x2a\x11', offset)
-        if at < 0:
-            break
-        offset = at + 1
-        if len(archive)-at < 36:
-            raise ValueError('Truncated original Xenos shader container')
-        (flags, virtual, physical, _reserved, constants, definition,
-         shader_offset, zero_a, zero_b) = struct.unpack_from('>9I',archive,at)
-        if flags & 0xffffff00 != 0x102a1100:
-            continue
-        if (virtual < 36 or not physical or physical % 4 or
-            virtual + physical > len(archive)-at or
-            not 36 <= constants < virtual or
-            not 36 <= shader_offset < virtual or
-            (definition and not 36 <= definition < virtual) or
-            zero_a or zero_b):
-            raise ValueError('Malformed original Xenos shader container')
-        blob = archive[at:at+virtual+physical]
-        stage = 'VS' if flags & 1 else 'PS'
+    for _, stage, blob in scan_xenos_containers(archive):
         source = digest(blob)
-        physical_sha = digest(blob[virtual:])
-        if source in result and result[source] != (stage,physical_sha):
+        # Constant definitions can precede executable instructions in the
+        # physical section. Xenia dumps contain the loaded program alone.
+        code_sha = hashlib.sha256(original_instruction_bytes(blob, stage)).hexdigest()
+        if source in result and result[source] != (stage, code_sha):
             raise ValueError('One source SHA maps to incompatible original shaders')
-        result[source] = (stage,physical_sha)
-        offset = at + virtual + physical
+        result[source] = (stage, code_sha)
     if not result:
         raise ValueError('No original Xenos containers found in archive')
     return result

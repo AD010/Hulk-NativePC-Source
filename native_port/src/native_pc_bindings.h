@@ -3,6 +3,7 @@
 #pragma once
 
 #include <array>
+#include <cctype>
 #include <string_view>
 
 namespace hulk::options {
@@ -32,6 +33,32 @@ inline bool IsBindingOption(std::string_view key) noexcept {
       "hulk_bind_rstick_click", "hulk_bind_walk",
   };
   for (auto candidate : actions) if (candidate == key) return true;
+  return false;
+}
+
+inline bool KeyNameEquals(std::string_view token, std::string_view name) noexcept {
+  if (token.size() != name.size()) return false;
+  for (size_t i = 0; i < name.size(); ++i)
+    if (std::tolower(static_cast<unsigned char>(token[i])) !=
+        std::tolower(static_cast<unsigned char>(name[i]))) return false;
+  return true;
+}
+inline bool IsEscapeKey(std::string_view token) noexcept {
+  return KeyNameEquals(token, "Esc") || KeyNameEquals(token, "Escape");
+}
+template <typename Matches>
+bool AnyBindingKey(std::string_view names, Matches matches) {
+  while (!names.empty()) {
+    const auto comma = names.find(',');
+    auto token = names.substr(0, comma);
+    const auto start = token.find_first_not_of(" \t\n\r\v\f");
+    if (start != std::string_view::npos) {
+      token = token.substr(start, token.find_last_not_of(" \t\n\r\v\f") - start + 1);
+      if (matches(token)) return true;
+    }
+    if (comma == std::string_view::npos) break;
+    names.remove_prefix(comma + 1);
+  }
   return false;
 }
 

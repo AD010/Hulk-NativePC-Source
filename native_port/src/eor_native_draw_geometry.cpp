@@ -649,6 +649,26 @@ std::vector<VerifiedDrawSource> ResolveCapturedResourceDraws(
      frame.calls.empty() ||
      frame.calls.size()>xdk::FrameCapture::kMaxDraws || witnesses.empty())
     throw std::invalid_argument("Incomplete original Xbox resource-witness Draw frame");
+  // Materials may share every XDK binding, even the index window. Keep
+  // engine observations attached to the Draw on which they were made.
+  using WitnessPtr = const VerifiedXdkResourceWitness*;
+  std::vector<WitnessPtr> by_ordinal(frame.calls.size(), nullptr);
+  std::vector<WitnessPtr> reusable;
+  for (const auto& witness : witnesses) {
+    const auto& source = std::visit([](const auto& link) -> const VerifiedDrawSource& {
+      return link.native_draw;
+    }, witness.original_source_submission);
+    if (source.original_frame_sequence && source.original_frame_sequence != frame.sequence)
+      throw std::invalid_argument("Original EoR material witness belongs to another frame");
+    const auto ordinal = source.original_call_ordinal;
+    if (ordinal == UINT32_MAX) {
+      reusable.push_back(&witness);
+    } else {
+      if (!source.original_frame_sequence || ordinal >= by_ordinal.size() || by_ordinal[ordinal])
+        throw std::invalid_argument("Invalid or duplicate original EoR Draw ordinal");
+      by_ordinal[ordinal] = &witness;
+    }
+  }
   std::vector<VerifiedXdkDrawSubmission> matched;
   matched.reserve(frame.calls.size());
   // Compute the actual byte-exact guest VB+IB owner ONCE per source Draw,
@@ -667,7 +687,8 @@ std::vector<VerifiedDrawSource> ResolveCapturedResourceDraws(
       uint32_t,uint32_t,uint8_t>;
   std::map<OriginalGeometryKey,
            std::optional<ExactOriginalGuestMesh>> exact_source_cache;
-  for(const auto& call:frame.calls) {
+  for(size_t ordinal=0;ordinal<frame.calls.size();++ordinal) {
+    const auto& call=frame.calls[ordinal];
     if(!call.observed_vs_matrices)
       throw std::invalid_argument("Original XDK Draw lacks actual guest shader state");
     const auto resources=ResourcesAtDraw(*call.observed_vs_matrices);
@@ -701,7 +722,11 @@ std::vector<VerifiedDrawSource> ResolveCapturedResourceDraws(
     }
     exact_mesh_at_draw.push_back(exact);
     std::optional<VerifiedXdkDrawSubmission> unique;
-    for(const auto& candidate:witnesses) {
+    const bool at_draw=by_ordinal[ordinal]!=nullptr;
+    const std::span<const WitnessPtr> candidates=at_draw ?
+        std::span<const WitnessPtr>(&by_ordinal[ordinal],1) : reusable;
+    for(const auto* entry:candidates) {
+      const auto& candidate=*entry;
       if(!candidate.original_guest_resource_to_material_mapping_verified ||
          !SameOriginalResources(candidate.original_resources,resources,
                                 candidate,indexed.has_value()))
@@ -788,7 +813,7 @@ std::vector<VerifiedDrawSource> ResolveCapturedResourceDraws(
               x.first_index==indexed->first_index &&
               x.index_count==indexed->index_count;
           if(!same_xdk_index_window &&
-             !candidate.original_linear_index_stream_verified)
+             (at_draw || !candidate.original_linear_index_stream_verified))
             continue;
           auto mapped=*link;
           if(!same_xdk_index_window) {
