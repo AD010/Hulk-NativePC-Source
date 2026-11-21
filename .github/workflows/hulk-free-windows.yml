@@ -117,6 +117,11 @@ jobs:
           # required to execute this synthetic-only regression.
           python ci/test_audit_hulk_original_pause_ui_objects.py
           if ($LASTEXITCODE -ne 0) { throw 'Original Xbox pause VM route regression failed' }
+          # Actual original USA EoR VM native state_r callback is
+          # source-verified independently from genuine private PPC image.
+          # The test uses only synthetic methods; never imports Xbox data.
+          python ci/test_hulk_usa_pause_state_vm_dispatch.py
+          if ($LASTEXITCODE -ne 0) { throw 'Original USA pause VM state_r native PPC ABI witness invalid' }
           python ci/test_audit_hulk_havok_pair.py
           if ($LASTEXITCODE -ne 0) { throw 'Original user-indexed PC/Xbox Havok 5.1 section/fixup synthetic regression failed' }
           python ci/test_hulk_eor_extract_named_assets.py
