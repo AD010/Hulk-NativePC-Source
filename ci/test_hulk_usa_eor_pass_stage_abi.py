@@ -137,7 +137,7 @@ class OriginalDualStagePassTests(unittest.TestCase):
         self.assertIn("ValidOriginalShaderPassSamplerStateAtDraw(",capture)
         self.assertIn("const auto sampler_table=read32(*material_ctx+196u)",bridge)
         self.assertIn("std::to_integer<uint8_t>(shader_slots[7])",bridge)
-        self.assertIn("source sampler",capture.lower())
+        self.assertIn("sampler state register writes are source-verified",capture.lower())
         self.assertIn("original_pass_sampler_slots_verified",bridge)
         self.assertIn("original_pass_live_texture_objects_present",bridge)
         self.assertIn("ValidOriginalShaderPassStageBinding(original_call)",resolver)
