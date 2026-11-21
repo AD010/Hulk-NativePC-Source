@@ -68,3 +68,13 @@
 8287F2C0
 8287F628
 8288AD98
+# Original USA EoR virtual shader-method ENTRY scopes (not XDK functions).
+# Verified against original named class vtables in decrypted PPC memory.
+# Wrappers always call through; record source r3 object only when its BE
+# vtable matches. These hooks do NOT create material/shader Draw witnesses.
+8265B420
+82668D50
+82669630
+8266A0C0
+8266CC28
+8266DDD0
