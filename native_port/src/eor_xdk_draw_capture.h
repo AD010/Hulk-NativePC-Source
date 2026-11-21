@@ -423,6 +423,14 @@ struct OriginalEorShaderMethodAtDraw {
   uint32_t original_engine_item_method_guest=0;
   uint32_t original_engine_render_item_guest=0;
   uint32_t original_engine_render_item_context_guest=0;
+  uint32_t original_engine_render_item_vtable_guest=0;
+  // Original dispatch 0x82642B08 calls item vtable+48 and stores the
+  // material return in PPC r27 at 0x82642B10. The vtable+44
+  // render method receives this immutable r27 on indirect call
+  // 0x82642BD4. This is a source item MATERIAL owner pointer, not
+  // a ShaderEffects source hash or guaranteed shader stage digest.
+  uint32_t original_engine_render_item_material_guest=0;
+  bool original_engine_item_material_source_verified=false;
   bool original_engine_item_abi_verified=false;
 };
 struct RawDraw {
