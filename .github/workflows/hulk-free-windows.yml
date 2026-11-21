@@ -1,15 +1,10 @@
 name: Hulk NativePC - Manual Windows Release
 on:
-  # Explicit user request, 2026-11-21: one Windows build with newest main.
-  # Trigger only on the exact one-off release-request marker below. Keep
-  # the existing workflow, never create a second builder/workflow.
-  push:
-    branches: [main]
-    paths:
-      - 'ci/hulk-release-request-2026-11-21.txt'
-  # User-requested release gate: do not start more experimental Windows
-  # builds on source edits. Keep this single Release-only workflow available
-  # for an explicit final validation through GitHub Actions.
+  # User directive 2026-11-21: do not start another failing Windows
+  # Release while native EoR/Vulkan, in-game UI and actual source issues
+  # remain unresolved. Preserve exactly ONE workflow, manual Release only.
+  # The previous push marker remains archived as source history but it
+  # must never trigger another build by an unrelated commit.
   workflow_dispatch:
 permissions:
   contents: write
