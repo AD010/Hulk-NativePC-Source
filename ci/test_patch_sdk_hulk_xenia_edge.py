@@ -83,6 +83,27 @@ class PackedMipTests(unittest.TestCase):
         self.assertFalse(1 > max(0, 1))  # 2x1 goes down the square path.
         self.assertTrue(2 > max(0, 1))   # 4x1 remains a wide rectangle.
 
+    def test_actual_pinned_util_has_two_format_info_calls(self):
+        # ReXGlue SDK @4348a344 has TWO FormatInfo::Get(format) calls,
+        # one inside GetPackedMipOffset, one in GetGuestTextureLayout.
+        real_shape = (MIP_FIXTURE +
+                      "\nTextureGuestLayout GetGuestTextureLayout() {\n" +
+                      MIP_OFFSET_END + "\n  return {};\n}\n")
+        self.assertEqual(real_shape.count(MIP_OFFSET_END), 2)
+        result, changed = patch_mip(real_shape)
+        self.assertTrue(changed)
+        self.assertEqual(result.count(MIP_OFFSET_END), 2)
+        self.assertEqual(result.count(MIP_ADDR_NEW), 1)
+        self.assertEqual(patch_mip(result), (result, False))
+        self.assertIn(MIP_SHAPE_INSERT_NEW, result)
+        # A decoy matching terminator before the helper must not prevent
+        # rewriting exactly the scoped, original packed-mip body.
+        decoy = MIP_OFFSET_END + "\n" + MIP_FIXTURE + "\n" + MIP_OFFSET_END
+        revised, changed = patch_mip(decoy)
+        self.assertTrue(changed)
+        self.assertTrue(revised.startswith(MIP_OFFSET_END))
+        self.assertEqual(patch_mip(revised), (revised, False))
+
     def test_partial_packed_tail_cannot_pass_idempotence(self):
         fixed, changed = patch_mip(MIP_FIXTURE)
         self.assertTrue(changed)
@@ -109,6 +130,7 @@ class PackedMipTests(unittest.TestCase):
     @unittest.skipUnless(SDK_ROOT is not None, "Pinned ReXGlue source in Windows CI")
     def test_real_pinned_texture_util(self):
         original = (SDK_ROOT / MIP_FILE).read_text(encoding="utf-8-sig")
+        self.assertEqual(original.count(MIP_OFFSET_END), 2)
         patched, changed = patch_mip(original)
         self.assertTrue(changed)
         self.assertEqual(patched.count(MIP_ADDR_NEW), 1)

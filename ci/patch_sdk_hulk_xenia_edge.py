@@ -89,7 +89,7 @@ def patch_mip(source: str) -> tuple[str, bool]:
         if (source.count(MIP_MARKER) != 1 or
                 source.count(MIP_ADDR_NEW) != 1 or MIP_ADDR_OLD in source or
                 source.count(MIP_OFFSET_START) != 1 or
-                source.count(MIP_OFFSET_END) != 1):
+                not source.partition(MIP_OFFSET_START)[2].partition(MIP_OFFSET_END)[1]):
             raise ValueError("Partial source-proven Xenos packed-mip fix")
         _, _, tail = source.partition(MIP_OFFSET_START)
         block, _, _ = tail.partition(MIP_OFFSET_END)
@@ -98,8 +98,12 @@ def patch_mip(source: str) -> tuple[str, bool]:
                 MIP_SHAPE_INSERT_OLD in block or MIP_SHAPE_OLD in block):
             raise ValueError("Partial packed-tail shape transformation")
         return source, False
-    if source.count(MIP_ADDR_OLD) != 1 or source.count(MIP_OFFSET_START) != 1 or (
-            source.count(MIP_OFFSET_END) != 1):
+    # Pinned SDK util.cpp contains two real FormatInfo::Get(format)
+    # calls: the packed-mip function terminator and GetGuestTextureLayout.
+    # Scope the marker to GetPackedMipOffset, never to the entire file.
+    if (source.count(MIP_ADDR_OLD) != 1 or
+            source.count(MIP_OFFSET_START) != 1 or
+            not source.partition(MIP_OFFSET_START)[2].partition(MIP_OFFSET_END)[1]):
         raise ValueError("Unknown pinned ReXGlue texture-fetch implementation")
     before, _, remaining = source.partition(MIP_OFFSET_START)
     block, _, after = remaining.partition(MIP_OFFSET_END)

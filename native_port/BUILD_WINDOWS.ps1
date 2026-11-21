@@ -188,7 +188,9 @@ try {
   # when sizing converted-index pages; avoid 16x GPU index pool waste.
   # One synthetic-only test suite for all three Xenia Edge source adapters.
   # Each staged patch checks the CURRENT pinned SDK source before mutation.
-  Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_sdk_hulk_xenia_edge.py')) $Source
+  # Test exact reviewed SDK source, not only a synthetic patch fixture.
+  # This catches pinned SDK source drift before modifying shaders/textures.
+  Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_sdk_hulk_xenia_edge.py'), $Sdk) $Source
   Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_sdk_hulk_xenia_edge.py'), 'index-pool', $Sdk) $Source
   # Xenia Edge 344fca7: exact Xenos packed mip0 page and 2x1 tail
   # addressing, also used by the Legacy/NativeX GPU texture utility.
