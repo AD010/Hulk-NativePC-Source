@@ -1,0 +1,27 @@
+{
+  "schema": "hulk_usa_original_pause_state_r_vm_native_witness_v1",
+  "usa_guest_image_sha256": "fa1d06e634146318c994678dc7cc1d770ac158e7292d07b30dcaf573a0964386",
+  "original_xbox_objects_sha256": "35c9a1d502f62a0fd4e3ef73da204195ead4598f132f21763f66d168d7801815",
+  "original_pc_objects_sha256": "2d080575a4608f6ebf0fb04f1005a3f8b2ec96233fb4cb6e5e790af7d0d4f7b5",
+  "verified_original_xbox_pc_pause_method": {
+    "page_symbol": "UIPage_Pause_Settings",
+    "method_symbol": "ChangeState_r",
+    "method_source_payload_bytes": 13,
+    "global_vm_invocation_opcode": "0x28",
+    "invoked_original_global_name": "state_r",
+    "invoked_global_crc32_upper": "F7A5B1D1",
+    "state_r_is_unique_pause_callback": false
+  },
+  "verified_native_engine_state_getter": {
+    "native_global_vm_method": "state_r",
+    "original_guest_method_registration": "0x82E2EB8C",
+    "registered_guest_name_pointer": "0x8206D25C",
+    "registered_original_native_ppc_handler": "0x8264C798",
+    "first_native_ppc_context_arg": "r3",
+    "vm_native_parameter_and_return_types_fully_verified": false,
+    "actual_pause_page_event_dispatcher_abi_verified": false
+  },
+  "global_vm_getter_is_not_unique_pause_ui_dispatcher": true,
+  "no_original_game_instruction_or_script_bytes_published": true,
+  "original_ui_page_pause_settings_native_windows_binding_installed": false
+}
