@@ -30,9 +30,22 @@ def extract(manifest:Path,output:Path,public_repo:Path)->dict:
     if output==public_repo or public_repo in output.parents:
         raise ValueError("The private Xenos virtual fingerprint cache must not be published")
     obj=json.loads(manifest.read_text(encoding="utf-8"))
-    if obj.get("bank_version")!=1 or obj.get("platform")!="Xbox360":
-        raise ValueError("Wrong original Xbox shader source bank")
-    rows=obj.get("shader_containers")
+    if isinstance(obj,list):
+        # Exact original 233-effect extractor's PRIVATE owner source
+        # manifest is a list of per-effect records, with stage/digest/len.
+        # It is not committed to GitHub; only the resulting SHA index is
+        # loaded from the owner's private game cache at runtime.
+        rows=[
+            {"sha256":record["digest"],"stage":record["stage"],
+             "bytes":record["len"]}
+            for effect in obj for record in effect["shaders"]
+        ]
+    elif isinstance(obj,dict) and obj.get("bank_version")==1 and (
+        obj.get("platform")=="Xbox360"
+    ):
+        rows=obj.get("shader_containers")
+    else:
+        raise ValueError("Wrong original Xbox shader source manifest")
     if not isinstance(rows,list) or not 0<len(rows)<=MAX_SHADERS:
         raise ValueError("Invalid original source shader index")
     seen_full={}
