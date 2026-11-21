@@ -4,6 +4,7 @@ import unittest
 import zlib
 from audit_hulk_original_pause_ui_objects import (
     PAUSE_SEQUENCE, inspect_actions, inspect_objects,
+    original_pause_ui_field_refs,
 )
 
 
@@ -36,6 +37,57 @@ def object_fixture(endian="big", extra_after_options=0):
     parts.append(b"Init_z\0")
     return b"".join(parts)
 
+
+def field_fixture(endian):
+    # Synthetic method bodies; only source-name CRCs, never original EoR
+    # method bytecode or original game content.
+    names = {
+        "Init_z": "inputDeviceListener_Pause",
+        "StateEnter_z": "CurrentStatusMenu",
+        "StateExit_z": "Hidden",
+        "ActivateUpgradeMenu_z": "CurrentStatusMenu",
+    }
+    parts = [b"UIPage_Pause_Settings\\0"]
+    for method, owner in names.items():
+        identity = (zlib.crc32(owner.upper().encode("ascii")) &
+                    0xffffffff).to_bytes(4, endian)
+        payload = b"\x10" + identity + b"\x20"
+        parts.extend((method.encode() + b"\0",
+                      len(payload).to_bytes(4, endian),
+                      payload, b"\0" * 4))
+    return b"".join(parts)
+
+
+class OriginalPauseScriptTests(unittest.TestCase):
+    def test_authentic_field_hash_references_are_endian_invariant(self):
+        xbox = original_pause_ui_field_refs(
+            field_fixture("big"), "xbox_360_source")
+        pc = original_pause_ui_field_refs(
+            field_fixture("little"), "pc_2008_comparator")
+        self.assertEqual(xbox, pc)
+        self.assertEqual(xbox["Init_z"]["source_field_references"][0],
+                         {"vm_byte_offset": 1,
+                          "field_name": "inputDeviceListener_Pause",
+                          "source_crc32_upper": "{:08X}".format(
+                              zlib.crc32(b"INPUTDEVICELISTENER_PAUSE") & 0xffffffff)})
+        self.assertEqual(xbox["StateEnter_z"]["source_field_references"][0]
+                         ["field_name"], "CurrentStatusMenu")
+        self.assertEqual(xbox["StateExit_z"]["source_field_references"][0]
+                         ["field_name"], "Hidden")
+
+    def test_vm_field_hash_reader_rejects_wrong_size_and_platform(self):
+        original = field_fixture("big")
+        with self.assertRaises(ValueError):
+            original_pause_ui_field_refs(original, "arbitrary_guest")
+        with self.assertRaises(ValueError):
+            original_pause_ui_field_refs(
+                original.replace(b"StateEnter_z\\0", b"NotStateEnt_z\\0"),
+                "xbox_360_source")
+        with self.assertRaises(ValueError):
+            original_pause_ui_field_refs(
+                original.replace(b"Init_z\\0" + (6).to_bytes(4, "big"),
+                                 b"Init_z\\0" + (2000).to_bytes(4, "big")),
+                "xbox_360_source")
 
 class OriginalPauseScriptTests(unittest.TestCase):
     def test_source_route_and_game_settings_init(self):
