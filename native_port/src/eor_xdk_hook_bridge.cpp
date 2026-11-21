@@ -689,6 +689,8 @@ void EndPpcHook(native_x_renderer::Call kind) {
     uint32_t decal_original_geometry_verified=0;
     uint32_t decal_original_material_descriptor_verified=0;
     uint32_t live_original_pass_vs_ps_verified=0;
+    uint32_t original_source_sampler_state_verified=0;
+    uint32_t original_live_xdk_texture_slot_present=0;
     for (const RawDraw& call : frame.calls) {
       if(const auto& source=call.original_engine_shader_method;source) {
         ++original_shader_parented;
@@ -703,6 +705,13 @@ void EndPpcHook(native_x_renderer::Call kind) {
         if(source->original_pass_vs_ps_xdk_binding_verified &&
            ValidOriginalShaderPassStageBinding(call))
           ++live_original_pass_vs_ps_verified;
+        if(source->original_pass_sampler_slots_verified &&
+           ValidOriginalShaderPassSamplerStateAtDraw(call))
+          ++original_source_sampler_state_verified;
+        if(source->original_pass_sampler_slot_mask &&
+           source->original_pass_live_texture_objects_present &&
+           ValidOriginalShaderPassSamplerStateAtDraw(call))
+          ++original_live_xdk_texture_slot_present;
       }
       switch (call.kind) {
       case Kind::DrawVertices: ++verts; break;
@@ -716,15 +725,19 @@ void EndPpcHook(native_x_renderer::Call kind) {
                 "source_shader_parented={} original_font_draws={} "
                 "original_decal_geometry_verified={} "
                 "original_decal_material_descriptor_verified={} "
-                "eor_pass_stage_vs_ps_xdk_verified={}; "
-                "full ShaderEffects pass remains source-gated",
+                "eor_pass_stage_vs_ps_xdk_verified={} "
+                "eor_pass_sampler_state_verified={} "
+                "xdk_sampler_texture_object_presence={}; "
+                "actual original source fetch->texture remains unverified",
                 frame.sequence,indexed,verts,up,frame.dropped,
                 frame.commands.size(),frame.dropped_commands,
                 ValidateOriginalCommandTimeline(frame),
                 original_shader_parented,original_font_draws,
                 decal_original_geometry_verified,
                 decal_original_material_descriptor_verified,
-                live_original_pass_vs_ps_verified);
+                live_original_pass_vs_ps_verified,
+                original_source_sampler_state_verified,
+                original_live_xdk_texture_slot_present);
     for (const auto& site: hot) {
       REXLOG_INFO("[HULK/EOR-XDK-CALLSITE] XDK=0x{:08X} LR=0x{:08X} "
                   "kind={} draws={} frames={} first={} last={} "
