@@ -110,6 +110,40 @@ int main() {
   live.exact_original_guest_virtual_header[34]^=0x55u;
   assert(!MatchesOriginalLiveXdkShaderSource(
       bank,live,0x81234000u,Stage::Vertex,expected_vertex,17u,3u));
+  // Source digests are recovered from live VS/PS header bytes and their
+  // original guest-object identities, then mapped back to the unique
+  // ShaderEffects effect/pass without trusting an asserted class name.
+  const auto resolved_vs=ResolveOriginalLiveXdkShaderSource(
+      bank,live,0x81234000u,Stage::Vertex,17u,3u);
+  assert(resolved_vs && *resolved_vs==expected_vertex);
+  OriginalLiveXdkShaderHeaderWitness pixel_live{
+      0x81235000u,0x89002000u,true,
+      std::vector<uint8_t>(ps.begin(),ps.end()),17u,3u};
+  const auto resolved_ps=ResolveOriginalLiveXdkShaderSource(
+      bank,pixel_live,0x81235000u,Stage::Pixel,17u,3u);
+  assert(resolved_ps && *resolved_ps==expected_pixel);
+  std::vector<uint8_t> effect_blob{'H','E','O','R','M','A','T','2'};
+  Le32(effect_blob,1u);Le32(effect_blob,2u);
+  Le32(effect_blob,0x1234u);Le32(effect_blob,0u);
+  effect_blob.insert(effect_blob.end(),expected_vertex.begin(),expected_vertex.end());
+  effect_blob.insert(effect_blob.end(),expected_pixel.begin(),expected_pixel.end());
+  const auto effect_file=std::filesystem::temp_directory_path()/
+      "hulk-original-live-shader-effect-synthetic.bin";
+  Write(effect_file,effect_blob);
+  EffectCatalog effects;effects.Load(effect_file);
+  auto live_pass=ResolveOriginalLiveEorEffectPass(
+      bank,effects,live,pixel_live,0x81234000u,0x81235000u,17u,3u);
+  assert(live_pass && live_pass->effect_hash==0x1234u &&
+         live_pass->pass_index==0u);
+  assert(!ResolveOriginalLiveEorEffectPass(
+      bank,effects,live,pixel_live,0x81234000u,0x81235004u,17u,3u));
+  assert(!ResolveOriginalLiveEorEffectPass(
+      bank,effects,live,pixel_live,0x81234000u,0x81235000u,17u,4u));
+  auto wrong_pixel=pixel_live;
+  wrong_pixel.exact_original_guest_virtual_header[25]^=0x40u;
+  assert(!ResolveOriginalLiveEorEffectPass(
+      bank,effects,live,wrong_pixel,0x81234000u,0x81235000u,17u,3u));
+  std::filesystem::remove(effect_file);
   auto original=blob;
   blob[0]='X';Write(p,blob);
   Reject([&] {bank.Load(p);}); assert(bank.size()==2);
