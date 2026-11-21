@@ -137,6 +137,8 @@ jobs:
           # bytes in public Windows jobs. Material/guest UI ABI not inferred.
           python ci/test_hulk_verify_original_usa_xdk_draw_abi.py
           if ($LASTEXITCODE -ne 0) { throw 'Original USA PPC XDK entry ABI source witness regression failed' }
+          python ci/test_hulk_usa_eor_shader_vtables.py
+          if ($LASTEXITCODE -ne 0) { throw 'Original USA EoR shader-vtable caller scope and six source PPC entry hooks invalid' }
           python ci/test_hulk_ghidra_xdk_crosscheck.py
           if ($LASTEXITCODE -ne 0) { throw 'Ghidra/ReXGlue/live XDK triple-evidence verifier failed' }
           # Single source-only suite; real ReXGlue source anchors are
