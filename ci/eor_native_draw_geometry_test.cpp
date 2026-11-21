@@ -484,7 +484,8 @@ int main(){
          realMesh->mesh_header_offset==40 &&
          realMesh->original_index_big_endian &&
          realMesh->guest_first_vertex==0 &&
-         realMesh->guest_first_index==0);
+         realMesh->guest_first_index==0 &&
+         realMesh->original_index_element_bytes==2);
   // A typical XDK resource allocation packs multiple original meshes.
   // Prefix/suffix bytes are not part of the original model and must not
   // make its EXACT middle VB+IB window disappear.
@@ -507,7 +508,32 @@ int main(){
   assert(packed && packed->model_hash==0xCAFE &&
          packed->guest_first_vertex==1 &&
          packed->guest_first_index==1 &&
-         packed->original_index_big_endian);
+         packed->original_index_big_endian &&
+         packed->original_index_element_bytes==2);
+  // Reuse the SAME original source mesh uploaded as host index32 but
+  // preserve byte-exact original Xbox D3DFMT_INDEX32 source allocation.
+  auto ib32=std::make_shared<xdk::OriginalGuestBufferBytes>(*ib);
+  ib32->bytes.clear();
+  for(const uint32_t idx:realModel.decoded_meshes[0].triangle_list_indices)
+    for(int b=3;b>=0;--b)
+      ib32->bytes.push_back(std::byte((idx>>(8*b))&255u));
+  ib32->guest_size=uint32_t(ib32->bytes.size());
+  auto draw32=realBufferDraw;
+  draw32.source_ib=ib32;
+  const auto match32=native::IdentifyExactOriginalGuestMesh(draw32,models);
+  assert(match32 && match32->original_index_big_endian &&
+         match32->original_index_element_bytes==4);
+  auto shared32=std::make_shared<xdk::OriginalGuestBufferBytes>(*ib32);
+  shared32->bytes.insert(shared32->bytes.begin(),
+      {std::byte{0},std::byte{0},std::byte{0x01},std::byte{0xFE}});
+  shared32->guest_size=uint32_t(shared32->bytes.size());
+  draw32.source_ib=shared32;
+  draw32.gpr[3]=1;
+  const auto packed32=native::IdentifyExactOriginalGuestMesh(draw32,models);
+  assert(packed32 && packed32->guest_first_index==1 &&
+         packed32->original_index_element_bytes==4);
+  draw32.gpr[3]=0;
+  assert(!native::IdentifyExactOriginalGuestMesh(draw32,models));
   auto wrongSharedFirst=packedDraw;
   wrongSharedFirst.gpr[3]=0; // points outside proven mesh's IB window
   assert(!native::IdentifyExactOriginalGuestMesh(wrongSharedFirst,models));

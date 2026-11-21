@@ -100,6 +100,9 @@ struct ExactOriginalGuestMesh {
   // Origin of the exact guest source mesh INSIDE the larger live XDK
   // allocations. The caller must still verify its shader/material/surface.
   uint32_t guest_first_vertex=0,guest_first_index=0;
+  // Original Xbox index width, source-proven by the complete bound
+  // GPU allocation. The host still uploads native uint32 DrawIndexed.
+  uint8_t original_index_element_bytes=0;
 };
 // Source-proven model and mesh ONLY; the independently observed EoR shader,
 // material/surface and camera remain separate mandatory ownership gates.

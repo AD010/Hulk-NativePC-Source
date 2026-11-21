@@ -71,62 +71,77 @@ std::optional<ExactOriginalGuestMesh> IdentifyExactOriginalGuestMesh(
           if(unique)return std::nullopt;
           unique=ExactOriginalGuestMesh{
               model->original_resource_hash,mesh.original_header_offset,
-              false,static_cast<uint32_t>(origin),0};
+              false,static_cast<uint32_t>(origin),0,0};
           continue;
         }
         // The Xbox source's original full index window may start after
         // preceding mesh indices in the SAME bound XDK index allocation.
         // Build only the expected 16-bit guest payload from actual host
         // decoded source indices, then locate exact contiguous matches.
-        for(bool big:{true,false}) {
-          std::vector<std::byte> encoded;
-          encoded.reserve(mesh.index_count*2u);
-          bool valid=true;
-          for(const uint32_t index:mesh.host_indices) {
-            if(index>UINT16_MAX) {valid=false;break;}
-            const auto hi=std::byte((index>>8)&0xffu);
-            const auto lo=std::byte(index&0xffu);
-            encoded.push_back(big?hi:lo);
-            encoded.push_back(big?lo:hi);
-          }
-          if(!valid || encoded.empty() || encoded.size()>ib->bytes.size())
+        // Original XDK index resources can be 16-bit OR 32-bit. Only
+        // full byte-exact source stream identity can authorize the width.
+        for(uint32_t index_bytes:{2u,4u}) {
+          if(ib->bytes.size()%index_bytes ||
+             mesh.index_count>UINT32_MAX/index_bytes)
             continue;
-          const auto index_matcher=std::boyer_moore_horspool_searcher(
-              encoded.begin(),encoded.end());
-          auto ib_from=ib->bytes.begin();
-          while(ib_from!=ib->bytes.end()) {
-            const auto found=std::search(ib_from,ib->bytes.end(),index_matcher);
-            if(found==ib->bytes.end())break;
-            ib_from=found+1;
-            const uint64_t byte_index=uint64_t(found-ib->bytes.begin());
-            if(byte_index%2u)continue;
-            const uint64_t first=byte_index/2u;
-            if(first>UINT32_MAX ||
-               indexed->first_index<first ||
-               uint64_t(indexed->first_index)+indexed->index_count>
-                   first+mesh.index_count)
-              continue;
-            // Every original Draw index must fetch from THIS mesh's
-            // authentic contiguous vertex slice, not just the wider VB.
-            bool window_valid=true;
-            const auto begin=uint64_t(indexed->first_index);
-            const auto finish=begin+indexed->index_count;
-            for(uint64_t k=begin;k<finish;++k) {
-              const uint32_t a=std::to_integer<uint8_t>(ib->bytes[2*k]);
-              const uint32_t b=std::to_integer<uint8_t>(ib->bytes[2*k+1]);
-              const int64_t index=big ? ((a<<8u)|b) : ((b<<8u)|a);
-              const int64_t guest_vertex=index+indexed->base_vertex;
-              if(guest_vertex<int64_t(origin) ||
-                 guest_vertex>=int64_t(origin+mesh.vertex_count)) {
-                window_valid=false;break;
+          for(bool big:{true,false}) {
+            std::vector<std::byte> encoded;
+            encoded.reserve(mesh.index_count*index_bytes);
+            bool valid=true;
+            for(const uint32_t index:mesh.host_indices) {
+              if(index_bytes==2u && index>UINT16_MAX) {
+                valid=false;break;
+              }
+              for(uint32_t byte=0;byte<index_bytes;++byte) {
+                const uint32_t shift=8u*(big ?
+                    (index_bytes-1u-byte):byte);
+                encoded.push_back(std::byte((index>>shift)&0xffu));
               }
             }
-            if(!window_valid)continue;
-            if(unique)return std::nullopt; // duplicated mesh/offset
-            unique=ExactOriginalGuestMesh{
-                model->original_resource_hash,mesh.original_header_offset,
-                big,static_cast<uint32_t>(origin),
-                static_cast<uint32_t>(first)};
+            if(!valid || encoded.empty() || encoded.size()>ib->bytes.size())
+              continue;
+            const auto index_matcher=std::boyer_moore_horspool_searcher(
+                encoded.begin(),encoded.end());
+            auto ib_from=ib->bytes.begin();
+            while(ib_from!=ib->bytes.end()) {
+              const auto found=std::search(ib_from,ib->bytes.end(),index_matcher);
+              if(found==ib->bytes.end())break;
+              ib_from=found+1;
+              const uint64_t byte_index=uint64_t(found-ib->bytes.begin());
+              if(byte_index%index_bytes)continue;
+              const uint64_t first=byte_index/index_bytes;
+              if(first>UINT32_MAX ||
+                 indexed->first_index<first ||
+                 uint64_t(indexed->first_index)+indexed->index_count>
+                     first+mesh.index_count)
+                continue;
+              bool window_valid=true;
+              const uint64_t begin=uint64_t(indexed->first_index);
+              const uint64_t finish=begin+indexed->index_count;
+              for(uint64_t k=begin;k<finish;++k) {
+                uint32_t index=0;
+                for(uint32_t byte=0;byte<index_bytes;++byte) {
+                  const uint32_t value=std::to_integer<uint8_t>(
+                      ib->bytes[k*index_bytes+byte]);
+                  const uint32_t shift=8u*(big?
+                      index_bytes-1u-byte:byte);
+                  index|=value<<shift;
+                }
+                const int64_t guest_vertex=
+                    int64_t(index)+indexed->base_vertex;
+                if(guest_vertex<int64_t(origin) ||
+                   guest_vertex>=int64_t(origin+mesh.vertex_count)) {
+                  window_valid=false;break;
+                }
+              }
+              if(!window_valid)continue;
+              if(unique)return std::nullopt;
+              unique=ExactOriginalGuestMesh{
+                  model->original_resource_hash,mesh.original_header_offset,
+                  big,static_cast<uint32_t>(origin),
+                  static_cast<uint32_t>(first),
+                  static_cast<uint8_t>(index_bytes)};
+            }
           }
         }
       }

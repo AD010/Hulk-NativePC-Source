@@ -329,6 +329,8 @@ class NativeEorLinkCoverage(unittest.TestCase):
         self.assertIn("original->base_vertex)-exact->guest_first_vertex",geometry)
         self.assertIn("sharedVb->bytes.insert(",cpp)
         self.assertIn("sharedIb->bytes.insert(",cpp)
+        self.assertIn("for(uint32_t index_bytes:{2u,4u})",geometry)
+        self.assertIn("original_index_element_bytes==4",cpp)
         self.assertIn("wrongSharedBase.gpr[2]=0",cpp)
 
     def test_native_worker_fallback_only_suppressed_after_gpu_begin_attempt(self):
