@@ -116,6 +116,24 @@ int main() {
   static_assert(ProvenUsaXdkDirectBlCaller(
       0x8288DF30u,0x82640614u)==0u);
   static_assert(ProvenUsaXdkDirectBlCaller(0,0)==0u);
+  // These are original EoR engine VIRTUAL shader calls, not guessed XDK
+  // draw methods. Each method address was proven against a named original
+  // shader .rdata vtable and a live shader instance in the private USA dump.
+  static_assert(ProvenUsaEorShaderVtableForMethod(
+      0x8265B420u)==0x82066504u); // Decal
+  static_assert(ProvenUsaEorShaderVtableForMethod(
+      0x82668D50u)==0x8206EBFCu); // TexturedRect
+  static_assert(ProvenUsaEorShaderVtableForMethod(
+      0x82669630u)==0x8206ECACu); // ScreenRect
+  static_assert(ProvenUsaEorShaderVtableForMethod(
+      0x8266A0C0u)==0x8206ED6Cu); // Font
+  static_assert(ProvenUsaEorShaderVtableForMethod(
+      0x8266CC28u)==0x8206F5DCu); // Sky
+  static_assert(ProvenUsaEorShaderVtableForMethod(
+      0x8266DDD0u)==0x8206F7CCu); // FlatShadow
+  static_assert(ProvenUsaEorShaderVtableForMethod(
+      0x8288E318u)==0u); // Original XDK function is not a shader instance
+  static_assert(ProvenUsaEorShaderVtableForMethod(0u)==0u);
   CheckBufferSnapshots();
   assert(VerifiedTriangleListCount(4u,3u)==3u);
   assert(VerifiedTriangleListCount(4u,6u)==6u);
