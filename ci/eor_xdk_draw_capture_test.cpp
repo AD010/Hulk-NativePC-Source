@@ -198,6 +198,12 @@ int main() {
   source_item.original_engine_shader_method->
       original_engine_render_item_context_guest=0xA3491120u;
   source_item.original_engine_shader_method->
+      original_engine_render_item_vtable_guest=0x8206A100u;
+  source_item.original_engine_shader_method->
+      original_engine_render_item_material_guest=0xA3120010u;
+  source_item.original_engine_shader_method->
+      original_engine_item_material_source_verified=true;
+  source_item.original_engine_shader_method->
       original_engine_item_abi_verified=true;
   assert(ValidOriginalEorSourceRenderItem(source_item));
   auto foreign_item=source_item;
@@ -211,6 +217,18 @@ int main() {
   foreign_item=source_item;
   foreign_item.original_engine_shader_method->
       original_engine_render_item_guest=0u;
+  assert(!ValidOriginalEorSourceRenderItem(foreign_item));
+  foreign_item=source_item;
+  foreign_item.original_engine_shader_method->
+      original_engine_render_item_vtable_guest=0u;
+  assert(!ValidOriginalEorSourceRenderItem(foreign_item));
+  foreign_item=source_item;
+  foreign_item.original_engine_shader_method->
+      original_engine_render_item_material_guest=0u;
+  assert(!ValidOriginalEorSourceRenderItem(foreign_item));
+  foreign_item=source_item;
+  foreign_item.original_engine_shader_method->
+      original_engine_item_material_source_verified=false;
   assert(!ValidOriginalEorSourceRenderItem(foreign_item));
   // Real Decal source 0x82642C68 calls the original item virtual
   // material method+48, then source binder 0x825F8A50 with original
