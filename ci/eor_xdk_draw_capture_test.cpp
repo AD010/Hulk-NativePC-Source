@@ -151,6 +151,50 @@ int main() {
       0x8288E318u)==0u); // Original XDK function is not a shader instance
   static_assert(ProvenUsaEorShaderVtableForMethod(0u)==0u);
   CheckBufferSnapshots();
+  // Actual USA Decal PPC at 0x8265B538 passes a geometry descriptor
+  // discovered from its own render-item r28 through guest +0x3C,
+  // then binds original XDK VB=geometry+0x18 and IB=geometry+0x38.
+  // This direct original engine Draw ABI does NOT authorize material
+  // effect/pass identity; only source guest geometry IDs are proven.
+  RawDraw exact_decal{
+      Kind::DrawIndexedVertices,0x8288E318u,0x8265B53Cu,
+      {0x40002880u,4u,0u,0u,6u,0u,0u,0u}};
+  exact_decal.observed_vs_matrices=OriginalVsMatrices{};
+  exact_decal.observed_vs_matrices->original_guest_device=0x40002880u;
+  exact_decal.observed_vs_matrices->
+      original_vertex_buffer_guest_objects[0]=0xA0000018u;
+  exact_decal.observed_vs_matrices->
+      original_index_buffer_guest_object=0xA0000038u;
+  OriginalEorShaderMethodAtDraw decal_owner{};
+  decal_owner.original_shader_method_guest=0x8265B420u;
+  decal_owner.original_shader_instance_guest=0xA3100010u;
+  decal_owner.original_shader_vtable_guest=0x82066504u;
+  decal_owner.nesting_depth=1;
+  decal_owner.original_shader_method_vtable_verified=true;
+  decal_owner.original_decal_render_item_guest=0xA3100F00u;
+  decal_owner.original_decal_geometry_guest=0xA0000000u;
+  decal_owner.original_decal_xdk_vb_ib_binding_verified=true;
+  exact_decal.original_engine_shader_method=decal_owner;
+  assert(ValidOriginalDecalGeometryBinding(exact_decal));
+  auto incorrect_decal=exact_decal;
+  incorrect_decal.observed_vs_matrices->
+      original_index_buffer_guest_object=0xA0000040u;
+  assert(!ValidOriginalDecalGeometryBinding(incorrect_decal));
+  incorrect_decal=exact_decal;
+  incorrect_decal.original_engine_shader_method->
+      original_decal_geometry_guest=0xA0001000u;
+  assert(!ValidOriginalDecalGeometryBinding(incorrect_decal));
+  incorrect_decal=exact_decal;
+  incorrect_decal.lr=0x8265B540u;
+  assert(!ValidOriginalDecalGeometryBinding(incorrect_decal));
+  incorrect_decal=exact_decal;
+  incorrect_decal.original_engine_shader_method->
+      original_decal_xdk_vb_ib_binding_verified=false;
+  assert(!ValidOriginalDecalGeometryBinding(incorrect_decal));
+  incorrect_decal=exact_decal;
+  incorrect_decal.original_engine_shader_method->
+      original_shader_method_guest=0x826432F0u;
+  assert(!ValidOriginalDecalGeometryBinding(incorrect_decal));
   assert(VerifiedTriangleListCount(4u,3u)==3u);
   assert(VerifiedTriangleListCount(4u,6u)==6u);
   assert(VerifiedTriangleListCount(6u,4u)==6u);
