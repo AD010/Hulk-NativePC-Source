@@ -530,12 +530,13 @@ bool ValidOriginalEorShaderMethod(
   return source.original_shader_method_vtable_verified &&
          source.original_shader_instance_guest &&
          source.original_shader_vtable_guest &&
-         xdk::ProvenUsaEorShaderVtableForMethod(
-             source.original_shader_method_guest)!=0u &&
+         xdk::ProvenUsaEorShaderMethodVtablePair(
+             source.original_shader_method_guest,
+             source.original_shader_vtable_guest) &&
          source.nesting_depth && source.nesting_depth<=16 &&
-         xdk::ProvenUsaEorShaderVtableForMethod(
-             source.original_shader_method_guest)==
-             source.original_shader_vtable_guest;
+         xdk::ProvenUsaEorShaderMethodVtablePair(
+             source.original_shader_method_guest,
+             source.original_shader_vtable_guest);
 }
 }
 std::vector<VerifiedXdkResourceWitness> AttachLiveEorShaderMethodParents(
