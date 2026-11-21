@@ -689,7 +689,8 @@ std::vector<VerifiedDrawSource> ResolveCapturedResourceDraws(
       // agree with the real GPU VB/IB descriptors at THIS guest Draw.
       if(!xdk::ValidOriginalDecalGeometryBinding(call) ||
          !xdk::ValidOriginalDecalItemMaterialBinding(call) ||
-         !xdk::ValidOriginalShaderPassStageBinding(call))
+         !xdk::ValidOriginalShaderPassStageBinding(call) ||
+         !xdk::ValidOriginalShaderPassSamplerStateAtDraw(call))
         continue;
       const auto& live_engine=call.original_engine_shader_method;
       const auto& proven_engine=
