@@ -43,12 +43,15 @@ class TestEorObserverOnly(unittest.TestCase):
         self.assertIn("delivered->overwritten_since_take",replay)
         self.assertIn("ValidateOriginalCommandTimeline(*preview)",replay)
         self.assertIn("gpu.CanReplayOriginalXdkTimeline(*preview)",replay)
-        self.assertLess(replay.index("gpu.CanReplayOriginalXdkTimeline(*preview)"),
-                        replay.index("g_frames_for_native.TakeIfSequence(sequence)"))
-        self.assertLess(replay.index("preview.reset();"),
-                        replay.index("g_frames_for_native.TakeIfSequence(sequence)"))
-        self.assertLess(replay.index("g_frames_for_native.TakeIfSequence(sequence)"),
-                        replay.index("native::ReplayDeliveredResourceScene("))
+        # First TakeIfSequence is a STALE-frame discard when a Present
+        # epoch was overwritten. The SECOND take is the only path that
+        # authorizes Vulkan GPU work; the preflight must precede THAT take.
+        handoff=replay.rindex("g_frames_for_native.TakeIfSequence(sequence)")
+        eligibility=replay.index("gpu.CanReplayOriginalXdkTimeline(*preview)")
+        self.assertLess(eligibility,handoff)
+        self.assertLess(replay.index("preview.reset();",eligibility),handoff)
+        self.assertLess(handoff,replay.index("native::ReplayDeliveredResourceScene("))
+        self.assertIn("(void)g_frames_for_native.TakeIfSequence(sequence);",replay)
         self.assertIn("catch (...)",replay)
         self.assertNotIn("native_x_renderer::Initialize(",replay)
         self.assertNotIn("device_->Present(",replay)

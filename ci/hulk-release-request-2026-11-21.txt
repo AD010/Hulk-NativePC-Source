@@ -20,3 +20,5 @@ Retry 8: synchronize source-coverage tests with exact shared VB/IB 16/32-bit end
 Retry 9: block duplicate marker-stripped converted-index pool arithmetic, not only full replacement marker.
 
 Retry 10: repair original shader effect pass ledger 3-field stage tuple unpack; tests stage-offset uniqueness and verified PDB technique.
+
+Retry 11: assert safe preflight before real mailbox handoff, not before stale mailbox epoch eviction.
