@@ -92,6 +92,30 @@ void CheckBufferSnapshots() {
 }
 }
 int main() {
+  // SHA-pinned USA PPC AOT verified one direct bl into DrawVertices and
+  // five into DrawIndexedVertices. Tail branches do NOT create an LR:
+  // never mistake their callsite+4 for an authenticated source owner.
+  static_assert(ProvenUsaXdkDirectBlCaller(
+      0x8288DF30u,0x82676430u)==0x82676400u);
+  static_assert(ProvenUsaXdkDirectBlCaller(
+      0x8288E318u,0x82640614u)==0x82640578u);
+  static_assert(ProvenUsaXdkDirectBlCaller(
+      0x8288E318u,0x8264164Cu)==0x82641618u);
+  static_assert(ProvenUsaXdkDirectBlCaller(
+      0x8288E318u,0x8265B53Cu)==0x8265B420u);
+  static_assert(ProvenUsaXdkDirectBlCaller(
+      0x8288E318u,0x82668184u)==0x826680B8u);
+  static_assert(ProvenUsaXdkDirectBlCaller(
+      0x8288E318u,0x8266899Cu)==0x826688D0u);
+  static_assert(ProvenUsaXdkDirectBlCaller(
+      0x8288E318u,0x826762BCu)==0u); // tail b, LR cannot be derived
+  static_assert(ProvenUsaXdkDirectBlCaller(
+      0x8288DF30u,0x826762E8u)==0u); // another original tail b
+  static_assert(ProvenUsaXdkDirectBlCaller(
+      0x8288E318u,0x82676430u)==0u); // incompatible XDK method
+  static_assert(ProvenUsaXdkDirectBlCaller(
+      0x8288DF30u,0x82640614u)==0u);
+  static_assert(ProvenUsaXdkDirectBlCaller(0,0)==0u);
   CheckBufferSnapshots();
   assert(VerifiedTriangleListCount(4u,3u)==3u);
   assert(VerifiedTriangleListCount(4u,6u)==6u);
