@@ -9,7 +9,7 @@ import sys
 import unittest
 
 from patch_sdk_hulk_xenia_edge import (
-    INDEX_FILE, INDEX_OLD, INDEX_NEW, INDEX_MARKER, patch_index,
+    INDEX_FILE, INDEX_OLD, INDEX_NEW, INDEX_NEW_EXPR, INDEX_MARKER, patch_index,
     MIP_FILE, MIP_MARKER, MIP_ADDR_OLD, MIP_ADDR_NEW, MIP_OFFSET_START,
     MIP_OFFSET_END, MIP_SHAPE_INSERT_OLD, MIP_SHAPE_INSERT_NEW, MIP_SHAPE_OLD, MIP_SHAPE_NEW, patch_mip,
     SCALAR_SHADER, SCALAR_HEADER, SCALAR_MARKER, SCALAR_START,
@@ -32,6 +32,7 @@ class ConvertedIndexPoolTests(unittest.TestCase):
         self.assertIn(INDEX_NEW, fixed)
         self.assertNotIn(INDEX_OLD, fixed)
         self.assertEqual(patch_index(fixed), (fixed, False))
+        self.assertEqual(fixed.count(INDEX_NEW_EXPR), 1)
         # Upstream source describes a 16-byte SIMD co-alignment allowance.
         max_indices = (0xffff - 2) * 3
         wrong = 4 * max_indices * 16

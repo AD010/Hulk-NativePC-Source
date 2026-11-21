@@ -19,6 +19,7 @@ from pathlib import Path
 INDEX_FILE = "include/rex/graphics/primitive_processor.h"
 INDEX_MARKER = "HULK/XENIA-EDGE-INDEX-PAGE-4AD875"
 INDEX_OLD = "      sizeof(uint32_t) * (UINT16_MAX - 2) * 3 * +XE_GPU_PRIMITIVE_PROCESSOR_SIMD_SIZE;"
+INDEX_NEW_EXPR = "sizeof(uint32_t) * (UINT16_MAX - 2) * 3 + XE_GPU_PRIMITIVE_PROCESSOR_SIMD_SIZE;"
 INDEX_NEW = """      // HULK/XENIA-EDGE-INDEX-PAGE-4AD875: SIMD is padding, not a factor.
       sizeof(uint32_t) * (UINT16_MAX - 2) * 3 + XE_GPU_PRIMITIVE_PROCESSOR_SIMD_SIZE;"""
 
@@ -26,10 +27,13 @@ INDEX_NEW = """      // HULK/XENIA-EDGE-INDEX-PAGE-4AD875: SIMD is padding, not 
 def patch_index(source: str) -> tuple[str, bool]:
     if INDEX_MARKER in source:
         if (source.count(INDEX_MARKER) != 1 or source.count(INDEX_NEW) != 1 or
-                INDEX_OLD in source):
+                source.count(INDEX_NEW_EXPR) != 1 or INDEX_OLD in source):
             raise ValueError("Partial converted-index page fix")
         return source, False
+    # The arithmetic expression is the real edited ABI, not a comment.
+    # A second marker-stripped variant must never pass as a pristine SDK.
     if (source.count(INDEX_OLD) != 1 or INDEX_NEW in source or
+            INDEX_NEW_EXPR in source or
             "kMinRequiredConvertedIndexBufferSize" not in source):
         raise ValueError("Pinned ReXGlue primitive pool expression changed")
     return source.replace(INDEX_OLD, INDEX_NEW, 1), True

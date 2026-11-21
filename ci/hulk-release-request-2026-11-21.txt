@@ -16,3 +16,5 @@ Retry 6: correct synthetic vector compare CR6 fixture to pinned real ReXGlue bui
 Retry 7: update native GPU diagnostic test to real confirmed Exit-to-Windows path in full-screen menu.
 
 Retry 8: synchronize source-coverage tests with exact shared VB/IB 16/32-bit endian-aware guest source provenance and actual verified rebase.
+
+Retry 9: block duplicate marker-stripped converted-index pool arithmetic, not only full replacement marker.
