@@ -281,6 +281,18 @@ struct OriginalEorShaderMethodAtDraw {
   uint32_t original_pass_vs_xdk_guest_object=0;
   uint32_t original_pass_ps_xdk_guest_object=0;
   bool original_pass_vs_ps_xdk_binding_verified=false;
+  // USA 0x825F84C0 reads the original per-pass sampler-state record
+  // count from +87, first record BE16 from +80, and the actual
+  // material+196 four-byte sampler-state source table. Record byte0
+  // &0x7f is the ORIGINAL XDK texture/sampler register. This is a
+  // source-proven pass slot MASK, not proof that a guest XDK texture
+  // object maps to a particular MODELS/Textures ARC image or fetch.
+  uint16_t original_pass_sampler_slot_mask=0;
+  bool original_pass_sampler_slots_verified=false;
+  // At this exact original XDK Draw, every active pass slot has an
+  // observed nonzero original device+12544 texture object pointer.
+  // No texture payload SHA/PSO/format/mip identity inferred from that.
+  bool original_pass_live_texture_objects_present=false;
 };
 struct RawDraw {
   Kind kind{};
