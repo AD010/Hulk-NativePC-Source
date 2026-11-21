@@ -417,6 +417,9 @@ ScopedOriginalEorRenderItem::ScopedOriginalEorRenderItem(
   previous_method_=parent.original_engine_item_method_guest;
   previous_item_=parent.original_engine_render_item_guest;
   previous_context_=parent.original_engine_render_item_context_guest;
+  previous_item_vtable_=parent.original_engine_render_item_vtable_guest;
+  previous_material_=parent.original_engine_render_item_material_guest;
+  previous_material_verified_=parent.original_engine_item_material_source_verified;
   previous_verified_=parent.original_engine_item_abi_verified;
   touched_=true;
   // Every sibling item re-enters via 0x82642BD4. NEVER reuse an old
@@ -425,11 +428,17 @@ ScopedOriginalEorRenderItem::ScopedOriginalEorRenderItem(
   parent.original_engine_item_method_guest=0u;
   parent.original_engine_render_item_guest=0u;
   parent.original_engine_render_item_context_guest=0u;
+  parent.original_engine_render_item_vtable_guest=0u;
+  parent.original_engine_render_item_material_guest=0u;
+  parent.original_engine_item_material_source_verified=false;
   parent.original_engine_item_abi_verified=false;
   if(!original_guest_base || !original_ctx.r3.u32 ||
      !original_ctx.r4.u32 ||
      static_cast<uint32_t>(original_ctx.lr)!=0x82642BD8u ||
-     original_ctx.r3.u32!=parent.original_shader_instance_guest)
+     original_ctx.r3.u32!=parent.original_shader_instance_guest ||
+     original_ctx.r31.u32!=original_ctx.r3.u32 ||
+     original_ctx.r28.u32!=original_ctx.r4.u32 ||
+     original_ctx.r23.u32!=original_ctx.r5.u32)
     return;
   std::array<std::byte,4> vtable_bytes{};
   if(!ReadGuest(original_guest_base,original_ctx.r3.u32,
@@ -442,10 +451,49 @@ ScopedOriginalEorRenderItem::ScopedOriginalEorRenderItem(
   if(vtable!=parent.original_shader_vtable_guest ||
      !ProvenUsaEorRenderItemMethodVtablePair(
          original_method_guest,vtable))return;
+  // At source PPC 0x82642AF8 .. 0x82642B10, the original
+  // EoR dispatcher called render_item->vtable+48 to obtain the
+  // original source MATERIAL in r3 and saved it in callee-saved r27.
+  // At bctrl 0x82642BD4, unchanged r27 therefore belongs to this
+  // exact r28/r4 render item. Validate the original item's true
+  // virtual table and material method before accepting the source owner.
+  std::array<std::byte,4> item_vtable_bytes{};
+  if(!ReadGuest(original_guest_base,original_ctx.r4.u32,
+                item_vtable_bytes.data(),item_vtable_bytes.size()))
+    return;
+  const uint32_t item_vtable=
+      uint32_t(std::to_integer<uint8_t>(item_vtable_bytes[0]))<<24 |
+      uint32_t(std::to_integer<uint8_t>(item_vtable_bytes[1]))<<16 |
+      uint32_t(std::to_integer<uint8_t>(item_vtable_bytes[2]))<<8 |
+      uint32_t(std::to_integer<uint8_t>(item_vtable_bytes[3]));
+  if(item_vtable<0x82000000u || item_vtable>0x821B1FCCu)
+    return; // source .rdata, plus the real slot+48 pointer
+  std::array<std::byte,4> material_method_bytes{};
+  if(!ReadGuest(original_guest_base,item_vtable+48u,
+                material_method_bytes.data(),material_method_bytes.size()))
+    return;
+  const uint32_t material_method=
+      uint32_t(std::to_integer<uint8_t>(material_method_bytes[0]))<<24 |
+      uint32_t(std::to_integer<uint8_t>(material_method_bytes[1]))<<16 |
+      uint32_t(std::to_integer<uint8_t>(material_method_bytes[2]))<<8 |
+      uint32_t(std::to_integer<uint8_t>(material_method_bytes[3]));
+  if(material_method<0x821B2000u || material_method>=0x82D61523u ||
+     (material_method&3u))
+    return;
   parent.original_engine_item_method_guest=original_method_guest;
   parent.original_engine_render_item_guest=original_ctx.r4.u32;
   parent.original_engine_render_item_context_guest=original_ctx.r5.u32;
+  parent.original_engine_render_item_vtable_guest=item_vtable;
   parent.original_engine_item_abi_verified=true;
+  if(original_ctx.r27.u32) {
+    std::array<std::byte,4> source_material{};
+    if(ReadGuest(original_guest_base,original_ctx.r27.u32,
+                 source_material.data(),source_material.size())) {
+      parent.original_engine_render_item_material_guest=
+          original_ctx.r27.u32;
+      parent.original_engine_item_material_source_verified=true;
+    }
+  }
 }
 ScopedOriginalEorRenderItem::~ScopedOriginalEorRenderItem() noexcept {
   // Nested item invocations are permitted, but only restore into the
@@ -457,6 +505,10 @@ ScopedOriginalEorRenderItem::~ScopedOriginalEorRenderItem() noexcept {
   parent.original_engine_item_method_guest=previous_method_;
   parent.original_engine_render_item_guest=previous_item_;
   parent.original_engine_render_item_context_guest=previous_context_;
+  parent.original_engine_render_item_vtable_guest=previous_item_vtable_;
+  parent.original_engine_render_item_material_guest=previous_material_;
+  parent.original_engine_item_material_source_verified=
+      previous_material_verified_;
   parent.original_engine_item_abi_verified=previous_verified_;
 }
 
