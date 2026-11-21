@@ -44,6 +44,7 @@ struct OfflineShaderPack {
   std::shared_ptr<const aot::EffectCatalog> effects;
   std::shared_ptr<const aot::ReflectionBank> reflection;
   std::shared_ptr<const aot::OriginalXdkShaderSamplers> samplers;
+  std::shared_ptr<const aot::OriginalVirtualShaderIdentity> virtual_ids;
 };
 std::optional<OfflineShaderPack> g_offline_shader_pack;
 OriginalGuestBufferSnapshots g_original_buffers; // guarded by g_mutex
@@ -590,9 +591,11 @@ bool InstallVerifiedSourceShaderPack(
     std::shared_ptr<const aot::ShaderBank> shaders,
     std::shared_ptr<const aot::EffectCatalog> effects,
     std::shared_ptr<const aot::ReflectionBank> reflection,
-    std::shared_ptr<const aot::OriginalXdkShaderSamplers> samplers) {
+    std::shared_ptr<const aot::OriginalXdkShaderSamplers> samplers,
+    std::shared_ptr<const aot::OriginalVirtualShaderIdentity> virtual_ids) {
   if(!shaders || !shaders->size() || !shaders->expected() ||
      (samplers && samplers->ShaderCount()!=shaders->expected()) ||
+     (virtual_ids && virtual_ids->size()!=shaders->expected()) ||
      !effects || !effects->EffectCount() ||
      effects->ShaderCount()!=shaders->expected() ||
      !reflection || reflection->size()!=shaders->expected())
@@ -603,7 +606,7 @@ bool InstallVerifiedSourceShaderPack(
   g_verified_worker_frame.reset();
   g_offline_shader_pack=OfflineShaderPack{
       std::move(shaders),std::move(effects),std::move(reflection),
-      std::move(samplers)};
+      std::move(samplers),std::move(virtual_ids)};
   return true;
 }
 void ClearVerifiedSourceShaderPack() noexcept {
@@ -637,7 +640,8 @@ bool InstallVerifiedWorkerEorFrame(
   if((frame->shaders && frame->shaders!=pack.shaders) ||
      (frame->effects && frame->effects!=pack.effects) ||
      (frame->reflection && frame->reflection!=pack.reflection) ||
-     (frame->samplers && frame->samplers!=pack.samplers))
+     (frame->samplers && frame->samplers!=pack.samplers) ||
+     (frame->virtual_ids && frame->virtual_ids!=pack.virtual_ids))
     return false;
   auto complete=std::make_shared<VerifiedWorkerEorFrame>(*frame);
   // The original USA frame is the sole authority for shader-class parent
@@ -658,6 +662,7 @@ bool InstallVerifiedWorkerEorFrame(
   complete->effects=pack.effects;
   complete->reflection=pack.reflection;
   complete->samplers=pack.samplers;
+  complete->virtual_ids=pack.virtual_ids;
   g_verified_worker_frame=std::move(complete);
   return true;
 }
