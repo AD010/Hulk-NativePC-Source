@@ -1,5 +1,12 @@
 name: Hulk NativePC - Manual Windows Release
 on:
+  # Explicit user request, 2026-11-21: one Windows build with newest main.
+  # Trigger only on the exact one-off release-request marker below. Keep
+  # the existing workflow, never create a second builder/workflow.
+  push:
+    branches: [main]
+    paths:
+      - 'ci/hulk-release-request-2026-11-21.txt'
   # User-requested release gate: do not start more experimental Windows
   # builds on source edits. Keep this single Release-only workflow available
   # for an explicit final validation through GitHub Actions.
