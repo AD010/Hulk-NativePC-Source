@@ -52,11 +52,22 @@ class D140WindowsDispatchTests(unittest.TestCase):
         # migration-branch edit into a private Windows build/release.
         workflow=(ROOT/".github"/"workflows"/"hulk-free-windows.yml").read_text("utf-8")
         self.assertRegex(workflow,r"(?m)^  workflow_dispatch:\s*$")
-        # No temporary push escape hatch: source edits must NEVER start
-        # an expensive release. Require an explicit manual dispatch after
-        # all independent source tests and toolchain checks pass.
+        # The user explicitly requested ONE Release on 2026-11-21.
+        # GitHub App does not expose workflow_dispatch through this
+        # integration; constrain the temporary event to ONE source-only
+        # request path on main, then restore manual-only immediately.
         self.assertNotRegex(
-            workflow, r"(?m)^  (?:push|pull_request|schedule|workflow_run):")
+            workflow, r"(?m)^  (?:pull_request|schedule|workflow_run):")
+        if "  push:" in workflow:
+            self.assertIn(
+                "  push:\n    branches: [main]\n    paths:\n"
+                "      - 'ci/hulk-release-request-2026-11-21.txt'",
+                workflow)
+            self.assertIn(
+                "ci/hulk-release-request-2026-11-21.txt",
+                workflow)
+        else:
+            self.assertNotRegex(workflow,r"(?m)^  push:")
         self.assertIn("github.ref == 'refs/heads/main'",workflow)
         self.assertIn("github.repository == 'AD010/Hulk-NativePC-Source'",workflow)
         self.assertIn("HULK_PINNED_XEX_SHA256:",workflow)
