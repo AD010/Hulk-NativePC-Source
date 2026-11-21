@@ -6,6 +6,8 @@
 #include "native_pc_bindings.h"
 #include "native_resolution.h"
 #include "native_gpu_autodiag.h"
+#include "eor_ui_original_dds.h"
+#include <rex/ui/immediate_drawer.h>
 #if defined(HULK_NATIVE_X_LINKED)
 #include "eor_xdk_hook_bridge.h"
 #endif
@@ -17,6 +19,8 @@
 #include <imgui.h>
 #include <algorithm>
 #include <atomic>
+#include <cstdlib>
+#include <exception>
 #include <filesystem>
 #include <functional>
 #include <unordered_map>
@@ -55,6 +59,11 @@ class PcMenu final : public rex::ui::ImGuiDialog {
     if (!visible.load(std::memory_order_acquire)) return;
     if (return_to_home.exchange(false, std::memory_order_acq_rel))
       active_section_=-1;
+    // An optional retail PC 2008 install provides authentic Hulk EoR menu
+    // art. The Xbox 360 UIPage remains game-owned; do not patch its guest
+    // binary or substitute a guessed LFXT format for the original asset.
+    if(!original_menu_art_tried_)LoadOriginalEorMenuArt();
+    UploadOriginalEorMenuArt();
     // HULK/PC-MENU-SECTIONS: accessible in-game host overlay, not a
     // counterfeit edit of the Xbox pause-menu or an asset replacement.
     // Do not advertise controls until real CVars or game APIs are wired.
@@ -93,6 +102,27 @@ class PcMenu final : public rex::ui::ImGuiDialog {
       art->AddRectFilled(
           ImVec2(top.x,top.y),ImVec2(top.x+5.0f*menu_scale,top.y+extent.y),
           IM_COL32(121,203,64,255));
+      // The actual 2008 EoR menu texture is drawn by ReXGlue's Vulkan
+      // ImmediateDrawer from owner-supplied PC archives, not from a
+      // fake generated banner or an unverified Xbox UI object.
+      if(original_bands_gpu_) {
+        const float art_height=std::min(285.0f*menu_scale,extent.y*0.56f);
+        const ImVec2 p(top.x+extent.x-art_height-12.0f,
+                       top.y+12.0f);
+        art->AddImage(
+            reinterpret_cast<ImTextureID>(original_bands_gpu_.get()),
+            p,ImVec2(p.x+art_height,p.y+art_height),
+            ImVec2(0,0),ImVec2(1,1),IM_COL32(255,255,255,210));
+      }
+      if(original_items_gpu_) {
+        const float art_width=std::min(260.0f*menu_scale,extent.x*0.26f);
+        const ImVec2 p(top.x+extent.x-art_width-12.0f,
+                       top.y+extent.y-art_width*0.5f-12.0f);
+        art->AddImage(
+            reinterpret_cast<ImTextureID>(original_items_gpu_.get()),
+            p,ImVec2(p.x+art_width,p.y+art_width*0.5f),
+            ImVec2(0,0),ImVec2(1,1),IM_COL32(255,255,255,240));
+      }
       const float panel_left=std::max(16.0f,(extent.x-menu_width)*0.5f);
       const float panel_top=std::max(14.0f,(extent.y-menu_height)*0.5f);
       const float section_width=std::min(220.0f*menu_scale,menu_width*0.32f);
@@ -582,6 +612,76 @@ class PcMenu final : public rex::ui::ImGuiDialog {
     if (!open) PcMenuSetOpen(false);
   }
  private:
+  void LoadOriginalEorMenuArt() {
+    original_menu_art_tried_=true;
+    std::vector<std::filesystem::path> folders;
+    if(const char* env=std::getenv("HULK_PC2008_UI_DIR");env && *env)
+      folders.emplace_back(env);
+    if(!config_.empty())
+      folders.push_back(config_.parent_path());
+    std::error_code ec;
+    const auto cwd=std::filesystem::current_path(ec);
+    if(!ec)folders.push_back(cwd);
+    for(const auto& root:folders) {
+      try {
+        const auto index=root/"indexPC.ind";
+        auto textures=root/"textures(1).arc";
+        if(!std::filesystem::is_regular_file(textures))
+          textures=root/"TEXTURES.ARC";
+        if(!std::filesystem::is_regular_file(index) ||
+           !std::filesystem::is_regular_file(textures))
+          continue;
+        auto bands=eor::ui::LoadPcMenuArt(
+            index,textures,"ui_menubands_da");
+        auto items=eor::ui::LoadPcMenuArt(
+            index,textures,"ui_menuitems_da");
+        original_bands_=std::move(bands);
+        original_items_=std::move(items);
+        REXLOG_INFO("[HULK/EOR-UI] authentic original PC 2008 "
+                    "menu art decoded; host Vulkan texture pending");
+        return;
+      } catch(const std::exception& error) {
+        REXLOG_WARN("[HULK/EOR-UI] original PC menu source not usable: {}",
+                    error.what());
+      }
+    }
+  }
+  void UploadOriginalEorMenuArt() {
+    if(original_bands_.rgba.empty() || original_items_.rgba.empty())
+      return;
+    auto* current=imgui_drawer()->immediate_drawer();
+    if(!current)return;
+    if(original_menu_art_drawer_!=current) {
+      // A texture from a different immediate renderer must never be used
+      // on the current Vulkan UI device after a renderer reattachment.
+      original_items_gpu_.reset();
+      original_bands_gpu_.reset();
+      original_menu_art_drawer_=current;
+    }
+    if(original_bands_gpu_ && original_items_gpu_)return;
+    try {
+      if(!original_bands_gpu_)
+        original_bands_gpu_=current->CreateTexture(
+            original_bands_.width,original_bands_.height,
+            rex::ui::ImmediateTextureFilter::kLinear,false,
+            original_bands_.rgba.data());
+      if(!original_items_gpu_)
+        original_items_gpu_=current->CreateTexture(
+            original_items_.width,original_items_.height,
+            rex::ui::ImmediateTextureFilter::kLinear,false,
+            original_items_.rgba.data());
+    } catch(const std::exception& error) {
+      original_bands_gpu_.reset();
+      original_items_gpu_.reset();
+      original_bands_={};original_items_={};
+      REXLOG_WARN("[HULK/EOR-UI] host original PC texture upload rejected: {}",
+                  error.what());
+    }
+  }
+  bool original_menu_art_tried_=false;
+  rex::ui::ImmediateDrawer* original_menu_art_drawer_=nullptr;
+  eor::ui::OriginalPcUiImage original_bands_,original_items_;
+  std::unique_ptr<rex::ui::ImmediateTexture> original_bands_gpu_,original_items_gpu_;
   // No F4 detour: save the same resolved game TOML that ReXGlue loaded.
    // HULK/PCMENU-CONFIG-LATE: OnCreateDialogs can precede OnFinalizePaths.
    // Hold a REFERENCE to IncredibleHulkApp::native_pc_config_ instead of

@@ -161,6 +161,17 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Native C++ EoR asset backend failed MSVC compile' }
           & $nativeTest
           if ($LASTEXITCODE -ne 0) { throw 'Native C++ EoR endian/index/CRC/resource regression failed' }
+          # Source-only C++ loader for actual original 2008 PC EoR menu
+          # TXFL wrapped DDS artwork: synthetic test only, no game bytes.
+          $uiTest = Join-Path $env:RUNNER_TEMP 'hulk-eor-retail-menu-art-test.exe'
+          $uiArgs = @('/nologo','/std:c++20','/EHsc','/W4','/WX','/utf-8',
+                      "/Fe:$uiTest",'native_port/src/eor_archive.cpp',
+                      'native_port/src/eor_ui_original_dds.cpp',
+                      'ci/eor_ui_original_dds_test.cpp')
+          & cl.exe @uiArgs
+          if ($LASTEXITCODE -ne 0) { throw 'Hulk original 2008 UI decode failed MSVC compile' }
+          & $uiTest
+          if ($LASTEXITCODE -ne 0) { throw 'Original Hulk EoR PC UI decode regression failed' }
           # Native original Xbox FMOD trailing catalog and type-safe event
           # metadata preservation, no real FMOD bytes in CI or public repo.
           $fmCatTest = Join-Path $env:RUNNER_TEMP 'hulk-eor-fmod-catalog-test.exe'

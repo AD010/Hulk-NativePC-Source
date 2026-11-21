@@ -59,6 +59,7 @@ set(INCREDIBLEHULK_SOURCES
     src/eor_native_draw_geometry.cpp
     src/eor_xdk_draw_capture.cpp
     src/eor_ui_asset_catalog.cpp
+    src/eor_ui_original_dds.cpp
     src/native_pc_options_store.cpp
     src/native_pc_save_path.cpp
     src/native_pc_save_format.cpp
