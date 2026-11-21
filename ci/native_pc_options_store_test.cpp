@@ -49,6 +49,10 @@ int main() {
   Expect(Save(config, "vsync", "false"), "Vsync TOML update failed");
   Expect(Save(config, "hulk_eor_vulkan_replay", "true"),
          "Direct EoR Vulkan runtime selector was not persisted");
+  Expect(Save(config, "hulk_eor_xdk_capture", "true"),
+         "Read-only original XDK Draw source observer was not persisted");
+  Expect(Save(config, "hulk_eor_xdk_source_mesh_capture", "true"),
+         "Real source VB/IB capture selector was not persisted");
   Expect(Save(config, "native_x_renderer_resolution_scale", "1.0"),
          "Native render scale update failed");
   Expect(Save(config, "native_x_renderer_scaling", "nis"),
@@ -110,6 +114,10 @@ int main() {
          "Vsync value did not persist");
   Expect(changed.find("hulk_eor_vulkan_replay = true\r\n") != std::string::npos,
          "EoR worker selection was not persisted");
+  Expect(changed.find("hulk_eor_xdk_capture = true\r\n") != std::string::npos &&
+         changed.find("hulk_eor_xdk_source_mesh_capture = true\r\n") !=
+             std::string::npos,
+         "Original source observer/mesh capture was not persisted in one TOML");
   Expect(changed.find("hulk_guest_swap_fps_cap = 30\r\n") != std::string::npos,
          "FPS cap value did not persist");
   Expect(changed.find(R"toml(hulk_bind_forward = "Up")toml") != std::string::npos,
@@ -124,6 +132,8 @@ int main() {
   for (auto [key, value] : {
       std::pair{"vsync", "maybe"},
       std::pair{"hulk_eor_vulkan_replay", "auto"},
+      std::pair{"hulk_eor_xdk_capture", "on"},
+      std::pair{"hulk_eor_xdk_source_mesh_capture", "unbounded"},
       std::pair{"hulk_eor_vulkan_replay", "true\ninjected=true"},
       std::pair{"native_x_renderer_scaling", "smaa"},
       std::pair{"native_x_renderer_antialiasing", "dlss_quality"},
