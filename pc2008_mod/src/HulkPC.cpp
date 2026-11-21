@@ -478,8 +478,16 @@ HRESULT STDMETHODCALLTYPE OnReset(IDirect3DDevice9* dev,D3DPRESENT_PARAMETERS* p
         (unsigned long)(unsigned int)firstHr,(unsigned long)(unsigned int)hr);
   }
   if(SUCCEEDED(hr)) {
-    if(pp && pp->hDeviceWindow)
-      presentationWindow.store(pp->hDeviceWindow,std::memory_order_release);
+    // Reset can change the presentation window, or clear hDeviceWindow to
+    // request the device's focus window. Never retain a stale HWND from a
+    // previous fullscreen/windowed mode after a successful Reset.
+    HWND effectiveWindow=pp ? pp->hDeviceWindow : nullptr;
+    if(!effectiveWindow) {
+      D3DDEVICE_CREATION_PARAMETERS creation{};
+      if(SUCCEEDED(dev->GetCreationParameters(&creation)))
+        effectiveWindow=creation.hFocusWindow;
+    }
+    presentationWindow.store(effectiveWindow,std::memory_order_release);
     {std::lock_guard lock(shaderMutex);activeVS=nullptr;}
     {std::lock_guard lock(mipMutex);
      std::fill_n(mipPointRequested,16,false);
