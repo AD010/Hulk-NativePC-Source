@@ -243,7 +243,8 @@ bool ValidateOriginalCommandTimeline(const Frame& frame) noexcept {
       // engine attribution must not enter Vulkan's source timeline.
       if(!ValidOriginalDecalGeometryBinding(original) ||
          !ValidOriginalDecalItemMaterialBinding(original) ||
-         !ValidOriginalShaderPassStageBinding(original))
+         !ValidOriginalShaderPassStageBinding(original) ||
+         !ValidOriginalShaderPassSamplerStateAtDraw(original))
         return false;
       if(const auto& shader=original.original_engine_shader_method;shader) {
         if(!shader->original_shader_method_vtable_verified ||
