@@ -155,6 +155,8 @@ jobs:
           # 52 source-matched vtables, 22 distinct PPC functions,
           # PPC bctrl at 0x82642BD4, only LR 0x82642BD8 may bind
           # r3=this shader, r4=source render item, r5=context.
+          # Item vtable+48 material source returns r27 (17 PPC checks),
+          # not a guessed material hash or a ShaderEffects effect pass.
           python ci/test_hulk_usa_shader_render_item_dispatch_abi.py
           if ($LASTEXITCODE -ne 0) { throw 'Original USA EoR per-item shader virtual source ABI or 22-hook coverage failed' }
           python ci/test_hulk_ghidra_xdk_crosscheck.py
