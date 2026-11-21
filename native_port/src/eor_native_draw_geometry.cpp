@@ -641,6 +641,21 @@ std::vector<VerifiedDrawSource> ResolveCapturedResourceDraws(
          !SameOriginalResources(candidate.original_resources,resources,
                                 candidate,indexed.has_value()))
         continue;
+      // The original engine shader method must belong to THIS XDK Draw,
+      // with matching current guest instance/vtable/call arguments. A
+      // previously verified effect, mesh or XDK shader object is NOT
+      // permission to attach it to another EoR shader class invocation.
+      const auto& live_engine=call.original_engine_shader_method;
+      const auto& proven_engine=
+          candidate.original_source_engine_shader_method;
+      if(live_engine) {
+        if(!ValidOriginalEorShaderMethod(*live_engine) ||
+           !proven_engine ||
+           !SameOriginalEorShaderMethod(*live_engine,*proven_engine))
+          continue;
+      } else if(proven_engine) {
+        continue; // stale or fabricated engine source method owner
+      }
       // If the original EoR engine independently authenticated a nonzero
       // vertex declaration slot, its CURRENT XDK allocation must actually
       // exist in this Draw snapshot and have the same verified object ID.
