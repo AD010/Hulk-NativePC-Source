@@ -1,0 +1,22 @@
+{
+  "schema": "hulk_usa_original_virtual_header_source_sha_bank_v1",
+  "private_original_shader_source": "USA Xbox360 ShaderEffects SHADEREF.ARC",
+  "private_original_shader_effect_records": 233,
+  "original_full_xenos_shader_stage_programs": 5194,
+  "private_bank_filename": "hulk_shader_virtual_fingerprints.bin",
+  "private_bank_magic": "HEORVRT1",
+  "private_bank_version": 1,
+  "original_virtual_to_full_source_entries": 5194,
+  "original_virtual_header_sha256_collisions": 0,
+  "original_guest_shader_virtual_metadata_identity_unique": true,
+  "source_verified_private_bank_bytes": 373984,
+  "source_verified_private_bank_sha256": "82064e54dd6ca98796b08cc92b1f7063321d8e4ca4386bfe861e4569d54f22cd",
+  "runtime_original_xdk_shader_object_to_virtual_header_pointer_abi_verified": false,
+  "runtime_original_shader_pass_to_xdk_shader_object_binding_source_verified": true,
+  "runtime_source_shader_microcode_digest_at_current_xdk_draw_verified": false,
+  "original_effect_pass_shader_source_record_to_runtime_state_index_verified": false,
+  "original_gpu_sampler_texture_archive_hash_binding_verified": false,
+  "original_pause_settings_page_dispatcher_verified": false,
+  "native_eor_vulkan_gameplay_frame_verified": false,
+  "no_original_guest_program_code_or_original_shader_bytes_published": true
+}
