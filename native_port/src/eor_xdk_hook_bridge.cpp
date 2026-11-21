@@ -493,6 +493,20 @@ void CapturePpcDraw(Kind kind, uint32_t guest, const PPCContext& ctx,
     draw.observed_vs_matrices=CaptureUsaVsMatrices(
         ctx.r3.u32,ReadGuest,guest_base);
     if(draw.observed_vs_matrices) {
+      if(draw.original_engine_shader_method) {
+        auto& owner=*draw.original_engine_shader_method;
+        const auto& actual=*draw.observed_vs_matrices;
+        if(owner.original_pass_material_context_guest &&
+           owner.original_pass_state_one_based &&
+           owner.original_pass_vs_xdk_guest_object &&
+           owner.original_pass_ps_xdk_guest_object &&
+           actual.original_guest_device==ctx.r3.u32 &&
+           actual.original_vs_guest_object==
+               owner.original_pass_vs_xdk_guest_object &&
+           actual.original_ps_guest_object==
+               owner.original_pass_ps_xdk_guest_object)
+          owner.original_pass_vs_ps_xdk_binding_verified=true;
+      }
       // Only while explicit diagnostic capture is active. Store all
       // 256 original vertex AND pixel float4 registers, not just camera:
       // later source-proven native SPIR-V material declarations can read
