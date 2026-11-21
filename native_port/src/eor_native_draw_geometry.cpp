@@ -548,7 +548,12 @@ bool SameOriginalEorShaderMethod(
          a.original_pass_ps_xdk_guest_object==
              b.original_pass_ps_xdk_guest_object &&
          a.original_pass_vs_ps_xdk_binding_verified==
-             b.original_pass_vs_ps_xdk_binding_verified;
+             b.original_pass_vs_ps_xdk_binding_verified &&
+         a.original_pass_sampler_slot_mask==b.original_pass_sampler_slot_mask &&
+         a.original_pass_sampler_slots_verified==
+             b.original_pass_sampler_slots_verified &&
+         a.original_pass_live_texture_objects_present==
+             b.original_pass_live_texture_objects_present;
 }
 bool ValidOriginalEorShaderMethod(
     const xdk::OriginalEorShaderMethodAtDraw& source) noexcept {
