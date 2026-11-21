@@ -31,6 +31,13 @@ def make_synthetic_shader_item_abi(witness):
         0x82642AA0:mr(5,23),
         0x82642AF0:d(32,11,30,0),
         0x82642AF4:d(32,28,11,12),
+        0x82642AF8:mr(28,3),
+        0x82642AFC:d(32,11,28,0),
+        0x82642B00:d(32,11,11,48),
+        0x82642B04:0x7D6903A6,
+        0x82642B08:0x4E800421,
+        0x82642B10:mr(3,27),
+        0x82642C00:mr(27,4),
         0x82642BC0:mr(23,5),
         0x82642BC4:mr(28,4),
         0x82642BC8:mr(31,3),
@@ -60,7 +67,11 @@ class OriginalEorShaderItemDispatchTests(unittest.TestCase):
         self.assertEqual(result["original_source_shader_class_count"],52)
         self.assertEqual(result["original_unique_render_item_methods"],22)
         self.assertEqual(result["classes_sharing_original_render_item_method"],27)
-        self.assertEqual(result["verified_original_ppc_instruction_count"],10)
+        self.assertEqual(result["verified_original_ppc_instruction_count"],17)
+        self.assertEqual(result["original_render_item_material_virtual_table_slot_bytes"],48)
+        self.assertEqual(result["original_render_item_material_guest_return_register"],"r27")
+        self.assertTrue(result[
+            "original_item_material_getter_and_draw_abi_source_verified"])
         self.assertEqual(result["original_shader_virtual_table_slot_bytes"],44)
         self.assertEqual(result["original_indirect_shader_virtual_call_site"],
                          "0x82642BD4")
@@ -110,6 +121,9 @@ class OriginalEorShaderItemDispatchTests(unittest.TestCase):
         self.assertIn("__imp__sub_##addr(ctx,base);",generator)
         self.assertIn("static_cast<uint32_t>(original_ctx.lr)!=0x82642BD8u",cpp)
         self.assertIn("original_ctx.r4.u32",cpp)
+        self.assertIn("original_ctx.r27.u32",cpp)
+        self.assertIn("item_vtable+48u",cpp)
+        self.assertIn("original_engine_item_material_source_verified",cpp)
         self.assertIn("ProvenUsaEorRenderItemMethodVtablePair(",cpp)
         self.assertIn("ValidOriginalEorSourceRenderItem",header)
         self.assertNotIn("original_model_hash=original_ctx.r4.u32",cpp)
