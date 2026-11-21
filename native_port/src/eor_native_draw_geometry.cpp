@@ -1,11 +1,16 @@
 #include "eor_native_draw_geometry.h"
 #include <algorithm>
+#include <functional>
 #include <limits>
 #include <map>
 #include <stdexcept>
 
 namespace hulk::eor::native {
 
+// A guest XDK resource is commonly a shared allocation containing MANY EoR
+// geometry objects. Never require its full byte length to equal one model
+// mesh. Recover the *exact contiguous* original mesh VB+IB windows, including
+// their offsets; require the current Draw to address those windows.
 std::optional<ExactOriginalGuestMesh> IdentifyExactOriginalGuestMesh(
     const xdk::RawDraw& draw,
     std::span<const model::UploadedOriginalModel* const> residents) {
@@ -34,51 +39,97 @@ std::optional<ExactOriginalGuestMesh> IdentifyExactOriginalGuestMesh(
     if(!model || !model->original_resource_hash ||
        model->original_identity.platform!=model::Platform::Xbox360)continue;
     for(const auto& mesh:model->meshes.meshes()) {
-      if(mesh.original_source_vertex_bytes.size()!=vb.bytes.size() ||
-         !std::equal(mesh.original_source_vertex_bytes.begin(),
-                     mesh.original_source_vertex_bytes.end(),
-                     vb.bytes.begin()) ||
+      const auto& source=mesh.original_source_vertex_bytes;
+      const uint32_t stride=mesh.original_vertex_stride;
+      if(!stride || !mesh.vertex_count ||
+         source.size()!=uint64_t(mesh.vertex_count)*stride ||
+         source.size()>vb.bytes.size() ||
          mesh.host_indices.size()!=mesh.index_count ||
-         !mesh.original_vertex_stride ||
-         vb.bytes.size()%mesh.original_vertex_stride)
+         mesh.index_count>UINT32_MAX/2u ||
+         (ib && mesh.index_count==0))
         continue;
-      if(plain &&
-         uint64_t(plain->start_vertex)+plain->vertex_count>
-             vb.bytes.size()/mesh.original_vertex_stride)
-        continue;
-      bool big_endian=false;
-      if(ib) {
-        if(ib->bytes.size()!=mesh.host_indices.size()*2u)continue;
-        bool be=true,le=true;
-        for(size_t j=0;j<mesh.host_indices.size();++j) {
-          const auto a=uint32_t(std::to_integer<uint8_t>(ib->bytes[j*2u]));
-          const auto b=uint32_t(std::to_integer<uint8_t>(ib->bytes[j*2u+1u]));
-          be=be && ((a<<8u)|b)==mesh.host_indices[j];
-          le=le && ((b<<8u)|a)==mesh.host_indices[j];
-          if(!be && !le)break;
+      // Preserve the actual packed Xbox bytes. Decoded float3 geometry is
+      // NOT a valid substitute for the XDK SetStreamSource input.
+      const auto vb_matcher=std::boyer_moore_horspool_searcher(
+          source.begin(),source.end());
+      auto vb_from=vb.bytes.begin();
+      while(vb_from!=vb.bytes.end()) {
+        const auto v=std::search(vb_from,vb.bytes.end(),vb_matcher);
+        if(v==vb.bytes.end())break;
+        vb_from=v+1;
+        const auto byte_offset=uint64_t(v-vb.bytes.begin());
+        if(byte_offset%stride)continue;
+        const uint64_t origin=byte_offset/stride;
+        if(origin>UINT32_MAX ||
+           origin+mesh.vertex_count>vb.bytes.size()/stride)
+          continue;
+        if(plain) {
+          if(plain->start_vertex<origin ||
+             uint64_t(plain->start_vertex)+plain->vertex_count>
+                 origin+mesh.vertex_count)
+            continue;
+          if(unique)return std::nullopt;
+          unique=ExactOriginalGuestMesh{
+              model->original_resource_hash,mesh.original_header_offset,
+              false,static_cast<uint32_t>(origin),0};
+          continue;
         }
-        if(be==le)continue; // no ambiguous source index byte order
-        big_endian=be;
-        // The original PPC Draw's FULL live index window and signed base
-        // must be able to fetch vertices from the exact matched XDK VB.
-        // Matching archive payload alone is not proof of a valid Draw.
-        bool window_valid=true;
-        for(uint64_t k=indexed->first_index;
-            k<uint64_t(indexed->first_index)+indexed->index_count;++k) {
-          const auto a=uint32_t(std::to_integer<uint8_t>(ib->bytes[k*2u]));
-          const auto b=uint32_t(std::to_integer<uint8_t>(ib->bytes[k*2u+1u]));
-          const auto idx=big_endian ? (a<<8u)|b : (b<<8u)|a;
-          if(int64_t(idx)+indexed->base_vertex<0 ||
-             int64_t(idx)+indexed->base_vertex>=mesh.vertex_count) {
-            window_valid=false;
-            break;
+        // The Xbox source's original full index window may start after
+        // preceding mesh indices in the SAME bound XDK index allocation.
+        // Build only the expected 16-bit guest payload from actual host
+        // decoded source indices, then locate exact contiguous matches.
+        for(bool big:{true,false}) {
+          std::vector<std::byte> encoded;
+          encoded.reserve(mesh.index_count*2u);
+          bool valid=true;
+          for(const uint32_t index:mesh.host_indices) {
+            if(index>UINT16_MAX) {valid=false;break;}
+            const auto hi=std::byte((index>>8)&0xffu);
+            const auto lo=std::byte(index&0xffu);
+            encoded.push_back(big?hi:lo);
+            encoded.push_back(big?lo:hi);
+          }
+          if(!valid || encoded.empty() || encoded.size()>ib->bytes.size())
+            continue;
+          const auto index_matcher=std::boyer_moore_horspool_searcher(
+              encoded.begin(),encoded.end());
+          auto ib_from=ib->bytes.begin();
+          while(ib_from!=ib->bytes.end()) {
+            const auto found=std::search(ib_from,ib->bytes.end(),index_matcher);
+            if(found==ib->bytes.end())break;
+            ib_from=found+1;
+            const uint64_t byte_index=uint64_t(found-ib->bytes.begin());
+            if(byte_index%2u)continue;
+            const uint64_t first=byte_index/2u;
+            if(first>UINT32_MAX ||
+               indexed->first_index<first ||
+               uint64_t(indexed->first_index)+indexed->index_count>
+                   first+mesh.index_count)
+              continue;
+            // Every original Draw index must fetch from THIS mesh's
+            // authentic contiguous vertex slice, not just the wider VB.
+            bool window_valid=true;
+            const auto begin=uint64_t(indexed->first_index);
+            const auto finish=begin+indexed->index_count;
+            for(uint64_t k=begin;k<finish;++k) {
+              const uint32_t a=std::to_integer<uint8_t>(ib->bytes[2*k]);
+              const uint32_t b=std::to_integer<uint8_t>(ib->bytes[2*k+1]);
+              const int64_t index=big ? ((a<<8u)|b) : ((b<<8u)|a);
+              const int64_t guest_vertex=index+indexed->base_vertex;
+              if(guest_vertex<int64_t(origin) ||
+                 guest_vertex>=int64_t(origin+mesh.vertex_count)) {
+                window_valid=false;break;
+              }
+            }
+            if(!window_valid)continue;
+            if(unique)return std::nullopt; // duplicated mesh/offset
+            unique=ExactOriginalGuestMesh{
+                model->original_resource_hash,mesh.original_header_offset,
+                big,static_cast<uint32_t>(origin),
+                static_cast<uint32_t>(first)};
           }
         }
-        if(!window_valid)continue;
       }
-      if(unique)return std::nullopt; // two meshes share same bytes: no owner
-      unique=ExactOriginalGuestMesh{
-          model->original_resource_hash,mesh.original_header_offset,big_endian};
     }
   }
   return unique;
@@ -526,6 +577,19 @@ std::vector<VerifiedDrawSource> ResolveCapturedResourceDraws(
        exact->mesh_header_offset!=resolved[i].original_mesh_header_offset))
       throw std::invalid_argument(
           "Actual original XDK buffer bytes disprove engine mesh owner");
+    // Additional exact source evidence must not contradict the existing
+    // asserted XDK->host baseVertex and firstIndex remapping.
+    if(exact) {
+      const auto original=xdk::DecodeOriginalIndexedXdkCall(draw);
+      if(original &&
+         (original->first_index<exact->guest_first_index ||
+          resolved[i].first_index!=
+              original->first_index-exact->guest_first_index ||
+          int64_t(resolved[i].host_base_vertex)!=
+              int64_t(original->base_vertex)-exact->guest_first_vertex))
+        throw std::invalid_argument(
+            "Verified EoR host Draw disagrees with exact original GPU buffer offsets");
+    }
   }
   return resolved;
 }

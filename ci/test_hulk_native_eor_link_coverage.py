@@ -319,6 +319,18 @@ class NativeEorLinkCoverage(unittest.TestCase):
         self.assertIn("wrongMaterial.original_surface_name=",cpp)
         self.assertIn("ambiguous,original.original_sampler_slots",cpp)
 
+    def test_original_shared_xdk_buffer_windows_and_draw_rebase(self):
+        geometry=(ROOT / "native_port/src/eor_native_draw_geometry.cpp").read_text()
+        header=(ROOT / "native_port/src/eor_native_draw_geometry.h").read_text()
+        cpp=(ROOT / "ci/eor_native_draw_geometry_test.cpp").read_text()
+        self.assertIn("boyer_moore_horspool_searcher",geometry)
+        self.assertIn("guest_first_vertex=0,guest_first_index=0",header)
+        self.assertIn("guest_first_index-exact->guest_first_index",geometry)
+        self.assertIn("original->base_vertex)-exact->guest_first_vertex",geometry)
+        self.assertIn("sharedVb->bytes.insert(",cpp)
+        self.assertIn("sharedIb->bytes.insert(",cpp)
+        self.assertIn("wrongSharedBase.gpr[2]=0",cpp)
+
     def test_native_worker_fallback_only_suppressed_after_gpu_begin_attempt(self):
         bridge = (ROOT / "native_port/src/eor_aot_draw_bridge.cpp").read_text()
         worker = (ROOT / "native_port/src/eor_xdk_hook_bridge.cpp").read_text()

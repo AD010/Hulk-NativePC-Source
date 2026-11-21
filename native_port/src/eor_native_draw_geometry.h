@@ -97,6 +97,9 @@ struct ExactOriginalGuestMesh {
   uint32_t model_hash=0;
   size_t mesh_header_offset=SIZE_MAX;
   bool original_index_big_endian=false;
+  // Origin of the exact guest source mesh INSIDE the larger live XDK
+  // allocations. The caller must still verify its shader/material/surface.
+  uint32_t guest_first_vertex=0,guest_first_index=0;
 };
 // Source-proven model and mesh ONLY; the independently observed EoR shader,
 // material/surface and camera remain separate mandatory ownership gates.

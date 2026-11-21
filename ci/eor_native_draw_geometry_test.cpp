@@ -482,7 +482,49 @@ int main(){
   const auto realMesh=native::IdentifyExactOriginalGuestMesh(realBufferDraw,models);
   assert(realMesh && realMesh->model_hash==0xCAFE &&
          realMesh->mesh_header_offset==40 &&
-         realMesh->original_index_big_endian);
+         realMesh->original_index_big_endian &&
+         realMesh->guest_first_vertex==0 &&
+         realMesh->guest_first_index==0);
+  // A typical XDK resource allocation packs multiple original meshes.
+  // Prefix/suffix bytes are not part of the original model and must not
+  // make its EXACT middle VB+IB window disappear.
+  auto sharedVb=std::make_shared<xdk::OriginalGuestBufferBytes>(*vb);
+  sharedVb->bytes.insert(sharedVb->bytes.begin(),24u,std::byte{0x7f});
+  sharedVb->bytes.insert(sharedVb->bytes.end(),24u,std::byte{0x42});
+  sharedVb->guest_size=uint32_t(sharedVb->bytes.size());
+  auto sharedIb=std::make_shared<xdk::OriginalGuestBufferBytes>(*ib);
+  sharedIb->bytes.insert(sharedIb->bytes.begin(),
+                          {std::byte{0x66},std::byte{0x66}});
+  sharedIb->bytes.insert(sharedIb->bytes.end(),
+                          {std::byte{0x55},std::byte{0x55}});
+  sharedIb->guest_size=uint32_t(sharedIb->bytes.size());
+  auto packedDraw=realBufferDraw;
+  packedDraw.source_vb0=sharedVb;
+  packedDraw.source_ib=sharedIb;
+  packedDraw.gpr[2]=1u; // baseVertex points to shared VB's second vertex
+  packedDraw.gpr[3]=1u; // firstIndex points past first unrelated IB word
+  const auto packed=native::IdentifyExactOriginalGuestMesh(packedDraw,models);
+  assert(packed && packed->model_hash==0xCAFE &&
+         packed->guest_first_vertex==1 &&
+         packed->guest_first_index==1 &&
+         packed->original_index_big_endian);
+  auto wrongSharedFirst=packedDraw;
+  wrongSharedFirst.gpr[3]=0; // points outside proven mesh's IB window
+  assert(!native::IdentifyExactOriginalGuestMesh(wrongSharedFirst,models));
+  auto wrongSharedBase=packedDraw;
+  wrongSharedBase.gpr[2]=0; // index 0 now points to preceding mesh vertex
+  assert(!native::IdentifyExactOriginalGuestMesh(wrongSharedBase,models));
+  auto duplicateShared=std::make_shared<xdk::OriginalGuestBufferBytes>(*sharedVb);
+  duplicateShared->bytes.insert(
+      duplicateShared->bytes.end(),vb->bytes.begin(),vb->bytes.end());
+  duplicateShared->guest_size=uint32_t(duplicateShared->bytes.size());
+  auto duplicateCase=packedDraw;
+  duplicateCase.source_vb0=duplicateShared;
+  // The SECOND identical source stream does not satisfy this Draw's
+  // exact baseVertex; the original first window remains unambiguous.
+  const auto uniqueActual=native::IdentifyExactOriginalGuestMesh(
+      duplicateCase,models);
+  assert(uniqueActual && uniqueActual->guest_first_vertex==1);
   auto wrongIb=std::make_shared<xdk::OriginalGuestBufferBytes>(*ib);
   wrongIb->bytes[0]=std::byte{0xFA};
   realBufferDraw.source_ib=wrongIb;
