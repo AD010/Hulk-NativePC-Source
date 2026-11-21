@@ -33,6 +33,27 @@ class EorUiHashXrefsTests(unittest.TestCase):
             self.assertTrue(all(int(row["crc32_upper_hash"], 16) == value
                                 for row in matches))
 
+    def test_original_pause_settings_searches_all_actual_text_encodings(self):
+        # Run the source helper without importing Ghidra/Jython globals.
+        parsed = ast.parse(SCRIPT.read_text(encoding="utf-8"))
+        helper = next(node for node in parsed.body
+                      if isinstance(node, ast.FunctionDef) and
+                      node.name == "identifier_byte_signatures")
+        isolated = ast.Module(body=[helper], type_ignores=[])
+        namespace = {}
+        exec(compile(isolated, str(SCRIPT), "exec"), namespace)
+        name = "UIPage_Pause_Settings"
+        signatures = dict(namespace["identifier_byte_signatures"](name))
+        self.assertEqual(set(signatures), {"ASCII", "UTF-16LE", "UTF-16BE"})
+        self.assertEqual(signatures["ASCII"], name.encode("ascii"))
+        self.assertEqual(signatures["UTF-16LE"], name.encode("utf-16-le"))
+        self.assertEqual(signatures["UTF-16BE"], name.encode("utf-16-be"))
+        source = SCRIPT.read_text(encoding="utf-8")
+        self.assertIn("for address, encoding in search_identifier_encodings(program, name):",
+                      source)
+        self.assertIn('"string_encoding": encoding', source)
+        self.assertIn("remaining = MAX_MATCHES - len(matches)", source)
+
     def test_menu_xref_search_does_not_claim_abi_or_embed_game_data(self):
         source = SCRIPT.read_text(encoding="utf-8")
         self.assertIn("def search_exact_binary(", source)
