@@ -682,7 +682,8 @@ std::vector<VerifiedDrawSource> ResolveCapturedResourceDraws(
       // Strong original engine Decal r28 source item/geometry must
       // agree with the real GPU VB/IB descriptors at THIS guest Draw.
       if(!xdk::ValidOriginalDecalGeometryBinding(call) ||
-         !xdk::ValidOriginalDecalItemMaterialBinding(call))
+         !xdk::ValidOriginalDecalItemMaterialBinding(call) ||
+         !xdk::ValidOriginalShaderPassStageBinding(call))
         continue;
       const auto& live_engine=call.original_engine_shader_method;
       const auto& proven_engine=
