@@ -26,7 +26,11 @@ assert "incomplete_XDK_draws_at_least" in src
 # #212 and #213 ended without a summary despite WM_DESTROY's guard.
 # Collect it on intentional menu exit and WM_CLOSE while logging is alive.
 menu=(p/"native_port/src/pc_menu.cpp").read_text()
-assert "HULK/AUTO-GPU-213-EXIT" in menu
+# Fullscreen native menu now explicitly asks for confirmation. Diagnostics
+# must fire only after Confirm exit, never when the popup first opens.
+assert 'if(ImGui::Button("Confirm exit"' in menu
+assert menu.index("ReportAutomaticGpuDiagnostics();") > menu.index(
+    'if(ImGui::Button("Confirm exit"')
 assert "ReportAutomaticGpuDiagnostics();" in menu
 assert "if (msg == WM_CLOSE)" in window
 assert window.index("if (msg == WM_CLOSE)") < window.index("if (msg == WM_DESTROY)")

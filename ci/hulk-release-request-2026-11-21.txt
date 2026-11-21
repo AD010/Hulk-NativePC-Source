@@ -12,3 +12,5 @@ Retry 4: F10 Win32 test now expects the actual integrated fullscreen Esc/F10 nat
 Retry 5: validate exact user-authorized one-off push marker in source-only dispatch test; revert manual-only on completion.
 
 Retry 6: correct synthetic vector compare CR6 fixture to pinned real ReXGlue builder multiline source.
+
+Retry 7: update native GPU diagnostic test to real confirmed Exit-to-Windows path in full-screen menu.
