@@ -19,16 +19,31 @@ OriginalGuestBufferSnapshots::Capture(
   const auto prior=latest_.find(key);
   if(prior!=latest_.end() && prior->second->bytes==scratch_)
     return prior->second;
-  // Charge only NEW immutable bytes, including rewritten buffer versions
-  // still held by earlier Draws. Repeated references work at a full budget.
-  if(bytes>budget_-retained_bytes_)return {};
+  // Charge only LIVE immutable versions. A dynamic Xbox vertex/index
+  // allocation can be rewritten hundreds of times during one Present.
+  // Once its preceding version is no longer referenced by ANY captured
+  // Draw (the cache is its only owner), replacing that version must reclaim
+  // its budget. Otherwise after only 64 MiB of cumulative rewrites every
+  // later genuine Draw loses its original buffer bytes, despite memory
+  // actually having been released on insert_or_assign.
+  //
+  // A version held by an earlier Draw is NEVER reclaimed: both generations
+  // must remain alive and count toward the fixed per-Present memory budget.
+  const size_t recyclable =
+      prior!=latest_.end() && prior->second.use_count()==1
+          ? prior->second->bytes.size() : 0u;
+  if(recyclable>retained_bytes_ ||
+     bytes>budget_-(retained_bytes_-recyclable))
+    return {};
+  // Complete the new snapshot before replacing a cached version. Allocation
+  // failure must preserve the previous valid revision and budget unchanged.
   auto next=std::make_shared<OriginalGuestBufferBytes>();
   next->guest_object=object;
   next->guest_address=address;
   next->guest_size=bytes;
   next->bytes=scratch_;
   latest_.insert_or_assign(key,next);
-  retained_bytes_+=bytes;
+  retained_bytes_=retained_bytes_-recyclable+bytes;
   return next;
 }
 void OriginalGuestBufferSnapshots::Reset() noexcept {
