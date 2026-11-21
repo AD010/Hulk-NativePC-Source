@@ -144,4 +144,21 @@ std::optional<Digest> OriginalVirtualShaderIdentity::FindOriginalSource(
     return std::nullopt;
   return it->second.full_source_sha;
 }
+bool MatchesOriginalLiveXdkShaderSource(
+    const OriginalVirtualShaderIdentity& identities,
+    const OriginalLiveXdkShaderHeaderWitness& source,
+    uint32_t currently_bound_xdk_shader_object,
+    Stage expected_stage,
+    const Digest& expected_original_full_shader_sha256) noexcept {
+  if(!source.original_object_to_header_abi_verified ||
+     !source.original_xdk_shader_guest_object ||
+     source.original_xdk_shader_guest_object!=currently_bound_xdk_shader_object ||
+     !source.original_virtual_header_guest_address ||
+     (source.original_virtual_header_guest_address&3u) ||
+     expected_original_full_shader_sha256==Digest{})
+    return false;
+  const auto matched=identities.FindOriginalSource(
+      source.exact_original_guest_virtual_header,expected_stage);
+  return matched && *matched==expected_original_full_shader_sha256;
+}
 } // namespace hulk::eor::aot
