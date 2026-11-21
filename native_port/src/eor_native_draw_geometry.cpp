@@ -509,6 +509,71 @@ RetainVerifiedOriginalFrameResidents(
     throw std::invalid_argument("Original EoR frame has unmatched Draws");
   return result;
 }
+// The original shader class scope is sourced from the same PPC thread as
+// the XDK Draw, before the game updates that renderer's scene/material state.
+// This stage enriches *independently supplied* original material witnesses;
+// it cannot discover or assert an EoR original model/material/effect/pass.
+namespace {
+bool SameOriginalEorShaderMethod(
+    const xdk::OriginalEorShaderMethodAtDraw& a,
+    const xdk::OriginalEorShaderMethodAtDraw& b) noexcept {
+  return a.original_shader_method_guest==b.original_shader_method_guest &&
+         a.original_shader_instance_guest==b.original_shader_instance_guest &&
+         a.original_shader_vtable_guest==b.original_shader_vtable_guest &&
+         a.source_r4_through_r7==b.source_r4_through_r7 &&
+         a.nesting_depth==b.nesting_depth &&
+         a.original_shader_method_vtable_verified==
+             b.original_shader_method_vtable_verified;
+}
+bool ValidOriginalEorShaderMethod(
+    const xdk::OriginalEorShaderMethodAtDraw& source) noexcept {
+  return source.original_shader_method_vtable_verified &&
+         source.original_shader_instance_guest &&
+         source.nesting_depth && source.nesting_depth<=16 &&
+         xdk::ProvenUsaEorShaderVtableForMethod(
+             source.original_shader_method_guest)==
+             source.original_shader_vtable_guest;
+}
+}
+std::vector<VerifiedXdkResourceWitness> AttachLiveEorShaderMethodParents(
+    const xdk::Frame& exact_original,
+    std::span<const VerifiedXdkResourceWitness> material_owner_witnesses) {
+  if(!exact_original.sequence || exact_original.dropped ||
+     exact_original.dropped_commands || exact_original.calls.empty() ||
+     material_owner_witnesses.empty() ||
+     (!exact_original.commands.empty() &&
+      !xdk::ValidateOriginalCommandTimeline(exact_original)))
+    throw std::invalid_argument(
+        "Missing original PPC Present or independently verified material witnesses");
+  std::vector<VerifiedXdkResourceWitness> attached(
+      material_owner_witnesses.begin(),material_owner_witnesses.end());
+  for(auto& witness:attached) {
+    const auto& source=std::visit(
+        [](const auto& s)->const VerifiedDrawSource&{
+          return s.native_draw;
+        },witness.original_source_submission);
+    if(source.original_frame_sequence!=exact_original.sequence ||
+       source.original_call_ordinal>=exact_original.calls.size())
+      throw std::invalid_argument(
+          "Stale original engine shader method vs Xbox Draw sequence");
+    const auto& observed=exact_original.calls[source.original_call_ordinal]
+                          .original_engine_shader_method;
+    if(!observed) {
+      if(witness.original_source_engine_shader_method)
+        throw std::invalid_argument("An engine shader parent was invented");
+      continue;
+    }
+    if(!ValidOriginalEorShaderMethod(*observed) ||
+       (witness.original_source_engine_shader_method &&
+        !SameOriginalEorShaderMethod(
+            *witness.original_source_engine_shader_method,*observed)))
+      throw std::invalid_argument(
+          "Original EoR shader entry/vtable/instance source mismatch");
+    witness.original_source_engine_shader_method=*observed;
+  }
+  return attached;
+}
+
 std::vector<VerifiedDrawSource> ResolveCapturedResourceDraws(
     const xdk::Frame& frame,
     std::span<const VerifiedXdkResourceWitness> witnesses,
