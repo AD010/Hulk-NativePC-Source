@@ -258,10 +258,11 @@ def original_pause_vm_ppc_candidates(program):
     for name, value in PAUSE_VM_METHOD_HASHES:
         if zlib.crc32(name.upper()) & 0xFFFFFFFF != value:
             raise ValueError("Original EoR pause VM CRC mismatch: " + name)
-    values = list(PAUSE_VM_METHOD_HASHES) + [
-        ("ChangeState_r_opaque_0x28_operand",
-         PAUSE_VM_OPAQUE_CHANGE_STATE_OPERAND)
-    ]
+    # The source-derived 0x28 operand is a COMMON VM operation in
+    # hundreds of unrelated original EoR scripts. It is NOT the unique
+    # Pause Settings handler; searching PPC for its immediate is a red
+    # herring and can never authorize a runtime hook.
+    values = list(PAUSE_VM_METHOD_HASHES)
     funcs = program.getFunctionManager()
     listing = program.getListing()
     for name, value in values:
@@ -279,7 +280,7 @@ def original_pause_vm_ppc_candidates(program):
         # Original Xbox PPC can load a 32-bit literal using two instructions.
         # Check decoded code units and never treat a data-table coincidence as
         # a callable original UI event handler.
-        if name == "ChangeState_r_opaque_0x28_operand" and \
+        if name in ("UIPage_Pause_Settings", "Settings_Page") and \
                 "PowerPC" in str(program.getLanguageID()):
             for reg in range(1, 32):
                 pattern = struct.pack(">II", *ppc_lis_ori_words(value, reg))
@@ -325,6 +326,8 @@ def main():
         "original_ui_hash_constant_candidates": resource_hash_candidates(currentProgram),
         "original_pause_vm_xex_constant_candidates":
             original_pause_vm_ppc_candidates(currentProgram),
+        "reused_global_vm_call_operand_excluded_from_pause_dispatch":
+            "%08X" % PAUSE_VM_OPAQUE_CHANGE_STATE_OPERAND,
         "hash_reference_is_not_ui_dispatch_proof": True,
     }
     folder = os.path.dirname(target)
