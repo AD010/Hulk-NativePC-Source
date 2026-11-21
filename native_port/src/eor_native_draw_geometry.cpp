@@ -308,10 +308,15 @@ std::vector<aot::BoundIndexedDraw> BindVerifiedGeometryDraws(
     gpu::ValidateOriginalEorSamplers(src.original_sampler_slots);
     const auto archive_material_surface=IdentifyOriginalMaterialSurface(
         *model,src.original_sampler_slots);
-    if(archive_material_surface &&
-       *archive_material_surface!=src.original_surface_ordinal)
+    // The archive match is not an optional sanity check once a texture
+    // is claimed by a verified runtime sampler. A missing archive owner
+    // rejects the entire Draw: silently accepting nullopt here promoted
+    // a guessed XDK sampler->EoR surface into a Vulkan material.
+    if(!src.original_sampler_slots.empty() &&
+       (!archive_material_surface ||
+        *archive_material_surface!=src.original_surface_ordinal))
       throw std::invalid_argument(
-          "Original static material textures disprove live EoR surface owner");
+          "Original static material texture IDs do not prove this live EoR surface");
     for (const auto& sampler:src.original_sampler_slots)
       if (sampler.original_model_hash!=src.original_model_hash ||
           sampler.original_surface_ordinal!=src.original_surface_ordinal ||
