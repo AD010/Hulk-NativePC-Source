@@ -521,10 +521,18 @@ inline bool ValidOriginalEorSourceRenderItem(
   if(!source.original_engine_item_abi_verified)
     return source.original_engine_item_method_guest==0u &&
            source.original_engine_render_item_guest==0u &&
-           source.original_engine_render_item_context_guest==0u;
+           source.original_engine_render_item_context_guest==0u &&
+           source.original_engine_render_item_vtable_guest==0u &&
+           source.original_engine_render_item_material_guest==0u &&
+           !source.original_engine_item_material_source_verified;
   return source.original_shader_method_vtable_verified &&
          source.original_shader_instance_guest!=0u &&
          source.original_engine_render_item_guest!=0u &&
+         source.original_engine_render_item_vtable_guest>=0x82000000u &&
+         source.original_engine_render_item_vtable_guest<=0x821B1FCCu &&
+         (source.original_engine_item_material_source_verified ?
+          source.original_engine_render_item_material_guest!=0u :
+          source.original_engine_render_item_material_guest==0u) &&
          ProvenUsaEorRenderItemMethodVtablePair(
              source.original_engine_item_method_guest,
              source.original_shader_vtable_guest);
