@@ -2,6 +2,8 @@
 """Synthetic original EoR UI VM route tests; no proprietary archive in source."""
 import unittest
 import zlib
+import json
+from pathlib import Path
 from audit_hulk_original_pause_ui_objects import (
     PAUSE_SEQUENCE, inspect_actions, inspect_objects,
     original_pause_ui_field_refs,
@@ -74,6 +76,25 @@ class OriginalPauseFieldHashTests(unittest.TestCase):
                          ["field_name"], "CurrentStatusMenu")
         self.assertEqual(xbox["StateExit_z"]["source_field_references"][0]
                          ["field_name"], "Hidden")
+
+    def test_original_cross_platform_verified_41_field_references_are_identical(self):
+        report = json.loads((Path(__file__).resolve().parents[1] /
+            "native_port/analysis/eor_original_pause_ui_source_witness_2026-11-21.json"
+            ).read_text(encoding="utf-8"))
+        sources = report["sources"]
+        xbox = sources["xbox360_object_archive"]["pause_ui_field_hash_references"]
+        pc = sources["pc_2008_comparator"]["pause_ui_field_hash_references"]
+        self.assertEqual(xbox, pc)
+        self.assertEqual({m: len(v["source_field_references"]) for m,v in xbox.items()},
+                         {"Init_z": 13, "StateEnter_z": 25,
+                          "StateExit_z": 2, "ActivateUpgradeMenu_z": 1})
+        self.assertTrue(report["pause_ui_vm_41_field_refs_match_original_xbox_and_pc_endianness"])
+        self.assertTrue(report["pause_ui_vm_hash_refs_do_not_prove_ppc_event_dispatch_abi"])
+        for method in xbox.values():
+            for row in method["source_field_references"]:
+                self.assertEqual(row["source_crc32_upper"],
+                    "{:08X}".format(zlib.crc32(
+                        row["field_name"].upper().encode("ascii")) & 0xffffffff))
 
     def test_vm_field_hash_reader_rejects_wrong_size_and_platform(self):
         original = field_fixture("big")
