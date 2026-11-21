@@ -185,6 +185,9 @@ void ObserveOriginalEorShaderPass(
   scope.original_pass_vs_xdk_guest_object=0u;
   scope.original_pass_ps_xdk_guest_object=0u;
   scope.original_pass_vs_ps_xdk_binding_verified=false;
+  scope.original_pass_sampler_slot_mask=0u;
+  scope.original_pass_sampler_slots_verified=false;
+  scope.original_pass_live_texture_objects_present=false;
   if(!scope.original_shader_method_vtable_verified ||
      !ProvenUsaEorShaderMethodVtablePair(
          scope.original_shader_method_guest,
@@ -193,7 +196,7 @@ void ObserveOriginalEorShaderPass(
      scope.original_shader_instance_guest>UINT32_MAX-48u ||
      original_ctx.r4.u32==0u || original_ctx.r4.u32>512u ||
      original_ctx.r3.u32==0u ||
-     original_ctx.r3.u32>UINT32_MAX-136u)
+     original_ctx.r3.u32>UINT32_MAX-196u)
     return;
   const auto read32=[&](uint32_t guest)->std::optional<uint32_t> {
     if(!guest || guest>UINT32_MAX-4u)return std::nullopt;
@@ -216,17 +219,21 @@ void ObserveOriginalEorShaderPass(
      !*records || !*vstable || !*pstable)return;
   const uint64_t start=uint64_t(*records)+
       uint64_t(original_ctx.r4.u32-1u)*92u;
-  if(start>UINT32_MAX-86u)return;
+  if(start>UINT32_MAX-90u)return;
   // The original material pass selector 0x825F84C0 reads byte
   // slot indexes at original 92-byte state record +84 (VS), +85 (PS),
   // multiplying each by 8 and reading the stage table entry's first
   // BE32 guest shader object ID. This is independently confirmed by
   // 0x82675C70/0x82675D20 and XDK 0x82874390/0x82874090.
-  std::array<std::byte,2> shader_slots{};
-  if(!ReadGuest(original_guest_base,static_cast<uint32_t>(start+84u),
+  // Read the actual original 92-byte shader-state record starting at
+  // +80 (BE16 sampler table index), +84/+85 VS/PS stage indexes,
+  // +87 count of 4-byte original sampler-state records. Only original
+  // source data is read; no host bindings or textures are invented.
+  std::array<std::byte,10> shader_slots{};
+  if(!ReadGuest(original_guest_base,static_cast<uint32_t>(start+80u),
                 shader_slots.data(),shader_slots.size()))return;
-  const uint32_t vs_index=std::to_integer<uint8_t>(shader_slots[0]);
-  const uint32_t ps_index=std::to_integer<uint8_t>(shader_slots[1]);
+  const uint32_t vs_index=std::to_integer<uint8_t>(shader_slots[4]);
+  const uint32_t ps_index=std::to_integer<uint8_t>(shader_slots[5]);
   const uint64_t vs_entry=uint64_t(*vstable)+8u*vs_index;
   const uint64_t ps_entry=uint64_t(*pstable)+8u*ps_index;
   if(vs_entry>UINT32_MAX-4u || ps_entry>UINT32_MAX-4u)return;
@@ -239,8 +246,47 @@ void ObserveOriginalEorShaderPass(
   scope.original_pass_pixel_handle_entry_guest=static_cast<uint32_t>(ps_entry);
   scope.original_pass_vs_xdk_guest_object=*bound_vs;
   scope.original_pass_ps_xdk_guest_object=*bound_ps;
+  const uint32_t active_sampler_records=
+      std::to_integer<uint8_t>(shader_slots[7]);
+  if(active_sampler_records<=16u) {
+    bool valid=true;
+    uint16_t mask=0u;
+    if(active_sampler_records) {
+      const auto sampler_table=read32(*material_ctx+196u);
+      const uint32_t first=(
+          uint32_t(std::to_integer<uint8_t>(shader_slots[0]))<<8) |
+          uint32_t(std::to_integer<uint8_t>(shader_slots[1]));
+      const uint64_t begin=sampler_table ?
+          uint64_t(*sampler_table)+uint64_t(first)*4u : 0u;
+      if(!sampler_table || !*sampler_table ||
+         begin>UINT32_MAX-active_sampler_records*4u) {
+        valid=false;
+      } else {
+        for(uint32_t i=0;i<active_sampler_records;++i) {
+          std::array<std::byte,4> record{};
+          if(!ReadGuest(original_guest_base,
+                        static_cast<uint32_t>(begin+uint64_t(i)*4u),
+                        record.data(),record.size())) {
+            valid=false;break;
+          }
+          // The original EoR method masks off high type bits before
+          // passing the source sampler register to 0x82675E00.
+          const uint32_t slot=std::to_integer<uint8_t>(record[0])&0x7fu;
+          if(slot>=16u || (mask&(uint16_t(1u)<<slot))) {
+            valid=false;break;
+          }
+          mask|=uint16_t(1u)<<slot;
+        }
+      }
+    }
+    if(valid) {
+      scope.original_pass_sampler_slot_mask=mask;
+      scope.original_pass_sampler_slots_verified=true;
+    }
+  }
   // Only the later real XDK Draw's captured device shadow, not the
-  // EoR setter itself, may prove these two source GPU objects are live.
+  // EoR setter itself, may prove stage GPU objects and sampler-bound
+  // original texture object IDs are live.
 }
 
 void ObserveOriginalEorMaterialDescriptor(
