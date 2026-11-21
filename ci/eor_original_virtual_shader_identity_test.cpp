@@ -113,6 +113,7 @@ int main() {
   // Source digests are recovered from live VS/PS header bytes and their
   // original guest-object identities, then mapped back to the unique
   // ShaderEffects effect/pass without trusting an asserted class name.
+  live.exact_original_guest_virtual_header.assign(vs.begin(),vs.end());
   const auto resolved_vs=ResolveOriginalLiveXdkShaderSource(
       bank,live,0x81234000u,Stage::Vertex,17u,3u);
   assert(resolved_vs && *resolved_vs==expected_vertex);
