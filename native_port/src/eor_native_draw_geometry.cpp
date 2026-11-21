@@ -535,7 +535,20 @@ bool SameOriginalEorShaderMethod(
          a.original_decal_material_word0==b.original_decal_material_word0 &&
          a.original_decal_material_word8==b.original_decal_material_word8 &&
          a.original_decal_item_material_binding_verified==
-             b.original_decal_item_material_binding_verified;
+             b.original_decal_item_material_binding_verified &&
+         a.original_pass_material_context_guest==
+             b.original_pass_material_context_guest &&
+         a.original_pass_state_one_based==b.original_pass_state_one_based &&
+         a.original_pass_vertex_handle_entry_guest==
+             b.original_pass_vertex_handle_entry_guest &&
+         a.original_pass_pixel_handle_entry_guest==
+             b.original_pass_pixel_handle_entry_guest &&
+         a.original_pass_vs_xdk_guest_object==
+             b.original_pass_vs_xdk_guest_object &&
+         a.original_pass_ps_xdk_guest_object==
+             b.original_pass_ps_xdk_guest_object &&
+         a.original_pass_vs_ps_xdk_binding_verified==
+             b.original_pass_vs_ps_xdk_binding_verified;
 }
 bool ValidOriginalEorShaderMethod(
     const xdk::OriginalEorShaderMethodAtDraw& source) noexcept {
