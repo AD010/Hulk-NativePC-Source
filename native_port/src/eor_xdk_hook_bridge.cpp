@@ -478,6 +478,20 @@ bool InstallVerifiedWorkerEorFrame(
      (frame->reflection && frame->reflection!=pack.reflection))
     return false;
   auto complete=std::make_shared<VerifiedWorkerEorFrame>(*frame);
+  // The original USA frame is the sole authority for shader-class parent
+  // ownership; no caller may install a stale or invented scope in front of
+  // an otherwise valid Vulkan material/mesh witness.
+  const auto exact_guest=g_frames_for_native.Peek();
+  if(!exact_guest ||
+     exact_guest->sequence!=frame->original_frame_sequence ||
+     g_frames_for_native.MissedSinceTake()!=0)
+    return false;
+  try {
+    complete->witnesses=native::AttachLiveEorShaderMethodParents(
+        *exact_guest,complete->witnesses);
+  } catch (...) {
+    return false;
+  }
   complete->shaders=pack.shaders;
   complete->effects=pack.effects;
   complete->reflection=pack.reflection;
