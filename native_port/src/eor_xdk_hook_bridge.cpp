@@ -52,6 +52,8 @@ std::optional<OfflineShaderPack> g_offline_shader_pack;
 // needs to exist. Protected by g_mutex like the complete source pack.
 std::shared_ptr<const aot::OriginalVirtualShaderIdentity>
     g_original_shader_capture_index;
+std::shared_ptr<const aot::EffectCatalog>
+    g_original_effect_capture_catalog;
 OriginalGuestBufferSnapshots g_original_buffers; // guarded by g_mutex
 // The actual guest EoR shader method and its inner XDK Draw execute on
 // the SAME generated PPC thread. A fixed TLS stack retains the source
@@ -763,6 +765,16 @@ void CapturePpcDraw(Kind kind, uint32_t guest, const PPCContext& ctx,
               sources,owner.original_pass_pixel_handle_entry_guest,
               live.original_ps_guest_object,aot::Stage::Pixel,
               ReadGuest,guest_base,frame,ordinal);
+      if(draw.observed_live_vertex_shader_header &&
+         draw.observed_live_pixel_shader_header &&
+         g_original_effect_capture_catalog)
+        draw.observed_live_eor_effect_pass=
+            aot::ResolveOriginalLiveEorEffectPass(
+                sources,*g_original_effect_capture_catalog,
+                *draw.observed_live_vertex_shader_header,
+                *draw.observed_live_pixel_shader_header,
+                live.original_vs_guest_object,live.original_ps_guest_object,
+                frame,ordinal);
     }
   }
   // Only a requested direct Vulkan render performs byte-exact guest
@@ -946,19 +958,29 @@ void EndPpcHook(native_x_renderer::Call kind) {
   }
 }
 bool InstallOriginalShaderCaptureIndex(
-    std::shared_ptr<const aot::OriginalVirtualShaderIdentity> original) noexcept {
+    std::shared_ptr<const aot::OriginalVirtualShaderIdentity> original,
+    std::shared_ptr<const aot::EffectCatalog> original_effects) noexcept {
   // This project deliberately pins the USA ShaderEffects source census:
   // a partial/truncated private identity index must not label guest memory.
-  if(!original || original->size()!=5194u)return false;
+  if(!original || original->size()!=5194u ||
+     (original_effects &&
+      (original_effects->EffectCount()!=233u ||
+       original_effects->ShaderCount()!=original->size())))
+    return false;
   std::lock_guard lock(g_mutex);
-  if(g_offline_shader_pack && g_offline_shader_pack->virtual_ids &&
-     g_offline_shader_pack->virtual_ids!=original)
+  if(g_offline_shader_pack &&
+     ((g_offline_shader_pack->virtual_ids &&
+       g_offline_shader_pack->virtual_ids!=original) ||
+      (original_effects &&
+       g_offline_shader_pack->effects!=original_effects)))
     return false;
   g_original_shader_capture_index=std::move(original);
+  g_original_effect_capture_catalog=std::move(original_effects);
   return true;
 }
 void ClearOriginalShaderCaptureIndex() noexcept {
   std::lock_guard lock(g_mutex);
+  g_original_effect_capture_catalog.reset();
   g_original_shader_capture_index.reset();
 }
 bool InstallVerifiedSourceShaderPack(
