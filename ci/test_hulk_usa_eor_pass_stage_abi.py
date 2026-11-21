@@ -27,6 +27,27 @@ def ppc_add(dst,a,b):
 
 def synthesized_original_material_abi():
     instructions={
+        0x82873108:ppc_d(14,3,3,40),
+        0x82873120:ppc_d(14,3,3,872),
+        0x82876ED4:ppc_d(14,4,31,40),
+        0x82876EE8:ppc_d(32,4,31,24),
+        0x82876F2C:ppc_d(14,4,31,872),
+        0x82876F40:ppc_d(32,4,31,32),
+        0x825F87C0:ppc_d(32,11,4,0),
+        0x825F87CC:ppc_d(34,10,31,99),
+        0x825F87D0:ppc_d(32,9,31,232),
+        0x825F87DC:ppc_d(32,9,31,184),
+        0x825F87E8:ppc_d(7,11,11,12),
+        0x825F8964:ppc_d(32,28,25,0),
+        0x825F89D0:ppc_d(34,11,25,8),
+        0x825F9D68:ppc_d(34,11,24,9),
+        0x825F9D78:ppc_d(32,11,25,160),
+        0x825F9D84:ppc_d(40,9,29,2),
+        0x825F9D90:ppc_d(40,11,29,0),
+        0x825F9DA4:ppc_d(32,10,11,0),
+        0x825F9DA8:ppc_d(32,5,11,4),
+        0x825F9DC0:ppc_d(32,5,10,20),
+        0x82675DD8:ppc_d(32,5,5,24),
         0x825F84D0:ppc_d(14,11,4,-1),
         0x825F84D4:ppc_d(7,9,11,92),
         0x825F84D8:ppc_d(32,8,31,112),
@@ -74,7 +95,7 @@ class OriginalDualStagePassTests(unittest.TestCase):
     def test_exact_usa_eor_technique_pass_proof_matches_public_abi(self):
         result=inspect(self.image,strict=False)
         self.assertEqual(result,self.proof)
-        self.assertEqual(result["original_source_ppc_instruction_checks"],29)
+        self.assertEqual(result["original_source_ppc_instruction_checks"],50)
         self.assertEqual(result["original_runtime_pass_record_stride"],92)
         self.assertEqual(result["original_vs_pass_record_index_byte_offset"],84)
         self.assertEqual(result["original_ps_pass_record_index_byte_offset"],85)

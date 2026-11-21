@@ -50,6 +50,27 @@ def inspect(image:bytes,strict=True)->dict:
                 ((w>>11)&31)==b and
                 ((w>>1)&1023)==266)
     checks=(
+        ("pixel header getter", d(0x82873108,14,3,3,40)),
+        ("vertex header getter", d(0x82873120,14,3,3,872)),
+        ("pixel inline header copy", d(0x82876ED4,14,4,31,40)),
+        ("pixel physical allocation", d(0x82876EE8,32,4,31,24)),
+        ("vertex inline header copy", d(0x82876F2C,14,4,31,872)),
+        ("vertex physical allocation", d(0x82876F40,32,4,31,32)),
+        ("material selector source", d(0x825F87C0,32,11,4,0)),
+        ("material technique state", d(0x825F87CC,34,10,31,99)),
+        ("material state stride", d(0x825F87D0,32,9,31,232)),
+        ("pixel group row table", d(0x825F87DC,32,9,31,184)),
+        ("group row stride", d(0x825F87E8,7,11,11,12)),
+        ("first pixel binding index", d(0x825F8964,32,28,25,0)),
+        ("leading pixel constants", d(0x825F89D0,34,11,25,8)),
+        ("pixel texture group count", d(0x825F9D68,34,11,24,9)),
+        ("parameter lookup table", d(0x825F9D78,32,11,25,160)),
+        ("texture slot bits", d(0x825F9D84,40,9,29,2)),
+        ("texture parameter index", d(0x825F9D90,40,11,29,0)),
+        ("texture asset pointer", d(0x825F9DA4,32,10,11,0)),
+        ("raw texture fallback", d(0x825F9DA8,32,5,11,4)),
+        ("asset texture wrapper", d(0x825F9DC0,32,5,10,20)),
+        ("bound XDK texture in wrapper", d(0x82675DD8,32,5,5,24)),
         ("original one-based state slot",d(0x825F84D0,14,11,4,-1)),
         ("original 92-byte per-pass state record",d(0x825F84D4,7,9,11,92)),
         ("original pass table pointer at context+112",d(0x825F84D8,32,8,31,112)),
@@ -107,6 +128,10 @@ def inspect(image:bytes,strict=True)->dict:
                          +", ".join(failed))
     return {
         "schema":"hulk_usa_original_eor_dual_shader_pass_abi_v1",
+        "original_bound_xdk_virtual_header_offset_vs":872,
+        "original_bound_xdk_virtual_header_offset_ps":40,
+        "original_pixel_texture_asset_wrapper_offset":20,
+        "original_pixel_wrapper_xdk_texture_offset":24,
         "original_mapped_usa_ppc_sha256":USA_SHA,
         "original_material_shader_state_setter":"0x825F84C0",
         "original_runtime_pass_state_is_one_based":True,

@@ -2,6 +2,7 @@
 // Never writes guest memory, never bypasses the original NativeX or Xenos.
 // This is an input provenance oracle, not a completed Vulkan renderer.
 #include "eor_xdk_hook_bridge.h"
+#include "eor_usa_material_textures.h"
 #include "device.h"
 #include "SwapChain.h"
 #include <rex/cvar.h>
@@ -743,46 +744,39 @@ void CapturePpcDraw(Kind kind, uint32_t guest, const PPCContext& ctx,
       }
     }
   }
+  if (draw.original_engine_shader_method && draw.observed_vs_matrices) {
+    const auto& owner=*draw.original_engine_shader_method;
+    if (owner.original_decal_item_material_binding_verified &&
+        ValidOriginalDecalItemMaterialBinding(draw)) {
+      draw.original_pixel_texture_keys=ReadUsaMaterialPixelTextures(
+          owner.original_decal_material_context_guest,owner.original_decal_material_word0,
+          owner.original_decal_material_word8,draw.observed_vs_matrices->original_texture_guest_objects,
+          ReadGuest,guest_base);
+    }
+  }
   // Keep buffer revisions and their Draw in the same Present epoch.
   std::lock_guard lock(g_mutex);
-  // Original USA PPC guarantees that the EoR stage handle row+0 is the
-  // actual XDK shader object. Row+4 is NOT assumed to be a header:
-  // examine it only as an opt-in candidate, and accept it solely if its
-  // complete guest ShaderContainer resolves to one unique HEORVRT1 SHA.
-  // The caller's real Present epoch and Draw ordinal come from the
-  // collector WHILE holding the same mutex as Record()/Finish().
-  if(g_original_shader_capture_index &&
-     draw.original_engine_shader_method && draw.observed_vs_matrices) {
-    const auto& owner=*draw.original_engine_shader_method;
-    const auto& live=*draw.observed_vs_matrices;
-    if(owner.original_pass_vs_ps_xdk_binding_verified &&
-       owner.original_pass_vertex_handle_entry_guest &&
-       owner.original_pass_pixel_handle_entry_guest &&
-       g_collector.NextDrawOrdinal()<FrameCapture::kMaxDraws) {
-      const auto& sources=*g_original_shader_capture_index;
-      const uint64_t frame=g_collector.NextFrameSequence();
-      const uint32_t ordinal=g_collector.NextDrawOrdinal();
-      draw.observed_live_vertex_shader_header=
-          aot::ObserveOriginalLiveXdkShaderHandleEntry(
-              sources,owner.original_pass_vertex_handle_entry_guest,
-              live.original_vs_guest_object,aot::Stage::Vertex,
-              ReadGuest,guest_base,frame,ordinal);
-      draw.observed_live_pixel_shader_header=
-          aot::ObserveOriginalLiveXdkShaderHandleEntry(
-              sources,owner.original_pass_pixel_handle_entry_guest,
-              live.original_ps_guest_object,aot::Stage::Pixel,
-              ReadGuest,guest_base,frame,ordinal);
-      if(draw.observed_live_vertex_shader_header &&
-         draw.observed_live_pixel_shader_header &&
-         g_original_effect_capture_catalog)
-        draw.observed_live_eor_effect_pass=
-            aot::ResolveOriginalLiveEorEffectPass(
-                sources,*g_original_effect_capture_catalog,
-                *draw.observed_live_vertex_shader_header,
-                *draw.observed_live_pixel_shader_header,
-                live.original_vs_guest_object,live.original_ps_guest_object,
-                frame,ordinal);
-    }
+  // Read both objects from this Draw's device shadow. UI, intro and world
+  // Draws can bind shaders outside an observed engine shader-method scope.
+  if (g_original_shader_capture_index && draw.observed_vs_matrices &&
+      draw.observed_vs_matrices->original_guest_device == draw.gpr[0] &&
+      g_collector.NextDrawOrdinal() < FrameCapture::kMaxDraws) {
+    const auto& sources = *g_original_shader_capture_index;
+    const auto& live = *draw.observed_vs_matrices;
+    const uint64_t frame = g_collector.NextFrameSequence();
+    const uint32_t ordinal = g_collector.NextDrawOrdinal();
+    draw.observed_live_vertex_shader_header = aot::ObserveOriginalBoundXdkShader(
+        sources, live.original_vs_guest_object, aot::Stage::Vertex,
+        ReadGuest, guest_base, frame, ordinal);
+    draw.observed_live_pixel_shader_header = aot::ObserveOriginalBoundXdkShader(
+        sources, live.original_ps_guest_object, aot::Stage::Pixel,
+        ReadGuest, guest_base, frame, ordinal);
+    if (draw.observed_live_vertex_shader_header &&
+        draw.observed_live_pixel_shader_header && g_original_effect_capture_catalog)
+      draw.observed_live_eor_effect_pass = aot::ResolveOriginalLiveEorEffectPass(
+          sources, *g_original_effect_capture_catalog,
+          *draw.observed_live_vertex_shader_header, *draw.observed_live_pixel_shader_header,
+          live.original_vs_guest_object, live.original_ps_guest_object, frame, ordinal);
   }
   // Only a requested direct Vulkan render performs byte-exact guest
   // resource capture; diagnostics-only XDK observer is unaffected.

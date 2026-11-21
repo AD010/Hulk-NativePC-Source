@@ -13,6 +13,8 @@
     std::abort(); \
   } \
 } while(false)
+#include "../native_port/src/eor_usa_material_textures.h"
+#include <cstring>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
@@ -171,7 +173,48 @@ struct TimelineGpu final:aot::ShaderBindingBackend {
 };
 }
 
+static void CheckMaterialTextureBinding() {
+  std::array<std::byte,2048> mem{};
+  const auto put=[&](uint32_t p,uint32_t v) {
+    for(unsigned i=0;i<4;++i) mem.at(p+i)=std::byte(v>>(24u-8u*i));
+  };
+  const auto read=[](void* user,uint32_t p,std::byte* dst,size_t size) noexcept {
+    auto& bytes=*static_cast<decltype(mem)*>(user);
+    if(uint64_t(p)+size>bytes.size())return false;
+    std::memcpy(dst,bytes.data()+p,size);return true;
+  };
+  constexpr uint32_t context=16,select=300,parameters=400,table=640,lut=800;
+  put(select,1);
+  mem[context+99]=std::byte{1};
+  put(context+232,2);
+  put(context+184,table);put(context+188,4);
+  put(context+160,lut);put(context+164,4);
+  put(table+3*12,1);
+  mem[table+3*12+8]=std::byte{1};mem[table+3*12+9]=std::byte{1};
+  put(lut+2*4,(2u<<16)|(2u<<9)|3u);
+  put(parameters+2*16,960);put(parameters+3*16,1024);
+  put(960,0x82070CB8u);put(972,0x12345678);put(980,1400);
+  put(1024,0x82070CB8u);put(1036,0xABCDEF01);put(1044,1460);
+  put(1424,0x5500);put(1484,0x6600);
+  std::array<uint32_t,16> bound{};
+  bound[3]=0x5500;bound[4]=0x6600;
+  const auto capture=[&] {
+    return xdk::ReadUsaMaterialPixelTextures(context,select,parameters,bound,read,&mem);
+  };
+  auto keys=capture();
+  assert(keys[3]==0x12345678 && keys[4]==0xABCDEF01 && keys[0]==0);
+  bound[4]=0x5510;assert(!capture()[4]);
+  put(960,0);assert(!capture()[3]);put(960,0x82070CB8u);
+  // A later group overwrites slot 3 with an unindexed/raw texture.
+  mem[table+3*12+9]=std::byte{2};
+  put(lut+3*4,(4u<<16)|(1u<<9)|3u);
+  assert(!capture()[3]);
+  put(context+164,3);assert((capture()==xdk::OriginalPixelTextureKeys{}));
+  put(context+160,UINT32_MAX-1);put(context+164,4);
+  assert((capture()==xdk::OriginalPixelTextureKeys{}));
+}
 int main(){
+  CheckMaterialTextureBinding();
   try {
   Fake gpu;
   auto resident=model::UploadOriginalModel(MakeModel(),gpu);
@@ -476,6 +519,11 @@ int main(){
   witness.original_xdk_texture_slot_mapping_verified=true;
   witness.original_guest_resource_to_material_mapping_verified=true;
   std::vector<native::VerifiedXdkResourceWitness> catalog{witness};
+  auto materialDraw=runtime;
+  materialDraw.calls[0].original_pixel_texture_keys[0]=valid_sampler.original_texture_hash;
+  assert(native::ResolveCapturedResourceDraws(materialDraw,catalog,models).size()==1);
+  materialDraw.calls[0].original_pixel_texture_keys[0]^=0x1000;
+  Reject([&]{(void)native::ResolveCapturedResourceDraws(materialDraw,catalog,models);});
   // Real ShaderClass -> original XDK Draw identity, sourced from the
   // independently validated original PPC virtual method and vtable.
   // Attaching its parent to an ALREADY independent material witness

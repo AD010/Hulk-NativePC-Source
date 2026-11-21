@@ -459,8 +459,7 @@ struct RawDraw {
   // This is NOT a fabricated VerifiedXdkResourceWitness.
   std::optional<OriginalEorShaderMethodAtDraw> original_engine_shader_method;
   // Runtime content-addressed shader source identity from SAME Draw's
-  // original material stage table, only when row+4 really points to a
-  // full HEORVRT1-identified ShaderContainer. Missing means unproven.
+  // device stage objects, using their inline USA ShaderContainer headers.
   std::optional<aot::OriginalLiveXdkShaderHeaderWitness>
       observed_live_vertex_shader_header;
   std::optional<aot::OriginalLiveXdkShaderHeaderWitness>
@@ -469,6 +468,7 @@ struct RawDraw {
   // HEORMAT2 reverse VS/PS catalog at this exact PPC Draw, never inferred
   // from an unrelated shader class or adjacent EoR archive record.
   std::optional<aot::OriginalEffectPass> observed_live_eor_effect_pass;
+  std::array<uint32_t,16> original_pixel_texture_keys{};
 };
 // Original USA Decal direct XDK call is at guest 0x8265B538.
 // An engine render-item->geometry witness, if present, must match the

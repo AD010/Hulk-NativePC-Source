@@ -1,5 +1,6 @@
 #include "eor_native_draw_geometry.h"
 #include <algorithm>
+#include <bit>
 #include <functional>
 #include <limits>
 #include <map>
@@ -639,6 +640,35 @@ std::vector<VerifiedXdkResourceWitness> AttachLiveEorShaderMethodParents(
   return attached;
 }
 
+// Compare the complete pixel texture set only when the independent source
+// witness covers every sampled slot. XDK slot and shader fetch register
+// numbering may differ. Unobserved slots and vertex samplers stay unknown.
+static bool MaterialPixelTexturesAgree(
+    const xdk::RawDraw& call, const VerifiedXdkResourceWitness& witness,
+    const VerifiedDrawSource& source) {
+  const uint16_t mask=witness.source_verified_texture_slot_mask;
+  if (!witness.original_xdk_texture_slot_mapping_verified || !mask ||
+      std::popcount(mask)!=static_cast<int>(source.original_sampler_slots.size()))
+    return true;
+  std::array<uint32_t,16> actual{}, expected{};
+  size_t count=0;
+  for (uint32_t slot=0;slot<16;++slot) {
+    if (!(mask & (1u<<slot))) continue;
+    if (!call.original_pixel_texture_keys[slot]) return true;
+    actual[count++]=call.original_pixel_texture_keys[slot];
+  }
+  for (size_t i=0;i<count;++i) {
+    const auto& sampler=source.original_sampler_slots[i];
+    if (sampler.stage!=gpu::OriginalSamplerStage::Pixel ||
+        !sampler.original_texture_hash || !sampler.original_material_ownership_verified)
+      return true;
+    expected[i]=sampler.original_texture_hash;
+  }
+  std::sort(actual.begin(),actual.end());
+  std::sort(expected.begin(),expected.end());
+  return actual==expected;
+}
+
 std::vector<VerifiedDrawSource> ResolveCapturedResourceDraws(
     const xdk::Frame& frame,
     std::span<const VerifiedXdkResourceWitness> witnesses,
@@ -780,6 +810,7 @@ std::vector<VerifiedDrawSource> ResolveCapturedResourceDraws(
           [](const auto& w)->const VerifiedDrawSource&{
             return w.native_draw;
           },candidate.original_source_submission);
+      if (!MaterialPixelTexturesAgree(call,candidate,candidate_source)) continue;
       // A live original ShaderContainer VS/PS pair can authenticate the
       // exact original ShaderEffects effect/pass without a Vulkan backend.
       // Use that strong PPC Draw evidence to ELIMINATE other legitimate

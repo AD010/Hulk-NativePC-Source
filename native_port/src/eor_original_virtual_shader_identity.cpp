@@ -144,49 +144,38 @@ std::optional<Digest> OriginalVirtualShaderIdentity::FindOriginalSource(
     return std::nullopt;
   return it->second.full_source_sha;
 }
-std::optional<OriginalLiveXdkShaderHeaderWitness>
-ObserveOriginalLiveXdkShaderHandleEntry(
-    const OriginalVirtualShaderIdentity& identities,
-    uint32_t original_eor_handle_row_guest,
-    uint32_t current_bound_xdk_shader_object,
-    Stage stage,
-    ReadOriginalGuestShaderBytes reader,void* original_guest_base,
-    uint64_t exact_frame_sequence,uint32_t exact_call_ordinal) noexcept {
-  // The stage setter reads row+0; row+4 has no proven PPC semantic.
-  // Do not promote it to a pointer until its entire original virtual
-  // header matches the archived cryptographic content-addressed index.
-  if(!reader || !original_guest_base || !identities.size() ||
-     !original_eor_handle_row_guest ||
-     (original_eor_handle_row_guest&3u) ||
-     original_eor_handle_row_guest>UINT32_MAX-8u ||
-     !current_bound_xdk_shader_object ||
-     !exact_frame_sequence || exact_call_ordinal==UINT32_MAX ||
-     (stage!=Stage::Vertex && stage!=Stage::Pixel))
+namespace {
+std::optional<uint32_t> UsaShaderHeaderAddress(uint32_t object, Stage stage) noexcept {
+  if (!object || (object & 3u) || (stage != Stage::Vertex && stage != Stage::Pixel))
     return std::nullopt;
+  const uint64_t address=uint64_t(object)+(stage == Stage::Vertex ? 872u : 40u);
+  if (address+12u>uint64_t(UINT32_MAX)+1u) return std::nullopt;
+  return static_cast<uint32_t>(address);
+}
+}
+std::optional<OriginalLiveXdkShaderHeaderWitness>
+ObserveOriginalBoundXdkShader(
+    const OriginalVirtualShaderIdentity& identities, uint32_t object,
+    Stage stage, ReadOriginalGuestShaderBytes reader, void* original_guest_base,
+    uint64_t exact_frame_sequence, uint32_t exact_call_ordinal) noexcept {
+  if (!reader || !original_guest_base || !identities.size() ||
+      !exact_frame_sequence || exact_call_ordinal == UINT32_MAX)
+    return std::nullopt;
+
+  // USA shader extraction functions 0x82876EF8 (VS) and 0x82876EA0 (PS)
+  // copy the virtual ShaderContainer directly from the bound XDK object.
+  // Physical instructions and constants live in a separate allocation.
+  const auto address = UsaShaderHeaderAddress(object,stage);
+  if (!address) return std::nullopt;
+  const uint32_t header_address = *address;
   try {
-    std::array<std::byte,8> row{};
-    if(!reader(original_guest_base,original_eor_handle_row_guest,
-               row.data(),row.size()))
-      return std::nullopt;
-    const auto be32=[](const std::byte* p) noexcept -> uint32_t {
-      return (uint32_t(std::to_integer<uint8_t>(p[0]))<<24) |
-             (uint32_t(std::to_integer<uint8_t>(p[1]))<<16) |
-             (uint32_t(std::to_integer<uint8_t>(p[2]))<<8) |
-              uint32_t(std::to_integer<uint8_t>(p[3]));
-    };
-    const uint32_t object=be32(row.data());
-    const uint32_t header_address=be32(row.data()+4);
-    if(object!=current_bound_xdk_shader_object ||
-       !header_address || (header_address&3u) ||
-       header_address>UINT32_MAX-12u)
-      return std::nullopt;
-    std::array<std::byte,12> preamble{};
+    std::array<uint8_t,12> preamble{};
     if(!reader(original_guest_base,header_address,
-               preamble.data(),preamble.size()))
+               reinterpret_cast<std::byte*>(preamble.data()),preamble.size()))
       return std::nullopt;
-    const uint32_t signature=be32(preamble.data());
-    const uint32_t virtual_bytes=be32(preamble.data()+4);
-    const uint32_t physical_bytes=be32(preamble.data()+8);
+    const uint32_t signature=Be32(preamble.data());
+    const uint32_t virtual_bytes=Be32(preamble.data()+4);
+    const uint32_t physical_bytes=Be32(preamble.data()+8);
     if(signature!=(stage==Stage::Vertex?0x102a1101u:0x102a1100u) ||
        !physical_bytes || virtual_bytes<36u ||
        virtual_bytes>(1u<<20) ||
@@ -199,10 +188,6 @@ ObserveOriginalLiveXdkShaderHandleEntry(
       return std::nullopt;
     if(!identities.FindOriginalSource(header,stage))
       return std::nullopt;
-    // Proven at THIS live state: authentic EoR row+0 == current XDK
-    // shader, row+4 references an exact source-indexed container.
-    // This is a content-addressed runtime link, not an assertion
-    // that any unrelated EoR handle row has identical semantics.
     return OriginalLiveXdkShaderHeaderWitness{
         object,header_address,true,std::move(header),
         exact_frame_sequence,exact_call_ordinal};
@@ -224,8 +209,10 @@ std::optional<Digest> ResolveOriginalLiveXdkShaderSource(
      !source.original_object_to_header_abi_verified ||
      !source.original_xdk_shader_guest_object ||
      source.original_xdk_shader_guest_object!=currently_bound_xdk_shader_object ||
-     !source.original_virtual_header_guest_address ||
-     (source.original_virtual_header_guest_address&3u))
+     UsaShaderHeaderAddress(currently_bound_xdk_shader_object,expected_stage)!=
+         source.original_virtual_header_guest_address ||
+     uint64_t(source.original_virtual_header_guest_address)+
+         source.exact_original_guest_virtual_header.size()>uint64_t(UINT32_MAX)+1u)
     return std::nullopt;
   return identities.FindOriginalSource(
       source.exact_original_guest_virtual_header,expected_stage);

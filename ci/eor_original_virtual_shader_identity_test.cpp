@@ -1,6 +1,8 @@
 #include "../native_port/src/eor_original_virtual_shader_identity.h"
 #include <array>
 #include <cassert>
+#include <cstring>
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <functional>
@@ -82,7 +84,7 @@ int main() {
   // Runtime proof must match the SAME live XDK object, authentic guest
   // header, stage AND original full source SHA. No class-name shortcut.
   OriginalLiveXdkShaderHeaderWitness live{
-      0x81234000u,0x89001000u,true,
+      0x81234000u,0x81234368u,true,
       std::vector<uint8_t>(vs.begin(),vs.end()),17u,3u};
   Digest expected_vertex{};expected_vertex.fill(0x11u);
   Digest expected_pixel{};expected_pixel.fill(0x22u);
@@ -103,10 +105,10 @@ int main() {
   assert(!MatchesOriginalLiveXdkShaderSource(
       bank,live,0x81234000u,Stage::Vertex,expected_vertex,17u,3u));
   live.original_object_to_header_abi_verified=true;
-  live.original_virtual_header_guest_address=0x89001001u;
+  live.original_virtual_header_guest_address=0x8123436Cu;
   assert(!MatchesOriginalLiveXdkShaderSource(
       bank,live,0x81234000u,Stage::Vertex,expected_vertex,17u,3u));
-  live.original_virtual_header_guest_address=0x89001000u;
+  live.original_virtual_header_guest_address=0x81234368u;
   live.exact_original_guest_virtual_header[34]^=0x55u;
   assert(!MatchesOriginalLiveXdkShaderSource(
       bank,live,0x81234000u,Stage::Vertex,expected_vertex,17u,3u));
@@ -118,7 +120,7 @@ int main() {
       bank,live,0x81234000u,Stage::Vertex,17u,3u);
   assert(resolved_vs && *resolved_vs==expected_vertex);
   OriginalLiveXdkShaderHeaderWitness pixel_live{
-      0x81235000u,0x89002000u,true,
+      0x81235000u,0x81235028u,true,
       std::vector<uint8_t>(ps.begin(),ps.end()),17u,3u};
   const auto resolved_ps=ResolveOriginalLiveXdkShaderSource(
       bank,pixel_live,0x81235000u,Stage::Pixel,17u,3u);
@@ -145,59 +147,37 @@ int main() {
   assert(!ResolveOriginalLiveEorEffectPass(
       bank,effects,live,wrong_pixel,0x81234000u,0x81235000u,17u,3u));
   std::filesystem::remove(effect_file);
-  // A real producer may read the second 32-bit word of the original
-  // EoR stage row, but it must not trust it until the complete bytes match
-  // the private ShaderContainer index AND the current shader object.
-  std::vector<uint8_t> guest(0x4000u,0);
-  const auto put_be32=[&](uint32_t where,uint32_t value) {
-    assert(uint64_t(where)+4u<=guest.size());
-    for(unsigned i=0;i<4u;++i)
-      guest[where+i]=uint8_t(value>>(8u*(3u-i)));
-  };
-  const auto read_guest=[](void* user,uint32_t where,
-                           std::byte* output,size_t length)->bool {
+  std::vector<uint8_t> guest(0x4000u);
+  const auto read_guest=[](void* user, uint32_t where, std::byte* output,
+                           size_t length) -> bool {
     const auto& bytes=*static_cast<const std::vector<uint8_t>*>(user);
-    if(!output || uint64_t(where)+length>bytes.size())return false;
-    for(size_t i=0;i<length;++i)
-      output[i]=std::byte(bytes[where+i]);
+    if (uint64_t(where)+length>bytes.size()) return false;
+    std::memcpy(output,bytes.data()+where,length);
     return true;
   };
-  put_be32(0x1000u,0x81234000u);
-  put_be32(0x1004u,0x2000u);
-  for(size_t i=0;i<vs.size();++i)guest[0x2000u+i]=vs[i];
-  auto from_row=ObserveOriginalLiveXdkShaderHandleEntry(
-      bank,0x1000u,0x81234000u,Stage::Vertex,
-      read_guest,&guest,17u,3u);
-  assert(from_row);
-  assert(from_row->original_object_to_header_abi_verified);
-  assert(from_row->exact_original_guest_virtual_header.size()==vs.size());
-  assert(from_row->original_frame_sequence==17u &&
-         from_row->original_call_ordinal==3u);
+  constexpr uint32_t bound_vs=0x1000, bound_ps=0x2000;
+  const auto capture=[&](uint32_t object, Stage stage) {
+    return ObserveOriginalBoundXdkShader(bank,object,stage,read_guest,&guest,17,3);
+  };
+  std::copy(vs.begin(),vs.end(),guest.begin()+bound_vs+872);
+  std::copy(ps.begin(),ps.end(),guest.begin()+bound_ps+40);
+  auto vs_at_draw=capture(bound_vs,Stage::Vertex);
+  auto ps_at_draw=capture(bound_ps,Stage::Pixel);
+  assert(vs_at_draw && ps_at_draw);
+  assert(vs_at_draw->original_virtual_header_guest_address==bound_vs+872);
+  assert(ps_at_draw->original_virtual_header_guest_address==bound_ps+40);
   assert(MatchesOriginalLiveXdkShaderSource(
-      bank,*from_row,0x81234000u,Stage::Vertex,
-      expected_vertex,17u,3u));
-  assert(!ObserveOriginalLiveXdkShaderHandleEntry(
-      bank,0x1000u,0x81234004u,Stage::Vertex,
-      read_guest,&guest,17u,3u));
-  assert(!ObserveOriginalLiveXdkShaderHandleEntry(
-      bank,0x1000u,0x81234000u,Stage::Pixel,
-      read_guest,&guest,17u,3u));
-  guest[0x2000u+25]^=0x20u;
-  assert(!ObserveOriginalLiveXdkShaderHandleEntry(
-      bank,0x1000u,0x81234000u,Stage::Vertex,
-      read_guest,&guest,17u,3u));
-  guest[0x2000u+25]^=0x20u;
-  put_be32(0x1004u,0x2001u);
-  assert(!ObserveOriginalLiveXdkShaderHandleEntry(
-      bank,0x1000u,0x81234000u,Stage::Vertex,
-      read_guest,&guest,17u,3u));
-  put_be32(0x1004u,0x2000u);
-  // Bounded read: even valid magic with a forged oversized header is
-  // rejected before any heap allocation or guest memory traversal.
-  put_be32(0x2004u,0x01000000u);
-  assert(!ObserveOriginalLiveXdkShaderHandleEntry(
-      bank,0x1000u,0x81234000u,Stage::Vertex,
-      read_guest,&guest,17u,3u));
+      bank,*vs_at_draw,bound_vs,Stage::Vertex,expected_vertex,17,3));
+  assert(MatchesOriginalLiveXdkShaderSource(
+      bank,*ps_at_draw,bound_ps,Stage::Pixel,expected_pixel,17,3));
+  assert(!capture(bound_vs,Stage::Pixel));
+  assert(!capture(bound_vs+4,Stage::Vertex));
+  assert(!capture(UINT32_MAX-7,Stage::Vertex));
+  assert(!capture(0,Stage::Pixel));
+  guest[bound_vs+872+25]^=0x20;
+  assert(!capture(bound_vs,Stage::Vertex));
+  guest[bound_ps+40+4]=1; // oversized or truncated virtual part
+  assert(!capture(bound_ps,Stage::Pixel));
   auto original=blob;
   blob[0]='X';Write(p,blob);
   Reject([&] {bank.Load(p);}); assert(bank.size()==2);
