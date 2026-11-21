@@ -347,6 +347,14 @@ class PcMenu final : public rex::ui::ImGuiDialog {
       ImGui::Separator();
       ImGui::TextUnformatted("PC graphics (restart game to apply)");
       ImGui::TextWrapped("Current NativeX Vulkan: host-scaled XDK/PM4 compatibility rendering. Full Edge of Reality native passes and 16:10 camera are not active yet.");
+      bool observe_eor=PendingBool("hulk_eor_xdk_capture");
+      if(ImGui::Checkbox("Capture original Xbox Draw/VS/PS (read-only, restart)",
+                         &observe_eor))
+        Change("hulk_eor_xdk_capture", observe_eor ? "true" : "false");
+      ImGui::TextWrapped(
+          "Read-only original shader source verification without native "
+          "Vulkan takeover. Capture is optional: compatibility Xenos remains "
+          "the renderer. Full source shader and pass banks can load separately.");
       bool direct_eor=PendingBool("hulk_eor_vulkan_replay");
       if(ImGui::Checkbox("Direct EoR Vulkan replay (experimental, restart)",
                          &direct_eor))
@@ -356,6 +364,20 @@ class PcMenu final : public rex::ui::ImGuiDialog {
           "only when exact original Draw, mesh/material, shader and camera "
           "owners have been verified. Otherwise compatibility rendering stays active.");
 #if defined(HULK_NATIVE_X_LINKED)
+      const auto coverage=hulk::eor::xdk::GetOriginalEorSourceCoverage();
+      ImGui::Text("Source original PPC frame: %llu; XDK Draws: %u",
+          static_cast<unsigned long long>(coverage.original_frame_sequence),
+          coverage.original_xdk_draws);
+      ImGui::Text("Original VS/PS header SHA: %u / %u",
+          coverage.original_vs_headers,coverage.original_ps_headers);
+      ImGui::Text("Verified original shader pairs: %u; effect passes: %u",
+          coverage.original_vs_ps_pairs,coverage.original_effect_passes);
+      ImGui::Text("Original source timeline: %s",
+          coverage.complete_xdk_timeline ? "complete" : "not verified");
+      ImGui::TextWrapped(
+          "These are actual live guest evidence counts, not native Vulkan "
+          "readiness. Missing original game mesh/material ownership still "
+          "prevents takeover of the host frame.");
       const auto status=hulk::eor::xdk::GetEorWorkerStatus();
       ImGui::Text("Native EoR verified backbuffers: %llu",
           static_cast<unsigned long long>(status.ready_backbuffers));
