@@ -18,10 +18,18 @@
   "original_xdk_ps_guest_method": "0x82874090",
   "original_xdk_vs_device_shader_object_offset": 12696,
   "original_xdk_ps_device_shader_object_offset": 12692,
-  "original_source_ppc_instruction_checks": 19,
+  "original_source_ppc_instruction_checks": 29,
   "engine_pass_vs_ps_xdk_shader_object_identity_verified": true,
   "source_xenos_shader_sha256_to_live_xdk_shader_object_verified": false,
   "runtime_state_index_to_source_pdb_pass_ordinal_verified": false,
   "original_shader_sampler_gpu_texture_binding_verified": false,
-  "no_private_code_or_original_shader_data_published": true
+  "no_private_code_or_original_shader_data_published": true,
+  "original_sampler_state_record_count_byte_offset": 87,
+  "original_sampler_state_first_record_be16_offset": 80,
+  "original_sampler_state_table_guest_offset": 196,
+  "original_sampler_state_record_stride": 4,
+  "original_eor_sampler_state_guest_setter": "0x82675E00",
+  "original_eor_sampler_state_aux_guest_setter": "0x82675EA0",
+  "engine_pass_sampler_state_register_list_verified": true,
+  "engine_pass_sampler_state_equals_shader_texture_fetch_mapping": false
 }
