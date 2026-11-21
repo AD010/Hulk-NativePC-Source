@@ -47,6 +47,11 @@ struct OfflineShaderPack {
   std::shared_ptr<const aot::OriginalVirtualShaderIdentity> virtual_ids;
 };
 std::optional<OfflineShaderPack> g_offline_shader_pack;
+// An HEORVRT1-only owner enables read-only XDK ShaderObject evidence while
+// visible gameplay still uses Xenos; neither SPIR-V nor a Vulkan worker
+// needs to exist. Protected by g_mutex like the complete source pack.
+std::shared_ptr<const aot::OriginalVirtualShaderIdentity>
+    g_original_shader_capture_index;
 OriginalGuestBufferSnapshots g_original_buffers; // guarded by g_mutex
 // The actual guest EoR shader method and its inner XDK Draw execute on
 // the SAME generated PPC thread. A fixed TLS stack retains the source
@@ -737,8 +742,7 @@ void CapturePpcDraw(Kind kind, uint32_t guest, const PPCContext& ctx,
   // complete guest ShaderContainer resolves to one unique HEORVRT1 SHA.
   // The caller's real Present epoch and Draw ordinal come from the
   // collector WHILE holding the same mutex as Record()/Finish().
-  if(REXCVAR_GET(hulk_eor_vulkan_replay) &&
-     g_offline_shader_pack && g_offline_shader_pack->virtual_ids &&
+  if(g_original_shader_capture_index &&
      draw.original_engine_shader_method && draw.observed_vs_matrices) {
     const auto& owner=*draw.original_engine_shader_method;
     const auto& live=*draw.observed_vs_matrices;
@@ -746,7 +750,7 @@ void CapturePpcDraw(Kind kind, uint32_t guest, const PPCContext& ctx,
        owner.original_pass_vertex_handle_entry_guest &&
        owner.original_pass_pixel_handle_entry_guest &&
        g_collector.NextDrawOrdinal()<FrameCapture::kMaxDraws) {
-      const auto& sources=*g_offline_shader_pack->virtual_ids;
+      const auto& sources=*g_original_shader_capture_index;
       const uint64_t frame=g_collector.NextFrameSequence();
       const uint32_t ordinal=g_collector.NextDrawOrdinal();
       draw.observed_live_vertex_shader_header=
@@ -928,6 +932,22 @@ void EndPpcHook(native_x_renderer::Call kind) {
     g_frames_for_native.Publish(std::move(frame));
   }
 }
+bool InstallOriginalShaderCaptureIndex(
+    std::shared_ptr<const aot::OriginalVirtualShaderIdentity> original) noexcept {
+  // This project deliberately pins the USA ShaderEffects source census:
+  // a partial/truncated private identity index must not label guest memory.
+  if(!original || original->size()!=5194u)return false;
+  std::lock_guard lock(g_mutex);
+  if(g_offline_shader_pack && g_offline_shader_pack->virtual_ids &&
+     g_offline_shader_pack->virtual_ids!=original)
+    return false;
+  g_original_shader_capture_index=std::move(original);
+  return true;
+}
+void ClearOriginalShaderCaptureIndex() noexcept {
+  std::lock_guard lock(g_mutex);
+  g_original_shader_capture_index.reset();
+}
 bool InstallVerifiedSourceShaderPack(
     std::shared_ptr<const aot::ShaderBank> shaders,
     std::shared_ptr<const aot::EffectCatalog> effects,
@@ -942,6 +962,9 @@ bool InstallVerifiedSourceShaderPack(
      !reflection || reflection->size()!=shaders->expected())
     return false;
   std::lock_guard lock(g_mutex);
+  if(virtual_ids && g_original_shader_capture_index &&
+     virtual_ids!=g_original_shader_capture_index)
+    return false;
   // A new original ShaderEffects generation must NEVER be attached to
   // an already queued frame from the previous bank's digest identities.
   g_verified_worker_frame.reset();
