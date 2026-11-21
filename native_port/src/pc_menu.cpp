@@ -355,6 +355,18 @@ class PcMenu final : public rex::ui::ImGuiDialog {
           "Read-only original shader source verification without native "
           "Vulkan takeover. Capture is optional: compatibility Xenos remains "
           "the renderer. Full source shader and pass banks can load separately.");
+      bool original_mesh_capture=PendingBool("hulk_eor_xdk_source_mesh_capture");
+      if(ImGui::Checkbox("Capture original GPU vertex/index bytes (read-only, restart)",
+                         &original_mesh_capture)) {
+        Change("hulk_eor_xdk_source_mesh_capture",
+               original_mesh_capture ? "true" : "false");
+        if(original_mesh_capture)
+          Change("hulk_eor_xdk_capture","true");
+      }
+      ImGui::TextWrapped(
+          "Exact original XDK bound VB/IB allocations: optional 64 MiB "
+          "per-Present cap, no gameplay/GPU writes, no native renderer "
+          "takeover and no guessed model or texture ownership.");
       bool direct_eor=PendingBool("hulk_eor_vulkan_replay");
       if(ImGui::Checkbox("Direct EoR Vulkan replay (experimental, restart)",
                          &direct_eor))
@@ -372,6 +384,9 @@ class PcMenu final : public rex::ui::ImGuiDialog {
           coverage.original_vs_headers,coverage.original_ps_headers);
       ImGui::Text("Verified original shader pairs: %u; effect passes: %u",
           coverage.original_vs_ps_pairs,coverage.original_effect_passes);
+      ImGui::Text("Actual bound VB0: %u; IB: %u; indexed pairs: %u",
+          coverage.original_live_vb0,coverage.original_live_ib,
+          coverage.original_indexed_with_exact_buffer_bytes);
       ImGui::Text("Original source timeline: %s",
           coverage.complete_xdk_timeline ? "complete" : "not verified");
       ImGui::TextWrapped(
