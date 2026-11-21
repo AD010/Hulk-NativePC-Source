@@ -537,6 +537,12 @@ int main(){
   const auto match32=native::IdentifyExactOriginalGuestMesh(draw32,models);
   assert(match32 && match32->original_index_big_endian &&
          match32->original_index_element_bytes==4);
+  // Six D3DFMT_INDEX32 indices occupy twelve 16-bit words. A Draw
+  // at element one requesting six indices must fail before k*4 access.
+  // The historical /2 bounds check incorrectly admitted that range.
+  auto beyond32=draw32;
+  beyond32.gpr[3]=1u;
+  assert(!native::IdentifyExactOriginalGuestMesh(beyond32,models));
   auto shared32=std::make_shared<xdk::OriginalGuestBufferBytes>(*ib32);
   shared32->bytes.insert(shared32->bytes.begin(),
       {std::byte{0},std::byte{0},std::byte{0x01},std::byte{0xFE}});
