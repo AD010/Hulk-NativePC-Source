@@ -5,6 +5,14 @@
 #include <native_x_renderer/native_x_renderer.h>
 
 namespace hulk::eor::xdk {
+// Verified USA EoR script-VM global state_r (original guest 0x8264C798).
+// Its r3 argument is the authentic original VM call context; the
+// function is SHARED by unrelated game scripts. Read-only audit only:
+// absolutely never open Windows Settings based on this common callback
+// until the original UIPage_Pause_Settings owner/ABI is proven.
+void ObserveOriginalEorVmState_r(
+    uint32_t original_method_guest,const PPCContext& original_ctx,
+    uint8_t* original_guest_base) noexcept;
 // RAII, read-only source EoR engine shader-method parent capture. The
 // ORIGINAL USA method is always called through unchanged; this observes
 // only r3/vtable and r4..r7 at entry so inner XDK Draws can retain their
