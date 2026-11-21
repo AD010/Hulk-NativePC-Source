@@ -113,15 +113,124 @@ class OriginalGuestBufferSnapshots {
 // whose first BE32 word MUST equal this original class vtable. A wrong
 // object/version fails closed. Method entry alone cannot prove the shader
 // effect/mesh/material/texture/sampler ownership of an actual XDK Draw.
+// All 52 named original USA EoR shader class vtables have just 20 distinct
+// source code method entries at virtual slot +16. 33 named classes share
+// 0x826432F0: never attribute a class by guest method address alone.
+// The paired guest vtable MUST be read live from original BE32 this[0].
+inline constexpr bool ProvenUsaEorShaderMethodEntry(uint32_t method) noexcept {
+  switch(method) {
+    case 0x826432f0u:
+    case 0x82651978u:
+    case 0x82652420u:
+    case 0x82652b60u:
+    case 0x8265b420u:
+    case 0x82662780u:
+    case 0x82665288u:
+    case 0x82665500u:
+    case 0x82668d50u:
+    case 0x82669630u:
+    case 0x8266a0c0u:
+    case 0x8266c668u:
+    case 0x8266cc28u:
+    case 0x8266d6d0u:
+    case 0x8266ddd0u:
+    case 0x8266e520u:
+    case 0x8266eb88u:
+    case 0x8266f198u:
+    case 0x8266fef8u:
+    case 0x82670738u:
+      return true;
+    default: return false;
+  }
+}
+inline constexpr bool ProvenUsaEorShaderMethodVtablePair(
+    uint32_t method,uint32_t vtable) noexcept {
+  if(!method || !vtable)return false;
+  switch(method) {
+    case 0x826432f0u: // 33 shared genuine EoR classes
+      switch(vtable) {
+        case 0x82065e78u: // ESkyDomeDynamicShader
+        case 0x82065f20u: // EVolumetricCloudsShader
+        case 0x82065f84u: // EVolumetricFogBoxShader
+        case 0x82066020u: // EIntersectionSunRayShader
+        case 0x82066074u: // EVolumePointLightOutsideShader
+        case 0x820660e4u: // EVolumePointLightInsideShader
+        case 0x82066154u: // EVolumeSpotLightOutsideShader
+        case 0x820661c4u: // EVolumeSpotLightInsideShader
+        case 0x82066234u: // EGroundFogPlaneShader
+        case 0x82066294u: // EBuildingWithWindowsShader
+        case 0x820662fcu: // EBuildingWithWindowsShader2UV
+        case 0x8206636cu: // ESkyDomeShader
+        case 0x820663f4u: // ERipplePuddleShader
+        case 0x82066450u: // EBuildingRoofShader
+        case 0x8206659cu: // EOverheadCloudsShader
+        case 0x820665fcu: // ESurfaceEmitterShader
+        case 0x8206665cu: // ESurfaceDripShader
+        case 0x820666b4u: // ELeafClusterShader
+        case 0x82066744u: // EExplosionDistortionShader
+        case 0x820667acu: // ECloudLayerShader
+        case 0x82066804u: // EEnergyShieldShader
+        case 0x82066860u: // EOceanFastShader
+        case 0x820668f0u: // ECameraParticleBoxShader
+        case 0x8206b550u: // system_white
+        case 0x8206ee6cu: // pingPong
+        case 0x8206eee4u: // EEmissiveTranslucentUVAnimShader
+        case 0x8206ef5cu: // EEmissiveTranslucentUVScrollShader
+        case 0x8206eff8u: // ESkinnedMultiMatEnvPartialEmissiveScrollShader
+        case 0x8206f0acu: // EHairShader
+        case 0x8206f13cu: // ETransparencyCharacterShader
+        case 0x8206f1acu: // ETransparencyShader
+        case 0x8206f20cu: // ESkinMorphShader
+        case 0x8206f530u: // EDistortionShader
+          return true;
+        default: return false;
+      }
+    case 0x82651978u: return vtable==0x8206d5a0u; // Debug
+    case 0x82652420u: return vtable==0x8206d64cu; // ELightConeShader
+    case 0x82652b60u: return vtable==0x8206d760u; // Ribbon
+    case 0x8265b420u: return vtable==0x82066504u; // Decal
+    case 0x82662780u: return vtable==0x82065ec8u; // ECRIMovieShader
+    case 0x82665288u: return vtable==0x820664acu; // ELensFlareShader
+    case 0x82665500u: return vtable==0x82066544u; // ECollisionShader
+    case 0x82668d50u: return vtable==0x8206ebfcu; // TexturedRect
+    case 0x82669630u: return vtable==0x8206ecacu; // EScreenRectShader
+    case 0x8266a0c0u: return vtable==0x8206ed6cu; // EFontShader
+    case 0x8266c668u: return vtable==0x8206f4e8u; // FillRect
+    case 0x8266cc28u: return vtable==0x8206f5dcu; // ESkyShader
+    case 0x8266d6d0u: return vtable==0x8206f710u; // ERopeShader
+    case 0x8266ddd0u: return vtable==0x8206f7ccu; // EFlatShadowShader
+    case 0x8266e520u: return vtable==0x8206f8a8u; // ERippleGenShader
+    case 0x8266eb88u: return vtable==0x8206f994u; // ESSAOShader
+    case 0x8266f198u: return vtable==0x8206fa6cu; // ELaserSightShader
+    case 0x8266fef8u: return vtable==0x8206fb2cu; // EGPURainShader
+    case 0x82670738u: return vtable==0x8206fce4u; // EGroundFogGlobalShader
+    default: return false;
+  }
+}
+// This convenience helper only returns a UNIQUE method owner. For
+// shared EoR methods it deliberately returns 0 (ambiguous class).
 inline constexpr uint32_t ProvenUsaEorShaderVtableForMethod(
     uint32_t method) noexcept {
   switch(method) {
-    case 0x8265B420u: return 0x82066504u; // Decal
-    case 0x82668D50u: return 0x8206EBFCu; // TexturedRect
-    case 0x82669630u: return 0x8206ECACu; // EScreenRectShader
-    case 0x8266A0C0u: return 0x8206ED6Cu; // EFontShader
-    case 0x8266CC28u: return 0x8206F5DCu; // ESkyShader
-    case 0x8266DDD0u: return 0x8206F7CCu; // EFlatShadowShader
+    case 0x82651978u: return 0x8206d5a0u; // Debug
+    case 0x82652420u: return 0x8206d64cu; // ELightConeShader
+    case 0x82652b60u: return 0x8206d760u; // Ribbon
+    case 0x8265b420u: return 0x82066504u; // Decal
+    case 0x82662780u: return 0x82065ec8u; // ECRIMovieShader
+    case 0x82665288u: return 0x820664acu; // ELensFlareShader
+    case 0x82665500u: return 0x82066544u; // ECollisionShader
+    case 0x82668d50u: return 0x8206ebfcu; // TexturedRect
+    case 0x82669630u: return 0x8206ecacu; // EScreenRectShader
+    case 0x8266a0c0u: return 0x8206ed6cu; // EFontShader
+    case 0x8266c668u: return 0x8206f4e8u; // FillRect
+    case 0x8266cc28u: return 0x8206f5dcu; // ESkyShader
+    case 0x8266d6d0u: return 0x8206f710u; // ERopeShader
+    case 0x8266ddd0u: return 0x8206f7ccu; // EFlatShadowShader
+    case 0x8266e520u: return 0x8206f8a8u; // ERippleGenShader
+    case 0x8266eb88u: return 0x8206f994u; // ESSAOShader
+    case 0x8266f198u: return 0x8206fa6cu; // ELaserSightShader
+    case 0x8266fef8u: return 0x8206fb2cu; // EGPURainShader
+    case 0x82670738u: return 0x8206fce4u; // EGroundFogGlobalShader
     default: return 0u;
   }
 }
