@@ -46,6 +46,13 @@ struct OfflineShaderPack {
 };
 std::optional<OfflineShaderPack> g_offline_shader_pack;
 OriginalGuestBufferSnapshots g_original_buffers; // guarded by g_mutex
+// The actual guest EoR shader method and its inner XDK Draw execute on
+// the SAME generated PPC thread. A fixed TLS stack retains the source
+// method scope without allocations, guest writes or global frame races.
+// The genuine engine shader vtable identity is verified before push.
+thread_local std::array<OriginalEorShaderMethodAtDraw,16>
+    g_source_shader_method_stack{};
+thread_local uint8_t g_source_shader_method_depth=0;
 // ReXGlue's guest base is NOT directly an original Xbox VA; use the same
 // guest high-memory padding convention as native_camera_direct.cpp, and
 // reject inaccessible ranges without reading unverified game memory.
@@ -91,6 +98,45 @@ bool ReadGuest(void* state,uint32_t address,std::byte* output,size_t length) noe
   return false;
 #endif
 }
+}
+
+ScopedOriginalEorShaderMethod::ScopedOriginalEorShaderMethod(
+    uint32_t original_method_guest,const PPCContext& original_ctx,
+    uint8_t* original_guest_base) noexcept {
+  const uint32_t expected_vtable=
+      ProvenUsaEorShaderVtableForMethod(original_method_guest);
+  if(!expected_vtable || !CaptureEnabled() || !original_guest_base ||
+     !original_ctx.r3.u32 ||
+     g_source_shader_method_depth>=g_source_shader_method_stack.size())
+    return;
+  // Original PPC object layout: first BE32 is a real .rdata shader vtable.
+  // The game memory is probed with checked VirtualQuery and never mutated.
+  std::array<std::byte,4> guest_vtable{};
+  if(!ReadGuest(original_guest_base,original_ctx.r3.u32,
+                guest_vtable.data(),guest_vtable.size()))
+    return;
+  const uint32_t actual_vtable=
+      uint32_t(std::to_integer<uint8_t>(guest_vtable[0]))<<24 |
+      uint32_t(std::to_integer<uint8_t>(guest_vtable[1]))<<16 |
+      uint32_t(std::to_integer<uint8_t>(guest_vtable[2]))<<8 |
+      uint32_t(std::to_integer<uint8_t>(guest_vtable[3]));
+  if(actual_vtable!=expected_vtable)return;
+  OriginalEorShaderMethodAtDraw original{};
+  original.original_shader_method_guest=original_method_guest;
+  original.original_shader_instance_guest=original_ctx.r3.u32;
+  original.original_shader_vtable_guest=actual_vtable;
+  original.source_r4_through_r7={
+      original_ctx.r4.u32,original_ctx.r5.u32,
+      original_ctx.r6.u32,original_ctx.r7.u32};
+  original.nesting_depth=
+      static_cast<uint8_t>(g_source_shader_method_depth+1);
+  original.original_shader_method_vtable_verified=true;
+  g_source_shader_method_stack[g_source_shader_method_depth++]=original;
+  active_=true;
+}
+ScopedOriginalEorShaderMethod::~ScopedOriginalEorShaderMethod() noexcept {
+  if(active_ && g_source_shader_method_depth)
+    --g_source_shader_method_depth;
 }
 
 // Original USA XDK 6534 resource object: GPU buffer address at +24,
@@ -212,6 +258,13 @@ void CapturePpcDraw(Kind kind, uint32_t guest, const PPCContext& ctx,
       kind, guest, static_cast<uint32_t>(ctx.lr),
       {ctx.r3.u32, ctx.r4.u32, ctx.r5.u32, ctx.r6.u32,
        ctx.r7.u32, ctx.r8.u32, ctx.r9.u32, ctx.r10.u32}};
+  // The engine shader virtual method was entered with its actual PPC
+  // this object, and its first word matched the original USA vtable.
+  // Preserve the CALLER of this inner original XDK draw. No new witness
+  // flags are inferred: the original mesh/material/effect remains separate.
+  if(g_source_shader_method_depth)
+    draw.original_engine_shader_method=
+        g_source_shader_method_stack[g_source_shader_method_depth-1];
   // The original source-proven USA 6534 device holds actual VS constants
   // at +1920; capture the 3D World/ViewProj/Previous/Sky registers before
   // the original Draw executes. Do not infer original EoR model identity,
