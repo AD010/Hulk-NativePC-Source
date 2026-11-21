@@ -816,9 +816,16 @@ std::vector<VerifiedDrawSource> ResolveCapturedResourceDraws(
   }
   // Revalidate every primitive, real source index/vertex window, shader
   // identity and owner through the existing mixed PPC native bridge.
-  const auto resolved=MatchCapturedMixedDraws(frame,matched,residents);
+  auto resolved=MatchCapturedMixedDraws(frame,matched,residents);
   for(size_t i=0;i<frame.calls.size();++i) {
     const auto& draw=frame.calls[i];
+    // Carry only the live original XDK shader headers observed on the
+    // exact guest Draw. The material witness cannot supply its own stale
+    // shader->SHA assertion, even when mesh buffers match byte for byte.
+    resolved[i].original_live_vertex_shader_header=
+        draw.observed_live_vertex_shader_header;
+    resolved[i].original_live_pixel_shader_header=
+        draw.observed_live_pixel_shader_header;
     if(!draw.source_vb0 ||
        (xdk::DecodeOriginalIndexedXdkCall(draw) && !draw.source_ib))continue;
     const auto& exact=exact_mesh_at_draw[i];
