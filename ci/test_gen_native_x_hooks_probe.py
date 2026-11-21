@@ -58,6 +58,40 @@ with tempfile.TemporaryDirectory() as d:
     assert "__imp__sub_##addr(ctx,base)" in cpp
     assert "case 0x8289D730u: return true;" in cpp
     assert "case 0x8289D888u: return true;" in cpp
+    # The actual USA PPC engine has a named EoR shader class vtable;
+    # its method is NOT an XDK method and must never call NativeX Enter/
+    # Leave. It only owns a read-only scope around the original call.
+    mapping.write_text(
+        "guest_address,native_entry\n"
+        "0x8289D730,0x140001000\n"
+        "0x8289D888,0x140002000\n"
+        "0x8265B420,0x14025EDC0\n"
+        "0x8266A0C0,0x142BE0180\n")
+    addresses.write_text("8289D730\n8289D888\n8265B420\n8266A0C0\n")
+    subprocess.run([sys.executable,str(s),str(addresses),
+                    str(mapping),str(generated),str(profile)],check=True)
+    cpp = generated.read_text()
+    assert "HULK_EOR_SHADER_TRACE_HOOK(8265B420)" in cpp
+    assert "HULK_EOR_SHADER_TRACE_HOOK(8266A0C0)" in cpp
+    assert "HULK_NATIVE_X_HOOK(8265B420" not in cpp
+    assert "HULK_NATIVE_X_HOOK(8266A0C0" not in cpp
+    engine = cpp[cpp.index("#define HULK_EOR_SHADER_TRACE_HOOK"): ]
+    assert "ScopedOriginalEorShaderMethod" in engine
+    assert engine.index("ScopedOriginalEorShaderMethod") < engine.index(
+        "__imp__sub_##addr(ctx,base)")
+    assert "native_x_renderer::detail::Enter" not in engine.split(
+        "HULK_EOR_SHADER_TRACE_HOOK(8265B420)",1)[0]
+    profile.write_text("[hooks]\n0x8289D730=Clear\n"
+                       "0x8289D888=ClearF\n"
+                       "0x8265B420=DrawIndexedVertices\n")
+    blocked = subprocess.run(
+        [sys.executable,str(s),str(addresses),str(mapping),
+         str(generated),str(profile)],capture_output=True,text=True)
+    assert blocked.returncode
+    assert "incorrectly declared an XDK profile entry" in (
+        blocked.stdout+blocked.stderr)
+    profile.write_text("[hooks]\n0x8289D730=Clear\n0x8289D888=ClearF\n")
+
     # Regression of Hulk #68: a missing Clear/ClearF strong hook must fail
     # the source generation step, not discover the omission during gameplay.
     addresses.write_text("8289D730\n")
