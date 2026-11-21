@@ -113,8 +113,11 @@ def compile_bank(bank: Path, out: Path, xenos: Path, dxc: Path, common: Path,
                 capture_output=True, timeout=120, check=False)
             if translate.returncode or not hlsl.is_file() or not hlsl.stat().st_size:
                 raise RuntimeError(f"XenosRecomp exit={translate.returncode}")
+            # DXC requires an explicit shader entry point. The original
+            # complete-bank compiler already supplies -E main; without it
+            # this incremental AOT route may reject valid XenosRecomp HLSL.
             cmd = [str(dxc), str(hlsl), "-T", ("vs_6_0" if stage == "VS" else "ps_6_0"),
-                   "-HV", "2021", "-all-resources-bound", "-spirv",
+                   "-E", "main", "-HV", "2021", "-all-resources-bound", "-spirv",
                    "-fvk-use-dx-layout", "-fspv-reflect", "-Fo", str(spv)]
             if stage == "VS":
                 cmd.append("-fvk-invert-y")
