@@ -500,6 +500,33 @@ int main(){
          realMesh->guest_first_vertex==0 &&
          realMesh->guest_first_index==0 &&
          realMesh->original_index_element_bytes==2);
+  // Two endian interpretations of ONE physically identical original
+  // 16-bit index stream are not two EoR mesh owners. Degenerate source
+  // triangles can contain all-zero indices, yielding the same bytes in
+  // both orders. The matcher must keep the authentic mesh rather than
+  // rejecting it as an ambiguous unrelated model.
+  auto endianAliasModel=MakeModel();
+  endianAliasModel.decoded_meshes[0].triangle_list_indices.assign(6u,0u);
+  Fake endianGpu;
+  auto endianResident=model::UploadOriginalModel(
+      std::move(endianAliasModel),endianGpu);
+  const std::vector<const model::UploadedOriginalModel*> endianModels{
+      &endianResident};
+  auto endianIb=std::make_shared<xdk::OriginalGuestBufferBytes>(*ib);
+  endianIb->bytes.assign(12u,std::byte{0});
+  endianIb->guest_size=static_cast<uint32_t>(endianIb->bytes.size());
+  auto aliasDraw=realBufferDraw;
+  aliasDraw.source_ib=endianIb;
+  const auto alias=native::IdentifyExactOriginalGuestMesh(
+      aliasDraw,endianModels);
+  assert(alias && alias->model_hash==0xCAFE &&
+         alias->original_index_element_bytes==2 &&
+         alias->original_index_big_endian);
+  // Two separately resident copies ARE genuinely ambiguous, even if
+  // their bytes and archive hashes happen to be the same.
+  const std::vector<const model::UploadedOriginalModel*> duplicatedAlias{
+      &endianResident,&endianResident};
+  assert(!native::IdentifyExactOriginalGuestMesh(aliasDraw,duplicatedAlias));
   // A typical XDK resource allocation packs multiple original meshes.
   // Prefix/suffix bytes are not part of the original model and must not
   // make its EXACT middle VB+IB window disappear.
