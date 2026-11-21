@@ -184,6 +184,21 @@ class RenderGraph(unittest.TestCase):
                 rank_sibling_d3d_candidates(reverse, {0x8288DF30: 'DrawVertices'},
                                             max_distance=0)
 
+    def test_duplicate_nonhook_function_is_rejected(self):
+        # Repeated AOT definitions must not inflate USA Draw ancestry.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root/'hulk_recomp.0.cpp').write_text(
+                'DEFINE_REX_FUNC(sub_82400000)\n'
+                '  // bl 0x8288DF30\n'
+                '}\n', encoding='utf-8')
+            (root/'hulk_recomp.1.cpp').write_text(
+                'DEFINE_REX_FUNC(sub_82400000)\n'
+                '  // bl 0x828897F8\n'
+                '}\n', encoding='utf-8')
+            with self.assertRaisesRegex(ValueError, 'Duplicate guest function'):
+                scan_direct_calls(root)
+
     def test_missing_files_and_unverified_addresses(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
