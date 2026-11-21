@@ -93,7 +93,7 @@ def inspect(image:bytes,strict=True)->dict:
         ("original per-stage sampler state function",
             bl(0x825F85AC,0x82675E00)),
         ("original sampler state byte3",
-            d(0x825F85BC,34,6,30,3)),
+            d(0x825F85B8,34,6,30,3)),
         ("original sampler state byte2",
             d(0x825F85C0,34,5,30,2)),
         ("original sampler state auxiliary registers",
