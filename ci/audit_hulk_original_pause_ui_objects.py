@@ -21,6 +21,20 @@ PAUSE_SEQUENCE = (
 )
 SETTINGS_SCRIPT = 'uipage_pause_gamesettings_z'
 GAME_ACTIONS = ('UI_ActivateOptions', 'UI_OptionScreen')
+# Names found in the owner's ORIGINAL UI serialized object/QuickData symbols.
+# This bounded allowlist yields exact source VM references, not raw script
+# bytecode, guessed native PPC call targets or shader resource bindings.
+PAUSE_UI_FIELD_NAMES = (
+    'inputDeviceListener_Pause', 'BottomBand', 'AcceptText', 'BackText',
+    'ScrollText', 'UISounds', 'HorizontalSound', 'VerticalSound',
+    'LAnalogPolling_z', 'Hidden', 'CurrentStatusMenu', 'vZero',
+    'MovesUpgradesText', 'NavNextText', 'NavPreviousText', 'NavCurrentText',
+    'UISystem_Pause_CurrentStatus', 'TextID', 'hudman',
+    'SetCanReturnToCity_b',
+)
+PAUSE_UI_FIELD_METHODS = (
+    'Init_z', 'StateEnter_z', 'StateExit_z', 'ActivateUpgradeMenu_z',
+)
 
 
 def one(data: bytes, name: str) -> int:
@@ -47,6 +61,54 @@ def source_method(data: bytes, at: int, name: str, endian: str) -> tuple[int, by
     if footer != zlib.crc32(name.upper().encode('ascii')) & 0xffffffff:
         raise ValueError('Original UI VM method CRC mismatch: ' + name)
     return length, data[start + 4:end]
+
+
+def original_pause_ui_field_refs(data: bytes, platform: str) -> dict:
+    """Recover VM field-hash usages from ORIGINAL Xbox/PC pause scripts.
+
+    The actual method payload sizes and exact 32-bit hashes are verified
+    independently in both platform byte orders. Values from original
+    script bytecode never leave memory: output is only public-style names,
+    relative offsets and 32-bit CRC32(ASCII_UPPER) identifiers.
+    """
+    if platform not in ('xbox_360_source', 'pc_2008_comparator'):
+        raise ValueError('Unknown original EoR platform')
+    endian = 'big' if platform == 'xbox_360_source' else 'little'
+    anchor = one(data, 'UIPage_Pause_Settings')
+    hashes = {}
+    for name in PAUSE_UI_FIELD_NAMES:
+        hashed = zlib.crc32(name.upper().encode('ascii')) & 0xffffffff
+        if hashed in hashes:
+            raise ValueError('Ambiguous original UI field CRC32')
+        hashes[hashed] = name
+    output = {}
+    for method in PAUSE_UI_FIELD_METHODS:
+        at = data.find(method.encode('ascii') + b'\0',
+                       anchor, min(len(data), anchor + 2400))
+        if at < 0:
+            raise ValueError('Missing actual original pause VM method: ' + method)
+        begin = at + len(method) + 1
+        if begin + 8 > len(data):
+            raise ValueError('Truncated original pause script')
+        size = int.from_bytes(data[begin:begin + 4], endian)
+        if not 1 <= size <= 1024 or begin + size + 8 > len(data):
+            raise ValueError('Invalid original pause VM payload boundary')
+        payload = data[begin + 4:begin + 4 + size]
+        references = []
+        for offset in range(size - 3):
+            identity = int.from_bytes(payload[offset:offset + 4], endian)
+            name = hashes.get(identity)
+            if name is not None:
+                references.append({
+                    'vm_byte_offset': offset,
+                    'field_name': name,
+                    'source_crc32_upper': '{:08X}'.format(identity),
+                })
+        output[method] = {
+            'original_vm_payload_bytes': size,
+            'source_field_references': references,
+        }
+    return output
 
 
 def inspect_objects(data: bytes, platform: str) -> dict:
@@ -138,13 +200,22 @@ def main() -> None:
     parser.add_argument('--quick-data', type=Path)
     parser.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
-    xbox = inspect_objects(args.xbox_objects.read_bytes(), 'xbox_360_source')
+    xbox_data = args.xbox_objects.read_bytes()
+    xbox = inspect_objects(xbox_data, 'xbox_360_source')
+    xbox['pause_ui_field_hash_references'] = original_pause_ui_field_refs(
+        xbox_data, 'xbox_360_source')
     result = {'schema': 'hulk_original_eor_pause_ui_source_witness_v1',
               'xbox': xbox,
               'evidence_kind': 'verified_serialized_original_ui_metadata_only',
               'not_runnable_original_game_handler': True}
     if args.pc_objects:
-        pc = inspect_objects(args.pc_objects.read_bytes(), 'pc_2008_comparator')
+        pc_data = args.pc_objects.read_bytes()
+        pc = inspect_objects(pc_data, 'pc_2008_comparator')
+        pc['pause_ui_field_hash_references'] = original_pause_ui_field_refs(
+            pc_data, 'pc_2008_comparator')
+        if (pc['pause_ui_field_hash_references'] !=
+                xbox['pause_ui_field_hash_references']):
+            raise ValueError('Original Xbox/PC Pause UI VM field ABI disagrees')
         if list(pc['pause_route_offsets_from_page']) != list(xbox['pause_route_offsets_from_page']):
             raise ValueError('PC/Xbox original pause script symbol order differs')
         if (pc['pause_vm_method_payload_lengths'] !=
