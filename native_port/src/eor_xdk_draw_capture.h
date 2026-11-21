@@ -244,6 +244,16 @@ struct OriginalEorShaderMethodAtDraw {
   std::array<uint32_t,4> source_r4_through_r7{};
   uint8_t nesting_depth=0;
   bool original_shader_method_vtable_verified=false;
+  // Only for the actual USA Decal source function 0x8265B420 when its
+  // direct bl at 0x8265B538 reaches XDK DrawIndexedVertices.
+  // Original PPC r28 points to the per-Draw source item; the original
+  // geometry pointer is BE32(item+0x3C). The same original function binds
+  // guest VB descriptor (geometry+0x18) and IB (geometry+0x38).
+  // These are original ENGINE guest pointers, not model names, host
+  // Vulkan IDs, a material effect pass or a guessed surface ordinal.
+  uint32_t original_decal_render_item_guest=0;
+  uint32_t original_decal_geometry_guest=0;
+  bool original_decal_xdk_vb_ib_binding_verified=false;
 };
 struct RawDraw {
   Kind kind{};
