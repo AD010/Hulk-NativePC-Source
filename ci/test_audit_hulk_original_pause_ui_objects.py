@@ -57,7 +57,7 @@ class OriginalPauseScriptTests(unittest.TestCase):
         # The actual original user archives have hundreds of these VM
         # call operations in entirely unrelated scripts, so a PPC hook
         # cannot be inferred from this number.
-        shared = b"\\x28" + (0xDEADBEEF).to_bytes(4, "big")
+        shared = bytes([0x28]) + (0xDEADBEEF).to_bytes(4, "big")
         many = inspect_objects(data + shared * 24, "xbox_360_source")
         self.assertEqual(many["shared_opcode_0x28_vm_uses"], 25)
         self.assertTrue(many["opaque_operand_shared_across_unrelated_scripts"])
