@@ -837,7 +837,13 @@ void EndPpcHook(native_x_renderer::Call kind) {
     uint32_t original_live_xdk_texture_slot_present=0;
     uint32_t original_engine_render_item_parented=0;
     uint32_t original_engine_item_material_verified=0;
+    uint32_t original_header_vs=0,original_header_ps=0;
+    uint32_t original_header_pairs=0;
     for (const RawDraw& call : frame.calls) {
+      if(call.observed_live_vertex_shader_header)++original_header_vs;
+      if(call.observed_live_pixel_shader_header)++original_header_ps;
+      if(call.observed_live_vertex_shader_header &&
+         call.observed_live_pixel_shader_header)++original_header_pairs;
       if(const auto& source=call.original_engine_shader_method;source) {
         ++original_shader_parented;
         if(source->original_engine_item_abi_verified &&
@@ -894,6 +900,13 @@ void EndPpcHook(native_x_renderer::Call kind) {
                 original_live_xdk_texture_slot_present,
                 original_engine_render_item_parented,
                 original_engine_item_material_verified);
+    REXLOG_INFO("[HULK/EOR-SOURCE-SHA] original XDK Draw frame={} "
+                "virtual_header_vs_verified={} virtual_header_ps_verified={} "
+                "live_vs_ps_pairs_verified={} total_draws={}; "
+                "0 means source row+4 header ABI not proven, not a "
+                "license to substitute ShaderEffects archive bytes",
+                frame.sequence,original_header_vs,original_header_ps,
+                original_header_pairs,frame.calls.size());
     for (const auto& site: hot) {
       REXLOG_INFO("[HULK/EOR-XDK-CALLSITE] XDK=0x{:08X} LR=0x{:08X} "
                   "kind={} draws={} frames={} first={} last={} "
