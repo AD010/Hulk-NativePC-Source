@@ -99,6 +99,24 @@ class RenderGraph(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'USA XEX SHA-256 mismatch'):
                 verify_us_source(file)
 
+    def test_function_close_excludes_trailing_asm_comments(self):
+        # A comment after a closed generated function is not a PPC call.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root/'hulk_recomp.0.cpp').write_text(
+                'DEFINE_REX_FUNC(sub_82400000)\\n'
+                '  // bl 0x8288DF30\\n'
+                '}\\n'
+                '// bl 0x82880778\\n'
+                'DEFINE_REX_FUNC(sub_82400100)\\n'
+                '  // bl 0x828897F8\\n'
+                '}\\n', encoding='utf-8')
+            reverse, files, count, _ = scan_direct_calls(root)
+            self.assertEqual((files, count), (1, 2))
+            self.assertNotIn(0x82880778, reverse)
+            self.assertEqual(reverse[0x8288DF30], [(0x82400000, 0x82400000)])
+            self.assertEqual(reverse[0x828897F8], [(0x82400100, 0x82400100)])
+
     def test_exact_hook_bodies_and_duplicate_rejection(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
