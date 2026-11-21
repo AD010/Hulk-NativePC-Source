@@ -70,6 +70,25 @@ void CheckBufferSnapshots() {
   assert(buffers.RetainedBytes()==0);
   const auto recovered=buffers.Capture(object,address,bytes,ReadFake,&guest);
   assert(recovered && recovered->bytes[0]==std::byte{0x99});
+  // GPU streaming revisions must not exhaust the per-Present capture
+  // budget once no original Draw owns their previous immutable contents.
+  // The only owner of each prior revision is then the cache itself.
+  OriginalGuestBufferSnapshots streaming(bytes);
+  for(uint32_t revision=1;revision<=2048;++revision) {
+    W(guest,address,revision);
+    const auto current=streaming.Capture(
+        object,address,bytes,ReadFake,&guest);
+    assert(current && current->guest_size==bytes &&
+           streaming.RetainedBytes()==bytes);
+    const auto check=uint32_t(std::to_integer<uint8_t>(current->bytes[0]))<<24 |
+                     uint32_t(std::to_integer<uint8_t>(current->bytes[1]))<<16 |
+                     uint32_t(std::to_integer<uint8_t>(current->bytes[2]))<<8 |
+                     uint32_t(std::to_integer<uint8_t>(current->bytes[3]));
+    assert(check==revision);
+    // The temporary current owner is destroyed at the end of each pass.
+  }
+  streaming.Reset();
+  assert(streaming.RetainedBytes()==0);
 }
 }
 int main() {
