@@ -317,6 +317,35 @@ int main() {
   assert(full_timeline.sequence==1 && full_timeline.calls.size()==2 &&
          full_timeline.commands.size()==9 &&
          ValidateOriginalCommandTimeline(full_timeline));
+  // The original EoR shader-virtual-method call scope is a REAL
+  // guest parent only after source vtable/this/entry identity validation.
+  // It enriches the original XDK timeline without inventing the
+  // independent material/effect/mesh resource witness.
+  auto engine_source=full_timeline;
+  OriginalEorShaderMethodAtDraw source{};
+  source.original_shader_method_guest=0x8265B420u; // original Decal
+  source.original_shader_vtable_guest=0x82066504u;
+  source.original_shader_instance_guest=0xA38A2918u;
+  source.source_r4_through_r7={1u,2u,3u,4u};
+  source.nesting_depth=1;
+  source.original_shader_method_vtable_verified=true;
+  engine_source.calls[0].original_engine_shader_method=source;
+  assert(ValidateOriginalCommandTimeline(engine_source));
+  auto false_engine=engine_source;
+  false_engine.calls[0].original_engine_shader_method->
+      original_shader_vtable_guest=0x8206ED6Cu; // wrong class
+  assert(!ValidateOriginalCommandTimeline(false_engine));
+  false_engine=engine_source;
+  false_engine.calls[0].original_engine_shader_method->
+      original_shader_method_vtable_verified=false;
+  assert(!ValidateOriginalCommandTimeline(false_engine));
+  false_engine=engine_source;
+  false_engine.calls[0].original_engine_shader_method->
+      original_shader_instance_guest=0;
+  assert(!ValidateOriginalCommandTimeline(false_engine));
+  false_engine=engine_source;
+  false_engine.calls[0].original_engine_shader_method->nesting_depth=0;
+  assert(!ValidateOriginalCommandTimeline(false_engine));
   // A self-consistent copied timeline may still encode the WRONG PPC
   // function or invalid Draw ABI. Never authorize independent replay from
   // ordinal/argument equality alone.
