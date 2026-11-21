@@ -1,0 +1,106 @@
+#!/usr/bin/env python3
+"""Inspect owner-supplied EoR original UI object archives without copying code/assets.
+
+The result is a source-name/method route witness, NOT a PowerPC address,
+callable ABI, event dispatcher, or permission to redirect the guest page.
+"""
+from __future__ import annotations
+import argparse
+import hashlib
+import json
+from pathlib import Path
+
+PAUSE_SEQUENCE = (
+    'OptionsMode_Pause', 'UIPage_Pause_Settings', 'OptionsMenuState',
+    'CurrentStatusMenu', 'UpgradeMenu', 'Settings_Page',
+    'uiwidget_pausemenu_z', 'ChangeState_r', 'Init_z',
+    'ActivateUpgradeMenu_z', 'ActivateCurrentStatusMenu_z',
+    'StateEnter_z', 'StateExit_z', 'NextTabEvent_z',
+    'PreviousTabEvent_z',
+)
+SETTINGS_SCRIPT = 'uipage_pause_gamesettings_z'
+GAME_ACTIONS = ('UI_ActivateOptions', 'UI_OptionScreen')
+
+
+def one(data: bytes, name: str) -> int:
+    key = name.encode('ascii') + b'\0'
+    at = data.find(key)
+    if at < 0 or data.find(key, at + len(key)) >= 0:
+        raise ValueError('Missing or nonunique original UI anchor: ' + name)
+    return at
+
+
+def inspect_objects(data: bytes, platform: str) -> dict:
+    anchor = one(data, 'UIPage_Pause_Settings')
+    start, end = max(anchor - 256, 0), min(anchor + 2400, len(data))
+    scope = data[start:end]
+    positions = {}
+    # Some methods, like StateEnter_z, occur more than once in one object;
+    # use the earliest occurrence after the previous ordered source symbol.
+    last = -1
+    for name in PAUSE_SEQUENCE:
+        key = name.encode('ascii') + b'\0'
+        at = scope.find(key, last + 1)
+        if at < 0:
+            raise ValueError('Incomplete original pause menu route: ' + name)
+        if name == 'UIPage_Pause_Settings' and start + at != anchor:
+            raise ValueError('Pause page belongs to a different object')
+        positions[name] = start + at - anchor
+        last = at
+    # The settings script is a distinct original VM object, not a guest
+    # PowerPC handler. Its Init_z must belong to the same local object span.
+    settings_at = one(data, SETTINGS_SCRIPT)
+    method_at = data.find(b'Init_z\0', settings_at, min(len(data), settings_at + 256))
+    if method_at < 0:
+        raise ValueError('Missing original game-settings VM Init_z')
+    return {
+        'platform_label': platform,
+        'source_sha256': hashlib.sha256(data).hexdigest(),
+        'pause_route_offsets_from_page': positions,
+        'game_settings_script_present': True,
+        'game_settings_init_relative': method_at - settings_at,
+        'verified_original_serialized_ui_symbols': True,
+        'guest_ppc_event_handler_abi_verified': False,
+        'native_windows_pause_menu_binding_installed': False,
+    }
+
+
+def inspect_actions(data: bytes) -> dict:
+    first = one(data, GAME_ACTIONS[0]); second = one(data, GAME_ACTIONS[1])
+    if not 0 < second - first <= 80:
+        raise ValueError('Original UI option action names are not colocated')
+    return {
+        'source_sha256': hashlib.sha256(data).hexdigest(),
+        'original_action_symbol_order': list(GAME_ACTIONS),
+        'relative_string_distance': second - first,
+        'action_to_guest_function_abi_verified': False,
+    }
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--xbox-objects', type=Path, required=True)
+    parser.add_argument('--pc-objects', type=Path)
+    parser.add_argument('--quick-data', type=Path)
+    parser.add_argument('--output', type=Path, required=True)
+    args = parser.parse_args()
+    xbox = inspect_objects(args.xbox_objects.read_bytes(), 'xbox_360_source')
+    result = {'schema': 'hulk_original_eor_pause_ui_source_witness_v1',
+              'xbox': xbox,
+              'evidence_kind': 'verified_serialized_original_ui_metadata_only',
+              'not_runnable_original_game_handler': True}
+    if args.pc_objects:
+        pc = inspect_objects(args.pc_objects.read_bytes(), 'pc_2008_comparator')
+        if list(pc['pause_route_offsets_from_page']) != list(xbox['pause_route_offsets_from_page']):
+            raise ValueError('PC/Xbox original pause script symbol order differs')
+        result['pc'] = pc
+    if args.quick_data:
+        result['quick_data'] = inspect_actions(args.quick_data.read_bytes())
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    args.output.write_text(json.dumps(result, sort_keys=True, indent=2) + '\n', encoding='utf-8')
+    print('[HULK/ORIGINAL-PAUSE] original script/UI object routes found; '
+          'guest PPC callback ABI NOT proven')
+
+
+if __name__ == '__main__':
+    main()
