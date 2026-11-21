@@ -10,6 +10,13 @@ import tempfile
 import unittest
 from unittest.mock import patch
 from hulk_xenos_aot import compile_bank, _check_spirv, _entries
+from hulk_xenos_to_spirv import ADAPTER_MARKER, GRADIENT_ADAPTER_MARKER
+
+HLSL_FIXTURE = (
+    f"// {ADAPTER_MARKER}\n"
+    f"// {GRADIENT_ADAPTER_MARKER}\n"
+    "void main() {}\n"
+)
 
 def fake_legal_spirv(stage: str) -> bytes:
     # Must be a real instruction-framed module: the new native resource
@@ -50,7 +57,7 @@ class AotTests(unittest.TestCase):
             def run(args, **kwargs):
                 calls.append(args)
                 if len(calls) % 2:
-                    Path(args[2]).write_text("void main() {}\n")
+                    Path(args[2]).write_text(HLSL_FIXTURE)
                 else:
                     Path(args[args.index("-Fo")+1]).write_bytes(
                         fake_legal_spirv("PS" if "ps_6_0" in args else "VS"))
@@ -105,7 +112,7 @@ class AotTests(unittest.TestCase):
                         Path(args[args.index("-Fo")+1]).write_bytes(
                             fake_legal_spirv("PS" if "ps_6_0" in args else "VS"))
                     else:
-                        Path(args[2]).write_text("void main() {}\n")
+                        Path(args[2]).write_text(HLSL_FIXTURE)
                     return type("Result",(),{"returncode":0})()
                 finally:
                     with lock:
@@ -141,6 +148,18 @@ class AotTests(unittest.TestCase):
             with patch("hulk_xenos_aot.subprocess.run",return_value=type("Result",(),{"returncode":1})()):
                 result=compile_bank(b,root/"out",root/"x.exe",root/"d.exe",root/"common.h",repo)
             self.assertEqual(result["failed_count"],1)
+            # An old XenosRecomp may produce valid-looking HLSL while
+            # silently discarding original getCompTexLOD / grad2D semantics.
+            # The incremental AOT bank must refuse that output BEFORE DXC.
+            def wrong_source(args,**kwargs):
+                Path(args[2]).write_text("void main() {}\n")
+                return type("Result",(),{"returncode":0})()
+            with patch("hulk_xenos_aot.subprocess.run",side_effect=wrong_source):
+                stale=compile_bank(
+                    b,root/"old-adapter-out",root/"x.exe",root/"d.exe",
+                    root/"common.h",repo)
+            self.assertEqual(stale["failed_count"],1)
+            self.assertEqual(stale["compiled_count"],0)
             for data in (b"",b"SPIR-V",struct.pack("<5I",0x07230203,0x10500,0,0,0)):
                 with self.assertRaises(ValueError):
                     _check_spirv(data)
