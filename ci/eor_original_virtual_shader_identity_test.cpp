@@ -83,28 +83,33 @@ int main() {
   // header, stage AND original full source SHA. No class-name shortcut.
   OriginalLiveXdkShaderHeaderWitness live{
       0x81234000u,0x89001000u,true,
-      std::vector<uint8_t>(vs.begin(),vs.end())};
+      std::vector<uint8_t>(vs.begin(),vs.end()),17u,3u};
   Digest expected_vertex{};expected_vertex.fill(0x11u);
   Digest expected_pixel{};expected_pixel.fill(0x22u);
   assert(MatchesOriginalLiveXdkShaderSource(
-      bank,live,0x81234000u,Stage::Vertex,expected_vertex));
+      bank,live,0x81234000u,Stage::Vertex,expected_vertex,17u,3u));
   assert(!MatchesOriginalLiveXdkShaderSource(
-      bank,live,0x81234004u,Stage::Vertex,expected_vertex));
+      bank,live,0x81234004u,Stage::Vertex,expected_vertex,17u,3u));
   assert(!MatchesOriginalLiveXdkShaderSource(
-      bank,live,0x81234000u,Stage::Pixel,expected_pixel));
+      bank,live,0x81234000u,Stage::Pixel,expected_pixel,17u,3u));
   assert(!MatchesOriginalLiveXdkShaderSource(
-      bank,live,0x81234000u,Stage::Vertex,expected_pixel));
+      bank,live,0x81234000u,Stage::Vertex,expected_pixel,17u,3u));
+  // Reused object at another frame or ordinal cannot borrow a stale SHA.
+  assert(!MatchesOriginalLiveXdkShaderSource(
+      bank,live,0x81234000u,Stage::Vertex,expected_vertex,18u,3u));
+  assert(!MatchesOriginalLiveXdkShaderSource(
+      bank,live,0x81234000u,Stage::Vertex,expected_vertex,17u,4u));
   live.original_object_to_header_abi_verified=false;
   assert(!MatchesOriginalLiveXdkShaderSource(
-      bank,live,0x81234000u,Stage::Vertex,expected_vertex));
+      bank,live,0x81234000u,Stage::Vertex,expected_vertex,17u,3u));
   live.original_object_to_header_abi_verified=true;
   live.original_virtual_header_guest_address=0x89001001u;
   assert(!MatchesOriginalLiveXdkShaderSource(
-      bank,live,0x81234000u,Stage::Vertex,expected_vertex));
+      bank,live,0x81234000u,Stage::Vertex,expected_vertex,17u,3u));
   live.original_virtual_header_guest_address=0x89001000u;
   live.exact_original_guest_virtual_header[34]^=0x55u;
   assert(!MatchesOriginalLiveXdkShaderSource(
-      bank,live,0x81234000u,Stage::Vertex,expected_vertex));
+      bank,live,0x81234000u,Stage::Vertex,expected_vertex,17u,3u));
   auto original=blob;
   blob[0]='X';Write(p,blob);
   Reject([&] {bank.Load(p);}); assert(bank.size()==2);
