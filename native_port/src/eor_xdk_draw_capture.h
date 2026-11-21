@@ -465,6 +465,10 @@ struct RawDraw {
       observed_live_vertex_shader_header;
   std::optional<aot::OriginalLiveXdkShaderHeaderWitness>
       observed_live_pixel_shader_header;
+  // Determined from TWO original live stage headers and the private
+  // HEORMAT2 reverse VS/PS catalog at this exact PPC Draw, never inferred
+  // from an unrelated shader class or adjacent EoR archive record.
+  std::optional<aot::OriginalEffectPass> observed_live_eor_effect_pass;
 };
 // Original USA Decal direct XDK call is at guest 0x8265B538.
 // An engine render-item->geometry witness, if present, must match the
