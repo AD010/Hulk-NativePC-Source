@@ -52,6 +52,22 @@ struct OriginalLiveXdkShaderHeaderWitness {
   uint64_t original_frame_sequence=0;
   uint32_t original_call_ordinal=UINT32_MAX;
 };
+// Probe the second word of an independently verified original 8-byte
+// EoR VS/PS handle-table row. The original PPC only proves word 0 is the
+// shader object; word 1 is an UNTRUSTED candidate until the byte-exact
+// ShaderContainer header resolves to a unique HEORVRT1 source digest.
+// The probe is read-only and may reject every call on unsupported builds.
+// Only enabled for exact live stage object + current Present/Draw.
+using ReadOriginalGuestShaderBytes=bool (*)(
+    void*,uint32_t,std::byte*,size_t);
+std::optional<OriginalLiveXdkShaderHeaderWitness>
+ObserveOriginalLiveXdkShaderHandleEntry(
+    const OriginalVirtualShaderIdentity& identities,
+    uint32_t original_eor_handle_row_guest,
+    uint32_t current_bound_xdk_shader_object,
+    Stage stage,
+    ReadOriginalGuestShaderBytes reader,void* original_guest_base,
+    uint64_t exact_frame_sequence,uint32_t exact_call_ordinal) noexcept;
 // Decode the actual source digest from an original, byte-exact live
 // ShaderContainer header, only if object/header pointer ABI and the
 // exact original XDK Present ordinal are independently authenticated.
