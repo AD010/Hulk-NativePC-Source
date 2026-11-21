@@ -350,6 +350,59 @@ The original common `state_r` callback is NOT a unique pause
 menu callback. Do not open Windows Settings on it alone.
 
 ---
+### 21 November — 52 shader classes → original render item → virtual material
+
+The SHA-pinned ORIGINAL USA PPC binary proves general source engine
+renderer `0x82642A88` traverses original render items. At
+`0x82642AF8` it passes `r28` as original render-item `this`,
+loads this item's own vtable+48 method, executes it at
+`bctrl 0x82642B08`, then saves the returned material source
+pointer from `r3` into callee-saved `r27` at `0x82642B10`.
+The shader renderer subsequently dispatches its own original
+vtable+44 method at `bctrl 0x82642BD4` with exact guest PPC
+`r3=shader instance (r31)`, `r4=source render item (r28)`,
+`r5=original rendering context (r23)` and genuine guest
+return LR `0x82642BD8`. **r27 at this bctrl is the
+item's original virtual+48 material return**, not a guessed
+ShaderEffects hash.
+
+Source verified directly from the owner's original PPC binary:
+**17/17 exact original PowerPC instruction/ABI checks**,
+**52/52 named shader class vtable+44 method mappings**,
+**22 unique original render-item PPC methods**; 27 shader
+classes share the original `0x82642370` guest item method.
+All 22 are mapped to authentic USA AOT host functions and
+added to the existing guest call-through hook allowlist.
+`ci/hulk_usa_shader_render_item_dispatch_abi.py` reconstructs
+the 17 instruction checks privately. Its output contains no
+game program bytes or proprietary asset data.
+
+`ScopedOriginalEorRenderItem` obtains this exact original source
+shader, render item, render context, class vtable and, when
+guest memory is accessible, the original material pointer
+returned by the item's own virtual getter. Source validation
+rejects wrong original `r31/r3`, `r28/r4`, `r23/r5`,
+wrong guest LR, wrong known shader vtable/method pair,
+invalid item class vtable, and invalid material method.
+RAII preserves original guest function behavior, clears stale
+per-item state at sibling entry and restores only into the
+same source shader instance, without guest writes.
+The complete XDK Draw timeline / Vulkan worker witness now
+compares all source ownership fields before GPU replay.
+Per Present diagnostics distinguish source shader-class draws,
+true per-item-owned draws and source-returned material-owned
+draws. Unverified instances never become owner evidence.
+
+This is a concrete part of model→material provenance, **NOT**
+a recovered archive model hash, surface ordinal, per-material
+Xenos source SHA digest, full sampler/image fetch owner,
+original UIPage_Pause_Settings event dispatcher,
+nor a rendered verified native Vulkan gameplay frame.
+The new C++ changes have not been compiled and replayed
+on the user's Windows notebook, and no unfinished Windows
+Release ZIP was launched.
+
+---
 ### Current verified path and exact missing producer
 
 The existing source contains `CapturePpcDraw` → immutable XDK
