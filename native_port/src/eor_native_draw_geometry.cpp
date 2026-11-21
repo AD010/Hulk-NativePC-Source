@@ -755,6 +755,18 @@ std::vector<VerifiedDrawSource> ResolveCapturedResourceDraws(
           [](const auto& w)->const VerifiedDrawSource&{
             return w.native_draw;
           },candidate.original_source_submission);
+      // A live original ShaderContainer VS/PS pair can authenticate the
+      // exact original ShaderEffects effect/pass without a Vulkan backend.
+      // Use that strong PPC Draw evidence to ELIMINATE other legitimate
+      // model/material candidates sharing the same XDK shader handles.
+      // This alone cannot prove which surface owns the texture or mesh;
+      // the independent guest byte/engine/sampler gates remain required.
+      if(call.observed_live_eor_effect_pass &&
+         (candidate_source.original_effect_hash!=
+              call.observed_live_eor_effect_pass->effect_hash ||
+          candidate_source.original_pass_index!=
+              call.observed_live_eor_effect_pass->pass_index))
+        continue;
       if(exact &&
          (candidate_source.original_model_hash!=exact->model_hash ||
           candidate_source.original_mesh_header_offset!=
