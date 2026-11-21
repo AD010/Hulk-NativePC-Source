@@ -49,6 +49,28 @@ class ScopedOriginalEorShaderMethod final {
   // onto an unrelated inner XDK Draw.
   bool suppressed_=false;
 };
+// Real original USA generic EoR 0x82642A88 dispatches shader
+// virtual slot +44 at indirect PPC 0x82642BD4. Scoped to the exact
+// original per-item method invocation; guest r3=this source shader,
+// r4=source render item, r5=render context. This MUST NOT invent
+// archive-model hashes/surface/material/texture identities.
+class ScopedOriginalEorRenderItem final {
+ public:
+  ScopedOriginalEorRenderItem(
+      uint32_t original_method_guest,const PPCContext& original_ctx,
+      uint8_t* original_guest_base) noexcept;
+  ~ScopedOriginalEorRenderItem() noexcept;
+  ScopedOriginalEorRenderItem(const ScopedOriginalEorRenderItem&)=delete;
+  ScopedOriginalEorRenderItem& operator=(
+      const ScopedOriginalEorRenderItem&)=delete;
+ private:
+  bool touched_=false;
+  uint8_t shader_source_depth_=0;
+  uint32_t previous_method_=0;
+  uint32_t previous_item_=0;
+  uint32_t previous_context_=0;
+  bool previous_verified_=false;
+};
 bool CaptureEnabled();
 void CapturePpcDraw(Kind kind, uint32_t guest, const PPCContext& ctx,
                     uint8_t* guest_base);
