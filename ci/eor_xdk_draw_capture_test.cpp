@@ -341,6 +341,12 @@ int main() {
   assert(!ValidateOriginalCommandTimeline(false_engine));
   false_engine=engine_source;
   false_engine.calls[0].original_engine_shader_method->
+      original_shader_method_guest=0x82000010u;
+  false_engine.calls[0].original_engine_shader_method->
+      original_shader_vtable_guest=0u;
+  assert(!ValidateOriginalCommandTimeline(false_engine));
+  false_engine=engine_source;
+  false_engine.calls[0].original_engine_shader_method->
       original_shader_instance_guest=0;
   assert(!ValidateOriginalCommandTimeline(false_engine));
   false_engine=engine_source;
