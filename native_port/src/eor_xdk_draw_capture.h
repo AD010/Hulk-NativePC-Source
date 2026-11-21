@@ -209,6 +209,125 @@ inline constexpr bool ProvenUsaEorShaderMethodVtablePair(
 }
 // This convenience helper only returns a UNIQUE method owner. For
 // shared EoR methods it deliberately returns 0 (ambiguous class).
+// Original USA EoR 0x82642A88 dispatches the per-render-item
+// virtual method at original class vtable slot +44 (index 11).
+// This second source hook retains EXACT shader instance and render
+// item pointer for EVERY one of the 52 named shader classes.
+// 27 classes share method 0x82642370: vtable identity is required.
+// Source guest LR from the real indirect bctrl 0x82642BD4 is
+// exactly 0x82642BD8. Never treat a direct unrelated invocation
+// as an original EoR source item.
+inline constexpr bool ProvenUsaEorRenderItemMethodVtablePair(
+    uint32_t method,uint32_t vtable) noexcept {
+  switch(method) {
+    case 0x8263dcd0u:
+      switch(vtable) {
+        case 0x82066294u:
+        case 0x820662fcu:
+          return true;
+        default: return false;
+      }
+    case 0x82642370u:
+      switch(vtable) {
+        case 0x82065ec8u:
+        case 0x82065f20u:
+        case 0x82066234u:
+        case 0x82066504u:
+        case 0x82066544u:
+        case 0x8206665cu:
+        case 0x820666b4u:
+        case 0x8206b550u:
+        case 0x8206d5a0u:
+        case 0x8206d64cu:
+        case 0x8206d760u:
+        case 0x8206ebfcu:
+        case 0x8206ecacu:
+        case 0x8206ed6cu:
+        case 0x8206ee6cu:
+        case 0x8206eee4u:
+        case 0x8206ef5cu:
+        case 0x8206eff8u:
+        case 0x8206f4e8u:
+        case 0x8206f5dcu:
+        case 0x8206f710u:
+        case 0x8206f7ccu:
+        case 0x8206f8a8u:
+        case 0x8206f994u:
+        case 0x8206fa6cu:
+        case 0x8206fb2cu:
+        case 0x8206fce4u:
+          return true;
+        default: return false;
+      }
+    case 0x82662108u: return vtable==0x82065e78u;
+    case 0x82663270u: return vtable==0x82065f84u;
+    case 0x82663aa8u: return vtable==0x82066020u;
+    case 0x82663ef8u:
+      switch(vtable) {
+        case 0x82066074u:
+        case 0x820660e4u:
+          return true;
+        default: return false;
+      }
+    case 0x82664338u:
+      switch(vtable) {
+        case 0x82066154u:
+        case 0x820661c4u:
+          return true;
+        default: return false;
+      }
+    case 0x82664630u: return vtable==0x8206636cu;
+    case 0x82664ee0u: return vtable==0x820663f4u;
+    case 0x82664f88u: return vtable==0x82066450u;
+    case 0x82665160u: return vtable==0x820664acu;
+    case 0x826656c8u: return vtable==0x8206659cu;
+    case 0x82665988u: return vtable==0x820665fcu;
+    case 0x82666090u: return vtable==0x82066744u;
+    case 0x826664f8u: return vtable==0x820667acu;
+    case 0x82666808u: return vtable==0x82066804u;
+    case 0x82666c70u: return vtable==0x82066860u;
+    case 0x826672d0u: return vtable==0x820668f0u;
+    case 0x8266b218u: return vtable==0x8206f0acu;
+    case 0x8266b588u:
+      switch(vtable) {
+        case 0x8206f13cu:
+        case 0x8206f1acu:
+          return true;
+        default: return false;
+      }
+    case 0x8266b8b8u: return vtable==0x8206f20cu;
+    case 0x8266c8d0u: return vtable==0x8206f530u;
+    default: return false;
+  }
+}
+inline constexpr bool ProvenUsaEorRenderItemMethodEntry(uint32_t method) noexcept {
+  switch(method) {
+    case 0x8263dcd0u:
+    case 0x82642370u:
+    case 0x82662108u:
+    case 0x82663270u:
+    case 0x82663aa8u:
+    case 0x82663ef8u:
+    case 0x82664338u:
+    case 0x82664630u:
+    case 0x82664ee0u:
+    case 0x82664f88u:
+    case 0x82665160u:
+    case 0x826656c8u:
+    case 0x82665988u:
+    case 0x82666090u:
+    case 0x826664f8u:
+    case 0x82666808u:
+    case 0x82666c70u:
+    case 0x826672d0u:
+    case 0x8266b218u:
+    case 0x8266b588u:
+    case 0x8266b8b8u:
+    case 0x8266c8d0u:
+      return true;
+    default: return false;
+  }
+}
 inline constexpr uint32_t ProvenUsaEorShaderVtableForMethod(
     uint32_t method) noexcept {
   switch(method) {
