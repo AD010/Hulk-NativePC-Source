@@ -1,6 +1,7 @@
 #pragma once
 #include "eor_xdk_draw_capture.h"
 #include "eor_native_draw_geometry.h"
+#include "eor_original_shader_samplers.h"
 #include <rex/ppc/context.h>
 #include <native_x_renderer/native_x_renderer.h>
 
@@ -78,6 +79,9 @@ struct VerifiedWorkerEorFrame {
   std::shared_ptr<const aot::ShaderBank> shaders;
   std::shared_ptr<const aot::EffectCatalog> effects;
   std::shared_ptr<const aot::ReflectionBank> reflection;
+  // Original Source shader reflection/texture sampler register declarations.
+  // A source sampler slot is not automatically an XDK texture fetch slot.
+  std::shared_ptr<const aot::OriginalXdkShaderSamplers> samplers;
   std::shared_ptr<aot::ShaderBindingBackend> gpu;
 };
 // Register the REAL private USA offline ShaderEffects bank, effect/pass index,
@@ -87,7 +91,8 @@ struct VerifiedWorkerEorFrame {
 bool InstallVerifiedSourceShaderPack(
     std::shared_ptr<const aot::ShaderBank> shaders,
     std::shared_ptr<const aot::EffectCatalog> effects,
-    std::shared_ptr<const aot::ReflectionBank> reflection);
+    std::shared_ptr<const aot::ReflectionBank> reflection,
+    std::shared_ptr<const aot::OriginalXdkShaderSamplers> samplers = {});
 void ClearVerifiedSourceShaderPack() noexcept;
 // Thread-safe source submission. A complete source-proven EoR engine owner
 // must supply this per-frame; startup AOT shader banks alone are insufficient.
