@@ -34,8 +34,10 @@ Diligent::TEXTURE_FORMAT Convert(textures::XenosTextureFormat fmt,
         throw std::invalid_argument("Original HDR RGBA16F lightmap cannot be sRGB");
       return Diligent::TEX_FORMAT_RGBA16_FLOAT;
     case XenosTextureFormat::RGBA8:
+      // The authenticated USA 0x06 descriptor has fetch word 3 = 0xC14.
+      // Its four swizzle selectors (bits 1..12) are B,G,R,A.
       return space==OriginalTextureColorSpace::SRGB ?
-        Diligent::TEX_FORMAT_RGBA8_UNORM_SRGB : Diligent::TEX_FORMAT_RGBA8_UNORM;
+        Diligent::TEX_FORMAT_BGRA8_UNORM_SRGB : Diligent::TEX_FORMAT_BGRA8_UNORM;
     default:
       throw std::invalid_argument("Original EoR Xenos texture GPU format not decoded");
   }

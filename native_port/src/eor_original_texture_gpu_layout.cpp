@@ -48,6 +48,50 @@ uint32_t PaddedBlocks(uint32_t texels, uint32_t block) {
   return static_cast<uint32_t>((count+31u)&~uint64_t(31));
 }
 } // namespace
+std::optional<std::pair<OriginalLfxtMipPlan,VerifiedOriginalXboxGpuMipChain>>
+DecodeOriginalStandaloneMip(std::span<const std::byte> lfxt, uint32_t original_hash,
+                            const OriginalLfxtInlineSection& section) {
+  const auto verified=FindOriginalLfxtInlineSection(lfxt,original_hash);
+  if (!verified || verified->inline_data_offset!=section.inline_data_offset ||
+      verified->inline_data_bytes!=section.inline_data_bytes ||
+      section.inline_data_bytes<=kDescriptorBytes) return std::nullopt;
+  const auto end=std::find(lfxt.begin()+4,lfxt.end(),std::byte{0});
+  const size_t base=static_cast<size_t>(end-lfxt.begin())+1;
+  // No stream table: one local allocation with an explicit byte count.
+  if (verified->outer_length_field_offset!=base+22 || lfxt[base+21]!=std::byte{0} ||
+      BE32(lfxt,base+13)!=1) return std::nullopt;
+  const uint64_t payload=section.inline_data_bytes-kDescriptorBytes;
+  if (BE32(lfxt,base+17)!=payload) return std::nullopt;
+  XenosTextureFormat format;
+  uint32_t width=0,height=0;
+  if (!KnownDescriptor(lfxt,format,width,height) || format==XenosTextureFormat::RGBA16F)
+    return std::nullopt;
+  const auto fetch=lfxt.last(kDescriptorBytes);
+  const uint32_t word0=BE32(fetch,28);
+  const uint32_t source_width=BE32(lfxt,base+1)&0xffffu;
+  const uint32_t source_height=BE32(lfxt,base+5)&0xffffu;
+  if (source_width!=width || source_height!=height || (word0&3u)!=2u ||
+      !(word0>>31) || BE32(fetch,44)!=0u || BE32(fetch,48)!=0xa00u)
+    return std::nullopt;
+  const bool compressed=format==XenosTextureFormat::BC1 || format==XenosTextureFormat::BC3;
+  const uint32_t block=compressed ? 4u : 1u;
+  const uint32_t bytes=format==XenosTextureFormat::BC3 ? 16u :
+                       format==XenosTextureFormat::RGBA8 ? 4u : 8u;
+  const auto pitch=PaddedBlocks(width,block), rows=PaddedBlocks(height,block);
+  if (((word0>>22)&511u)*32u!=pitch*block || uint64_t(pitch)*rows*bytes!=payload)
+    return std::nullopt;
+  const auto family=format==XenosTextureFormat::BC1 ? OriginalLfxtStorageFamily::BC_8ByteBlock :
+                    format==XenosTextureFormat::BC3 ? OriginalLfxtStorageFamily::BC_16ByteBlock :
+                    OriginalLfxtStorageFamily::Texel_4Byte;
+  OriginalLfxtMipPlan plan{family,width,height,{{width,height,static_cast<uint32_t>(payload),false}},true};
+  SourceMipLayout level{};
+  level.width=width;level.height=height;level.source_offset=section.inline_data_offset;
+  level.storage_pitch_blocks=pitch;level.storage_height_blocks=rows;
+  level.tiling=XenosTileMode::Tiled2D;level.endian=XenosDataEndian::NoSwap;
+  VerifiedOriginalXboxGpuMipChain gpu{format,{level}};
+  ValidateOriginalMipPayloadRanges(lfxt,{},section,plan,format,gpu.layouts);
+  return std::pair{std::move(plan),std::move(gpu)};
+}
 std::optional<VerifiedOriginalXboxGpuMipChain> DecodeOriginalXboxGpuMips(
     std::span<const std::byte> lfxt,std::span<const std::byte> stream,
     const OriginalLfxtInlineSection& section,

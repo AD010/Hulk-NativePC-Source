@@ -1,5 +1,6 @@
 #include "../native_port/src/eor_original_texture_gpu_layout.h"
 #include <cassert>
+#include <cstring>
 #include <cstddef>
 #include <cstdint>
 #include <stdexcept>
@@ -81,8 +82,33 @@ void Case(uint32_t fmt,uint32_t block,
   bad=stream;Put32(bad,0,1);
   Reject([&]{(void)DecodeOriginalXboxGpuMips(lfxt,bad,section,table,plan);});
 }
+void CheckStandalone() {
+  constexpr char name[]="Atlas";
+  constexpr uint32_t width=64,height=32,extent=width*height*4;
+  constexpr size_t base=4+sizeof(name),outer=base+22,begin=outer+8;
+  std::vector<std::byte> bytes(begin+extent+52);
+  std::memcpy(bytes.data(),"LFXT",4);
+  std::memcpy(bytes.data()+4,name,sizeof(name));
+  Put32(bytes,base+1,width);Put32(bytes,base+5,height);
+  Put32(bytes,base+13,1);Put32(bytes,base+17,extent);
+  Put32(bytes,outer,extent+56);Put32(bytes,outer+4,extent+52);
+  Trailer(bytes,6,width,height);
+  const auto footer=begin+extent;
+  Put32(bytes,footer+28,0x80800002);Put32(bytes,footer+48,0xa00);
+  const auto hash=hulk::eor::ResourceHash(name);
+  auto section=FindOriginalLfxtInlineSection(bytes,hash);assert(section);
+  auto decode=[&] {return DecodeOriginalStandaloneMip(bytes,hash,*section);};
+  const auto mip=decode();
+  assert(mip && mip->first.absolute_source_offsets_proven && mip->second.layouts.size()==1);
+  assert(mip->second.layouts[0].source_offset==begin && !mip->second.layouts[0].from_stream_archive);
+  Put32(bytes,footer+44,1u<<6);assert(!decode());Put32(bytes,footer+44,0);
+  Put32(bytes,footer+28,0x80400002);assert(!decode());Put32(bytes,footer+28,0x80800002);
+  bytes[base+21]=std::byte{1};assert(!decode());bytes[base+21]=std::byte{};
+  Put32(bytes,base+17,extent-4);assert(!decode());
+}
 } // namespace
 int main() {
+  CheckStandalone();
   // GPU descriptor fixture coverage: DXT1 (0x12), DXT4_5 (0x14),
   // RGBA8 (0x06; synthetic regression), RGBA16_EXPAND (0x1d).
   // A synthetic format fixture is not evidence of a live Hulk Draw binding.

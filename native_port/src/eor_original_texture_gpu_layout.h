@@ -9,11 +9,16 @@
 #include <optional>
 #include <span>
 #include <vector>
+#include <utility>
 namespace hulk::eor::textures {
 struct VerifiedOriginalXboxGpuMipChain {
   XenosTextureFormat format=XenosTextureFormat::Unknown;
   std::vector<SourceMipLayout> layouts; // largest -> smallest; real file offsets
 };
+// A standalone LFXT record contains its only GPU level in Textures.ARC.
+std::optional<std::pair<OriginalLfxtMipPlan,VerifiedOriginalXboxGpuMipChain>>
+DecodeOriginalStandaloneMip(std::span<const std::byte> lfxt, uint32_t original_hash,
+                            const OriginalLfxtInlineSection& section);
 // Supports observed Xenos format 0x12 (DXT1), 0x14 (DXT4/5) and
 // 0x1D (RGBA16_EXPAND / 16-bit float upload family).
 // Requires EXACT matching original full record extents, 52-byte trailing

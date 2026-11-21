@@ -72,6 +72,12 @@ std::optional<OriginalTexture> OriginalXboxTextureAssets::LoadHash(uint32_t hash
         result.original_mip_plan->absolute_source_offsets_proven=true;
     }
   }
+  if (result.pinned_usa_index && !result.original_stream && result.original_inline_section) {
+    if (auto mip=DecodeOriginalStandaloneMip(result.original_bytes,hash,*result.original_inline_section)) {
+      result.original_mip_plan=std::move(mip->first);
+      result.verified_gpu_mips=std::move(mip->second);
+    }
+  }
   return result;
 }
 OriginalTextureBatch OriginalXboxTextureAssets::LoadSurfaceCandidates(

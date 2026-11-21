@@ -55,8 +55,11 @@ class OriginalVirtualShaderCrosswalkTests(unittest.TestCase):
         self.assertEqual(source["source_verified_private_bank_sha256"],
                          "82064e54dd6ca98796b08cc92b1f7063321d8e4ca"
                          "4386bfe861e4569d54f22cd")
-        self.assertFalse(source[
+        self.assertTrue(source[
             "runtime_original_xdk_shader_object_to_virtual_header_pointer_abi_verified"])
+        for stage in ("vs", "ps"):
+            self.assertEqual(source[f"mapped_dump_xdk_{stage}_objects_matching_archive"], 2405)
+        self.assertEqual(source["mapped_dump_unique_shader_pairs_matching_source_effect_and_pass"], 2405)
         self.assertFalse(source[
             "runtime_source_shader_microcode_digest_at_current_xdk_draw_verified"])
         self.assertFalse(source["native_eor_vulkan_gameplay_frame_verified"])

@@ -578,6 +578,12 @@ The latest logs still contained shader translation errors involving `getCompTexL
 - Raw log category counts are diagnostic, frequently throttled, and do not establish image correctness; `Window closing, shutting down` / `hard-exiting` do not necessarily prove gameplay stability.
 - Current source check and user video/game footage are required to determine whether an apparent old regression remains. Do not invent an updated GPU result from a stale capture.
 
+### 2026-11-21 · Original shader and texture replay
+
+In the USA process dump, 2,405 vertex shader objects and 2,405 pixel shader objects matched the original shader archive by their embedded virtual headers. Their 2,405 pairs matched passes in 187 effects, including Font. The header starts at VS object +872 or PS object +40. The physical program-data pointers are separate.
+
+The native texture loader now accepts the USA single-level resident LFXT schema. Offline replay decoded 538 source textures, including 391 with `ui_` or `font_` names. For the loading logo (`995AD5DC`) and font atlas (`DAD1DD22`), each 524,288-byte tiled allocation matched the original archive and the captured process memory byte for byte. Both decoded to 512 × 256 at a 2,048-byte row pitch. An independent in-game frame, stable lighting and original settings-page dispatch still require runtime verification.
+
 ### External navigation
 
 - https://github.com/AD010/Hulk-NativePC-Source/commits/main

@@ -38,8 +38,9 @@ void ValidateOriginalMipPayloadRanges(
   if(plan.family!=info.family || plan.levels.empty() ||
      plan.levels.size()!=layouts.size() || layouts.size()>14)
     throw std::invalid_argument("Original USA LFXT mip plan missing/format-family mismatch");
-  (void)ValidateOriginalTexStreamEnvelope(stream);
-  if(stream.size()<56 || lfxt.size()<52 ||
+  const bool streamed=plan.levels.front().from_stream_archive;
+  if(streamed) (void)ValidateOriginalTexStreamEnvelope(stream);
+  if((streamed ? stream.size()<56 : (!stream.empty() || plan.levels.size()!=1)) || lfxt.size()<52 ||
      section.inline_data_offset>lfxt.size()-52 ||
      section.inline_data_bytes!=lfxt.size()-section.inline_data_offset ||
      section.inline_data_bytes<52)
@@ -47,9 +48,9 @@ void ValidateOriginalMipPayloadRanges(
   // All 10 original samples contain 52 excess bytes after the documented
   // aligned mip allocations. Do NOT treat these bytes as texels. Their
   // semantic meaning remains unknown; layouts stay explicit.
-  const uint64_t stream_end=stream.size()-52;
+  const uint64_t stream_end=streamed ? stream.size()-52 : 0;
   const uint64_t inline_end=lfxt.size()-52;
-  uint64_t stream_pos=4;
+  uint64_t stream_pos=streamed ? 4u : 0u;
   uint64_t inline_pos=section.inline_data_offset;
   bool seen_inline=false;
   for(size_t i=0;i<layouts.size();++i) {
