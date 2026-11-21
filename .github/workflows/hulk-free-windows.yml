@@ -6,10 +6,6 @@ on:
   # The previous push marker remains archived as source history but it
   # must never trigger another build by an unrelated commit.
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - 'ci/hulk_release_once_20261121_current_main.marker'
 permissions:
   contents: write
 concurrency:
