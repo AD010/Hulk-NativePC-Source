@@ -41,6 +41,28 @@ def setup_source(root: Path, *, real_list=True):
     return path,rows
 
 class OriginalVirtualShaderCrosswalkTests(unittest.TestCase):
+    def test_complete_owner_source_fingerprint_bank_is_source_pinned(self):
+        witness=Path(__file__).resolve().parents[1]/(
+            "native_port/analysis/"
+            "hulk_usa_original_virtual_shader_sha_source_2026-11-21.json")
+        source=json.loads(witness.read_text(encoding="utf-8"))
+        self.assertEqual(source["private_bank_magic"],MAGIC.decode("ascii"))
+        self.assertEqual(source["original_virtual_to_full_source_entries"],5194)
+        self.assertEqual(source["original_full_xenos_shader_stage_programs"],5194)
+        self.assertEqual(source["original_virtual_header_sha256_collisions"],0)
+        self.assertEqual(source["source_verified_private_bank_bytes"],
+                         16+5194*ENTRY.size)
+        self.assertEqual(source["source_verified_private_bank_sha256"],
+                         "82064e54dd6ca98796b08cc92b1f7063321d8e4ca"
+                         "4386bfe861e4569d54f22cd")
+        self.assertFalse(source[
+            "runtime_original_xdk_shader_object_to_virtual_header_pointer_abi_verified"])
+        self.assertFalse(source[
+            "runtime_source_shader_microcode_digest_at_current_xdk_draw_verified"])
+        self.assertFalse(source["native_eor_vulkan_gameplay_frame_verified"])
+        self.assertTrue(source[
+            "no_original_guest_program_code_or_original_shader_bytes_published"])
+
     def test_real_private_owner_list_and_legacy_manifest_generate_identical_bank(self):
         with TemporaryDirectory() as temp:
             root=Path(temp)
