@@ -2,3 +2,5 @@ User-requested one-time Windows Release compilation of Hulk NativePC on 2026-11-
 Build current main source at this commit, including independent EoR Vulkan
 source probes and native PC menu; preserve old private release ZIP.
 Do not publish game XEX, asset ARC, shaders, or private input data publicly.
+
+Retry 2: source-only CI assertion fixed; packaged TOML no longer contains a developer comment.
