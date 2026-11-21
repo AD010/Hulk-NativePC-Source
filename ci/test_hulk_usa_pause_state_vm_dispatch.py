@@ -41,6 +41,14 @@ def synthetic_mapped_image():
         (STATE_NATIVE_REGISTRATION_GUEST+12,0x82002E4C),
         # Standard PPC mr r31,r3 (a synthetic register test instruction).
         (STATE_NATIVE_HANDLER_GUEST+12,0x7C7F1B78),
+        # Independently synthesized PowerPC D-form VM state pointer chain.
+        (0x8264C7AC,(32<<26)|(11<<21)|(31<<16)),
+        (0x8264C7B0,(32<<26)|(10<<21)|(11<<16)),
+        (0x8264C7B4,(32<<26)|(11<<21)|(11<<16)|4),
+        (0x8264C7B8,(32<<26)|(10<<21)|(10<<16)|8),
+        (0x8264C7BC,(32<<26)|(10<<21)|(10<<16)),
+        (0x8264C7C0,(32<<26)|(30<<21)|(10<<16)|12),
+        (0x8264C7C4,(36<<26)|(30<<21)|(11<<16)|12),
     ):
         data[addr-GUEST_BASE:addr-GUEST_BASE+4]=word.to_bytes(4,"big")
     return bytes(data)
@@ -66,6 +74,11 @@ class OriginalPauseVmTests(unittest.TestCase):
         self.assertEqual(result["registered_original_native_ppc_handler"],
                          "0x8264C798")
         self.assertEqual(result["first_native_ppc_context_arg"],"r3")
+        self.assertEqual(result["original_vm_state_transition_ppc_instructions_verified"],8)
+        self.assertEqual(result["original_vm_input_nested_offset"],8)
+        self.assertEqual(result["original_vm_desired_state_value_offset"],12)
+        self.assertEqual(result["original_vm_output_state_value_offset"],12)
+        self.assertFalse(result["original_vm_page_owner_identity_verified"])
         self.assertFalse(result["actual_pause_page_event_dispatcher_abi_verified"])
         self.assertFalse(result["vm_native_parameter_and_return_types_fully_verified"])
 
@@ -82,7 +95,10 @@ class OriginalPauseVmTests(unittest.TestCase):
                         STATE_NATIVE_REGISTRATION_GUEST+4,
                         STATE_NATIVE_REGISTRATION_GUEST+8,
                         STATE_NATIVE_REGISTRATION_GUEST+12,
-                        STATE_NATIVE_HANDLER_GUEST+12):
+                        STATE_NATIVE_HANDLER_GUEST+12,
+                        0x8264C7AC,0x8264C7B0,0x8264C7B4,
+                        0x8264C7B8,0x8264C7BC,0x8264C7C0,
+                        0x8264C7C4):
             with self.subTest(address=hex(address)):
                 b=bytearray(self.image)
                 b[address-GUEST_BASE:address-GUEST_BASE+4]=bytes([0])*4
@@ -106,6 +122,12 @@ class OriginalPauseVmTests(unittest.TestCase):
         self.assertIn("void ObserveOriginalEorVmState_r(",bridge)
         self.assertIn("original_method_guest!=0x8264C798u",bridge)
         self.assertIn("const auto vm_frame=read32(original_ctx.r3.u32)",bridge)
+        self.assertIn("const auto nested=input",bridge)
+        self.assertIn("const auto owner=nested",bridge)
+        self.assertIn("const auto requested=owner",bridge)
+        self.assertIn("const auto previous=output",bridge)
+        self.assertIn("vm_state_before=",bridge)
+        self.assertIn("vm_state_requested=",bridge)
         self.assertIn("PAGE-OWNER UNKNOWN",bridge)
         self.assertNotIn("UIPage_Pause_Settings event dispatched",bridge)
         # The original global method is NOT a render device operation.
