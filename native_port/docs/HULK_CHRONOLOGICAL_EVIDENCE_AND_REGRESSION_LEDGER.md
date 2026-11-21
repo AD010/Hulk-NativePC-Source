@@ -584,6 +584,8 @@ In the USA process dump, 2,405 vertex shader objects and 2,405 pixel shader obje
 
 The native texture loader now accepts the USA single-level resident LFXT schema. Offline replay decoded 538 source textures, including 391 with `ui_` or `font_` names. For the loading logo (`995AD5DC`) and font atlas (`DAD1DD22`), each 524,288-byte tiled allocation matched the original archive and the captured process memory byte for byte. Both decoded to 512 × 256 at a 2,048-byte row pitch. An independent in-game frame, stable lighting and original settings-page dispatch still require runtime verification.
 
+The indexed `uiwidget_pausemenu` widget references the actual settings object (`D7A9E027`) in its 225-byte `StateEnter_z` method at object offset 13,920. The settings object references its game-options child (`04AA3A30`). Both `IncreaseEvent_z` and `DecreaseEvent_z` call the game's registered yaw and pitch setters. The child reads both values in `Init_z`. The setter/getter pairs agree on the two USA option bytes. The direct mouse-camera path reads these flags from game memory after checking the original getters. This change applies when a direct camera profile is active. Additional Windows display controls and runtime rendering of this page remain unverified.
+
 ### External navigation
 
 - https://github.com/AD010/Hulk-NativePC-Source/commits/main

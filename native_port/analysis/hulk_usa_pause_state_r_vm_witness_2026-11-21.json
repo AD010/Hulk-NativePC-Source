@@ -31,5 +31,55 @@
   },
   "global_vm_getter_is_not_unique_pause_ui_dispatcher": true,
   "no_original_game_instruction_or_script_bytes_published": true,
-  "original_ui_page_pause_settings_native_windows_binding_installed": false
+  "original_ui_page_pause_settings_native_windows_binding_installed": false,
+  "usa_original_camera_options": {
+    "widget_state_enter": {
+      "method": "StateEnter_z",
+      "object_offset": 13920,
+      "vm_body_bytes": 225
+    },
+    "settings_object_key": "d7a9e027",
+    "settings_events": [
+      {
+        "method": "IncreaseEvent_z",
+        "object_offset": 8929,
+        "vm_body_bytes": 1418
+      },
+      {
+        "method": "DecreaseEvent_z",
+        "object_offset": 10378,
+        "vm_body_bytes": 1397
+      }
+    ],
+    "game_options_child_key": "04aa3a30",
+    "game_options_init": {
+      "method": "Init_z",
+      "object_offset": 3144,
+      "vm_body_bytes": 380
+    },
+    "registered_original_callbacks": [
+      {
+        "method": "Options_SetCameraYaw_b",
+        "registry": "0x82e1c340",
+        "body": "0x82339a08"
+      },
+      {
+        "method": "Options_SetCameraPitch_b",
+        "registry": "0x82e1c32c",
+        "body": "0x823399e8"
+      },
+      {
+        "method": "Options_GetCameraYaw_z",
+        "registry": "0x82e1c3f4",
+        "body": "0x82338a18"
+      },
+      {
+        "method": "Options_GetCameraPitch_z",
+        "registry": "0x82e1c3e0",
+        "body": "0x82338a00"
+      }
+    ],
+    "guest_pitch_boolean": "0x82e53b3c",
+    "guest_yaw_boolean": "0x82e53b3d"
+  }
 }

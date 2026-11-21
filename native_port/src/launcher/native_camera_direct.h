@@ -14,10 +14,12 @@ struct Layout {
   bool invert_y=false;
 };
 struct Angles {float yaw=0,pitch=0;};
+struct OriginalLookInversion { bool yaw=false, pitch=false; };
 // A validated camera profile uses the same user sensitivity as RawInput;
 // scale 1.0 corresponds to the original default sensitivity value 4.0.
 Angles ApplyDelta(Angles angles,int dx,int dy,const Layout& cfg,
-                  float sensitivity_scale=1.0f,float sensitivity_y_scale=-1.0f);
+                  float sensitivity_scale=1.0f,float sensitivity_y_scale=-1.0f,
+                  OriginalLookInversion original={});
 // Pure bounds-checked guest-address model, used by tests and actual camera bind.
 // The span begins at emulated guest address zero; no endianness assumptions.
 bool ApplyToGuestSpan(uint8_t* memory,size_t size,const Layout& cfg,int dx,int dy,

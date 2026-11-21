@@ -151,16 +151,105 @@ def inspect(xbox:bytes,pc:bytes,image:bytes,strict_source=True)->dict:
     }
 
 
+def source_method_with_operands(record: bytes, method: str, operands: tuple[bytes, ...]):
+    """Identify a named method in this indexed object using its bounded VM body."""
+    name = method.encode("ascii") + b"\0"
+    matches = []
+    pos = 0
+    while (at := record.find(name, pos)) >= 0:
+        pos = at + len(name)
+        size = int.from_bytes(record[pos:pos+4], "big")
+        begin = pos + 4
+        if size and begin + size + 4 <= len(record):
+            body = record[begin:begin+size]
+            if all(body.count(value) == 1 for value in operands):
+                matches.append((at, size))
+    if len(matches) != 1:
+        raise ValueError("Missing or ambiguous original UI method: " + method)
+    return {"method": method, "object_offset": matches[0][0], "vm_body_bytes": matches[0][1]}
+
+
+def inspect_usa_look_options(index: bytes, objects: bytes, image: bytes) -> dict:
+    from audit_hulk_pc_x360_ui_assets import parse_index
+
+    if (hashlib.sha256(index).hexdigest() !=
+            "46e6c6ec9f7428ba3a1737ab7ebad564c1b027b006c3e35156d2e036ab8b2820" or
+            hashlib.sha256(objects).hexdigest() != XBOX_OBJECTS_SHA256 or
+            hashlib.sha256(image).hexdigest() != USA_IMAGE_SHA256):
+        raise ValueError("Unknown USA pause-menu input revision")
+
+    def key(name):
+        return zlib.crc32(name.upper().encode("ascii")).to_bytes(4, "big")
+
+    rows = {r["hash"]: r for r in parse_index(index)["groups"]["Objects"]}
+
+    def asset(name):
+        row = rows[key(name).hex().upper()]
+        start, size = row["offset"], row["size"]
+        data = objects[start:start+size]
+        if row["reserved"] or len(data) != size or not data.startswith(name.encode()+b"\0"):
+            raise ValueError("Unexpected USA UI object: " + name)
+        return data
+
+    widget = asset("uiwidget_pausemenu")
+    page = asset("uipage_pause_settings")
+    camera = asset("uipage_pause_gamesettings")
+    child = key("uipage_pause_gamesettings")
+    if page.count(child) != 1:
+        raise ValueError("Expected one original game-options child")
+    enter = source_method_with_operands(widget, "StateEnter_z", (
+        b"\x70" + key("SettingsPage"),
+        b"\x28" + key("CreateInstance_dsvvbp") + b"\x22" + key("UIPage_Pause_Settings")))
+    setters = tuple(b"\x00" + key("Options_SetCamera" + axis + "_b") for axis in ("Yaw", "Pitch"))
+    changes = [source_method_with_operands(page, name, setters)
+               for name in ("IncreaseEvent_z", "DecreaseEvent_z")]
+    getters = tuple(b"\x00" + key("Options_GetCamera" + axis + "_z") for axis in ("Yaw", "Pitch"))
+    init = source_method_with_operands(camera, "Init_z", getters)
+
+    def blob(guest, size):
+        pos = guest - GUEST_BASE
+        if pos < 0 or pos + size > len(image):
+            raise ValueError("Invalid USA VM guest address")
+        return image[pos:pos+size]
+
+    bindings = []
+    for name, row, size, digest in (
+        ("Options_SetCameraYaw_b", 0x82E1C340, 36, "f4c7a859223e3cb07fc3a56af8483acfaeaf792e8595494648a42056208880d7"),
+        ("Options_SetCameraPitch_b", 0x82E1C32C, 32, "fff350a456efcc6e07cdf5b360dc623fe42acabe2365029b21ed11a3c46be53c"),
+        ("Options_GetCameraYaw_z", 0x82E1C3F4, 28, "73bbba71c6a6e32a3ac51883f21c98a2389b07efbe0077ecfaf210c3689f99f5"),
+        ("Options_GetCameraPitch_z", 0x82E1C3E0, 24, "b3cb5a554a62ef9dd80458a3e2e3db7e674bb031e27949c080683ad41605aa4b"),
+    ):
+        name_ptr = int.from_bytes(blob(row, 4), "big")
+        if blob(name_ptr, len(name)+1) != name.encode() + b"\0":
+            raise ValueError("USA option registry name changed: " + name)
+        thunk = int.from_bytes(blob(row+4, 4), "big")
+        stub = blob(thunk, 16)
+        body = ((int.from_bytes(stub[2:4], "big") << 16) +
+                int.from_bytes(stub[6:8], "big", signed=True)) & 0xffffffff
+        if hashlib.sha256(blob(body, size)).hexdigest() != digest:
+            raise ValueError("USA option PPC implementation changed: " + name)
+        bindings.append({"method": name, "registry": hex(row), "body": hex(body)})
+    return {"widget_state_enter": enter, "settings_object_key": key("uipage_pause_settings").hex(),
+            "settings_events": changes, "game_options_child_key": child.hex(),
+            "game_options_init": init, "registered_original_callbacks": bindings,
+            "guest_pitch_boolean": "0x82e53b3c", "guest_yaw_boolean": "0x82e53b3d"}
+
+
 def main():
     ap=argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--private-usa-mapped-image",type=Path,required=True)
     ap.add_argument("--original-xbox-objects",type=Path,required=True)
     ap.add_argument("--original-pc-objects",type=Path,required=True)
+    ap.add_argument("--private-usa-index", type=Path)
     ap.add_argument("--output",type=Path,required=True)
     args=ap.parse_args()
     report=inspect(args.original_xbox_objects.read_bytes(),
                    args.original_pc_objects.read_bytes(),
                    args.private_usa_mapped_image.read_bytes())
+    if args.private_usa_index:
+        report["usa_original_camera_options"] = inspect_usa_look_options(
+            args.private_usa_index.read_bytes(), args.original_xbox_objects.read_bytes(),
+            args.private_usa_mapped_image.read_bytes())
     args.output.parent.mkdir(parents=True,exist_ok=True)
     args.output.write_text(json.dumps(report,indent=2)+"\n",encoding="utf-8")
     print("[HULK/EOR-PAUSE-VM] source ChangeState_r opcode28 -> "

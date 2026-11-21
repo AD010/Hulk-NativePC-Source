@@ -12,6 +12,7 @@ from hulk_usa_pause_state_vm_dispatch import (
     STATE_GETTER_HASH, STATE_NATIVE_NAME_GUEST,
     STATE_NATIVE_HANDLER_GUEST, STATE_NATIVE_REGISTRATION_GUEST,
     GUEST_BASE, original_pause_state, registered_native_state, inspect,
+    source_method_with_operands,
 )
 
 ROOT=Path(__file__).resolve().parents[1]
@@ -60,6 +61,25 @@ class OriginalPauseVmTests(unittest.TestCase):
         cls.original = json.loads(SOURCE.read_text(encoding="utf-8"))
         cls.image = synthetic_mapped_image()
 
+    def test_named_event_is_bounded_to_one_serialized_method(self):
+        token = b"test-operand"
+        header = b"Event_z\0" + len(token).to_bytes(4, "big")
+        record = header + token + bytes(4)
+        self.assertEqual(source_method_with_operands(record, "Event_z", (token,))["object_offset"], 0)
+        for malformed in (record + record, record[:-1], header + b"x"*len(token) + token):
+            with self.assertRaises(ValueError):
+                source_method_with_operands(malformed, "Event_z", (token,))
+
+    def test_original_settings_and_independent_look_axes(self):
+        route = self.original["usa_original_camera_options"]
+        self.assertEqual(route["settings_object_key"], "d7a9e027")
+        self.assertEqual(route["game_options_child_key"], "04aa3a30")
+        self.assertEqual([e["method"] for e in route["settings_events"]],
+                         ["IncreaseEvent_z", "DecreaseEvent_z"])
+        self.assertEqual(route["guest_yaw_boolean"], "0x82e53b3d")
+        self.assertEqual(route["guest_pitch_boolean"], "0x82e53b3c")
+        self.assertEqual(len({b["body"] for b in route["registered_original_callbacks"]}), 4)
+
     def test_original_pause_method_calls_name_hash_not_guest_pointer(self):
         xbox=original_pause_state(vm_script("big"),"big")
         pc=original_pause_state(vm_script("little"),"little")
@@ -85,7 +105,9 @@ class OriginalPauseVmTests(unittest.TestCase):
     def test_public_source_witness_matches_reproduced_synthetic_abi(self):
         result=inspect(vm_script("big"),vm_script("little"),self.image,
                        strict_source=False)
-        self.assertEqual(result,self.original)
+        expected = self.original.copy()
+        expected.pop("usa_original_camera_options")
+        self.assertEqual(result, expected)
         self.assertTrue(result["global_vm_getter_is_not_unique_pause_ui_dispatcher"])
         self.assertFalse(result[
             "original_ui_page_pause_settings_native_windows_binding_installed"])

@@ -32,6 +32,18 @@ int main(){
  REQUIRE(ApplyToGuestSpan(memory.data(),memory.size(),c,10,-20,2.0f,0.5f));
  REQUIRE(std::abs(R(memory,0x224)-0.2f)<1.e-5f);
  REQUIRE(std::abs(R(memory,0x228)+0.1f)<1.e-5f);
+ // As in the original settings page, yaw and pitch are independent.
+ for (bool invert_yaw : {false, true}) {
+   for (bool invert_pitch : {false, true}) {
+     for (bool profile_y : {false, true}) {
+       Layout calibrated=c;
+       calibrated.invert_y=profile_y;
+       const auto angles=ApplyDelta({},10,20,calibrated,1.0f,0.5f,{invert_yaw,invert_pitch});
+       REQUIRE(std::abs(angles.yaw-(invert_yaw ? -0.1f : 0.1f))<1.e-5f);
+       REQUIRE(std::abs(angles.pitch-(profile_y!=invert_pitch ? -0.1f : 0.1f))<1.e-5f);
+     }
+   }
+ }
  REQUIRE(ApplyToGuestSpan(memory.data(),memory.size(),c,0,10000));
  REQUIRE(std::abs(R(memory,0x228)-1.2f)<1.e-5f);
  W(memory,0x80,0xFFFFFF00u);

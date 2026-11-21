@@ -247,13 +247,33 @@ uint8_t* GuestAddress(
 
   return p;
 }
+
+OriginalLookInversion ReadOriginalLookInversion(uint8_t* base) {
+  // The USA VM registers separate pitch/yaw getters which read adjacent
+  // option bytes. Check both complete getters before using their data address.
+  constexpr uint32_t getters = 0x82338A00;
+  constexpr size_t getter_bytes = 52;
+  const auto* code = GuestAddress(base, getters, getter_bytes, false);
+  if (!code) return {};
+  uint64_t fingerprint = 0xcbf29ce484222325ull;
+  for (size_t i = 0; i < getter_bytes; ++i)
+    fingerprint = (fingerprint ^ code[i]) * 0x100000001b3ull;
+  if (fingerprint != 0xce487ca27f9d0efeull) return {};
+
+  const auto* flags = GuestAddress(base, 0x82E53B3C, 2, false);
+  if (!flags) return {};
+  const uint8_t pitch = flags[0], yaw = flags[1];
+  if (pitch > 1 || yaw > 1) return {};
+  return {yaw != 0, pitch != 0};
+}
 #endif
 
 } // namespace
 
 Angles ApplyDelta(
     Angles angles, int dx, int dy,
-    const Layout& c, float sensitivity_scale, float sensitivity_y_scale) {
+    const Layout& c, float sensitivity_scale, float sensitivity_y_scale,
+    OriginalLookInversion original) {
 
   if (!std::isfinite(angles.yaw) ||
       !std::isfinite(angles.pitch))
@@ -268,12 +288,12 @@ Angles ApplyDelta(
       ? std::clamp(sensitivity_y_scale, 0.025f, 5.0f) : scale;
   const float x =
       float(std::clamp(dx, -12000, 12000)) *
-      c.radians_per_count * scale;
+      c.radians_per_count * scale * (original.yaw ? -1.0f : 1.0f);
 
   const float y =
       float(std::clamp(dy, -12000, 12000)) *
       c.radians_per_count * y_scale *
-      (c.invert_y ? -1.0f : 1.0f);
+      (c.invert_y != original.pitch ? -1.0f : 1.0f);
 
   angles.yaw =
       std::remainder(angles.yaw + x, 2.0f * kPi);
@@ -380,12 +400,14 @@ bool ApplyToGameMemory(
     return false;
 
   const Angles next = ApplyDelta(previous, dx, dy, c,
-                                 sensitivity_scale, sensitivity_y_scale);
+                                 sensitivity_scale, sensitivity_y_scale,
+                                 ReadOriginalLookInversion(base));
   WriteBEFloat(yaw, next.yaw);
   WriteBEFloat(pitch, next.pitch);
   return true;
 #else
   (void)sensitivity_scale;
+  (void)sensitivity_y_scale;
   return false;
 #endif
 }
