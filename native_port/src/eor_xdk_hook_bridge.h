@@ -66,6 +66,7 @@ class ScopedOriginalEorRenderItem final {
  private:
   bool touched_=false;
   uint8_t shader_source_depth_=0;
+  uint32_t owning_shader_instance_=0;
   uint32_t previous_method_=0;
   uint32_t previous_item_=0;
   uint32_t previous_context_=0;
