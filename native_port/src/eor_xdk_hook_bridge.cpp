@@ -414,6 +414,7 @@ ScopedOriginalEorRenderItem::ScopedOriginalEorRenderItem(
     return;
   shader_source_depth_=g_source_shader_method_depth;
   auto& parent=g_source_shader_method_stack[shader_source_depth_-1u];
+  owning_shader_instance_=parent.original_shader_instance_guest;
   previous_method_=parent.original_engine_item_method_guest;
   previous_item_=parent.original_engine_render_item_guest;
   previous_context_=parent.original_engine_render_item_context_guest;
