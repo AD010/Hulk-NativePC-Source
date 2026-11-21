@@ -10,3 +10,5 @@ Retry 3: corrected obsolete native display 11-preset test; collect all independe
 Retry 4: F10 Win32 test now expects the actual integrated fullscreen Esc/F10 native menu registration log.
 
 Retry 5: validate exact user-authorized one-off push marker in source-only dispatch test; revert manual-only on completion.
+
+Retry 6: correct synthetic vector compare CR6 fixture to pinned real ReXGlue builder multiline source.

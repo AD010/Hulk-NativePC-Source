@@ -32,7 +32,9 @@ VECTOR_FIXTURE = '''bool build_vcmpbfp(BuilderContext& ctx) {
   ctx.println("\\tsimde_mm_and_ps(simde_mm_cmpgt_ps(...");
   ctx.println("\\tsimde_mm_and_ps(simde_mm_cmplt_ps(...");
   if (isRecordForm(ctx.insn))
-    ctx.println("x", ctx.cr(6), vD, vD);
+    ctx.println(
+        "\\t{}.setFromMask(simde_mm_castsi128_ps(simde_mm_or_si128(...",
+        ctx.cr(6), vD, vD);
   return true;
 }
 bool build_vcmpeqfp(BuilderContext& ctx) { return true; }
