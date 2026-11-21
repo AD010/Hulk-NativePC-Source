@@ -95,3 +95,7 @@
 8266F198
 8266FEF8
 82670738
+# Real original EoR VM registered native state_r handler, NOT the
+# Pause Settings page dispatcher. Guest function verified from USA PPC
+# registry entry 0x82E2EB8C and source hash F7A5B1D1. Read-only observer.
+8264C798
