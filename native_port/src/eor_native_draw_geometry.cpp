@@ -500,6 +500,11 @@ std::vector<VerifiedDrawSource> ResolveCapturedResourceDraws(
     throw std::invalid_argument("Incomplete original Xbox resource-witness Draw frame");
   std::vector<VerifiedXdkDrawSubmission> matched;
   matched.reserve(frame.calls.size());
+  // Compute the actual byte-exact guest VB+IB owner ONCE per source Draw,
+  // before choosing among multiple possible original EoR material witnesses.
+  // This is not a source of surface/pass/PSO authority by itself.
+  std::vector<std::optional<ExactOriginalGuestMesh>> exact_mesh_at_draw;
+  exact_mesh_at_draw.reserve(frame.calls.size());
   for(const auto& call:frame.calls) {
     if(!call.observed_vs_matrices)
       throw std::invalid_argument("Original XDK Draw lacks actual guest shader state");
@@ -512,11 +517,29 @@ std::vector<VerifiedDrawSource> ResolveCapturedResourceDraws(
     const auto vertices=xdk::DecodeOriginalVerticesXdkCall(call);
     if(!indexed && !vertices)
       throw std::invalid_argument("Unverified original Xbox primitive/Draw method");
+    const auto exact=(call.source_vb0 &&
+        (!indexed || call.source_ib))?
+        IdentifyExactOriginalGuestMesh(call,residents):
+        std::optional<ExactOriginalGuestMesh>{};
+    exact_mesh_at_draw.push_back(exact);
     std::optional<VerifiedXdkDrawSubmission> unique;
     for(const auto& candidate:witnesses) {
       if(!candidate.original_guest_resource_to_material_mapping_verified ||
          !SameOriginalResources(candidate.original_resources,resources,
                                 candidate,indexed.has_value()))
+        continue;
+      // Multiple source-proven EoR surfaces may share an XDK shader object
+      // and texture slots. A byte-exact uploaded original mesh eliminates
+      // the WRONG model or mesh rather than rejecting an otherwise uniquely
+      // recoverable real engine Draw as an ambiguous witness.
+      const auto& candidate_source=std::visit(
+          [](const auto& w)->const VerifiedDrawSource&{
+            return w.native_draw;
+          },candidate.original_source_submission);
+      if(exact &&
+         (candidate_source.original_model_hash!=exact->model_hash ||
+          candidate_source.original_mesh_header_offset!=
+              exact->mesh_header_offset))
         continue;
       std::optional<VerifiedXdkDrawSubmission> translated;
       if(indexed) {
@@ -587,7 +610,7 @@ std::vector<VerifiedDrawSource> ResolveCapturedResourceDraws(
     const auto& draw=frame.calls[i];
     if(!draw.source_vb0 ||
        (xdk::DecodeOriginalIndexedXdkCall(draw) && !draw.source_ib))continue;
-    const auto exact=IdentifyExactOriginalGuestMesh(draw,residents);
+    const auto& exact=exact_mesh_at_draw[i];
     if(exact && (exact->model_hash!=resolved[i].original_model_hash ||
        exact->mesh_header_offset!=resolved[i].original_mesh_header_offset))
       throw std::invalid_argument(

@@ -333,6 +333,16 @@ class NativeEorLinkCoverage(unittest.TestCase):
         self.assertIn("original_index_element_bytes==4",cpp)
         self.assertIn("wrongSharedBase.gpr[2]=0",cpp)
 
+    def test_live_exact_gpu_bytes_filter_ambiguous_engine_mesh_witnesses(self):
+        geo=(ROOT / "native_port/src/eor_native_draw_geometry.cpp").read_text()
+        cxx=(ROOT / "ci/eor_native_draw_geometry_test.cpp").read_text()
+        self.assertIn("exact_mesh_at_draw.reserve(frame.calls.size())",geo)
+        self.assertIn("candidate_source.original_model_hash!=exact->model_hash",geo)
+        self.assertIn("exact_mesh_at_draw[i]",geo)
+        self.assertIn("twoResidences",cxx)
+        self.assertIn("recoveredOwner[0].original_model_hash==0xCAFE",cxx)
+        self.assertIn("sourceFrame.calls[0].source_vb0.reset();",cxx)
+
     def test_native_worker_fallback_only_suppressed_after_gpu_begin_attempt(self):
         bridge = (ROOT / "native_port/src/eor_aot_draw_bridge.cpp").read_text()
         worker = (ROOT / "native_port/src/eor_xdk_hook_bridge.cpp").read_text()

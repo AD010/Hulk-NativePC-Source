@@ -568,6 +568,52 @@ int main(){
   wrongVb->guest_object^=4u;
   realBufferDraw.source_vb0=wrongVb;
   assert(!native::IdentifyExactOriginalGuestMesh(realBufferDraw,models));
+  // Two otherwise valid original EoR material witnesses can share XDK
+  // guest VS/PS/texture objects. The only real mesh is the one proven by
+  // the CURRENT bound VB+IB bytes and guest index window.
+  auto otherModel=MakeModel();
+  otherModel.model.original_resource_hash=0xBABEu;
+  otherModel.decoded_meshes[0].original_vertex_stream[0]=std::byte{0x7f};
+  Fake otherGpu;
+  auto otherResident=model::UploadOriginalModel(std::move(otherModel),otherGpu);
+  std::vector<const model::UploadedOriginalModel*> twoResidences{
+      &resident,&otherResident};
+  auto trueOwner=witness;
+  auto* realSubmission=std::get_if<native::VerifiedXdkIndexedSubmission>(
+      &trueOwner.original_source_submission);
+  assert(realSubmission);
+  realSubmission->original_guest_call.base_vertex=0;
+  realSubmission->original_guest_call.first_index=0;
+  auto falseOwner=trueOwner;
+  auto* wrongSubmission=std::get_if<native::VerifiedXdkIndexedSubmission>(
+      &falseOwner.original_source_submission);
+  assert(wrongSubmission);
+  wrongSubmission->native_draw.original_model_hash=0xBABEu;
+  wrongSubmission->native_draw.original_sampler_slots[0].original_model_hash=
+      0xBABEu;
+  const std::vector<native::VerifiedXdkResourceWitness> choices{
+      trueOwner,falseOwner};
+  auto sourceFrame=runtime;
+  sourceFrame.calls[0]=realBufferDraw;
+  const auto recoveredOwner=native::ResolveCapturedResourceDraws(
+      sourceFrame,choices,twoResidences);
+  assert(recoveredOwner.size()==1 &&
+         recoveredOwner[0].original_model_hash==0xCAFE &&
+         recoveredOwner[0].original_mesh_header_offset==40);
+  // Remove only the original actual buffer evidence. Without it, neither
+  // of two candidate engine owners can claim exclusive source identity.
+  sourceFrame.calls[0].source_vb0.reset();
+  sourceFrame.calls[0].source_ib.reset();
+  Reject([&]{(void)native::ResolveCapturedResourceDraws(
+      sourceFrame,choices,twoResidences);});
+  // Keep authentic bytes but change only the original index buffer
+  // contents: no false owner can rescue the rejected verified mesh.
+  sourceFrame.calls[0]=realBufferDraw;
+  auto mutated=std::make_shared<xdk::OriginalGuestBufferBytes>(*ib);
+  mutated->bytes[2]=std::byte{0xFA};
+  sourceFrame.calls[0].source_ib=mutated;
+  Reject([&]{(void)native::ResolveCapturedResourceDraws(
+      sourceFrame,choices,twoResidences);});
   const auto recovered=native::ResolveCapturedResourceDraws(runtime,catalog,models);
   native::ValidateLiveOriginalShaderPasses(runtime,recovered,effects);
   const auto twoEffects=Catalog(true);
