@@ -501,6 +501,26 @@ inline bool ValidOriginalDecalItemMaterialBinding(
          owner.original_decal_material_descriptor_guest &&
          owner.original_decal_material_context_guest;
 }
+// Original 0x82642A88 virtual dispatch +44 is the genuine EoR
+// per-model/surface item renderer, executed with guest r3=this shader,
+// r4=render item and r5=source rendering context. The XDK Draw beneath
+// it retains the exact guest pointer to its owner. If absent, no
+// independent model hash or surface ordinal can be invented.
+inline bool ValidOriginalEorSourceRenderItem(
+    const RawDraw& call) noexcept {
+  if(!call.original_engine_shader_method)return true;
+  const auto& source=*call.original_engine_shader_method;
+  if(!source.original_engine_item_abi_verified)
+    return source.original_engine_item_method_guest==0u &&
+           source.original_engine_render_item_guest==0u &&
+           source.original_engine_render_item_context_guest==0u;
+  return source.original_shader_method_vtable_verified &&
+         source.original_shader_instance_guest!=0u &&
+         source.original_engine_render_item_guest!=0u &&
+         ProvenUsaEorRenderItemMethodVtablePair(
+             source.original_engine_item_method_guest,
+             source.original_shader_vtable_guest);
+}
 // Exact original source EoR state slot → two shader handles → XDK Draw.
 // This verifies guest source program object identities, not the original
 // ShaderEffects SHA/VS/PS microcode or its source PDB authored ordinal.
