@@ -280,6 +280,33 @@ struct RawDraw {
   // This is NOT a fabricated VerifiedXdkResourceWitness.
   std::optional<OriginalEorShaderMethodAtDraw> original_engine_shader_method;
 };
+// Original USA Decal direct XDK call is at guest 0x8265B538.
+// An engine render-item->geometry witness, if present, must match the
+// SAME live original PPC Draw device's bound VB/IB guest object identity.
+// Absent/partial evidence NEVER becomes a geometry authority.
+inline bool ValidOriginalDecalGeometryBinding(const RawDraw& call) noexcept {
+  if(!call.original_engine_shader_method)return true;
+  const auto& owner=*call.original_engine_shader_method;
+  if(!owner.original_decal_xdk_vb_ib_binding_verified)
+    return owner.original_decal_render_item_guest==0 &&
+           owner.original_decal_geometry_guest==0;
+  if(owner.original_shader_method_guest!=0x8265B420u ||
+     owner.original_shader_vtable_guest!=0x82066504u ||
+     !owner.original_shader_method_vtable_verified ||
+     call.kind!=Kind::DrawIndexedVertices ||
+     call.function!=0x8288E318u || call.lr!=0x8265B53Cu ||
+     !owner.original_decal_render_item_guest ||
+     !owner.original_decal_geometry_guest ||
+     owner.original_decal_geometry_guest>UINT32_MAX-0x38u ||
+     !call.observed_vs_matrices)
+    return false;
+  const auto& gpu=*call.observed_vs_matrices;
+  return gpu.original_guest_device==call.gpr[0] &&
+         gpu.original_vertex_buffer_guest_objects[0]==
+             owner.original_decal_geometry_guest+0x18u &&
+         gpu.original_index_buffer_guest_object==
+             owner.original_decal_geometry_guest+0x38u;
+}
 // Verified USA XDK 2.0.6534 method ABI from the original wrapper:
 // DrawIndexedVertices(dev, prim, baseVertex, startIndex, indexCount).
 // The primitive enum and guest buffer ownership remain real game state,
