@@ -382,6 +382,16 @@ class NativeEorLinkCoverage(unittest.TestCase):
         self.assertIn("source_streams_present=false;break;",geo)
         self.assertIn("if(!source_streams_present)continue;",geo)
 
+    def test_live_original_mesh_cache_is_keyed_to_guest_buffer_generations(self):
+        source=(ROOT / "native_port/src/eor_native_draw_geometry.cpp").read_text()
+        self.assertIn("using OriginalGeometryKey=std::tuple<",source)
+        self.assertIn("exact_source_cache.try_emplace(key)",source)
+        self.assertIn("if(inserted)\n        found->second=IdentifyExactOriginalGuestMesh",source)
+        self.assertIn("reinterpret_cast<uintptr_t>(call.source_vb0.get())",source)
+        self.assertIn("reinterpret_cast<uintptr_t>(call.source_ib.get())",source)
+        self.assertIn("call.gpr[1],call.gpr[2],call.gpr[3],call.gpr[4]",source)
+        self.assertIn("exact_mesh_at_draw.push_back(exact)",source)
+
     def test_native_worker_fallback_only_suppressed_after_gpu_begin_attempt(self):
         bridge = (ROOT / "native_port/src/eor_aot_draw_bridge.cpp").read_text()
         worker = (ROOT / "native_port/src/eor_xdk_hook_bridge.cpp").read_text()

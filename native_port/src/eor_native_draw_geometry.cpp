@@ -505,6 +505,17 @@ std::vector<VerifiedDrawSource> ResolveCapturedResourceDraws(
   // This is not a source of surface/pass/PSO authority by itself.
   std::vector<std::optional<ExactOriginalGuestMesh>> exact_mesh_at_draw;
   exact_mesh_at_draw.reserve(frame.calls.size());
+  // Several thousand guest Draws often refer to a handful of unchanged
+  // original EoR mesh/index byte allocations. The capture cache already
+  // checks EVERY byte before sharing its immutable source pointers.
+  // Memoize the expensive archive-wide original mesh search only for a
+  // *specific* immutable guest VB/IB generation and primitive index range.
+  // Changing GPU buffer bytes or baseVertex/firstIndex invalidates the key.
+  using OriginalGeometryKey=std::tuple<
+      uintptr_t,uintptr_t,uint32_t,uint32_t,uint32_t,uint32_t,uint32_t,
+      uint32_t,uint32_t,uint8_t>;
+  std::map<OriginalGeometryKey,
+           std::optional<ExactOriginalGuestMesh>> exact_source_cache;
   for(const auto& call:frame.calls) {
     if(!call.observed_vs_matrices)
       throw std::invalid_argument("Original XDK Draw lacks actual guest shader state");
@@ -517,10 +528,19 @@ std::vector<VerifiedDrawSource> ResolveCapturedResourceDraws(
     const auto vertices=xdk::DecodeOriginalVerticesXdkCall(call);
     if(!indexed && !vertices)
       throw std::invalid_argument("Unverified original Xbox primitive/Draw method");
-    const auto exact=(call.source_vb0 &&
-        (!indexed || call.source_ib))?
-        IdentifyExactOriginalGuestMesh(call,residents):
-        std::optional<ExactOriginalGuestMesh>{};
+    std::optional<ExactOriginalGuestMesh> exact;
+    if(call.source_vb0 && (!indexed || call.source_ib)) {
+      const OriginalGeometryKey key{
+          reinterpret_cast<uintptr_t>(call.source_vb0.get()),
+          reinterpret_cast<uintptr_t>(call.source_ib.get()),
+          resources.vertex_buffers[0],resources.index_buffer,
+          call.gpr[1],call.gpr[2],call.gpr[3],call.gpr[4],
+          call.function,static_cast<uint8_t>(call.kind)};
+      auto [found,inserted]=exact_source_cache.try_emplace(key);
+      if(inserted)
+        found->second=IdentifyExactOriginalGuestMesh(call,residents);
+      exact=found->second;
+    }
     exact_mesh_at_draw.push_back(exact);
     std::optional<VerifiedXdkDrawSubmission> unique;
     for(const auto& candidate:witnesses) {
