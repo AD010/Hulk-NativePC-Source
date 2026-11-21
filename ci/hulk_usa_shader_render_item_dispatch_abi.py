@@ -46,6 +46,23 @@ def inspect(image:bytes, public_shader_vtables:dict, strict_source=True)->dict:
         ("renderer context r5 -> r23",mr(0x82642AA0,5,23)),
         ("linked model/surface item list",load(0x82642AF0,11,30,0)),
         ("current render item r28",load(0x82642AF4,28,11,12)),
+        # The generic source renderer calls original ITEM virtual +48
+        # FIRST, and keeps its returned material in callee-saved r27.
+        # The shader's virtual +44 body uses that exact material while
+        # drawing the current render item. No guessed resource hash.
+        ("current render item r28 -> r3",mr(0x82642AF8,28,3)),
+        ("original item class virtual table pointer",
+            load(0x82642AFC,11,28,0)),
+        ("original item getter at virtual slot +48",
+            load(0x82642B00,11,11,48)),
+        ("genuine item material virtual mtctr r11",
+            word(0x82642B04)==0x7D6903A6),
+        ("genuine item material virtual bctrl",
+            word(0x82642B08)==0x4E800421),
+        ("original item material result r3 -> r27",
+            mr(0x82642B10,3,27)),
+        ("original item material passed back into source setter",
+            mr(0x82642C00,27,4)),
         ("original item call context r23 -> r5",mr(0x82642BC0,23,5)),
         ("original current item r28 -> r4",mr(0x82642BC4,28,4)),
         ("original shader instance r31 -> r3",mr(0x82642BC8,31,3)),
@@ -95,6 +112,9 @@ def inspect(image:bytes, public_shader_vtables:dict, strict_source=True)->dict:
         "original_shared_render_item_method_guest":"0x82642370",
         "classes_sharing_original_render_item_method":27,
         "verified_original_ppc_instruction_count":len(checks),
+        "original_render_item_material_virtual_table_slot_bytes":48,
+        "original_render_item_material_guest_return_register":"r27",
+        "original_item_material_getter_and_draw_abi_source_verified":True,
         "source_verified_class_render_item_methods":pairs,
         "current_render_item_guest_pointer_attestation_available":True,
         "model_archive_crc32_and_surface_ordinal_verified":False,
