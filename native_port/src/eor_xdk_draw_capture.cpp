@@ -237,6 +237,20 @@ bool ValidateOriginalCommandTimeline(const Frame& frame) noexcept {
          event.function!=original.function ||
          event.lr!=original.lr || event.gpr!=original.gpr)
         return false;
+      // Original engine ShaderClass -> XDK Draw identity is retained
+      // only if the exact source method/vtable pair, original guest this
+      // and nesting depth are internally valid. A copied unverified
+      // engine attribution must not enter Vulkan's source timeline.
+      if(const auto& shader=original.original_engine_shader_method;shader) {
+        if(!shader->original_shader_method_vtable_verified ||
+           !shader->original_shader_instance_guest ||
+           !shader->nesting_depth ||
+           shader->nesting_depth>16 ||
+           ProvenUsaEorShaderVtableForMethod(
+               shader->original_shader_method_guest)!=
+               shader->original_shader_vtable_guest)
+          return false;
+      }
       // Agreement between two observer copies is not XDK provenance.
       // Validate the verified USA 6534 function, PPC caller LR, device,
       // count and bounds for the SAME original Draw. UP has no proven
