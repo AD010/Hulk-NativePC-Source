@@ -198,6 +198,66 @@ No authentic independent end-to-end EoR/Vulkan gameplay frame
 and no playable Windows ZIP have been verified yet.
 
 ---
+### 21 November — original Decal item → material descriptor → XDK geometry
+
+The PRIVATE owner-mapped USA PPC guest image supplies direct PPC ABI
+instructions at the original engine method `0x8265B420` (Decal).
+At source site 0x8265B4DC the real material render item is saved in r28;
+at 0x8265B4E0 the original engine calls `0x82642C68` to prepare
+the CURRENT material. `lwz r11,60(r28)` obtains exact original guest
+geometry owner. The engine calls `SetStreamSource(0x8287E650)` with
+r5 pointing to `geometry+24`, then `SetIndices(0x8287E7F8)` with
+r4 pointing to `geometry+56`, before original guest
+`DrawIndexedVertices(0x8288E318)` at direct `bl 0x8265B538`
+(runtime return LR `0x8265B53C`).
+Independent original PPC code from those XDK implementations confirms
+the vertex descriptor's device shadow starts at `device+12460`,
+the index descriptor is stored at `device+12436`, and those are
+exactly what the original USA `CaptureUsaVsMatrices` captures per Draw.
+
+Original material preparation PPC in `0x82642C68` proves:
+`r3` on entrance is the current Decal shader, `r4` the original
+render item; `source shader+48` is the render/material context;
+the render item's original virtual method at vtable slot `+48`
+returns a source material descriptor in `r3`, transferred to `r4`
+before calling ORIGINAL native material setter `0x825F8A50`
+at guest `0x82642CB0` (runtime return LR `0x82642CB4`).
+The original setter reads BE32 descriptor+0 and descriptor+8.
+The preceding default-material call at `0x82642C90`
+returns LR `0x82642C94`; a read-only observer explicitly resets
+prior per-item source state at that point, avoiding stale reuse.
+
+**Implemented** in source-only main: separate generated original
+shader-class and material-setter raw PPC hooks; original game
+functions called unchanged; checked original guest r28/r31/r27,
+vtable identity, source material context, original material descriptor
+and actual device-bound vertex/index buffer object identity
+are copied into immutable per-Draw `RawDraw` ownership. Original
+XDK command timeline and Vulkan resource-witness crosswalk reject
+invalid or cross-frame source owners. Per-Present diagnostic line
+counts source-parented, original Decal geometry and original
+item-material descriptor parented Draws.
+
+Original PRIVATE source reproducibility script:
+`ci/hulk_usa_decal_guest_geometry_abi.py` checks **31 source PPC
+instructions/entry/callsite facts** spanning engine Decal,
+per-item material virtual method/descriptor, original XDK setter
+and complete indexed Draw. A synthetic negative regression test and
+the sanitized JSON `native_port/analysis/hulk_usa_decal_geometry_abi_2026-11-21.json`
+are checked into the existing manual workflow. No original decoded
+instruction bytes, script payloads, extracted textures, XEX or original
+proprietary archives have been published.
+
+**Not established**: full ShaderEffects effect/hash, pass/VS/PS
+digest identity, original sampler slot/fetch identity, source
+model/surface ownership for EVERY original Draw, original UIPage_Pause_Settings
+VM page-specific dispatch and a fully presented independent Vulkan
+gameplay scene. The material descriptor is a proven ORIGINAL GUEST
+pointer, NOT a proven native shader effect or runnable texture pipeline.
+The new Windows code has NOT been compiled or runtime-tested;
+no Windows ZIP/Release has been dispatched.
+
+---
 ### Current verified path and exact missing producer
 
 The existing source contains `CapturePpcDraw` → immutable XDK
