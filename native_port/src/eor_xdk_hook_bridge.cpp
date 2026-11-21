@@ -1086,11 +1086,13 @@ native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(
         if(!aot::MatchesOriginalLiveXdkShaderSource(
                 *ready->virtual_ids,*draw.original_live_vertex_shader_header,
                 live.original_vs_guest_object,aot::Stage::Vertex,
-                draw.vertex_source_sha256) ||
+                draw.vertex_source_sha256,source_snapshot->sequence,
+                static_cast<uint32_t>(i)) ||
            !aot::MatchesOriginalLiveXdkShaderSource(
                 *ready->virtual_ids,*draw.original_live_pixel_shader_header,
                 live.original_ps_guest_object,aot::Stage::Pixel,
-                draw.pixel_source_sha256))
+                draw.pixel_source_sha256,source_snapshot->sequence,
+                static_cast<uint32_t>(i)))
           return Result::kNotReady;
       }
     }
