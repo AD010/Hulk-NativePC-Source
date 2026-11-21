@@ -104,13 +104,13 @@ class RenderGraph(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root/'hulk_recomp.0.cpp').write_text(
-                'DEFINE_REX_FUNC(sub_82400000)\\n'
-                '  // bl 0x8288DF30\\n'
-                '}\\n'
-                '// bl 0x82880778\\n'
-                'DEFINE_REX_FUNC(sub_82400100)\\n'
-                '  // bl 0x828897F8\\n'
-                '}\\n', encoding='utf-8')
+                'DEFINE_REX_FUNC(sub_82400000)\n'
+                '  // bl 0x8288DF30\n'
+                '}\n'
+                '// bl 0x82880778\n'
+                'DEFINE_REX_FUNC(sub_82400100)\n'
+                '  // bl 0x828897F8\n'
+                '}\n', encoding='utf-8')
             reverse, files, count, _ = scan_direct_calls(root)
             self.assertEqual((files, count), (1, 2))
             self.assertNotIn(0x82880778, reverse)
