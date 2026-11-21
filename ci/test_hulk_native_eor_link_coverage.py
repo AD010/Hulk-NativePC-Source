@@ -370,6 +370,18 @@ class NativeEorLinkCoverage(unittest.TestCase):
                         render.index("SetPipelineState("))
         self.assertNotIn("if(s.frame.widescreen_camera) {",render)
 
+    def test_opt_in_original_xdk_capture_preserves_every_vertex_stream(self):
+        src=(ROOT / "native_port/src/eor_xdk_hook_bridge.cpp").read_text()
+        header=(ROOT / "native_port/src/eor_xdk_draw_capture.h").read_text()
+        geo=(ROOT / "native_port/src/eor_native_draw_geometry.cpp").read_text()
+        self.assertIn("source_vertex_streams{}",header)
+        self.assertIn("draw.source_vertex_streams[slot]=SourceGpuBuffer(",src)
+        self.assertIn("draw.source_vb0=draw.source_vertex_streams[0]",src)
+        self.assertIn("draw.source_vertex_streams={};",src)
+        self.assertIn("call.source_vertex_streams[slot]",geo)
+        self.assertIn("source_streams_present=false;break;",geo)
+        self.assertIn("if(!source_streams_present)continue;",geo)
+
     def test_native_worker_fallback_only_suppressed_after_gpu_begin_attempt(self):
         bridge = (ROOT / "native_port/src/eor_aot_draw_bridge.cpp").read_text()
         worker = (ROOT / "native_port/src/eor_xdk_hook_bridge.cpp").read_text()

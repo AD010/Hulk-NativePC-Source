@@ -528,6 +528,24 @@ std::vector<VerifiedDrawSource> ResolveCapturedResourceDraws(
          !SameOriginalResources(candidate.original_resources,resources,
                                 candidate,indexed.has_value()))
         continue;
+      // If the original EoR engine independently authenticated a nonzero
+      // vertex declaration slot, its CURRENT XDK allocation must actually
+      // exist in this Draw snapshot and have the same verified object ID.
+      // Additional position/normal/TBN streams may no longer be silently
+      // presumed equal to the slot-0 source buffer.
+      bool source_streams_present=true;
+      for(uint32_t slot=1;slot<16;++slot) {
+        if(!(candidate.source_verified_vertex_stream_slot_mask &
+              (uint16_t(1u)<<slot)))continue;
+        const auto& bytes=call.source_vertex_streams[slot];
+        if(!bytes || !bytes->guest_object ||
+           bytes->guest_object!=resources.vertex_buffers[slot] ||
+           bytes->guest_size!=bytes->bytes.size() ||
+           bytes->bytes.empty()) {
+          source_streams_present=false;break;
+        }
+      }
+      if(!source_streams_present)continue;
       // Multiple source-proven EoR surfaces may share an XDK shader object
       // and texture slots. A byte-exact uploaded original mesh eliminates
       // the WRONG model or mesh rather than rejecting an otherwise uniquely

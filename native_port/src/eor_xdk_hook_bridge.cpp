@@ -241,14 +241,22 @@ void CapturePpcDraw(Kind kind, uint32_t guest, const PPCContext& ctx,
   if(REXCVAR_GET(hulk_eor_vulkan_replay) && draw.observed_vs_matrices) {
     try {
       const auto& state=*draw.observed_vs_matrices;
-      draw.source_vb0=SourceGpuBuffer(
-          state.original_vertex_buffer_guest_objects[0],guest_base);
+      // Source snapshots are deduplicated by the existing per-Present
+      // full-byte checked cache. Repeated Xbox Draws retain identical GPU
+      // buffer owners; changed vertex skinning creates a new generation.
+      for(size_t slot=0;slot<draw.source_vertex_streams.size();++slot) {
+        const auto object=state.original_vertex_buffer_guest_objects[slot];
+        if(object)
+          draw.source_vertex_streams[slot]=SourceGpuBuffer(object,guest_base);
+      }
+      draw.source_vb0=draw.source_vertex_streams[0];
       if(kind==Kind::DrawIndexedVertices)
         draw.source_ib=SourceGpuBuffer(
             state.original_index_buffer_guest_object,guest_base);
     } catch (const std::bad_alloc&) {
       draw.source_vb0.reset();
       draw.source_ib.reset();
+      draw.source_vertex_streams={};
     }
   }
   g_collector.Record(draw);

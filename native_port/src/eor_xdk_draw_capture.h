@@ -97,6 +97,12 @@ struct RawDraw {
   std::shared_ptr<const OriginalShaderRegisters> observed_shader_constants;
   std::shared_ptr<const OriginalGuestBufferBytes> source_vb0;
   std::shared_ptr<const OriginalGuestBufferBytes> source_ib;
+  // The original 6534 XDK device can bind 16 independent vertex-stream
+  // objects. Capture actual bytes at every USED slot during opt-in direct
+  // EoR Vulkan replay; do not mistake VB0 for the other vertex attributes.
+  // Slot 0 aliases source_vb0 for historical source mesh verification.
+  std::array<std::shared_ptr<const OriginalGuestBufferBytes>,16>
+      source_vertex_streams{};
 };
 // Verified USA XDK 2.0.6534 method ABI from the original wrapper:
 // DrawIndexedVertices(dev, prim, baseVertex, startIndex, indexCount).
