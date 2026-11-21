@@ -15,6 +15,7 @@
 #include "eor_xdk_hook_bridge.h"
 #include "eor_effect_catalog.h"
 #include "eor_shader_reflection.h"
+#include "eor_original_shader_samplers.h"
 #include "native_pc_save_path.h"
 #include "native_pc_save_format.h"
 #include "native_gpu_autodiag.h"
@@ -127,6 +128,7 @@ class IncredibleHulkApp : public rex::ReXApp {
       const auto private_bank = offline / "hulk_shader_bank.bin";
       const auto private_effects = offline / "hulk_effect_ledger.bin";
       const auto private_reflection = offline / "hulk_shader_reflection.bin";
+      const auto private_samplers = offline / "hulk_sampler_bank.bin";
       std::error_code error;
       if (std::filesystem::is_regular_file(private_bank, error) && !error) {
         try {
@@ -141,6 +143,20 @@ class IncredibleHulkApp : public rex::ReXApp {
             auto reflection = std::make_shared<hulk::eor::aot::ReflectionBank>();
             effects->Load(private_effects);
             reflection->Load(private_reflection);
+            const bool have_samplers =
+                std::filesystem::is_regular_file(private_samplers, error) &&
+                !error;
+            std::shared_ptr<hulk::eor::aot::OriginalXdkShaderSamplers>
+                original_samplers;
+            if(have_samplers) {
+              original_samplers =
+                  std::make_shared<hulk::eor::aot::OriginalXdkShaderSamplers>();
+              original_samplers->Load(private_samplers);
+              if(original_samplers->ShaderCount()!=bank->expected())
+                throw std::invalid_argument(
+                    "Original USA XDK sampler corpus does not match full "
+                    "ShaderEffects source digest count");
+            }
             // A partial compiled shader bank is useful for the FIRST
             // verified draw, but its ORIGINAL archive identities must
             // still equal both complete effect and reflection indexes.
@@ -153,6 +169,12 @@ class IncredibleHulkApp : public rex::ReXApp {
             // of private ShaderEffects are allowed in a live material pass.
             eor_effects_ = std::move(effects);
             eor_reflection_ = std::move(reflection);
+            eor_samplers_ = std::move(original_samplers);
+            REXLOG_INFO("[HULK/EOR-XDK-SAMPLERS] original source shaders={} "
+                        "complete={} (real XDK texture fetch owner still "
+                        "requires exact engine Draw proof)",
+                        eor_samplers_ ? eor_samplers_->ShaderCount() : 0u,
+                        static_cast<bool>(eor_samplers_));
             REXLOG_INFO("[HULK/EOR-AOT] original pass catalog={} "
                         "shader identities={} reflection={} coherent; "
                         "live engine Draw ownership and Vulkan not enabled",
@@ -173,6 +195,7 @@ class IncredibleHulkApp : public rex::ReXApp {
           eor_aot_.reset();
           eor_effects_.reset();
           eor_reflection_.reset();
+          eor_samplers_.reset();
           REXLOG_WARN("[HULK/EOR-AOT] rejected private EoR source pack: {}",
                       e.what());
         }
@@ -184,7 +207,7 @@ class IncredibleHulkApp : public rex::ReXApp {
     // bindings. Keep them resident for the sole Vulkan worker.
     if(eor_aot_ && eor_effects_ && eor_reflection_ &&
        !hulk::eor::xdk::InstallVerifiedSourceShaderPack(
-           eor_aot_,eor_effects_,eor_reflection_))
+           eor_aot_,eor_effects_,eor_reflection_,eor_samplers_))
       REXLOG_WARN("[HULK/EOR-AOT] coherent private source pack rejected "
                   "at Vulkan worker handoff");
     const bool vulkan_active = hulk::NativeXInitialize(
@@ -231,6 +254,7 @@ class IncredibleHulkApp : public rex::ReXApp {
 #endif
     hulk::ReportAutomaticGpuDiagnostics();
     eor_reflection_.reset();
+    eor_samplers_.reset();
     eor_effects_.reset();
     eor_aot_.reset();
     pc_menu_.reset();
@@ -244,6 +268,7 @@ class IncredibleHulkApp : public rex::ReXApp {
   std::shared_ptr<hulk::eor::aot::ShaderBank> eor_aot_;
   std::shared_ptr<hulk::eor::aot::EffectCatalog> eor_effects_;
   std::shared_ptr<hulk::eor::aot::ReflectionBank> eor_reflection_;
+  std::shared_ptr<hulk::eor::aot::OriginalXdkShaderSamplers> eor_samplers_;
   std::filesystem::path native_pc_config_;
   std::unique_ptr<rex::ui::ImGuiDialog> pc_menu_;
 };
