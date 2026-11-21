@@ -53,6 +53,12 @@ class EorUiHashXrefsTests(unittest.TestCase):
                       source)
         self.assertIn('"string_encoding": encoding', source)
         self.assertIn("remaining = MAX_MATCHES - len(matches)", source)
+        # Call edges come from Ghidra's typed call references, never a
+        # guessed guest address derived from a string or resource CRC.
+        self.assertIn("def bounded_direct_callers(func, program):", source)
+        self.assertIn("ref.getReferenceType().isCall()", source)
+        self.assertIn('"direct_caller_candidates": bounded_direct_callers(func, program)', source)
+        self.assertIn('"guest_callback_abi_proven": False', source)
 
     def test_menu_xref_search_does_not_claim_abi_or_embed_game_data(self):
         source = SCRIPT.read_text(encoding="utf-8")
