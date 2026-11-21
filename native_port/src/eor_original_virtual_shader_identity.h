@@ -11,6 +11,7 @@
 #include <map>
 #include <optional>
 #include <span>
+#include <vector>
 
 namespace hulk::eor::aot {
 Digest OriginalShaderVirtualSha256(std::span<const uint8_t> bytes) noexcept;
