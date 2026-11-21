@@ -176,6 +176,42 @@ int main() {
   decal_owner.original_decal_xdk_vb_ib_binding_verified=true;
   exact_decal.original_engine_shader_method=decal_owner;
   assert(ValidOriginalDecalGeometryBinding(exact_decal));
+  // The genuine original 0x82642A88 calls shader vtable+44 at
+  // bctrl 0x82642BD4. All 52 known original classes have one of 22
+  // source method entrypoints, with 27 classes sharing 0x82642370.
+  static_assert(ProvenUsaEorRenderItemMethodEntry(0x82642370u));
+  static_assert(ProvenUsaEorRenderItemMethodVtablePair(
+      0x82642370u,0x82066504u)); // Decal
+  static_assert(ProvenUsaEorRenderItemMethodVtablePair(
+      0x82642370u,0x8206ED6Cu)); // original EFontShader
+  static_assert(ProvenUsaEorRenderItemMethodVtablePair(
+      0x82663EF8u,0x82066074u)); // light outside
+  static_assert(!ProvenUsaEorRenderItemMethodVtablePair(
+      0x82642370u,0x82066074u)); // wrong class
+  static_assert(!ProvenUsaEorRenderItemMethodVtablePair(
+      0x8263DCD0u,0x82066504u)); // building-vs-Decal
+  auto source_item=exact_decal;
+  source_item.original_engine_shader_method->
+      original_engine_item_method_guest=0x82642370u;
+  source_item.original_engine_shader_method->
+      original_engine_render_item_guest=0xA3100F00u;
+  source_item.original_engine_shader_method->
+      original_engine_render_item_context_guest=0xA3491120u;
+  source_item.original_engine_shader_method->
+      original_engine_item_abi_verified=true;
+  assert(ValidOriginalEorSourceRenderItem(source_item));
+  auto foreign_item=source_item;
+  foreign_item.original_engine_shader_method->
+      original_engine_item_method_guest=0x82663EF8u;
+  assert(!ValidOriginalEorSourceRenderItem(foreign_item));
+  foreign_item=source_item;
+  foreign_item.original_engine_shader_method->
+      original_engine_item_abi_verified=false;
+  assert(!ValidOriginalEorSourceRenderItem(foreign_item));
+  foreign_item=source_item;
+  foreign_item.original_engine_shader_method->
+      original_engine_render_item_guest=0u;
+  assert(!ValidOriginalEorSourceRenderItem(foreign_item));
   // Real Decal source 0x82642C68 calls the original item virtual
   // material method+48, then source binder 0x825F8A50 with original
   // descriptor pointer in r4 at LR=0x82642CB4. The binder loads
