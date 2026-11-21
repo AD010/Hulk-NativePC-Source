@@ -347,6 +347,16 @@ class NativeEorLinkCoverage(unittest.TestCase):
         self.assertIn("recoveredOwner[0].original_model_hash==0xCAFE",cxx)
         self.assertIn("sourceFrame.calls[0].source_vb0.reset();",cxx)
 
+    def test_direct_eor_request_enters_shared_vulkan_host_without_native_x_manual_toggle(self):
+        source=(ROOT / "native_port/src/native_x_renderer_hulk.cpp").read_text()
+        assert_line='rex::cvar::Query<bool>("hulk_eor_vulkan_replay")'
+        self.assertIn(assert_line,source)
+        self.assertIn('rex::cvar::SetFlagByName(\n        "native_x_renderer","true")',source)
+        self.assertLess(source.index('rex::cvar::SetFlagByName(\n        "native_x_renderer","true")'),
+                        source.index('if (!native_requested && !verify_only && !eor_observer_only)'))
+        self.assertIn('native_requested=selected &&',source)
+        self.assertIn('preserving Xenos',source)
+
     def test_native_worker_fallback_only_suppressed_after_gpu_begin_attempt(self):
         bridge = (ROOT / "native_port/src/eor_aot_draw_bridge.cpp").read_text()
         worker = (ROOT / "native_port/src/eor_xdk_hook_bridge.cpp").read_text()

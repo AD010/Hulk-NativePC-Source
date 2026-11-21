@@ -95,7 +95,27 @@ bool NativeXInitialize(
   // A shipped release with an unverified 6534 GPU layout must not silently
   // take over the display or demand an experimental INI sidecar.
   // Keep renderer code compiled; opt in only when a validated profile exists.
-  const bool native_requested = rex::cvar::Query<bool>("native_x_renderer");
+  // Direct original EoR Vulkan REQUIRES the same initialized Vulkan
+  // device/worker as NativeX, even when Xenos is the configured default.
+  // Previously selecting only the F10 "Direct EoR Vulkan" option returned
+  // here before installing any worker or Vulkan backbuffer. Keep the
+  // source-gated EoR worker separate from the NativeX compatibility
+  // fallback; no guest XDK memory or material proof is invented.
+  const bool direct_eor_requested =
+      rex::cvar::Query<bool>("hulk_eor_vulkan_replay");
+  bool native_requested = rex::cvar::Query<bool>("native_x_renderer");
+  if(direct_eor_requested && !native_requested) {
+    const bool selected=rex::cvar::SetFlagByName(
+        "native_x_renderer","true");
+    native_requested=selected &&
+        rex::cvar::Query<bool>("native_x_renderer");
+    if(!native_requested)
+      REXLOG_WARN("[HULK/EOR-WORKER] direct EoR requested but native "
+                  "Vulkan host could not be enabled; preserving Xenos");
+    else
+      REXLOG_INFO("[HULK/EOR-WORKER] enabling the shared native Vulkan "
+                  "device for direct original EoR replay");
+  }
   const bool verify_only = rex::cvar::Query<bool>("hulk_native_x_verify_only") &&
                            !native_requested;
   // Allow high-level XDK call capture while the known Xenos path still
