@@ -102,3 +102,8 @@
 # Original USA EoR material descriptor setter, actual PPC from Decal
 # 0x82642CB0 BL (LR=0x82642CB4); read-only capture, call-through.
 825F8A50
+# Source-proven original EoR material/pass selection at 0x825F84C0:
+# 92-byte per-pass record with VS/PS table slots, both original XDK
+# shader objects verified against device shadow at exact guest Draw.
+# Read-only original PPC call-through; NOT an XDK method.
+825F84C0
