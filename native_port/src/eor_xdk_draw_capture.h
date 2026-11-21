@@ -106,10 +106,44 @@ class OriginalGuestBufferSnapshots {
            std::shared_ptr<const OriginalGuestBufferBytes>> latest_;
   std::vector<std::byte> scratch_;
 };
+// Original USA shader/geometry class virtual method slot +16, identified
+// from the USER-PRIVATE fully mapped PPC image and its named .rdata vtables.
+// This is a genuine original EoR ENGINE entrypoint, not an XDK wrapper.
+// At a live original PPC method entrance, r3 contains the shader instance
+// whose first BE32 word MUST equal this original class vtable. A wrong
+// object/version fails closed. Method entry alone cannot prove the shader
+// effect/mesh/material/texture/sampler ownership of an actual XDK Draw.
+inline constexpr uint32_t ProvenUsaEorShaderVtableForMethod(
+    uint32_t method) noexcept {
+  switch(method) {
+    case 0x8265B420u: return 0x82066504u; // Decal
+    case 0x82668D50u: return 0x8206EBFCu; // TexturedRect
+    case 0x82669630u: return 0x8206ECACu; // EScreenRectShader
+    case 0x8266A0C0u: return 0x8206ED6Cu; // EFontShader
+    case 0x8266CC28u: return 0x8206F5DCu; // ESkyShader
+    case 0x8266DDD0u: return 0x8206F7CCu; // EFlatShadowShader
+    default: return 0u;
+  }
+}
+// Read-only original EoR engine invocation captured BEFORE the method
+// executes, and bound to any inner XDK Draw on the SAME host PPC thread.
+// All source arguments remain uninterpreted until engine ABI is proven.
+struct OriginalEorShaderMethodAtDraw {
+  uint32_t original_shader_method_guest=0;
+  uint32_t original_shader_instance_guest=0;
+  uint32_t original_shader_vtable_guest=0;
+  std::array<uint32_t,4> source_r4_through_r7{};
+  uint8_t nesting_depth=0;
+  bool original_shader_method_vtable_verified=false;
+};
 struct RawDraw {
   Kind kind{};
   uint32_t function = 0, lr = 0;
   std::array<uint32_t, 8> gpr{}; // r3..r10 from original USA PPC call.
+  // Source-proven original shader virtual-method scope, if the actual
+  // source Draw occurred before the corresponding engine method returned.
+  // This is NOT a fabricated VerifiedXdkResourceWitness.
+  std::optional<OriginalEorShaderMethodAtDraw> original_engine_shader_method;
   // Read BEFORE the guest Draw mutates the XDK device shadow state.
   // A missing snapshot is not a verified camera or constant ABI.
   std::optional<OriginalVsMatrices> observed_vs_matrices;
