@@ -553,7 +553,15 @@ bool SameOriginalEorShaderMethod(
          a.original_pass_sampler_slots_verified==
              b.original_pass_sampler_slots_verified &&
          a.original_pass_live_texture_objects_present==
-             b.original_pass_live_texture_objects_present;
+             b.original_pass_live_texture_objects_present &&
+         a.original_engine_item_method_guest==
+             b.original_engine_item_method_guest &&
+         a.original_engine_render_item_guest==
+             b.original_engine_render_item_guest &&
+         a.original_engine_render_item_context_guest==
+             b.original_engine_render_item_context_guest &&
+         a.original_engine_item_abi_verified==
+             b.original_engine_item_abi_verified;
 }
 bool ValidOriginalEorShaderMethod(
     const xdk::OriginalEorShaderMethodAtDraw& source) noexcept {
