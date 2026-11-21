@@ -545,6 +545,13 @@ std::vector<VerifiedDrawSource> ResolveCapturedResourceDraws(
       if(inserted)
         found->second=IdentifyExactOriginalGuestMesh(call,residents);
       exact=found->second;
+      // When BOTH original indexed allocations have been captured in full,
+      // their bytes are stronger evidence than a reusable shader/material
+      // witness. Do not silently discard a negative exact source match and
+      // send a wrong model to Vulkan merely because one witness remains.
+      if(indexed && !exact)
+        throw std::invalid_argument(
+            "Original indexed Xbox vertex/index bytes disprove EoR mesh ownership");
     }
     exact_mesh_at_draw.push_back(exact);
     std::optional<VerifiedXdkDrawSubmission> unique;
