@@ -405,6 +405,61 @@ ScopedOriginalEorShaderMethod::~ScopedOriginalEorShaderMethod() noexcept {
     --g_source_shader_method_depth;
 }
 
+ScopedOriginalEorRenderItem::ScopedOriginalEorRenderItem(
+    uint32_t original_method_guest,const PPCContext& original_ctx,
+    uint8_t* original_guest_base) noexcept {
+  if(!CaptureEnabled() || !g_source_shader_method_depth ||
+     g_source_shader_rejected_nesting ||
+     !ProvenUsaEorRenderItemMethodEntry(original_method_guest))
+    return;
+  shader_source_depth_=g_source_shader_method_depth;
+  auto& parent=g_source_shader_method_stack[shader_source_depth_-1u];
+  previous_method_=parent.original_engine_item_method_guest;
+  previous_item_=parent.original_engine_render_item_guest;
+  previous_context_=parent.original_engine_render_item_context_guest;
+  previous_verified_=parent.original_engine_item_abi_verified;
+  touched_=true;
+  // Every sibling item re-enters via 0x82642BD4. NEVER reuse an old
+  // item owner's source pointer if the next call is malformed, from
+  // another engine renderer or missing a guest shader instance.
+  parent.original_engine_item_method_guest=0u;
+  parent.original_engine_render_item_guest=0u;
+  parent.original_engine_render_item_context_guest=0u;
+  parent.original_engine_item_abi_verified=false;
+  if(!original_guest_base || !original_ctx.r3.u32 ||
+     !original_ctx.r4.u32 ||
+     static_cast<uint32_t>(original_ctx.lr)!=0x82642BD8u ||
+     original_ctx.r3.u32!=parent.original_shader_instance_guest)
+    return;
+  std::array<std::byte,4> vtable_bytes{};
+  if(!ReadGuest(original_guest_base,original_ctx.r3.u32,
+                vtable_bytes.data(),vtable_bytes.size()))return;
+  const uint32_t vtable=
+      uint32_t(std::to_integer<uint8_t>(vtable_bytes[0]))<<24 |
+      uint32_t(std::to_integer<uint8_t>(vtable_bytes[1]))<<16 |
+      uint32_t(std::to_integer<uint8_t>(vtable_bytes[2]))<<8 |
+      uint32_t(std::to_integer<uint8_t>(vtable_bytes[3]));
+  if(vtable!=parent.original_shader_vtable_guest ||
+     !ProvenUsaEorRenderItemMethodVtablePair(
+         original_method_guest,vtable))return;
+  parent.original_engine_item_method_guest=original_method_guest;
+  parent.original_engine_render_item_guest=original_ctx.r4.u32;
+  parent.original_engine_render_item_context_guest=original_ctx.r5.u32;
+  parent.original_engine_item_abi_verified=true;
+}
+ScopedOriginalEorRenderItem::~ScopedOriginalEorRenderItem() noexcept {
+  // Nested item invocations are permitted, but only restore into the
+  // EXACT original source shader frame. Never revive stale pointers
+  // after a different shader nested on top or capture was disabled.
+  if(!touched_ || !shader_source_depth_ ||
+     shader_source_depth_!=g_source_shader_method_depth)return;
+  auto& parent=g_source_shader_method_stack[shader_source_depth_-1u];
+  parent.original_engine_item_method_guest=previous_method_;
+  parent.original_engine_render_item_guest=previous_item_;
+  parent.original_engine_render_item_context_guest=previous_context_;
+  parent.original_engine_item_abi_verified=previous_verified_;
+}
+
 // Original USA XDK 6534 resource object: GPU buffer address at +24,
 // allocation byte length at +28 (both PPC big endian). This capture NEVER
 // trusts the address without the checked ReadGuest, nor logs game bytes.
