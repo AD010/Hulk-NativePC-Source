@@ -81,8 +81,13 @@ std::optional<ExactOriginalGuestMesh> IdentifyExactOriginalGuestMesh(
         // Original XDK index resources can be 16-bit OR 32-bit. Only
         // full byte-exact source stream identity can authorize the width.
         for(uint32_t index_bytes:{2u,4u}) {
+          // first_index and index_count are ELEMENT counts, not byte offsets.
+          // The 16-bit initial screen does not bound a D3DFMT_INDEX32 Draw:
+          // reading k*4 below could otherwise escape the captured allocation.
           if(ib->bytes.size()%index_bytes ||
-             mesh.index_count>UINT32_MAX/index_bytes)
+             mesh.index_count>UINT32_MAX/index_bytes ||
+             uint64_t(indexed->first_index)+indexed->index_count >
+                 ib->bytes.size()/index_bytes)
             continue;
           for(bool big:{true,false}) {
             std::vector<std::byte> encoded;
