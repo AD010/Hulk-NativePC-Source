@@ -911,7 +911,18 @@ HRESULT STDMETHODCALLTYPE OnSampler(IDirect3DDevice9* dev,DWORD sampler,
       }
     }
   }
-  const HRESULT hr=realSampler(dev,sampler,type,value);
+  // A forced trilinear MIP state is optional. Some D3D9 drivers (including
+  // translation layers) may advertise the capability but reject this exact
+  // sampler/texture combination. Fall back to the game's POINT request so
+  // an enhancement cannot turn a valid game call into a rendering failure.
+  HRESULT hr=realSampler(dev,sampler,type,value);
+  if(FAILED(hr) && trackMip && pointRequested && value==D3DTEXF_LINEAR) {
+    const HRESULT forcedHr=hr;
+    hr=realSampler(dev,sampler,type,D3DTEXF_POINT);
+    if(SUCCEEDED(hr))
+      Log("[D3D9] trilinear rejected stage=%lu hr=0x%08lX; restored POINT\r\n",
+          (unsigned long)sampler,(unsigned long)(unsigned int)forcedHr);
+  }
   if(SUCCEEDED(hr) && (trackMip || trackMin)) {
     std::lock_guard lock(mipMutex);
     if(trackMip)mipPointRequested[sampler]=pointRequested;
