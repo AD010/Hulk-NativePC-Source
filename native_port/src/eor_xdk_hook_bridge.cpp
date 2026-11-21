@@ -1083,7 +1083,16 @@ native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(
            !draw.original_live_pixel_shader_header)
           return Result::kNotReady;
         const auto& live=*guest.observed_vs_matrices;
-        if(!aot::MatchesOriginalLiveXdkShaderSource(
+        const auto recovered_effect=aot::ResolveOriginalLiveEorEffectPass(
+            *ready->virtual_ids,*ready->effects,
+            *draw.original_live_vertex_shader_header,
+            *draw.original_live_pixel_shader_header,
+            live.original_vs_guest_object,live.original_ps_guest_object,
+            source_snapshot->sequence,static_cast<uint32_t>(i));
+        if(!recovered_effect ||
+           recovered_effect->effect_hash!=draw.original_effect_hash ||
+           recovered_effect->pass_index!=draw.original_pass_index ||
+           !aot::MatchesOriginalLiveXdkShaderSource(
                 *ready->virtual_ids,*draw.original_live_vertex_shader_header,
                 live.original_vs_guest_object,aot::Stage::Vertex,
                 draw.vertex_source_sha256,source_snapshot->sequence,
