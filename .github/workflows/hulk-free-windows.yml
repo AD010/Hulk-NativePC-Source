@@ -314,6 +314,18 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Private AOT SPIR-V bank reader failed MSVC compile' }
           & $bankTest
           if ($LASTEXITCODE -ne 0) { throw 'AOT Vulkan shader SHA index/bounds check failed' }
+          # Full virtual-header SHA256 proves one original Xenos shader
+          # source identity among 5,194 authentic ShaderEffects programs.
+          # This does not guess a live guest ShaderObject+header offset.
+          $virtualTest = Join-Path $env:RUNNER_TEMP 'hulk-original-virtual-shader-test.exe'
+          $virtualArgs = @('/nologo','/std:c++20','/EHsc','/W4','/WX','/utf-8',
+                           "/Fe:$virtualTest",
+                           'native_port/src/eor_original_virtual_shader_identity.cpp',
+                           'ci/eor_original_virtual_shader_identity_test.cpp')
+          & cl.exe @virtualArgs
+          if ($LASTEXITCODE -ne 0) { throw 'Original Xenos virtual-shader SHA256 matcher MSVC compilation failed' }
+          & $virtualTest
+          if ($LASTEXITCODE -ne 0) { throw 'Original USA virtual shader source identity regression failed' }
           $samplersTest = Join-Path $env:RUNNER_TEMP 'hulk-eor-xdk-samplers-test.exe'
           $samplersArgs = @('/nologo','/std:c++20','/EHsc','/W4','/WX','/utf-8',
                            "/Fe:$samplersTest",
