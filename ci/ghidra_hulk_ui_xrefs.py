@@ -111,6 +111,33 @@ def search_identifier_encodings(program, identifier):
     return matches
 
 
+def bounded_direct_callers(func, program):
+    """Emit actual Ghidra call references to a name-referencing function.
+
+    These are only candidate UI dispatch owners. We do NOT infer a guest
+    calling convention or insert runtime hooks from addresses here.
+    """
+    if func is None:
+        return []
+    refs = program.getReferenceManager()
+    callers = []
+    for ref in refs.getReferencesTo(func.getEntryPoint()):
+        if not ref.getReferenceType().isCall():
+            continue
+        origin = ref.getFromAddress()
+        caller = program.getFunctionManager().getFunctionContaining(origin)
+        if caller is None:
+            continue
+        callers.append({
+            "call_site": str(origin),
+            "caller_function_entry": str(caller.getEntryPoint()),
+            "caller_function_name": str(caller.getName()),
+        })
+        if len(callers) >= MAX_REFS:
+            break
+    return callers
+
+
 def export_item(name, program):
     refs = program.getReferenceManager()
     funcs = program.getFunctionManager()
@@ -126,6 +153,8 @@ def export_item(name, program):
                 "function_entry": str(func.getEntryPoint()) if func else None,
                 "function_name": str(func.getName()) if func else None,
                 "reference_type": str(ref.getReferenceType()),
+                "direct_caller_candidates": bounded_direct_callers(func, program),
+                "guest_callback_abi_proven": False,
             })
             if len(found) == MAX_REFS:
                 break
