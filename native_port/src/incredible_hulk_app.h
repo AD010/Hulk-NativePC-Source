@@ -220,8 +220,41 @@ class IncredibleHulkApp : public rex::ReXApp {
                       e.what());
         }
       }
+      // An AOT shader compiler is not required just to identify the
+      // original live USA XDK VS/PS ShaderObject. HEORVRT1 is an
+      // independently SHA-verified private metadata index; permit the
+      // read-only Xenos observer to use it without any HEORSPV1, PSO,
+      // uploaded model, or guess about guest->archive material ownership.
+      // The worker remains locked out until the full shader pack exists.
+      if(!eor_virtual_ids_) {
+        const auto private_virtual=offline/"hulk_shader_virtual_fingerprints.bin";
+        std::error_code metadata_error;
+        if(std::filesystem::is_regular_file(private_virtual,metadata_error) &&
+           !metadata_error) {
+          try {
+            auto original =
+                std::make_shared<hulk::eor::aot::OriginalVirtualShaderIdentity>();
+            original->Load(private_virtual);
+            if(original->size()!=5194u)
+              throw std::invalid_argument(
+                  "Incomplete USA HEORVRT1 original shader source census");
+            eor_virtual_ids_=std::move(original);
+            REXLOG_INFO("[HULK/EOR-OBSERVER] {} original USA Xenos virtual "
+                        "shader identities available without SPIR-V; "
+                        "no independent Vulkan Draw implied",
+                        eor_virtual_ids_->size());
+          } catch (const std::exception& e) {
+            REXLOG_WARN("[HULK/EOR-OBSERVER] read-only private "
+                        "ShaderContainer identities rejected: {}",e.what());
+          }
+        }
+      }
     }
 #if defined(HULK_NATIVE_X_LINKED)
+    if(eor_virtual_ids_ &&
+       !hulk::eor::xdk::InstallOriginalShaderCaptureIndex(eor_virtual_ids_))
+      REXLOG_WARN("[HULK/EOR-OBSERVER] USA original shader "
+                  "capture index rejected at PPC Draw observer");
     // These are authentic private ShaderEffects inputs already verified
     // against matching source digest counts, not synthetic GPU material
     // bindings. Keep them resident for the sole Vulkan worker.
@@ -272,6 +305,7 @@ class IncredibleHulkApp : public rex::ReXApp {
     native_x_renderer::SetHulkEorPresentCallback(nullptr);
     hulk::eor::xdk::ClearVerifiedWorkerEorFrame();
     hulk::eor::xdk::ClearVerifiedSourceShaderPack();
+    hulk::eor::xdk::ClearOriginalShaderCaptureIndex();
 #endif
     hulk::ReportAutomaticGpuDiagnostics();
     eor_reflection_.reset();
