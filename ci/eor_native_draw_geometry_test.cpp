@@ -703,6 +703,30 @@ int main(){
   assert(recoveredOwner.size()==1 &&
          recoveredOwner[0].original_model_hash==0xCAFE &&
          recoveredOwner[0].original_mesh_header_offset==40);
+  // Two independent material witnesses may use the SAME authentic XDK
+  // shader objects and model mesh but DIFFERENT original ShaderEffects
+  // passes. The recovered live VS/PS -> HEORMAT2 pass eliminates the
+  // wrong effect before the Vulkan GPU side-effects can begin.
+  auto alternateEffect=trueOwner;
+  auto* mismatched=std::get_if<native::VerifiedXdkIndexedSubmission>(
+      &alternateEffect.original_source_submission);
+  assert(mismatched);
+  mismatched->native_draw.original_effect_hash=0xDEADu;
+  mismatched->native_draw.original_pass_index=2u;
+  const std::vector<native::VerifiedXdkResourceWitness> passCandidates{
+      alternateEffect,trueOwner};
+  auto passFrame=sourceFrame;
+  passFrame.calls[0].observed_live_eor_effect_pass=
+      aot::OriginalEffectPass{0x1234u,0u};
+  const auto sourcePass=native::ResolveCapturedResourceDraws(
+      passFrame,passCandidates,twoResidences);
+  assert(sourcePass.size()==1 &&
+         sourcePass[0].original_effect_hash==0x1234u &&
+         sourcePass[0].original_pass_index==0u);
+  passFrame.calls[0].observed_live_eor_effect_pass=
+      aot::OriginalEffectPass{0xBEEFu,7u};
+  Reject([&]{(void)native::ResolveCapturedResourceDraws(
+      passFrame,passCandidates,twoResidences);});
   // Remove only the original actual buffer evidence. Without it, neither
   // of two candidate engine owners can claim exclusive source identity.
   sourceFrame.calls[0].source_vb0.reset();
