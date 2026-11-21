@@ -68,9 +68,11 @@ with tempfile.TemporaryDirectory() as d:
         "0x8265B420,0x14025EDC0\n"
         "0x8266A0C0,0x142BE0180\n"
         "0x8264C798,0x1427F9EA0\n"
-        "0x825F8A50,0x142B864A0\n")
+        "0x825F8A50,0x142B864A0\n"
+        "0x825F84C0,0x1419FCDC0\n")
     addresses.write_text("8289D730\n8289D888\n8265B420\n"
-                         "8266A0C0\n8264C798\n825F8A50\n")
+                         "8266A0C0\n8264C798\n825F8A50\n"
+                         "825F84C0\n")
     subprocess.run([sys.executable,str(s),str(addresses),
                     str(mapping),str(generated),str(profile)],check=True)
     cpp = generated.read_text()
@@ -82,6 +84,9 @@ with tempfile.TemporaryDirectory() as d:
     assert "HULK_EOR_MATERIAL_TRACE_HOOK(825F8A50)" in cpp
     assert "HULK_NATIVE_X_HOOK(825F8A50" not in cpp
     assert "ObserveOriginalEorMaterialDescriptor(0x##addr,ctx,base)" in cpp
+    assert "HULK_EOR_SHADER_PASS_TRACE_HOOK(825F84C0)" in cpp
+    assert "HULK_NATIVE_X_HOOK(825F84C0" not in cpp
+    assert "ObserveOriginalEorShaderPass(0x##addr,ctx,base)" in cpp
     assert "HULK_NATIVE_X_HOOK(8265B420" not in cpp
     assert "HULK_NATIVE_X_HOOK(8266A0C0" not in cpp
     engine = cpp[cpp.index("#define HULK_EOR_SHADER_TRACE_HOOK"): ]
