@@ -258,6 +258,98 @@ The new Windows code has NOT been compiled or runtime-tested;
 no Windows ZIP/Release has been dispatched.
 
 ---
+### 21 November — original USA VS/PS, sampler and XDK Draw source ABI
+
+The owner-private original USA `SHADEREF.ARC` (source index
+`indexXBOX360.ind`) contains 233 ShaderEffects objects, 231 of
+which contain authored programs: **2,597 unique original
+technique/VS/PS pairs**, **5,194 unique stage programs** and
+**4,420 original sampler declarations** across 1,306 programs.
+The original source/PDB effect technique catalog is strongly
+identified, but it is NOT equivalent to the original guest runtime
+per-Draw ShaderObject or texture object ownership.
+Only 46 of the 52 source-proven EoR shader classes have a
+uniquely matched source EFFECT NAME; this is a source name candidate,
+not a verified runtime class-to-effect association.
+
+User-private coherently generated caches include HEORMAT2 (effect
+pass identities), HEORREF1 (original matrix register reflection),
+HEORSMP1 (original sampler declarations), and HEORVRT1 (unique
+original Xenos virtual-header SHA256 -> full original shader source
+SHA256). The last bank contains exactly **5,194 non-colliding
+72-byte records**, private SHA256
+`82064e54dd6ca98796b08cc92b1f7063321d8e4ca4386bfe861e4569d54f22cd`;
+its 5,194 header/full source hash pairs and stages were independently
+checked against ALL owner-original source ShaderContainers.
+No copyrighted shader bytes or original guest game code were committed.
+The 5,194-entry HEORVRT1 bank has a C++ SHA256 source identifier
+and the game now loads and lifetime-pins it atomically with the
+original EffectCatalog, shader reflection and sampler bank.
+
+The previously missing **original EoR runtime material-pass
+VS/PS XDK shader-object chain** was found in SHA-pinned original USA
+PowerPC entry `0x825F84C0` (native AOT 0x001419FCDC0).
+Original material context `r3`, 1-based state `r4`:
+the state records are 92 bytes at BE32(material+112),
+VS/PS byte indices at record+84/+85, original stage handle
+tables at BE32(material+124/+136) with eight bytes per entry.
+Original source functions `0x82675C70` (VS) and
+`0x82675D20` (PS) pass the selected guest ShaderObject
+pointers to original XDK `0x82874390` (SetVertexShader)
+and `0x82874090` (SetPixelShader), which write the
+current VS/PS into device shadow +12696/+12692, already
+captured by the native EoR XDK Draw observer.
+The new generator emits an unchanged original PPC call-through
+hook for the source EoR state selector. During a live original
+shader-class call it snapshots exact original stage handles and
+only tags them verified if BOTH match the current Draw's actual
+bound XDK ShaderObject guest pointers.
+
+Continuing at the same exact source function, +80 on the 92-byte
+pass record is a BE16 sampler-state record start index, +87
+is the entry count; material+196 supplies the four-byte per-record
+sampler STATE table, register slot = byte0 & 0x7F.
+Original calls `0x82675E00/0x82675EA0` set original sampler
+state values. The exact state source slot mask is attached to
+the original source stage record and compared against nonzero
+actual XDK device+12544 original texture object pointers
+at the SAME Draw. These slots represent sampler STATE changes;
+they are not yet proven all live shader fetch registers or
+actual source texture hashes/mips/sampler SRVs.
+
+**29 genuine original USA PPC source instructions/branch sites**
+for this dual-stage pass and sampler-state pipeline were verified
+against the user's decrypted original PPC binary. A mistaken
+byte3 load site was corrected from 0x825F85BC (register move)
+to the real 0x825F85B8 original `lbz` before recording the
+passing 29/29 original source instruction audit.
+Public safe source scripts and sanitized proof outputs:
+`ci/hulk_verify_usa_original_shader_effects.py`,
+`ci/hulk_eor_virtual_shader_identity.py`,
+`ci/hulk_usa_eor_pass_stage_abi.py`, plus CI tests.
+The existing manually dispatched SINGLE Windows workflow now
+runs synthetic private-manifest SHA collision checks and MSVC
+native C++ virtual shader header digest tests. No full Windows
+Release build was dispatched to avoid publishing an unfinished
+gameplay executable.
+
+**Remaining proof gates:** (1) original currently bound XDK
+ShaderObject -> its exact full virtual metadata header; this
+link is essential before the original source program digest
+can be resolved on a real Draw, (2) mapping one-based source
+runtime material state to original ShaderEffects authored
+technique index and exact model/surface material, (3) original
+sampler fetch register -> genuine Xbox GPU texture/image format
+and ARC provenance for every original Draw, (4) source-verified
+camera, depth/resolve/composite and fully translated/validated
+SPIR-V binaries, (5) unique original
+`UIPage_Pause_Settings` page owner/VM event dispatcher ABI
+and connections to the native Windows settings, (6) a Windows
+runtime end-to-end fully native Vulkan gameplay Present.
+The original common `state_r` callback is NOT a unique pause
+menu callback. Do not open Windows Settings on it alone.
+
+---
 ### Current verified path and exact missing producer
 
 The existing source contains `CapturePpcDraw` → immutable XDK
