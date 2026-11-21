@@ -593,7 +593,8 @@ std::vector<VerifiedXdkResourceWitness> AttachLiveEorShaderMethodParents(
     const auto& original_call=exact_original.calls[source.original_call_ordinal];
     if(!xdk::ValidOriginalDecalGeometryBinding(original_call) ||
        !xdk::ValidOriginalDecalItemMaterialBinding(original_call) ||
-       !xdk::ValidOriginalShaderPassStageBinding(original_call))
+       !xdk::ValidOriginalShaderPassStageBinding(original_call) ||
+       !xdk::ValidOriginalShaderPassSamplerStateAtDraw(original_call))
       throw std::invalid_argument(
           "Original shader pass/geometry/material source provenance invalid");
     const auto& observed=original_call.original_engine_shader_method;
