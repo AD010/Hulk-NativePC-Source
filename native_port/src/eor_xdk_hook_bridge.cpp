@@ -43,6 +43,7 @@ struct OfflineShaderPack {
   std::shared_ptr<const aot::ShaderBank> shaders;
   std::shared_ptr<const aot::EffectCatalog> effects;
   std::shared_ptr<const aot::ReflectionBank> reflection;
+  std::shared_ptr<const aot::OriginalXdkShaderSamplers> samplers;
 };
 std::optional<OfflineShaderPack> g_offline_shader_pack;
 OriginalGuestBufferSnapshots g_original_buffers; // guarded by g_mutex
@@ -588,8 +589,10 @@ void EndPpcHook(native_x_renderer::Call kind) {
 bool InstallVerifiedSourceShaderPack(
     std::shared_ptr<const aot::ShaderBank> shaders,
     std::shared_ptr<const aot::EffectCatalog> effects,
-    std::shared_ptr<const aot::ReflectionBank> reflection) {
+    std::shared_ptr<const aot::ReflectionBank> reflection,
+    std::shared_ptr<const aot::OriginalXdkShaderSamplers> samplers) {
   if(!shaders || !shaders->size() || !shaders->expected() ||
+     (samplers && samplers->ShaderCount()!=shaders->expected()) ||
      !effects || !effects->EffectCount() ||
      effects->ShaderCount()!=shaders->expected() ||
      !reflection || reflection->size()!=shaders->expected())
@@ -599,7 +602,8 @@ bool InstallVerifiedSourceShaderPack(
   // an already queued frame from the previous bank's digest identities.
   g_verified_worker_frame.reset();
   g_offline_shader_pack=OfflineShaderPack{
-      std::move(shaders),std::move(effects),std::move(reflection)};
+      std::move(shaders),std::move(effects),std::move(reflection),
+      std::move(samplers)};
   return true;
 }
 void ClearVerifiedSourceShaderPack() noexcept {
@@ -632,7 +636,8 @@ bool InstallVerifiedWorkerEorFrame(
   // generation to be mixed with the app's actual loaded USA source pack.
   if((frame->shaders && frame->shaders!=pack.shaders) ||
      (frame->effects && frame->effects!=pack.effects) ||
-     (frame->reflection && frame->reflection!=pack.reflection))
+     (frame->reflection && frame->reflection!=pack.reflection) ||
+     (frame->samplers && frame->samplers!=pack.samplers))
     return false;
   auto complete=std::make_shared<VerifiedWorkerEorFrame>(*frame);
   // The original USA frame is the sole authority for shader-class parent
@@ -652,6 +657,7 @@ bool InstallVerifiedWorkerEorFrame(
   complete->shaders=pack.shaders;
   complete->effects=pack.effects;
   complete->reflection=pack.reflection;
+  complete->samplers=pack.samplers;
   g_verified_worker_frame=std::move(complete);
   return true;
 }
@@ -753,6 +759,18 @@ native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(
     for(const auto& draw:bound) {
       if(!ready->shaders->Find(draw.vertex_source_sha256,aot::Stage::Vertex) ||
          !ready->shaders->Find(draw.pixel_source_sha256,aot::Stage::Pixel))
+        return Result::kNotReady;
+      // Both stages must refer to genuine original USA source program
+      // identities when the independently archived HEORSMP1 is loaded.
+      // Zero-sampler originals have explicit sentinel records; absence
+      // never means that the host may bind an invented blank texture.
+      // This validates original source identity without equating an
+      // EoR XDK register to an unrelated Xenos fetch constant.
+      if(ready->samplers &&
+         (!ready->samplers->Find(draw.vertex_source_sha256,
+                               aot::Stage::Vertex) ||
+          !ready->samplers->Find(draw.pixel_source_sha256,
+                               aot::Stage::Pixel)))
         return Result::kNotReady;
     }
   } catch (...) {
