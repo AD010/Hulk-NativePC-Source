@@ -80,16 +80,42 @@ def search_exact_binary(program, needle, limit=MAX_MATCHES):
     return found
 
 
+def identifier_byte_signatures(identifier):
+    """Source UI names may be ASCII or UTF-16 in either Xbox/PC byte order.
+
+    Name matches are candidates: no menu callback or PPC ABI is inferred.
+    """
+    return (("ASCII", identifier.encode("ascii")),
+            ("UTF-16LE", identifier.encode("utf-16-le")),
+            ("UTF-16BE", identifier.encode("utf-16-be")))
+
+
 def search_exact_ascii(program, needle):
-    """Scan initialized memory (incl. metadata not auto-defined as strings)."""
+    """Legacy ASCII-only scan for callers needing this exact convention."""
     return search_exact_binary(program, needle)
+
+
+def search_identifier_encodings(program, identifier):
+    """Scan the exact whitelisted identifier, bounded over all encodings."""
+    matches = []
+    seen = set()
+    for encoding, needle in identifier_byte_signatures(identifier):
+        remaining = MAX_MATCHES - len(matches)
+        if remaining <= 0:
+            break
+        for address in search_exact_binary(program, needle, remaining):
+            key = (str(address), encoding)
+            if key not in seen:
+                seen.add(key)
+                matches.append((address, encoding))
+    return matches
 
 
 def export_item(name, program):
     refs = program.getReferenceManager()
     funcs = program.getFunctionManager()
     matches = []
-    for address in search_exact_ascii(program, name):
+    for address, encoding in search_identifier_encodings(program, name):
         found = []
         iterator = refs.getReferencesTo(address)
         for ref in iterator:
@@ -105,6 +131,7 @@ def export_item(name, program):
                 break
         matches.append({
             "string_address": str(address),
+            "string_encoding": encoding,
             "references": found,
             "refs_truncated": len(found) == MAX_REFS,
         })
