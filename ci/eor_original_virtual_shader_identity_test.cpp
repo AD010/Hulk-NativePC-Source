@@ -145,6 +145,59 @@ int main() {
   assert(!ResolveOriginalLiveEorEffectPass(
       bank,effects,live,wrong_pixel,0x81234000u,0x81235000u,17u,3u));
   std::filesystem::remove(effect_file);
+  // A real producer may read the second 32-bit word of the original
+  // EoR stage row, but it must not trust it until the complete bytes match
+  // the private ShaderContainer index AND the current shader object.
+  std::vector<uint8_t> guest(0x4000u,0);
+  const auto put_be32=[&](uint32_t where,uint32_t value) {
+    assert(uint64_t(where)+4u<=guest.size());
+    for(unsigned i=0;i<4u;++i)
+      guest[where+i]=uint8_t(value>>(8u*(3u-i)));
+  };
+  const auto read_guest=[](void* user,uint32_t where,
+                           std::byte* output,size_t length)->bool {
+    const auto& bytes=*static_cast<const std::vector<uint8_t>*>(user);
+    if(!output || uint64_t(where)+length>bytes.size())return false;
+    for(size_t i=0;i<length;++i)
+      output[i]=std::byte(bytes[where+i]);
+    return true;
+  };
+  put_be32(0x1000u,0x81234000u);
+  put_be32(0x1004u,0x2000u);
+  for(size_t i=0;i<vs.size();++i)guest[0x2000u+i]=vs[i];
+  auto from_row=ObserveOriginalLiveXdkShaderHandleEntry(
+      bank,0x1000u,0x81234000u,Stage::Vertex,
+      read_guest,&guest,17u,3u);
+  assert(from_row);
+  assert(from_row->original_object_to_header_abi_verified);
+  assert(from_row->exact_original_guest_virtual_header.size()==vs.size());
+  assert(from_row->original_frame_sequence==17u &&
+         from_row->original_call_ordinal==3u);
+  assert(MatchesOriginalLiveXdkShaderSource(
+      bank,*from_row,0x81234000u,Stage::Vertex,
+      expected_vertex,17u,3u));
+  assert(!ObserveOriginalLiveXdkShaderHandleEntry(
+      bank,0x1000u,0x81234004u,Stage::Vertex,
+      read_guest,&guest,17u,3u));
+  assert(!ObserveOriginalLiveXdkShaderHandleEntry(
+      bank,0x1000u,0x81234000u,Stage::Pixel,
+      read_guest,&guest,17u,3u));
+  guest[0x2000u+25]^=0x20u;
+  assert(!ObserveOriginalLiveXdkShaderHandleEntry(
+      bank,0x1000u,0x81234000u,Stage::Vertex,
+      read_guest,&guest,17u,3u));
+  guest[0x2000u+25]^=0x20u;
+  put_be32(0x1004u,0x2001u);
+  assert(!ObserveOriginalLiveXdkShaderHandleEntry(
+      bank,0x1000u,0x81234000u,Stage::Vertex,
+      read_guest,&guest,17u,3u));
+  put_be32(0x1004u,0x2000u);
+  // Bounded read: even valid magic with a forged oversized header is
+  // rejected before any heap allocation or guest memory traversal.
+  put_be32(0x2004u,0x01000000u);
+  assert(!ObserveOriginalLiveXdkShaderHandleEntry(
+      bank,0x1000u,0x81234000u,Stage::Vertex,
+      read_guest,&guest,17u,3u));
   auto original=blob;
   blob[0]='X';Write(p,blob);
   Reject([&] {bank.Load(p);}); assert(bank.size()==2);
