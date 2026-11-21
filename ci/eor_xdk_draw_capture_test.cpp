@@ -131,6 +131,22 @@ int main() {
       0x8266CC28u)==0x8206F5DCu); // Sky
   static_assert(ProvenUsaEorShaderVtableForMethod(
       0x8266DDD0u)==0x8206F7CCu); // FlatShadow
+  // 33 DIFFERENT original shader classes share the identical virtual
+  // method address. Live original guest vtable, not method-only identity,
+  // determines which class really owned the nested XDK Draw.
+  static_assert(ProvenUsaEorShaderMethodEntry(0x826432F0u));
+  static_assert(ProvenUsaEorShaderMethodVtablePair(
+      0x826432F0u,0x82066294u)); // EBuildingWithWindowsShader
+  static_assert(ProvenUsaEorShaderMethodVtablePair(
+      0x826432F0u,0x8206636Cu)); // ESkyDomeShader
+  static_assert(!ProvenUsaEorShaderMethodVtablePair(
+      0x826432F0u,0x8206ED6Cu)); // EFontShader has distinct method
+  static_assert(!ProvenUsaEorShaderMethodVtablePair(
+      0x8266A0C0u,0x82066294u));
+  static_assert(!ProvenUsaEorShaderMethodVtablePair(0,0));
+  static_assert(!ProvenUsaEorShaderMethodVtablePair(
+      0x826432F0u,0));
+  static_assert(ProvenUsaEorShaderVtableForMethod(0x826432F0u)==0u);
   static_assert(ProvenUsaEorShaderVtableForMethod(
       0x8288E318u)==0u); // Original XDK function is not a shader instance
   static_assert(ProvenUsaEorShaderVtableForMethod(0u)==0u);
@@ -345,6 +361,15 @@ int main() {
   false_engine.calls[0].original_engine_shader_method->
       original_shader_vtable_guest=0u;
   assert(!ValidateOriginalCommandTimeline(false_engine));
+  auto shared_engine=engine_source;
+  shared_engine.calls[0].original_engine_shader_method->
+      original_shader_method_guest=0x826432F0u;
+  shared_engine.calls[0].original_engine_shader_method->
+      original_shader_vtable_guest=0x82066294u;
+  assert(ValidateOriginalCommandTimeline(shared_engine));
+  shared_engine.calls[0].original_engine_shader_method->
+      original_shader_vtable_guest=0x8206ED6Cu;
+  assert(!ValidateOriginalCommandTimeline(shared_engine));
   false_engine=engine_source;
   false_engine.calls[0].original_engine_shader_method->
       original_shader_instance_guest=0;
