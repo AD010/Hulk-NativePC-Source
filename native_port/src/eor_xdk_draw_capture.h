@@ -319,6 +319,30 @@ inline bool ValidOriginalDecalGeometryBinding(const RawDraw& call) noexcept {
          gpu.original_index_buffer_guest_object==
              owner.original_decal_geometry_guest+0x38u;
 }
+// Original Decal item->material binder is independent of VB/IB geometry.
+// It can only certify source pointer identity (source shader this+48,
+// virtual item method slot+48 return, native 0x825F8A50 r4 descriptor),
+// never infer a ShaderEffects effect hash or pixel/vertex shader pair.
+inline bool ValidOriginalDecalItemMaterialBinding(
+    const RawDraw& call) noexcept {
+  if(!call.original_engine_shader_method)return true;
+  const auto& owner=*call.original_engine_shader_method;
+  if(!owner.original_decal_item_material_binding_verified)
+    return !owner.original_decal_material_descriptor_guest &&
+           !owner.original_decal_material_context_guest &&
+           !owner.original_decal_material_word0 &&
+           !owner.original_decal_material_word8;
+  return owner.original_shader_method_guest==0x8265B420u &&
+         owner.original_shader_vtable_guest==0x82066504u &&
+         owner.original_shader_method_vtable_verified &&
+         call.kind==Kind::DrawIndexedVertices &&
+         call.lr==0x8265B53Cu &&
+         owner.original_decal_xdk_vb_ib_binding_verified &&
+         owner.original_decal_render_item_guest &&
+         owner.original_decal_geometry_guest &&
+         owner.original_decal_material_descriptor_guest &&
+         owner.original_decal_material_context_guest;
+}
 // Verified USA XDK 2.0.6534 method ABI from the original wrapper:
 // DrawIndexedVertices(dev, prim, baseVertex, startIndex, indexCount).
 // The primitive enum and guest buffer ownership remain real game state,
