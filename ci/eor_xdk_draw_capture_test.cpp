@@ -176,6 +176,37 @@ int main() {
   decal_owner.original_decal_xdk_vb_ib_binding_verified=true;
   exact_decal.original_engine_shader_method=decal_owner;
   assert(ValidOriginalDecalGeometryBinding(exact_decal));
+  // Real Decal source 0x82642C68 calls the original item virtual
+  // material method+48, then source binder 0x825F8A50 with original
+  // descriptor pointer in r4 at LR=0x82642CB4. The binder loads
+  // descriptor+0 and +8; these words are NOT a proven effect pass.
+  exact_decal.original_engine_shader_method->
+      original_decal_material_descriptor_guest=0xA380B000u;
+  exact_decal.original_engine_shader_method->
+      original_decal_material_context_guest=0xA3100040u;
+  exact_decal.original_engine_shader_method->
+      original_decal_material_word0=0xA380B140u;
+  exact_decal.original_engine_shader_method->
+      original_decal_material_word8=0x00000004u;
+  exact_decal.original_engine_shader_method->
+      original_decal_item_material_binding_verified=true;
+  assert(ValidOriginalDecalItemMaterialBinding(exact_decal));
+  auto invalid_material=exact_decal;
+  invalid_material.original_engine_shader_method->
+      original_decal_item_material_binding_verified=false;
+  assert(!ValidOriginalDecalItemMaterialBinding(invalid_material));
+  invalid_material=exact_decal;
+  invalid_material.original_engine_shader_method->
+      original_decal_material_descriptor_guest=0u;
+  assert(!ValidOriginalDecalItemMaterialBinding(invalid_material));
+  invalid_material=exact_decal;
+  invalid_material.original_engine_shader_method->
+      original_decal_material_context_guest=0u;
+  assert(!ValidOriginalDecalItemMaterialBinding(invalid_material));
+  invalid_material=exact_decal;
+  invalid_material.original_engine_shader_method->
+      original_decal_xdk_vb_ib_binding_verified=false;
+  assert(!ValidOriginalDecalItemMaterialBinding(invalid_material));
   auto incorrect_decal=exact_decal;
   incorrect_decal.observed_vs_matrices->
       original_index_buffer_guest_object=0xA0000040u;
