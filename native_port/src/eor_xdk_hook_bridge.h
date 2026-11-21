@@ -5,6 +5,22 @@
 #include <native_x_renderer/native_x_renderer.h>
 
 namespace hulk::eor::xdk {
+// RAII, read-only source EoR engine shader-method parent capture. The
+// ORIGINAL USA method is always called through unchanged; this observes
+// only r3/vtable and r4..r7 at entry so inner XDK Draws can retain their
+// real source class invocation. No guessed model/material/shader witness.
+class ScopedOriginalEorShaderMethod final {
+ public:
+  ScopedOriginalEorShaderMethod(
+      uint32_t original_method_guest,const PPCContext& original_ctx,
+      uint8_t* original_guest_base) noexcept;
+  ~ScopedOriginalEorShaderMethod() noexcept;
+  ScopedOriginalEorShaderMethod(const ScopedOriginalEorShaderMethod&)=delete;
+  ScopedOriginalEorShaderMethod& operator=(
+      const ScopedOriginalEorShaderMethod&)=delete;
+ private:
+  bool active_=false;
+};
 bool CaptureEnabled();
 void CapturePpcDraw(Kind kind, uint32_t guest, const PPCContext& ctx,
                     uint8_t* guest_base);
