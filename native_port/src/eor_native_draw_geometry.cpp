@@ -552,13 +552,15 @@ std::vector<VerifiedDrawSource> ResolveCapturedResourceDraws(
              x.primitive!=indexed->primitive ||
              indexed->primitive!=4u || indexed->index_count%3u)
             continue;
-          const bool exact=x.base_vertex==indexed->base_vertex &&
-                           x.first_index==indexed->first_index &&
-                           x.index_count==indexed->index_count;
-          if(!exact && !candidate.original_linear_index_stream_verified)
+          const bool same_xdk_index_window=
+              x.base_vertex==indexed->base_vertex &&
+              x.first_index==indexed->first_index &&
+              x.index_count==indexed->index_count;
+          if(!same_xdk_index_window &&
+             !candidate.original_linear_index_stream_verified)
             continue;
           auto mapped=*link;
-          if(!exact) {
+          if(!same_xdk_index_window) {
             if(!link->guest_to_native_index_stream_verified ||
                !link->original_triangle_list_verified ||
                !link->original_material_at_draw_verified)

@@ -22,3 +22,5 @@ Retry 9: block duplicate marker-stripped converted-index pool arithmetic, not on
 Retry 10: repair original shader effect pass ledger 3-field stage tuple unpack; tests stage-offset uniqueness and verified PDB technique.
 
 Retry 11: assert safe preflight before real mailbox handoff, not before stale mailbox epoch eviction.
+
+Retry 12: MSVC /W4 /WX C4456 shadowed 'exact' in real native Draw matcher; renamed the typed XDK equality guard without affecting verified source mesh owner.
