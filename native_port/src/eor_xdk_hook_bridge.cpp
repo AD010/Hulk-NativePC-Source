@@ -850,8 +850,9 @@ void EndPpcHook(native_x_renderer::Call kind) {
     uint32_t original_engine_render_item_parented=0;
     uint32_t original_engine_item_material_verified=0;
     uint32_t original_header_vs=0,original_header_ps=0;
-    uint32_t original_header_pairs=0;
+    uint32_t original_header_pairs=0,original_effect_passes=0;
     for (const RawDraw& call : frame.calls) {
+      if(call.observed_live_eor_effect_pass)++original_effect_passes;
       if(call.observed_live_vertex_shader_header)++original_header_vs;
       if(call.observed_live_pixel_shader_header)++original_header_ps;
       if(call.observed_live_vertex_shader_header &&
@@ -914,11 +915,13 @@ void EndPpcHook(native_x_renderer::Call kind) {
                 original_engine_item_material_verified);
     REXLOG_INFO("[HULK/EOR-SOURCE-SHA] original XDK Draw frame={} "
                 "virtual_header_vs_verified={} virtual_header_ps_verified={} "
-                "live_vs_ps_pairs_verified={} total_draws={}; "
+                "live_vs_ps_pairs_verified={} "
+                "original_effect_passes_verified={} total_draws={}; "
                 "0 means source row+4 header ABI not proven, not a "
                 "license to substitute ShaderEffects archive bytes",
                 frame.sequence,original_header_vs,original_header_ps,
-                original_header_pairs,frame.calls.size());
+                original_header_pairs,original_effect_passes,
+                frame.calls.size());
     for (const auto& site: hot) {
       REXLOG_INFO("[HULK/EOR-XDK-CALLSITE] XDK=0x{:08X} LR=0x{:08X} "
                   "kind={} draws={} frames={} first={} last={} "
@@ -1177,7 +1180,11 @@ native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(
             *draw.original_live_pixel_shader_header,
             live.original_vs_guest_object,live.original_ps_guest_object,
             source_snapshot->sequence,static_cast<uint32_t>(i));
-        if(!recovered_effect ||
+        if(!recovered_effect || !guest.observed_live_eor_effect_pass ||
+           guest.observed_live_eor_effect_pass->effect_hash!=
+               recovered_effect->effect_hash ||
+           guest.observed_live_eor_effect_pass->pass_index!=
+               recovered_effect->pass_index ||
            recovered_effect->effect_hash!=draw.original_effect_hash ||
            recovered_effect->pass_index!=draw.original_pass_index ||
            !aot::MatchesOriginalLiveXdkShaderSource(
