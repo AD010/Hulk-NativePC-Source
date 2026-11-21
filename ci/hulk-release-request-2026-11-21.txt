@@ -14,3 +14,5 @@ Retry 5: validate exact user-authorized one-off push marker in source-only dispa
 Retry 6: correct synthetic vector compare CR6 fixture to pinned real ReXGlue builder multiline source.
 
 Retry 7: update native GPU diagnostic test to real confirmed Exit-to-Windows path in full-screen menu.
+
+Retry 8: synchronize source-coverage tests with exact shared VB/IB 16/32-bit endian-aware guest source provenance and actual verified rebase.

@@ -291,9 +291,12 @@ class NativeEorLinkCoverage(unittest.TestCase):
         self.assertIn("g_original_buffers.Capture(object,address,bytes,ReadGuest,guest_base)",hook)
         self.assertIn("rec.original_source_vertex_bytes=m.original_vertex_stream;",source)
         self.assertIn("IdentifyExactOriginalGuestMesh(",geom)
-        self.assertIn("if(be==le)continue;",geom)
+        # Actual XDK buffer may be BE16/LE16 or BE32/LE32. Accept only
+        # a unique byte-exact original model source index window.
+        self.assertIn("for(uint32_t index_bytes:{2u,4u})",geom)
+        self.assertIn("if(unique)return std::nullopt;",geom)
         self.assertIn("indexed->first_index)+indexed->index_count>",geom)
-        self.assertIn("int64_t(idx)+indexed->base_vertex>=mesh.vertex_count",geom)
+        self.assertIn("guest_vertex>=int64_t(origin+mesh.vertex_count)",geom)
         self.assertIn("Actual original XDK buffer bytes disprove engine mesh owner",geom)
         self.assertIn("wrongIb->bytes[0]=std::byte{0xFA};",test)
 
@@ -325,7 +328,8 @@ class NativeEorLinkCoverage(unittest.TestCase):
         cpp=(ROOT / "ci/eor_native_draw_geometry_test.cpp").read_text()
         self.assertIn("boyer_moore_horspool_searcher",geometry)
         self.assertIn("guest_first_vertex=0,guest_first_index=0",header)
-        self.assertIn("guest_first_index-exact->guest_first_index",geometry)
+        self.assertIn("original->first_index-exact->guest_first_index",geometry)
+        self.assertIn("resolved[i].first_index!=",geometry)
         self.assertIn("original->base_vertex)-exact->guest_first_vertex",geometry)
         self.assertIn("sharedVb->bytes.insert(",cpp)
         self.assertIn("sharedIb->bytes.insert(",cpp)
