@@ -244,6 +244,9 @@ bool ValidateOriginalCommandTimeline(const Frame& frame) noexcept {
       if(const auto& shader=original.original_engine_shader_method;shader) {
         if(!shader->original_shader_method_vtable_verified ||
            !shader->original_shader_instance_guest ||
+           !shader->original_shader_vtable_guest ||
+           !xdk::ProvenUsaEorShaderVtableForMethod(
+               shader->original_shader_method_guest) ||
            !shader->nesting_depth ||
            shader->nesting_depth>16 ||
            ProvenUsaEorShaderVtableForMethod(
