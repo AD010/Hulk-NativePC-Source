@@ -88,7 +88,7 @@ class OriginalEorShaderItemDispatchTests(unittest.TestCase):
                 self.image[at:at+4]=b"\0"*4
                 try:
                     with self.assertRaisesRegex(ValueError,
-                                                "Original USA|render item"):
+                                                "Original USA|Original EoR item"):
                         inspect(self.image,self.vtables,strict_source=False)
                 finally:
                     self.image[at:at+4]=original
