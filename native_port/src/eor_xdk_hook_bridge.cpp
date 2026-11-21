@@ -503,6 +503,8 @@ ScopedOriginalEorRenderItem::~ScopedOriginalEorRenderItem() noexcept {
   if(!touched_ || !shader_source_depth_ ||
      shader_source_depth_!=g_source_shader_method_depth)return;
   auto& parent=g_source_shader_method_stack[shader_source_depth_-1u];
+  if(parent.original_shader_instance_guest!=owning_shader_instance_)
+    return; // original owning shader scope changed; never revive old owner
   parent.original_engine_item_method_guest=previous_method_;
   parent.original_engine_render_item_guest=previous_item_;
   parent.original_engine_render_item_context_guest=previous_context_;
