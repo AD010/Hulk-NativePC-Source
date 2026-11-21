@@ -254,6 +254,18 @@ struct OriginalEorShaderMethodAtDraw {
   uint32_t original_decal_render_item_guest=0;
   uint32_t original_decal_geometry_guest=0;
   bool original_decal_xdk_vb_ib_binding_verified=false;
+  // The original Decal source method calls material binder 0x82642C68;
+  // the original render item's virtual method slot+48 returns an
+  // original source material descriptor at PPC LR=0x82642CB4.
+  // The native 0x825F8A50 setter reads descriptor+0 and +8 and then
+  // tail-calls the actual render-state binder. This records EXACT
+  // guest ownership only, never equates the descriptor to an EoR
+  // ShaderEffects effect hash, shader pair, sampler or host PSO.
+  uint32_t original_decal_material_descriptor_guest=0;
+  uint32_t original_decal_material_context_guest=0;
+  uint32_t original_decal_material_word0=0;
+  uint32_t original_decal_material_word8=0;
+  bool original_decal_item_material_binding_verified=false;
 };
 struct RawDraw {
   Kind kind{};
