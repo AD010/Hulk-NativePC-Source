@@ -52,7 +52,7 @@ def synthesized_original_material_abi():
         0x825F859C:ppc_d(34,11,30,0),
         0x825F85A0:ppc_d(34,5,30,1),
         0x825F85AC:ppc_bl(0x825F85AC,0x82675E00),
-        0x825F85BC:ppc_d(34,6,30,3),
+        0x825F85B8:ppc_d(34,6,30,3),
         0x825F85C0:ppc_d(34,5,30,2),
         0x825F85C4:ppc_bl(0x825F85C4,0x82675EA0),
         0x825F85D8:ppc_d(14,26,26,4),
