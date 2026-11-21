@@ -854,6 +854,15 @@ void EndPpcHook(native_x_renderer::Call kind) {
         !frame.dropped && !frame.dropped_commands &&
         ValidateOriginalCommandTimeline(frame);
     for(const auto& draw:frame.calls) {
+      if(draw.source_vb0 && !draw.source_vb0->bytes.empty())
+        ++coverage.original_live_vb0;
+      if(draw.source_ib && !draw.source_ib->bytes.empty())
+        ++coverage.original_live_ib;
+      if(draw.kind==Kind::DrawIndexedVertices &&
+         draw.source_vb0 && draw.source_ib &&
+         !draw.source_vb0->bytes.empty() &&
+         !draw.source_ib->bytes.empty())
+        ++coverage.original_indexed_with_exact_buffer_bytes;
       if(draw.observed_live_vertex_shader_header)
         ++coverage.original_vs_headers;
       if(draw.observed_live_pixel_shader_header)
