@@ -196,7 +196,12 @@ void ValidateLiveOriginalShaderPasses(
         source.vertex_source_sha256,source.pixel_source_sha256);
     if(!real_pass ||
        real_pass->effect_hash!=source.original_effect_hash ||
-       real_pass->pass_index!=source.original_pass_index)
+       real_pass->pass_index!=source.original_pass_index ||
+       (draw.observed_live_eor_effect_pass &&
+        (draw.observed_live_eor_effect_pass->effect_hash!=
+             real_pass->effect_hash ||
+         draw.observed_live_eor_effect_pass->pass_index!=
+             real_pass->pass_index)))
       throw std::invalid_argument(
           "Original runtime VS/PS pair does not identify asserted EoR effect/pass");
     const auto [vs,created_vs]=observed_vs.emplace(
