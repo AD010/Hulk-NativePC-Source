@@ -85,6 +85,16 @@ def inspect_objects(data: bytes, platform: str) -> dict:
                 raise ValueError('Unrecognized original ChangeState_r VM bytecode')
             change_state_operand = '{:08X}'.format(
                 int.from_bytes(payload[5:9], endian))
+    # The immediate used by ChangeState_r is a SHARED VM operation:
+    # in the owner's full Xbox/PC archives the exact 0x28+operand sequence
+    # also occurs in unrelated HUD, frontend, and AI script methods.
+    # Count these actual serialized sites so it can never be mislabelled
+    # a unique Pause Settings handler or installed as a PPC hook.
+    common_vm_word = bytes([0x28]) + int(
+        change_state_operand, 16).to_bytes(4, endian)
+    shared_vm_uses = data.count(common_vm_word)
+    if not shared_vm_uses:
+        raise ValueError('Original ChangeState VM operation absent from archive')
     # The settings script is a distinct original VM object, not a guest
     # PowerPC handler. Its Init_z must belong to the same local object span.
     settings_at = one(data, SETTINGS_SCRIPT)
@@ -99,6 +109,9 @@ def inspect_objects(data: bytes, platform: str) -> dict:
         'game_settings_init_relative': method_at - settings_at,
         'pause_vm_method_payload_lengths': method_lengths,
         'change_state_vm_opaque_0x28_operand': change_state_operand,
+        'shared_opcode_0x28_vm_uses': shared_vm_uses,
+        'opaque_operand_shared_across_unrelated_scripts': shared_vm_uses > 16,
+        'opaque_operand_is_pause_specific': False,
         'opaque_operand_is_verified_guest_function': False,
         'verified_original_serialized_ui_symbols': True,
         'guest_ppc_event_handler_abi_verified': False,
