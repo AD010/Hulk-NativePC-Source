@@ -552,6 +552,20 @@ void CapturePpcDraw(Kind kind, uint32_t guest, const PPCContext& ctx,
            actual.original_ps_guest_object==
                owner.original_pass_ps_xdk_guest_object)
           owner.original_pass_vs_ps_xdk_binding_verified=true;
+        if(owner.original_pass_vs_ps_xdk_binding_verified &&
+           owner.original_pass_sampler_slots_verified) {
+          bool all_source_slots_have_real_guest_textures=true;
+          for(uint32_t slot=0u;slot<16u;++slot) {
+            if((owner.original_pass_sampler_slot_mask &
+                (uint16_t(1u)<<slot)) &&
+               !actual.original_texture_guest_objects[slot]) {
+              all_source_slots_have_real_guest_textures=false;
+              break;
+            }
+          }
+          owner.original_pass_live_texture_objects_present=
+              all_source_slots_have_real_guest_textures;
+        }
       }
       // Only while explicit diagnostic capture is active. Store all
       // 256 original vertex AND pixel float4 registers, not just camera:
