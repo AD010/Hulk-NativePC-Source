@@ -1,0 +1,65 @@
+{
+  "schema": "hulk_original_eor_pause_ui_source_witness_v1",
+  "evidence_kind": "original_user_supplied_EoR_serialized_ui_names_no_guest_code",
+  "sources": {
+    "xbox360_object_archive": {
+      "sha256": "35c9a1d502f62a0fd4e3ef73da204195ead4598f132f21763f66d168d7801815",
+      "pause_route_offsets_from_page": {
+        "OptionsMode_Pause": -23,
+        "UIPage_Pause_Settings": 0,
+        "OptionsMenuState": 27,
+        "CurrentStatusMenu": 147,
+        "UpgradeMenu": 166,
+        "Settings_Page": 200,
+        "uiwidget_pausemenu_z": 224,
+        "ChangeState_r": 311,
+        "Init_z": 353,
+        "ActivateUpgradeMenu_z": 638,
+        "ActivateCurrentStatusMenu_z": 733,
+        "StateEnter_z": 951,
+        "StateExit_z": 1456,
+        "NextTabEvent_z": 1856,
+        "PreviousTabEvent_z": 2078
+      },
+      "game_settings_script": "uipage_pause_gamesettings_z",
+      "game_settings_init_relative": 47
+    },
+    "pc_2008_comparator": {
+      "sha256": "2d080575a4608f6ebf0fb04f1005a3f8b2ec96233fb4cb6e5e790af7d0d4f7b5",
+      "pause_route_offsets_from_page": {
+        "OptionsMode_Pause": -23,
+        "UIPage_Pause_Settings": 0,
+        "OptionsMenuState": 27,
+        "CurrentStatusMenu": 75,
+        "UpgradeMenu": 94,
+        "Settings_Page": 128,
+        "uiwidget_pausemenu_z": 152,
+        "ChangeState_r": 239,
+        "Init_z": 281,
+        "ActivateUpgradeMenu_z": 566,
+        "ActivateCurrentStatusMenu_z": 661,
+        "StateEnter_z": 879,
+        "StateExit_z": 1384,
+        "NextTabEvent_z": 1784,
+        "PreviousTabEvent_z": 1964
+      },
+      "game_settings_script": "uipage_pause_gamesettings_z",
+      "game_settings_init_relative": 47
+    },
+    "quick_data": {
+      "sha256": "0fc4d0354772c0430a410d6d4ca242c5a9cd7dc4a33dcf9dad677ae820f2acbb",
+      "action_symbol_sequence": [
+        "UI_ActivateOptions",
+        "UI_OptionScreen"
+      ],
+      "symbol_distance": 23
+    }
+  },
+  "source_ui_route_verified": true,
+  "pinned_usa_xex_sha256": "346a73690303f6633bfdaf9850e78793fe07cdbfb8f849b89fbee320630b11f0",
+  "xbox_archive_retail_region_bound_to_pinned_usa_xex": false,
+  "event_handler_guest_address_proven": false,
+  "ppc_call_abi_proven": false,
+  "windows_settings_attached_to_original_guest_event": false,
+  "reproduction": "python ci/audit_hulk_original_pause_ui_objects.py --xbox-objects ORIGINAL_OBJECTS.ARC --pc-objects ORIGINAL_PC_OBJECTS.ARC --quick-data ORIGINAL_QUICKDAT.ARC --output PRIVATE_REPORT.json"
+}
