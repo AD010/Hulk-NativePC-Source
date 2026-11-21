@@ -318,11 +318,13 @@ void EndPpcHook(native_x_renderer::Call kind) {
       REXLOG_INFO("[HULK/EOR-XDK-CALLSITE] XDK=0x{:08X} LR=0x{:08X} "
                   "kind={} draws={} frames={} first={} last={} "
                   "varying_r3_r10_mask=0x{:02X} nonzero_mask=0x{:02X} "
-                  "untracked={}; guest ABI and EoR engine owner UNVERIFIED",
+                  "untracked={} source_defined_guest_bl_caller=0x{:08X}; "
+                  "USA XDK entry ABI proven, EoR engine material ABI UNVERIFIED",
                   site.xdk_function,site.caller_lr,static_cast<unsigned>(site.kind),
                   site.recorded_draws,site.frames_seen,site.first_frame,
                   site.last_frame,site.varying_gpr_mask,site.nonzero_gpr_mask,
-                  untracked);
+                  untracked,
+                  ProvenUsaXdkDirectBlCaller(site.xdk_function,site.caller_lr));
     }
     // Representative REAL PPC arguments, not invented engine structure
     // offsets. One sample per reported frame is enough for an ABI oracle.
