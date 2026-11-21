@@ -14,6 +14,29 @@
 
 namespace hulk::eor::xdk {
 enum class Kind : uint8_t { DrawVertices, DrawIndexedVertices, DrawVerticesUP };
+// These six bl instructions were observed in the PRIVATE AOT corpus from
+// SHA-pinned USA default.xex (98,726 generated PPC function definitions).
+// r3..r6 / r3..r7 are independently verified source XDK method arguments.
+// A direct bl sets LR to its next instruction; a TAIL branch (b) does not.
+// Never resolve a tail-call LR to a presumed engine Draw owner, and never
+// claim that knowing a caller proves its model, material, effect or shader.
+inline constexpr uint32_t ProvenUsaXdkDirectBlCaller(
+    uint32_t xdk_function,uint32_t source_lr) noexcept {
+  switch(xdk_function) {
+    case 0x8288DF30u: // XDK DrawVertices: only one source-defined bl.
+      return source_lr==0x82676430u ? 0x82676400u : 0u;
+    case 0x8288E318u: // XDK DrawIndexedVertices: five source-defined bl.
+      switch(source_lr) {
+        case 0x82640614u: return 0x82640578u;
+        case 0x8264164Cu: return 0x82641618u;
+        case 0x8265B53Cu: return 0x8265B420u;
+        case 0x82668184u: return 0x826680B8u;
+        case 0x8266899Cu: return 0x826688D0u;
+        default: return 0u;
+      }
+    default: return 0u;
+  }
+}
 // Original actual XDK command chronology is essential for a sole Vulkan
 // presenter: Draws alone omit clears, RT/depth changes, tiled resolves and
 // postprocessing. The events record real PPC call arguments but intentionally
