@@ -97,6 +97,32 @@ def audit(image:bytes,strict_source=True)->dict:
             mr(0x8287E808,4,29)),
         ("XDK IB device-shadow original +12436 writes r29",
             dform(0x8287E87C,36,29,31,12436)),
+        # Original Decal's 0x82642C68 per-item shader material setup:
+        # source r4 is the material-bearing render-item. Its native
+        # virtual slot+48 yields the 12-byte original descriptor, which
+        # the real 0x825F8A50 binder reads at +0 and +8.
+        ("material setup shader this r3 -> r31",
+            mr(0x82642C78,3,31)),
+        ("original render item r4 -> r30",
+            mr(0x82642C7C,4,30)),
+        ("shader context original this+48",
+            dform(0x82642C88,32,3,31,48)),
+        ("original default material binder before new item",
+            guest_bl(0x82642C90,0x825F8A50)),
+        ("original render item vtable pointer",
+            dform(0x82642C94,32,11,30,0)),
+        ("original render item virtual material slot+48",
+            dform(0x82642C9C,32,11,11,48)),
+        ("virtual return r3 becomes material descriptor r4",
+            mr(0x82642CA8,3,4)),
+        ("material shader context r3 from original this+48",
+            dform(0x82642CAC,32,3,31,48)),
+        ("original item-specific native material descriptor binder",
+            guest_bl(0x82642CB0,0x825F8A50)),
+        ("original native binder reads descriptor+8",
+            dform(0x825F8A50,32,5,4,8)),
+        ("original native binder reads descriptor+0",
+            dform(0x825F8A54,32,4,4,0)),
     )
     bad=[name for name,valid in checks if not valid]
     if bad:
@@ -117,6 +143,14 @@ def audit(image:bytes,strict_source=True)->dict:
         "xdk_device_shadow_original_ib_guest_offset":12436,
         "actual_original_xdk_setters_prove_device_shadow_binding":True,
         "original_material_prepare_guest_call":"0x%08X"%SOURCE_MATERIAL_PREPARE,
+        "original_per_item_material_virtual_slot_bytes":48,
+        "original_shader_material_context_source_offset":48,
+        "original_material_binding_source_guest_lr":"0x82642CB4",
+        "original_default_material_binding_source_guest_lr":"0x82642C94",
+        "original_native_material_binding_guest_method":"0x825F8A50",
+        "original_material_descriptor_word0_bytes":0,
+        "original_material_descriptor_word8_bytes":8,
+        "original_decal_item_to_native_material_descriptor_abi_verified":True,
         "original_xdk_set_vb_guest_call":"0x%08X"%ORIGINAL_XDK_SET_VERTEX_STREAM,
         "original_xdk_set_ib_guest_call":"0x%08X"%ORIGINAL_XDK_SET_INDEX_STREAM,
         "original_xdk_draw_guest_call":"0x%08X"%ORIGINAL_XDK_DRAW_INDEXED,
