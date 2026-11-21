@@ -104,7 +104,10 @@ class OriginalEorShaderClassesTests(unittest.TestCase):
         bridge = (PORT / "src/eor_xdk_hook_bridge.cpp").read_text(
             encoding="utf-8")
         for name, (_, method) in HIGHLIGHTS.items():
-            self.assertIn("case 0x%08Xu:" % method, header, name)
+            # Original guest addresses are numeric; allow the generated
+            # C++ proof table's lowercase hex letters.
+            self.assertIn(("case 0x%08Xu:" % method).lower(),
+                          header.lower(), name)
         self.assertIn("ProvenUsaEorShaderVtableForMethod", header)
         full = json.loads(WITNESS.read_text(encoding="utf-8"))
         pair_code = header.split(
