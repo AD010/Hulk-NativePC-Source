@@ -1,0 +1,118 @@
+{
+  "schema": "hulk_usa_verified_xdk_boundary_callsite_witness_v1",
+  "source_xex_sha256": "346a73690303f6633bfdaf9850e78793fe07cdbfb8f849b89fbee320630b11f0",
+  "private_source_ppc_evidence_sha256": "bfa31980f79938619ea703fd51821a85970f183c3bd7f382ce836146b51834d1",
+  "private_source_artifact": "Hulk-XDK6534-Evidence-42406003655.zip",
+  "generated_ppc_functions_scanned": 98726,
+  "draw_xdk_abis": {
+    "DrawVertices": {
+      "guest_xdk_function": "0x8288DF30",
+      "source_verified_original_ppc_argument_registers": [
+        "r3",
+        "r4",
+        "r5",
+        "r6"
+      ],
+      "xdk_method_argument_roles": [
+        "device",
+        "primitive",
+        "start_vertex",
+        "vertex_count"
+      ],
+      "register_copies_verified_against_pinned_usa_aot": true,
+      "source_defined_direct_callers": [
+        {
+          "source_defined_caller_function": "0x826762C0",
+          "static_direct_branch_site": "0x826762E4",
+          "powerpc_branch_kind": "b",
+          "expected_xdk_lr": null,
+          "source_verified_direct_branch": true,
+          "original_engine_mesh_material_abi_verified": false
+        },
+        {
+          "source_defined_caller_function": "0x82676400",
+          "static_direct_branch_site": "0x8267642C",
+          "powerpc_branch_kind": "bl",
+          "expected_xdk_lr": "0x82676430",
+          "source_verified_direct_branch": true,
+          "original_engine_mesh_material_abi_verified": false
+        }
+      ],
+      "original_engine_material_draw_handler_verified": false
+    },
+    "DrawIndexedVertices": {
+      "guest_xdk_function": "0x8288E318",
+      "source_verified_original_ppc_argument_registers": [
+        "r3",
+        "r4",
+        "r5",
+        "r6",
+        "r7"
+      ],
+      "xdk_method_argument_roles": [
+        "device",
+        "primitive",
+        "base_vertex",
+        "first_index",
+        "index_count"
+      ],
+      "register_copies_verified_against_pinned_usa_aot": true,
+      "source_defined_direct_callers": [
+        {
+          "source_defined_caller_function": "0x82640578",
+          "static_direct_branch_site": "0x82640610",
+          "powerpc_branch_kind": "bl",
+          "expected_xdk_lr": "0x82640614",
+          "source_verified_direct_branch": true,
+          "original_engine_mesh_material_abi_verified": false
+        },
+        {
+          "source_defined_caller_function": "0x82641618",
+          "static_direct_branch_site": "0x82641648",
+          "powerpc_branch_kind": "bl",
+          "expected_xdk_lr": "0x8264164C",
+          "source_verified_direct_branch": true,
+          "original_engine_mesh_material_abi_verified": false
+        },
+        {
+          "source_defined_caller_function": "0x8265B420",
+          "static_direct_branch_site": "0x8265B538",
+          "powerpc_branch_kind": "bl",
+          "expected_xdk_lr": "0x8265B53C",
+          "source_verified_direct_branch": true,
+          "original_engine_mesh_material_abi_verified": false
+        },
+        {
+          "source_defined_caller_function": "0x826680B8",
+          "static_direct_branch_site": "0x82668180",
+          "powerpc_branch_kind": "bl",
+          "expected_xdk_lr": "0x82668184",
+          "source_verified_direct_branch": true,
+          "original_engine_mesh_material_abi_verified": false
+        },
+        {
+          "source_defined_caller_function": "0x826688D0",
+          "static_direct_branch_site": "0x82668998",
+          "powerpc_branch_kind": "bl",
+          "expected_xdk_lr": "0x8266899C",
+          "source_verified_direct_branch": true,
+          "original_engine_mesh_material_abi_verified": false
+        },
+        {
+          "source_defined_caller_function": "0x82676288",
+          "static_direct_branch_site": "0x826762B8",
+          "powerpc_branch_kind": "b",
+          "expected_xdk_lr": null,
+          "source_verified_direct_branch": true,
+          "original_engine_mesh_material_abi_verified": false
+        }
+      ],
+      "original_engine_material_draw_handler_verified": false
+    }
+  },
+  "xdk_entry_abi_verified": true,
+  "original_pause_settings_ppc_dispatcher_abi_verified": false,
+  "original_eor_engine_model_mesh_material_shader_abi_verified": false,
+  "full_eor_vulkan_frame_draws_verified": false,
+  "no_original_guest_instructions_or_private_game_bytes": true
+}
