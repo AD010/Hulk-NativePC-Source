@@ -89,20 +89,24 @@ def analyze(log: str, hooks: dict[int, str],
         site = (lr - 4) & 0xFFFFFFFF
         callers = sorted({caller for caller, callsite in reverse.get(xdk, ())
                           if callsite == site})
+        # A single guest bl address cannot belong to two distinct original
+        # function bodies. Treat conflicting generated ownership as ambiguous
+        # rather than silently certifying an engine caller.
+        unique_caller = len(callers) == 1
         record = {
             'verified_xdk_method': hooks[xdk],
             'xdk_guest_address': f'0x{xdk:08X}',
             'observed_guest_lr': f'0x{lr:08X}',
-            'static_direct_bl_site': f'0x{site:08X}' if callers else None,
+            'static_direct_bl_site': f'0x{site:08X}' if unique_caller else None,
             'source_defined_guest_callers': [f'0x{x:08X}' for x in callers],
             'observed_calls': row['draws'],
             'observed_frames': row['frames'],
-            'verified_direct_bl_link': bool(callers),
+            'verified_direct_bl_link': unique_caller,
             'verified_engine_draw_abi': False,
             'verified_mesh_or_material_binding': False,
             'verified_camera_or_projection': False,
         }
-        (matched if callers else unmatched).append(record)
+        (matched if unique_caller else unmatched).append(record)
     return {
         'schema': 'hulk_usa_runtime_to_static_xdk_callsite_v1',
         'source_xex_sha256': USA_XEX_SHA256,
