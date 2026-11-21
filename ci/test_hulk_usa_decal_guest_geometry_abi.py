@@ -46,6 +46,17 @@ def synthetic_usa_decal_image():
         0x8287E6C0:ppc_dform(14,11,29,3115),
         0x8287E808:ppc_mr(4,29),
         0x8287E87C:ppc_dform(36,29,31,12436),
+        0x82642C78:ppc_mr(3,31),
+        0x82642C7C:ppc_mr(4,30),
+        0x82642C88:ppc_dform(32,3,31,48),
+        0x82642C90:ppc_bl(0x82642C90,0x825F8A50),
+        0x82642C94:ppc_dform(32,11,30,0),
+        0x82642C9C:ppc_dform(32,11,11,48),
+        0x82642CA8:ppc_mr(3,4),
+        0x82642CAC:ppc_dform(32,3,31,48),
+        0x82642CB0:ppc_bl(0x82642CB0,0x825F8A50),
+        0x825F8A50:ppc_dform(32,5,4,8),
+        0x825F8A54:ppc_dform(32,4,4,0),
     }
     for addr,word in instructions.items():
         off=addr-GUEST_BASE
@@ -62,7 +73,7 @@ class OriginalDecalGeometryPpcTests(unittest.TestCase):
     def test_source_proven_original_eor_gpu_chain_identified(self):
         proof=audit(self.image,strict_source=False)
         self.assertEqual(proof,self.original)
-        self.assertEqual(proof["source_ppc_register_and_branch_checks_passed"],20)
+        self.assertEqual(proof["source_ppc_register_and_branch_checks_passed"],31)
         self.assertTrue(proof["engine_decal_to_guest_vb_ib_abi_verified"])
         self.assertEqual(proof["original_geometry_guest_ptr_be32_offset_from_render_item"],60)
         self.assertEqual(proof["original_geometry_vb_descriptor_offset"],24)
@@ -70,10 +81,15 @@ class OriginalDecalGeometryPpcTests(unittest.TestCase):
         self.assertEqual(proof["xdk_device_shadow_original_vb0_guest_offset"],12460)
         self.assertEqual(proof["xdk_device_shadow_original_ib_guest_offset"],12436)
         self.assertTrue(proof["actual_original_xdk_setters_prove_device_shadow_binding"])
+        self.assertTrue(proof["original_decal_item_to_native_material_descriptor_abi_verified"])
+        self.assertEqual(proof["original_material_binding_source_guest_lr"],"0x82642CB4")
+        self.assertEqual(proof["original_default_material_binding_source_guest_lr"],"0x82642C94")
+        self.assertEqual(proof["original_per_item_material_virtual_slot_bytes"],48)
+        self.assertEqual(proof["original_shader_material_context_source_offset"],48)
         self.assertFalse(proof["engine_material_effect_pass_shader_pair_verified"])
         self.assertTrue(proof["all_game_code_and_source_assets_remain_private"])
 
-    def test_all_twenty_real_guest_instruction_witnesses_are_mandatory(self):
+    def test_all_thirty_one_original_source_instruction_witnesses_are_mandatory(self):
         for guest in self.instructions:
             with self.subTest(address=hex(guest)):
                 corrupted=bytearray(self.image)
@@ -99,6 +115,16 @@ class OriginalDecalGeometryPpcTests(unittest.TestCase):
         self.assertIn("ValidOriginalDecalGeometryBinding(call)",resolver)
         self.assertIn("SameOriginalEorShaderMethod",resolver)
         self.assertIn("original_decal_xdk_vb_ib_binding_verified",resolver)
+        generator=(port/"tools/gen_native_x_hooks.py").read_text(
+            encoding="utf-8")
+        self.assertIn("HULK_EOR_MATERIAL_TRACE_HOOK",generator)
+        self.assertIn("ObserveOriginalEorMaterialDescriptor(0x##addr,ctx,base)",generator)
+        self.assertIn("source_lr==0x82642C94u",bridge)
+        self.assertIn("source_lr!=0x82642CB4u",bridge)
+        self.assertIn("scope.original_shader_instance_guest+48u",bridge)
+        self.assertIn("material.data()+8",bridge)
+        self.assertIn("ValidOriginalDecalItemMaterialBinding(call)",resolver)
+        self.assertIn("original_decal_item_material_binding_verified",resolver)
         self.assertNotIn("engine_draw_verified=true",bridge[
             bridge.index("// ORIGINAL USA Decal engine PPC"):
             bridge.index("// Keep buffer revisions and their Draw")
