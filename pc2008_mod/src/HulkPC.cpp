@@ -754,7 +754,11 @@ HRESULT STDMETHODCALLTYPE OnSetTexture(IDirect3DDevice9* dev,DWORD stage,
         // The new texture is already bound: avoid leaking the previous
         // texture's anisotropic MIN state onto an incompatible texture.
         // Preserve the MAX rollback record for the next restoration attempt.
-        if(linear) {
+        // The previous texture may still have an injected ANISOTROPIC MIN
+        // state even when the engine has not issued a new LINEAR request.
+        // Restore a supported non-AF filter unconditionally on this failure;
+        // leaving ANISOTROPIC active can break the newly bound texture.
+        {
           const HRESULT minHr=realSampler(dev,stage,D3DSAMP_MINFILTER,D3DTEXF_LINEAR);
           if(FAILED(minHr))
             Log("[D3D9] AF MIN repair failed stage=%lu hr=0x%08lX\r\n",
