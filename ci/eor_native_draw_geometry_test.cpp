@@ -638,6 +638,15 @@ int main(){
   sourceFrame.calls[0].source_ib=mutated;
   Reject([&]{(void)native::ResolveCapturedResourceDraws(
       sourceFrame,choices,twoResidences);});
+  // A single plausible EoR shader/material witness must not hide a
+  // contradiction in the captured original vertex/index bytes.
+  const std::vector<native::VerifiedXdkResourceWitness> oneChoice{trueOwner};
+  Reject([&]{(void)native::ResolveCapturedResourceDraws(
+      sourceFrame,oneChoice,twoResidences);});
+  sourceFrame.calls[0]=realBufferDraw;
+  sourceFrame.calls[0].source_vb0=wrongVb;
+  Reject([&]{(void)native::ResolveCapturedResourceDraws(
+      sourceFrame,oneChoice,twoResidences);});
   const auto recovered=native::ResolveCapturedResourceDraws(runtime,catalog,models);
   native::ValidateLiveOriginalShaderPasses(runtime,recovered,effects);
   const auto twoEffects=Catalog(true);
