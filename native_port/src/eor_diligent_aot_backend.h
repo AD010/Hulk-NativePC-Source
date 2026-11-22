@@ -134,6 +134,10 @@ class DiligentEorDirectBackend final : public aot::ShaderBindingBackend {
   // An in-flight font VB/IB is never destroyed just because source Present
   // advanced or a later game frame started.
   void RetireCompletedOriginalFontDraws(uint64_t completed_frame) noexcept;
+  // A rejected epoch whose GPU scene never began may discard its transient
+  // staging immediately; unlike RetireCompleted this is NOT a completion
+  // fence and must never touch a font Draw that entered BeginScene.
+  void DiscardUnsubmittedOriginalFontDraws(uint64_t rejected_frame) noexcept;
   bool PreflightOriginalScene(
       std::span<const aot::BoundIndexedDraw> draws) override;
   bool CanReplayOriginalXdkTimeline(const xdk::Frame& source) const override;
