@@ -862,6 +862,46 @@ int main(){
   assert(sourcePass.size()==1 &&
          sourcePass[0].original_effect_hash==0x1234u &&
          sourcePass[0].original_pass_index==0u);
+  // A reusable original shader-class owner must first be independently
+  // proven against the exact guest VB/IB bytes and live source VS/PS pair.
+  // This permits another instance of the SAME source material class to
+  // render without claiming that its new 'this' pointer is the old one.
+  auto classFrame=passFrame;
+  classFrame.calls[0].original_engine_shader_method=engineParent;
+  auto genericClass=trueOwner;
+  genericClass.original_source_engine_shader_method.reset();
+  genericClass.original_material_shader_method_guest=
+      engineParent.original_shader_method_guest;
+  genericClass.original_material_shader_vtable_guest=
+      engineParent.original_shader_vtable_guest;
+  Reject([&]{(void)native::MaterializeLiveOriginalResourceWitnesses(
+      classFrame,std::vector{genericClass},twoResidences);});
+  genericClass.original_shader_class_material_owner_verified=true;
+  const auto classBound=native::MaterializeLiveOriginalResourceWitnesses(
+      classFrame,std::vector{genericClass},twoResidences);
+  assert(classBound.size()==1 && classBound[0].original_source_engine_shader_method &&
+         classBound[0].original_source_engine_shader_method->
+             original_shader_instance_guest==engineParent.original_shader_instance_guest);
+  const auto copiedClass=native::AttachLiveEorShaderMethodParents(
+      classFrame,classBound);
+  assert(copiedClass.size()==1);
+  auto nextClassFrame=classFrame;
+  nextClassFrame.sequence++;
+  nextClassFrame.calls[0].original_engine_shader_method->
+      original_shader_instance_guest=0xA38A3918u;
+  const auto nextClassBound=native::MaterializeLiveOriginalResourceWitnesses(
+      nextClassFrame,std::vector{genericClass},twoResidences);
+  assert(nextClassBound.size()==1 &&
+         nextClassBound[0].original_source_engine_shader_method->
+             original_shader_instance_guest==0xA38A3918u);
+  auto wrongClass=genericClass;
+  wrongClass.original_material_shader_vtable_guest=0x8206ED6Cu; // EFont, not Decal
+  Reject([&]{(void)native::MaterializeLiveOriginalResourceWitnesses(
+      classFrame,std::vector{wrongClass},twoResidences);});
+  auto missingExact=classFrame;
+  missingExact.calls[0].source_ib.reset();
+  Reject([&]{(void)native::MaterializeLiveOriginalResourceWitnesses(
+      missingExact,std::vector{genericClass},twoResidences);});
   passFrame.calls[0].observed_live_eor_effect_pass=
       aot::OriginalEffectPass{0xBEEFu,7u};
   Reject([&]{(void)native::ResolveCapturedResourceDraws(
