@@ -1894,6 +1894,55 @@ native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(
       // the PPC guest or submit a partial world-only Vulkan image.
     }
   }
+  // Request authentic world-model GPU residency for ONLY those source
+  // catalog owners whose original XDK device/shader/declaration/target
+  // bindings agree with this Present. The request is asynchronous: an
+  // unavailable model never authorizes a partial Vulkan image, but can
+  // become resident before a later exact Draw. Do NOT request every one
+  // of the original 4174 world models on each frame.
+  if(owner_catalog && owner_catalog->request_source_models &&
+     !owner_catalog->verified_candidates.empty()) {
+    try {
+      std::vector<uint32_t> relevant;
+      relevant.reserve(owner_catalog->verified_candidates.size());
+      for(const auto& candidate:owner_catalog->verified_candidates) {
+        if(!candidate.original_guest_resource_to_material_mapping_verified)
+          continue;
+        const auto& original=std::visit([](const auto& sub)
+            ->const native::VerifiedDrawSource& {return sub.native_draw;},
+            candidate.original_source_submission);
+        if(!original.original_model_hash ||
+           !original.engine_draw_verified ||
+           !original.mesh_material_verified)
+          continue;
+        const auto& expected=candidate.original_resources;
+        const bool live=std::any_of(source_snapshot->calls.begin(),
+            source_snapshot->calls.end(),[&](const RawDraw& call) {
+              if(!call.observed_vs_matrices)return false;
+              const auto observed=native::ResourcesAtDraw(
+                  *call.observed_vs_matrices);
+              return observed.device==expected.device &&
+                     observed.vertex_declaration==expected.vertex_declaration &&
+                     observed.vertex_shader==expected.vertex_shader &&
+                     observed.pixel_shader==expected.pixel_shader &&
+                     observed.rt0==expected.rt0 &&
+                     observed.depth==expected.depth &&
+                     (!call.observed_live_eor_effect_pass ||
+                      (call.observed_live_eor_effect_pass->effect_hash==
+                           original.original_effect_hash &&
+                       call.observed_live_eor_effect_pass->pass_index==
+                           original.original_pass_index));
+            });
+        if(live)relevant.push_back(original.original_model_hash);
+      }
+      std::sort(relevant.begin(),relevant.end());
+      relevant.erase(std::unique(relevant.begin(),relevant.end()),relevant.end());
+      if(!relevant.empty())
+        owner_catalog->request_source_models(relevant);
+    } catch (...) {
+      return Result::kNotReady; // a failed source I/O request is not a Draw
+    }
+  }
   // Original EFontShader geometry is transient by design. Route the
   // ENTIRE original Present through the mixed native Vulkan batch rather
   // than trying to disguise font glyphs as archived world-model meshes.
