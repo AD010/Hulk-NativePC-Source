@@ -1376,7 +1376,8 @@ namespace {
 bool InstallVerifiedWorkerEorOwnerCatalogInternal(
     std::shared_ptr<const VerifiedWorkerEorOwnerCatalog> catalog,
     const std::shared_ptr<const VerifiedWorkerEorCatalogFactory>* factory,
-    const std::shared_ptr<const aot::ShaderBank>* bank) {
+    const std::shared_ptr<const aot::ShaderBank>* bank,
+    const std::shared_ptr<const VerifiedWorkerEorOwnerCatalog>* expected_previous) {
   if(!catalog || !catalog->device || !catalog->gpu ||
      (!catalog->resident_lookup && !catalog->verified_candidates.empty()) ||
      (catalog->verified_candidates.empty() &&
@@ -1436,9 +1437,10 @@ bool InstallVerifiedWorkerEorOwnerCatalogInternal(
   // publication. Validating the callback under one lock and installing
   // later allowed a stale GPU catalog to overwrite a newer owner.
   if(!g_offline_shader_pack || !g_offline_shader_pack->virtual_ids ||
-     (factory && (!*factory || g_worker_catalog_factory!=*factory ||
-                  g_worker_owner_catalog)) ||
-     (bank && (!*bank || g_offline_shader_pack->shaders!=*bank)))
+     (factory && (!*factory || g_worker_catalog_factory!=*factory)) ||
+     (bank && (!*bank || g_offline_shader_pack->shaders!=*bank)) ||
+     (expected_previous &&
+      g_worker_owner_catalog!=*expected_previous))
     return false;
   g_verified_worker_frame.reset();
   g_worker_owner_catalog=std::move(catalog);
@@ -1448,7 +1450,7 @@ bool InstallVerifiedWorkerEorOwnerCatalogInternal(
 bool InstallVerifiedWorkerEorOwnerCatalog(
     std::shared_ptr<const VerifiedWorkerEorOwnerCatalog> catalog) {
   return InstallVerifiedWorkerEorOwnerCatalogInternal(
-      std::move(catalog),nullptr,nullptr);
+      std::move(catalog),nullptr,nullptr,nullptr);
 }
 bool InstallVerifiedWorkerEorCatalogFactory(
     VerifiedWorkerEorCatalogFactory factory) {
@@ -1831,9 +1833,15 @@ native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(
              g_frames_for_native.Peek()->sequence!=source_sequence)
             verified.reset();
         }
-        if(verified && InstallVerifiedWorkerEorOwnerCatalogInternal(
+        // A source loader may return the same immutable catalogue on
+        // successive 60-frame polls: do not discard expensive Vulkan PSOs
+        // unless real owner/LOD/texture residency changed. Otherwise
+        // publish only if the previously observed catalogue generation
+        // has not been replaced while our factory compiled resources.
+        if(verified && verified!=owner_catalog &&
+           InstallVerifiedWorkerEorOwnerCatalogInternal(
                std::move(verified),&factory,
-               &factory_shader_generation)) {
+               &factory_shader_generation,&owner_catalog)) {
           std::lock_guard lock(g_mutex);
           if(g_worker_catalog_factory==factory &&
              g_offline_shader_pack &&
