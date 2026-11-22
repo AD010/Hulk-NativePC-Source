@@ -145,6 +145,13 @@ void ClearOriginalShaderCaptureIndex() noexcept;
 // and reflection together. The game owns the source generations; the GPU
 // worker holds shared immutable references, never detached naked pointers.
 // This does NOT attest any engine Draw, model identity or camera.
+// Load all five private verified USA banks atomically from a local,
+// user-owned directory. HEORSPV1 MUST contain real, fully compiled Xenos
+// SPIR-V; HEORMAT2/HEORREF1/HEORSMP1/HEORVRT1 are metadata-only.
+// This is called once before the Vulkan worker starts. No game assets
+// or confidential shader program bytes are bundled in the public port.
+bool InstallVerifiedSourceShaderPackFromDirectory(
+    const std::filesystem::path& user_private_shader_dir) noexcept;
 bool InstallVerifiedSourceShaderPack(
     std::shared_ptr<const aot::ShaderBank> shaders,
     std::shared_ptr<const aot::EffectCatalog> effects,
