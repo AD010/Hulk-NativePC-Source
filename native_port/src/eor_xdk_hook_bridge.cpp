@@ -4,6 +4,7 @@
 #include "eor_xdk_hook_bridge.h"
 #include "eor_usa_material_textures.h"
 #include "eor_diligent_aot_backend.h"
+#include "eor_original_font_source.h"
 #include "device.h"
 #include "SwapChain.h"
 #include <rex/cvar.h>
@@ -1424,8 +1425,8 @@ bool InstallVerifiedWorkerEorOwnerCatalogInternal(
     if(!font.original_font_resource_hash ||
        font.original_surface_ordinal==UINT32_MAX ||
        !v.original_font_atlas_hash ||
-       !font.original_effect_hash ||
-       font.original_pass_index==UINT32_MAX ||
+       font.original_effect_hash!=ui::kOriginalFontMainEffectHash ||
+       font.original_pass_index!=ui::kOriginalFontMainPassIndex ||
        !v.original_font_sampler_owner_verified ||
        v.original_pixel_texture_slot>=16 ||
        (!font.resolve_verified_live_vertex_layout &&
@@ -1447,6 +1448,21 @@ bool InstallVerifiedWorkerEorOwnerCatalogInternal(
                g_offline_shader_pack->virtual_ids!=pack->virtual_ids)) ||
      (expected_previous &&
       g_worker_owner_catalog!=*expected_previous))
+    return false;
+  // Private metadata-only ShaderEffects headers do not execute on Vulkan.
+  // Both genuine independently compiled original Font_Main VS+PS modules
+  // must be in the active HEORSPV1 source pack before any UI material is
+  // eligible for native frame submission. Do not create a placeholder.
+  if(!catalog->verified_font_materials.empty() &&
+     (!g_offline_shader_pack->shaders ||
+      !g_offline_shader_pack->effects ||
+      !g_offline_shader_pack->shaders->Find(
+          ui::kOriginalFontMainVsSha,aot::Stage::Vertex) ||
+      !g_offline_shader_pack->shaders->Find(
+          ui::kOriginalFontMainPsSha,aot::Stage::Pixel) ||
+      !g_offline_shader_pack->effects->HasPair(
+          ui::kOriginalFontMainEffectHash,ui::kOriginalFontMainPassIndex,
+          ui::kOriginalFontMainVsSha,ui::kOriginalFontMainPsSha)))
     return false;
   g_verified_worker_frame.reset();
   g_worker_owner_catalog=std::move(catalog);
