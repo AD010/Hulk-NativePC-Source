@@ -12,6 +12,7 @@
 #include <mutex>
 #include <optional>
 #include <set>
+#include <span>
 #include <thread>
 namespace hulk::eor::world {
 class ModelSource {
@@ -33,6 +34,14 @@ class NativeWorldStream {
   // uploaded per tick; I/O never blocks this method. GPU upload itself may
   // consume time and should be submitted before the scene's DrawIndexed.
   LodDecision Tick(double camera_distance_world_units);
+  // The game world can reference many real EoR models per frame, not just
+  // the three camera-distance LOD tiers. Supply hashes identified by the
+  // independently authenticated CURRENT XDK Draw->MODELS.ARC witness.
+  // Request only stages source-original data; renderer eligibility remains
+  // gated by surface/material/VS/PS provenance on that exact Draw.
+  // Call only on the render thread; one async model load/upload per Tick
+  // preserves a bounded frame upload budget.
+  void RequestSourceVerifiedModels(std::span<const uint32_t> model_hashes);
   const model::UploadedOriginalModel* Resident(uint32_t original_hash) const noexcept;
   // Strong original-source GPU ownership for an independently verified
   // EoR Draw frame. The caller keeps this reference until the Vulkan
@@ -54,6 +63,9 @@ class NativeWorldStream {
   std::deque<uint32_t> requests_;
   std::set<uint32_t> queued_;
   std::set<uint32_t> failed_;
+  // Protected by mutex_. Never drop a source-proven world model simply
+  // because it is not the Hulk-only active/prefetch LOD tier.
+  std::set<uint32_t> source_requested_;
   std::optional<std::pair<uint32_t,model::LoadedNativeGeometry>> staged_;
   bool stopping_ = false;
   std::thread worker_;
