@@ -201,6 +201,17 @@ static void CheckMaterialTextureBinding() {
   const auto capture=[&] {
     return xdk::ReadUsaMaterialPixelTextures(context,select,parameters,bound,read,&mem);
   };
+  constexpr uint32_t descriptor=1800;
+  put(descriptor,select);put(descriptor+8,parameters);
+  const auto applied=xdk::ReadUsaAppliedMaterial(context,descriptor,read,&mem);
+  const auto for_item=[&](uint32_t pass,uint32_t item) {
+    return xdk::ReadUsaItemPixelTextures(applied,pass,item,bound,read,&mem);
+  };
+  assert(for_item(context,descriptor)==capture());
+  assert(for_item(context+4,descriptor)==xdk::OriginalPixelTextureKeys{});
+  assert(for_item(context,descriptor+4)==xdk::OriginalPixelTextureKeys{});
+  put(descriptor+8,parameters+16);
+  assert(for_item(context,descriptor)==xdk::OriginalPixelTextureKeys{});
   auto keys=capture();
   assert(keys[3]==0x12345678 && keys[4]==0xABCDEF01 && keys[0]==0);
   bound[4]=0x5510;assert(!capture()[4]);

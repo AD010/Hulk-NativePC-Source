@@ -71,6 +71,8 @@ thread_local std::array<OriginalEorShaderMethodAtDraw,16>
     g_source_shader_method_stack{};
 thread_local uint8_t g_source_shader_method_depth=0;
 thread_local uint32_t g_source_shader_rejected_nesting=0;
+// A nested shader or completed render item may change device bindings.
+thread_local UsaAppliedMaterial g_applied_item_material{};
 // ReXGlue's guest base is NOT directly an original Xbox VA; use the same
 // guest high-memory padding convention as native_camera_direct.cpp, and
 // reject inaccessible ranges without reading unverified game memory.
@@ -189,6 +191,7 @@ void ObserveOriginalEorShaderPass(
   if(!CaptureEnabled() || original_method_guest!=0x825F84C0u ||
      !original_guest_base || !g_source_shader_method_depth ||
      g_source_shader_rejected_nesting)return;
+  g_applied_item_material={};
   auto& scope=g_source_shader_method_stack[g_source_shader_method_depth-1u];
   // Every source 0x825F84C0 pass resets the existing stage evidence.
   // If a new pass fails to materialize, the previous pass CANNOT be
@@ -312,6 +315,8 @@ void ObserveOriginalEorMaterialDescriptor(
      g_source_shader_rejected_nesting)
     return;
   auto& scope=g_source_shader_method_stack[g_source_shader_method_depth-1u];
+  g_applied_item_material=ReadUsaAppliedMaterial(original_ctx.r3.u32,original_ctx.r4.u32,
+                                                 ReadGuest,original_guest_base);
   if(scope.original_shader_method_guest!=0x8265B420u ||
      scope.original_shader_vtable_guest!=0x82066504u ||
      !scope.original_shader_method_vtable_verified)
@@ -372,6 +377,7 @@ ScopedOriginalEorShaderMethod::ScopedOriginalEorShaderMethod(
   // Only the LIVE original this[0] vtable disambiguates its real owner.
   if(!ProvenUsaEorShaderMethodEntry(original_method_guest) ||
      !CaptureEnabled())return;
+  g_applied_item_material={};
   const auto suppress_unverified=[&]() noexcept {
     ++g_source_shader_rejected_nesting;
     suppressed_=true;
@@ -414,6 +420,7 @@ ScopedOriginalEorShaderMethod::ScopedOriginalEorShaderMethod(
   active_=true;
 }
 ScopedOriginalEorShaderMethod::~ScopedOriginalEorShaderMethod() noexcept {
+  g_applied_item_material={};
   if(suppressed_ && g_source_shader_rejected_nesting)
     --g_source_shader_rejected_nesting;
   if(active_ && g_source_shader_method_depth)
@@ -512,6 +519,7 @@ ScopedOriginalEorRenderItem::ScopedOriginalEorRenderItem(
   }
 }
 ScopedOriginalEorRenderItem::~ScopedOriginalEorRenderItem() noexcept {
+  g_applied_item_material={};
   // Nested item invocations are permitted, but only restore into the
   // EXACT original source shader frame. Never revive stale pointers
   // after a different shader nested on top or capture was disabled.
@@ -752,6 +760,13 @@ void CapturePpcDraw(Kind kind, uint32_t guest, const PPCContext& ctx,
           owner.original_decal_material_context_guest,owner.original_decal_material_word0,
           owner.original_decal_material_word8,draw.observed_vs_matrices->original_texture_guest_objects,
           ReadGuest,guest_base);
+    } else if (owner.original_engine_item_abi_verified &&
+               owner.original_engine_item_material_source_verified &&
+               owner.original_pass_vs_ps_xdk_binding_verified) {
+      draw.original_pixel_texture_keys=ReadUsaItemPixelTextures(
+          g_applied_item_material,owner.original_pass_material_context_guest,
+          owner.original_engine_render_item_material_guest,
+          draw.observed_vs_matrices->original_texture_guest_objects,ReadGuest,guest_base);
     }
   }
   // Keep buffer revisions and their Draw in the same Present epoch.
