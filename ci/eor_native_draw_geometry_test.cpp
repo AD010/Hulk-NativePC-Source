@@ -521,6 +521,11 @@ int main(){
   live_state.original_depth_guest_object=0x82006666u;
   live_state.original_texture_guest_objects[0]=0x82007777u;
   runtime.calls[0].observed_vs_matrices=live_state;
+  // The source's original material/XDK SetTexture owner was captured at
+  // this PPC Draw. A VERIFIED nonempty pixel-slot mask must never pass
+  // when the corresponding original hash is missing from the snapshot.
+  runtime.calls[0].original_pixel_texture_keys[0]=
+      valid_sampler.original_texture_hash;
   native::VerifiedXdkResourceWitness witness{};
   witness.original_resources=native::ResourcesAtDraw(live_state);
   witness.original_source_submission=verified;
