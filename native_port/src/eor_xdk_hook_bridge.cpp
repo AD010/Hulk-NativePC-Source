@@ -51,6 +51,12 @@ XdkCallsiteEvidence g_callsite_evidence;
 CompletedFrameMailbox g_frames_for_native;
 std::shared_ptr<const VerifiedWorkerEorFrame> g_verified_worker_frame;
 std::shared_ptr<const VerifiedWorkerEorOwnerCatalog> g_worker_owner_catalog;
+// This callback belongs to the actual source-verified EoR material/mesh
+// loader and executes ONLY on NativeX's shared Vulkan worker, never on
+// the original PPC thread. An unavailable source owner returns nullptr.
+// All state and generations below are protected by g_mutex.
+std::shared_ptr<const VerifiedWorkerEorCatalogFactory> g_worker_catalog_factory;
+uint64_t g_worker_catalog_factory_last_attempt=0;
 struct OfflineShaderPack {
   std::shared_ptr<const aot::ShaderBank> shaders;
   std::shared_ptr<const aot::EffectCatalog> effects;
@@ -1424,10 +1430,34 @@ bool InstallVerifiedWorkerEorOwnerCatalog(
   g_worker_owner_catalog=std::move(catalog);
   return true;
 }
+bool InstallVerifiedWorkerEorCatalogFactory(
+    VerifiedWorkerEorCatalogFactory factory) {
+  if(!factory)return false;
+  auto verified_callback=
+      std::make_shared<const VerifiedWorkerEorCatalogFactory>(
+          std::move(factory));
+  std::lock_guard lock(g_mutex);
+  // A registered producer can be invoked on the next real source Present
+  // with the actual initialized Vulkan Device, not a speculative handle
+  // guessed at startup before NativeX device initialization.
+  g_worker_catalog_factory=std::move(verified_callback);
+  g_worker_catalog_factory_last_attempt=0;
+  g_worker_owner_catalog.reset();
+  g_verified_worker_frame.reset();
+  return true;
+}
+void ClearVerifiedWorkerEorCatalogFactory() noexcept {
+  std::lock_guard lock(g_mutex);
+  g_worker_catalog_factory.reset();
+  g_worker_catalog_factory_last_attempt=0;
+  g_worker_owner_catalog.reset();
+  g_verified_worker_frame.reset();
+}
 void ClearVerifiedWorkerEorOwnerCatalog() noexcept {
   std::lock_guard lock(g_mutex);
   g_worker_owner_catalog.reset();
   g_verified_worker_frame.reset();
+  g_worker_catalog_factory_last_attempt=0;
 }
 void ClearVerifiedWorkerEorFrame() noexcept {
   std::lock_guard lock(g_mutex);
@@ -1740,6 +1770,50 @@ native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(
       if(g_frames_for_native.DiscardIfSequence(source_sequence))
         g_verified_worker_frame.reset(); // require a fresh source-bound bundle
       return Result::kNotReady;
+    }
+  }
+  // Material registration is NOT allowed to invent EoR material/mesh
+  // ownership from shader names, an index archive candidate, or a PM4
+  // pointer. Ask the owner's *source-authenticated* asset loader on the
+  // Vulkan worker, using this real device and current completed Present.
+  // No source factory => existing renderer remains sole presenter.
+  // Recheck generation under lock and never hold the original XDK capture
+  // mutex while loading, uploading or compiling any GPU resources.
+  std::shared_ptr<const VerifiedWorkerEorCatalogFactory> factory;
+  if(!owner_catalog) {
+    std::lock_guard lock(g_mutex);
+    if(g_worker_catalog_factory && g_offline_shader_pack &&
+       g_offline_shader_pack->virtual_ids &&
+       (!g_worker_catalog_factory_last_attempt ||
+        (source_sequence>g_worker_catalog_factory_last_attempt &&
+         source_sequence-g_worker_catalog_factory_last_attempt>=60))) {
+      factory=g_worker_catalog_factory;
+      g_worker_catalog_factory_last_attempt=source_sequence;
+    }
+  }
+  if(factory) {
+    try {
+      const auto verified=(*factory)(host);
+      // The producer is permitted to reject the current source epoch.
+      // Its return value must be an independently validated original
+      // material + live XDK owner catalogue on this SAME Vulkan device.
+      if(verified && verified->device==&host) {
+        {
+          std::lock_guard lock(g_mutex);
+          if(g_worker_catalog_factory!=factory ||
+             g_worker_owner_catalog || !g_offline_shader_pack)
+            verified.reset();
+        }
+        if(verified && InstallVerifiedWorkerEorOwnerCatalog(verified)) {
+          std::lock_guard lock(g_mutex);
+          if(g_worker_catalog_factory==factory)
+            owner_catalog=g_worker_owner_catalog;
+        }
+      }
+    } catch (...) {
+      // A failed archive/material resolver must not bring down the game.
+      // Retain the NativeX compatibility image rather than submitting a
+      // partial 3D frame or a fabricated font glyph.
     }
   }
   // Original EFontShader geometry is transient by design. Route the
