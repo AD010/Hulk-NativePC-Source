@@ -1,5 +1,6 @@
 #pragma once
 #include "eor_xdk_draw_capture.h"
+#include "eor_usa_material_textures.h"
 #include "eor_native_draw_geometry.h"
 #include "eor_original_shader_samplers.h"
 #include "eor_original_virtual_shader_identity.h"
@@ -48,6 +49,11 @@ class ScopedOriginalEorShaderMethod final {
   // any enclosing source owner, never leak an outer shader's identity
   // onto an unrelated inner XDK Draw.
   bool suppressed_=false;
+  bool touched_material_=false;
+  uint8_t prior_shader_depth_=0;
+  uint32_t prior_rejected_nesting_=0;
+  uint32_t prior_shader_instance_=0;
+  UsaAppliedMaterial prior_applied_material_{};
 };
 // Real original USA generic EoR 0x82642A88 dispatches shader
 // virtual slot +44 at indirect PPC 0x82642BD4. Scoped to the exact
@@ -74,6 +80,7 @@ class ScopedOriginalEorRenderItem final {
   uint32_t previous_material_=0;
   bool previous_material_verified_=false;
   bool previous_verified_=false;
+  UsaAppliedMaterial prior_applied_material_{};
 };
 bool CaptureEnabled();
 void CapturePpcDraw(Kind kind, uint32_t guest, const PPCContext& ctx,
