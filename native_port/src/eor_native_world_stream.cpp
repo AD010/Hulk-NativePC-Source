@@ -88,6 +88,7 @@ void NativeWorldStream::RequestSourceVerifiedModels(
     {
       std::lock_guard lock(mutex_);
       if(stopping_)return;
+      if(failed_.contains(hash))continue; // RetryFailed first
       if(source_requested_.size()>=kOriginalWorldModelLimit &&
          !source_requested_.contains(hash))
         throw std::invalid_argument("Original streamed model request cap reached");
@@ -140,6 +141,7 @@ LodDecision NativeWorldStream::Tick(double distance) {
       } catch (...) {
         std::lock_guard lock(mutex_);
         failed_.insert(hash);
+        source_requested_.erase(hash);
       }
     }
     {
