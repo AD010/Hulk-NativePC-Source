@@ -1618,6 +1618,24 @@ native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(
       return Result::kNotReady;
     }
   }
+  // Original EFontShader geometry is transient by design. Route the
+  // ENTIRE original Present through the mixed native Vulkan batch rather
+  // than trying to disguise font glyphs as archived world-model meshes.
+  const bool contains_original_font=std::any_of(
+      source_snapshot->calls.begin(),source_snapshot->calls.end(),
+      [](const RawDraw& call) {
+        return call.original_engine_shader_method &&
+          call.original_engine_shader_method->original_shader_method_guest==
+              0x8266A0C0u;
+      });
+  if(contains_original_font) {
+    if(!owner_catalog || !owner_catalog->direct_gpu ||
+       owner_catalog->verified_font_materials.empty())
+      return Result::kNotReady; // preserve NativeX display, never drop UI
+    return ReplayVerifiedMixedOriginalFrame(
+        host,std::move(owner_catalog),std::move(source_snapshot),
+        source_sequence);
+  }
   if(owner_catalog &&
      (!ready || ready->original_frame_sequence!=source_sequence)) {
     // The render worker, not the guest PPC Present thread, performs the
