@@ -250,15 +250,62 @@ def compile_bank(bank: Path, out: Path, xenos: Path, dxc: Path, common: Path,
             return (None, {"source_sha256": sha, "stage": stage,
                            "error": str(error)[:180]})
 
+    def checkpoint_verified_progress() -> None:
+        """Durably checkpoint authenticated AOT work before a long job ends.
+
+        The complete 5,194-source conversion can outlast a CI/Work session.
+        Previously a killed process left .spv files but no trusted manifest,
+        forcing all successful shader programs to be rebuilt next session.
+        A checkpoint is NOT a HEORSPV1 bank and never enables rendering.
+        """
+        staged = dict(prior_compiled)
+        for bad in errors:
+            staged.pop((bad["source_sha256"], bad["stage"]), None)
+        for good in success:
+            staged[(good["source_sha256"], good["stage"])] = good
+        rows = sorted(staged.values(),
+                      key=lambda item: item["source_sha256"])
+        saved = {
+            "version": 1,
+            "source_bank_sha256": manifest["archive_sha256"],
+            "toolchain_sha256": toolchain_sha256,
+            "input_count": len(entries),
+            "workers_used": active_workers,
+            "compiled_count": len(rows),
+            "selected_compiled_count": len(success),
+            "failed_count": len(errors),
+            "compiled": rows, "failed": errors,
+            "in_progress": True,
+            "native_renderer_ready": False,
+        }
+        with tempfile.NamedTemporaryFile(
+                "w", dir=out, prefix=".hulk_aot_checkpoint_",
+                suffix=".json", encoding="utf-8", delete=False) as tmp:
+            checkpoint_path = Path(tmp.name)
+            json.dump(saved, tmp, indent=2)
+            tmp.write("\n")
+            tmp.flush()
+            os.fsync(tmp.fileno())
+        try:
+            os.replace(checkpoint_path, prior_manifest)
+        finally:
+            checkpoint_path.unlink(missing_ok=True)
+
     # executor.map returns results in input order, even when subprocesses
     # finish out of order. Manifest and binary bank are reproducible.
     with ThreadPoolExecutor(max_workers=active_workers,
                             thread_name_prefix="hulk-xenos-aot") as executor:
-        for good, error in executor.map(compile_one, entries):
+        for completed, (good, error) in enumerate(
+                executor.map(compile_one, entries), start=1):
             if good is not None:
                 success.append(good)
             if error is not None:
                 errors.append(error)
+            # Keep work across a killed Windows runner or a Work session
+            # limit without O(5194^2) writes. Every recovered item is still
+            # independently SHA/stage/SPIR-V validated on the next run.
+            if completed % 32 == 0:
+                checkpoint_verified_progress()
     # Merge successful selected shaders with the still-verified results of
     # earlier batches. Previous --limit / --effect-hash invocations used to
     # OVERWRITE the cumulative bank with only that subset, discarding hours
