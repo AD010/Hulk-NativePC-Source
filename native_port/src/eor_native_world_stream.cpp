@@ -94,13 +94,11 @@ void NativeWorldStream::RequestSourceVerifiedModels(
       if(source_requested_.size()>=kOriginalWorldModelLimit &&
          !source_requested_.contains(hash))
         throw std::invalid_argument("Original streamed model request cap reached");
-      source_requested_.insert(hash);
-      try {
-        source_known_.insert(hash);
-      } catch (...) {
-        source_requested_.erase(hash);
-        throw;
-      }
+      // Preserve an existing active request if a duplicate request fails
+      // during provenance insertion or queue allocation.
+      source_known_.insert(hash);
+      const bool newly_requested = source_requested_.insert(hash).second;
+      if (!newly_requested) continue;
     }
     try {
       Queue(hash,false); // urgent LOD stays ahead of background world models
