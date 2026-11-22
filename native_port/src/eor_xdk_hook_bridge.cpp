@@ -1132,13 +1132,25 @@ bool InstallVerifiedSourceShaderPack(
   g_offline_shader_pack=OfflineShaderPack{
       std::move(shaders),std::move(effects),std::move(reflection),
       std::move(samplers),std::move(virtual_ids)};
+  // The guest PPC Draw observer must use the SAME original source SHA
+  // and effect ledger generation as the registered Vulkan shaders.
+  // Previously this required a second independent registration call;
+  // leaving it out meant every live XDK shader header/pass was absent,
+  // even when the complete private HEOR* pack had loaded successfully.
+  g_original_shader_capture_index=g_offline_shader_pack->virtual_ids;
+  g_original_effect_capture_catalog=g_offline_shader_pack->effects;
   return true;
 }
 void ClearVerifiedSourceShaderPack() noexcept {
   std::lock_guard lock(g_mutex);
   g_verified_worker_frame.reset();
   g_worker_owner_catalog.reset();
+  const auto old=g_offline_shader_pack;
   g_offline_shader_pack.reset();
+  if(old && g_original_shader_capture_index==old->virtual_ids)
+    g_original_shader_capture_index.reset();
+  if(old && g_original_effect_capture_catalog==old->effects)
+    g_original_effect_capture_catalog.reset();
 }
 bool InstallVerifiedWorkerEorFrame(
     std::shared_ptr<const VerifiedWorkerEorFrame> frame) {
