@@ -322,8 +322,10 @@ bool NativeXInitialize(
       original_source_root=std::filesystem::path(custom);
     if(hulk::eor::xdk::InstallVerifiedSourceShaderPackFromDirectory(
            original_source_root))
-      REXLOG_INFO("[HULK/EOR-WORKER] authenticated original HEORSPV1 "
-                  "VS/PS and four matching source metadata banks loaded");
+      REXLOG_INFO("[HULK/EOR-WORKER] source-authenticated HEORSPV1 "
+                  "compiled VS/PS subset and four complete original "
+                  "identity metadata banks loaded; individual frames "
+                  "still require 100% original Draw shader coverage");
     else
       REXLOG_WARN("[HULK/EOR-WORKER] complete original AOT shader bank "
                   "unavailable; independent EoR Draws remain gated");
