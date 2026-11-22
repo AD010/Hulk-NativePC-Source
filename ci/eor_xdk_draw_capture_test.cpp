@@ -738,6 +738,22 @@ int main() {
   auto recovered_epoch=mailbox.TakeIfSequence(82);
   assert(recovered_epoch && recovered_epoch->frame.sequence==82 &&
          recovered_epoch->overwritten_since_take==0);
+  // An old read-only preview can still be inspected after its discarded
+  // Present, without permanently poisoning the next native Vulkan frame.
+  mailbox.Reset();
+  mailbox.Publish(Frame{90,0,{a}});
+  mailbox.Publish(Frame{91,0,{a,b}});
+  const auto held_preview=mailbox.Peek();
+  assert(held_preview && held_preview->sequence==91);
+  assert(mailbox.MissedSinceTake()==1);
+  assert(!mailbox.DiscardIfSequence(90)); // stale epoch must not erase 91
+  assert(mailbox.DiscardIfSequence(91));  // immutable preview still owned
+  assert(held_preview->sequence==91 && !mailbox.Peek());
+  assert(mailbox.MissedSinceTake()==0);
+  mailbox.Publish(Frame{92,0,{a}});
+  const auto next_epoch=mailbox.TakeIfSequence(92);
+  assert(next_epoch && next_epoch->frame.sequence==92 &&
+         next_epoch->overwritten_since_take==0);
   mailbox.Reset();
   assert(capture.Finish().sequence==2);
   assert(capture.Finish().calls.empty());
