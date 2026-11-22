@@ -1,0 +1,27 @@
+{
+  "schema": "hulk_usa_eor_font_main_source_pair_2026_11_22_v1",
+  "original_index_sha256": "ad22432b3484d079080047a5d6b8a0bffa54b7e8affba1d2273003d9b3c6090d",
+  "original_shader_effects_arc_sha256": "c335e0ad39be455e34dcf6e02dfbcac74d17184c6a39ceb38411cf9be42e89dd",
+  "original_usa_shader_effect_hash": "0xE601E566",
+  "original_effect_resource_sha256": "3bd8724cf262b6697b22e864acdc396565133411410a3b774a40301cc12ceab0",
+  "original_effect_resource_size": 1581,
+  "source_effect_technique": "Font_Main",
+  "compiled_original_shader_stages": {
+    "VS": {
+      "original_full_shader_container_sha256": "f4a3cbae7d8e9c2814df616ca850701d9387477f4aae06061e6146dee2fd79cb",
+      "bytes": 508
+    },
+    "PS": {
+      "original_full_shader_container_sha256": "2f3505b3328cdee6fc59c05f2727173d57a8d75fe56a01b576255b02e46c4768",
+      "bytes": 328,
+      "original_sampler_name": "BaseMap"
+    }
+  },
+  "source_verified_against_pinned_usa_index_and_shader_effects_arc": true,
+  "original_runtime_efontshader_class_to_effect_binding_verified": false,
+  "original_efontshader_vertex_declaration_abi_verified": false,
+  "original_live_xdk_font_atlas_to_archive_texture_verified": false,
+  "compiled_spirv_shader_pair_available_in_chat_environment": false,
+  "original_shader_bytes_embedded": false,
+  "note": "Original USA archive source metadata only. No Xenos source bytes, game executable bytes, SPIR-V payload, or guessed runtime class/material/draw ownership."
+}
