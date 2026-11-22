@@ -1338,6 +1338,8 @@ bool InstallVerifiedWorkerEorOwnerCatalog(
        font.original_surface_ordinal==UINT32_MAX ||
        !v.original_vertex_declaration_guest ||
        !v.original_font_atlas_hash ||
+       !font.original_effect_hash ||
+       font.original_pass_index==UINT32_MAX ||
        !v.original_vertex_declaration_layout_verified ||
        !v.original_font_sampler_owner_verified ||
        !v.original_stride || v.original_pixel_texture_slot>=16)
@@ -1410,7 +1412,11 @@ PreparedEorMixedFrame PrepareOriginalMixedDraws(
              layout.original_vertex_declaration_guest ||
          layout.original_pixel_texture_slot>=16 ||
          call.original_pixel_texture_keys[layout.original_pixel_texture_slot]!=
-             layout.original_font_atlas_hash)
+             layout.original_font_atlas_hash ||
+         font.original_effect_hash!=
+             call.observed_live_eor_effect_pass->effect_hash ||
+         font.original_pass_index!=
+             call.observed_live_eor_effect_pass->pass_index)
         continue;
       if(selected)
         throw std::invalid_argument("Ambiguous original font declaration/atlas owner");
