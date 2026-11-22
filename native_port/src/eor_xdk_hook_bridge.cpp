@@ -1367,6 +1367,151 @@ OriginalEorSourceCoverage GetOriginalEorSourceCoverage() noexcept {
   std::lock_guard lock(g_mutex);
   return g_original_source_coverage;
 }
+namespace {
+// The mixed native scene accepts genuine EFontShader Draws in their exact
+// original source order. Static original meshes continue to use the byte-
+// exact MODELS.ARC witness resolver; transient font vertices use the verified
+// XDK declaration, current source VB/IB and archived atlas, never a forged
+// static model. Any unsupported Draw fails the ENTIRE frame before Clear.
+struct PreparedEorMixedFrame {
+  std::vector<aot::BoundIndexedDraw> ordered;
+  std::vector<std::shared_ptr<const model::UploadedOriginalModel>> world;
+};
+PreparedEorMixedFrame PrepareOriginalMixedDraws(
+    const Frame& exact,
+    const VerifiedWorkerEorOwnerCatalog& catalog,
+    const OfflineShaderPack& pack) {
+  if(!exact.sequence || exact.calls.empty() || !pack.shaders ||
+     !pack.effects || !pack.reflection || !pack.virtual_ids ||
+     !catalog.direct_gpu || catalog.gpu.get()!=catalog.direct_gpu.get())
+    throw std::invalid_argument("Missing verified mixed EoR Vulkan source owner");
+  PreparedEorMixedFrame output;
+  std::vector<std::optional<aot::BoundIndexedDraw>> slots(exact.calls.size());
+  Frame static_frame{};
+  static_frame.sequence=exact.sequence;
+  std::vector<size_t> static_indices;
+  for(size_t i=0;i<exact.calls.size();++i) {
+    const auto& call=exact.calls[i];
+    const auto& parent=call.original_engine_shader_method;
+    const bool original_font=parent &&
+        parent->original_shader_method_guest==0x8266A0C0u;
+    if(!original_font) {
+      static_indices.push_back(i);
+      static_frame.calls.push_back(call);
+      continue;
+    }
+    const auto& live=call.observed_vs_matrices;
+    if(!live || !call.observed_live_eor_effect_pass)
+      throw std::invalid_argument("Original font shader Draw is not source-resident");
+    const VerifiedWorkerEorOwnerCatalog::VerifiedFontMaterial* selected=nullptr;
+    for(const auto& font:catalog.verified_font_materials) {
+      const auto& layout=font.source_vertex_layout;
+      if(live->original_vertex_declaration_guest_object!=
+             layout.original_vertex_declaration_guest ||
+         layout.original_pixel_texture_slot>=16 ||
+         call.original_pixel_texture_keys[layout.original_pixel_texture_slot]!=
+             layout.original_font_atlas_hash)
+        continue;
+      if(selected)
+        throw std::invalid_argument("Ambiguous original font declaration/atlas owner");
+      selected=&font;
+    }
+    if(!selected)
+      throw std::invalid_argument("Original EFontShader has no verified material/UV source");
+    slots[i]=catalog.direct_gpu->StageVerifiedOriginalFontDraw(
+        call,selected->source_vertex_layout,exact.sequence,
+        static_cast<uint32_t>(i),selected->original_font_resource_hash,
+        selected->original_surface_ordinal,*pack.virtual_ids);
+  }
+  if(!static_frame.calls.empty()) {
+    if(!catalog.resident_lookup || catalog.verified_candidates.empty())
+      throw std::invalid_argument("Original world Draw has no material catalog");
+    std::map<uint32_t,std::shared_ptr<const model::UploadedOriginalModel>> owners;
+    std::vector<native::VerifiedXdkResourceWitness> candidates;
+    for(const auto& candidate:catalog.verified_candidates) {
+      const auto& template_draw=std::visit([](const auto& link)
+          ->const native::VerifiedDrawSource& {return link.native_draw;},
+          candidate.original_source_submission);
+      const auto& expected=candidate.original_resources;
+      const bool possible=std::any_of(static_frame.calls.begin(),
+          static_frame.calls.end(),[&](const RawDraw& call) {
+            if(!call.observed_vs_matrices)return false;
+            const auto actual=native::ResourcesAtDraw(
+                *call.observed_vs_matrices);
+            return actual.device==expected.device &&
+                   actual.vertex_declaration==expected.vertex_declaration &&
+                   actual.vertex_shader==expected.vertex_shader &&
+                   actual.pixel_shader==expected.pixel_shader &&
+                   actual.rt0==expected.rt0 &&
+                   actual.depth==expected.depth &&
+                   (!call.observed_live_eor_effect_pass ||
+                    (call.observed_live_eor_effect_pass->effect_hash==
+                       template_draw.original_effect_hash &&
+                     call.observed_live_eor_effect_pass->pass_index==
+                       template_draw.original_pass_index));
+          });
+      if(!possible)continue;
+      if(!candidate.original_guest_resource_to_material_mapping_verified ||
+         !template_draw.original_model_hash)
+        throw std::invalid_argument("Unverified original world material owner");
+      if(!owners.contains(template_draw.original_model_hash)) {
+        auto resident=catalog.resident_lookup(template_draw.original_model_hash);
+        if(!resident || resident->original_resource_hash!=
+             template_draw.original_model_hash ||
+           resident->original_identity.platform!=model::Platform::Xbox360)
+          throw std::invalid_argument("Verified world model is no longer resident");
+        owners.emplace(template_draw.original_model_hash,std::move(resident));
+      }
+      candidates.push_back(candidate);
+    }
+    std::vector<const model::UploadedOriginalModel*> borrowed;
+    for(const auto& [_,v]:owners) {
+      output.world.push_back(v);
+      borrowed.push_back(v.get());
+    }
+    if(candidates.empty() || borrowed.empty())
+      throw std::invalid_argument("No matching source world material candidates");
+    auto source=native::ResolveCapturedResourceDraws(
+        static_frame,candidates,borrowed);
+    native::ValidateLiveOriginalShaderPasses(
+        static_frame,source,*pack.effects);
+    auto gpu_draws=native::BindVerifiedGeometryDraws(
+        source,borrowed,*pack.effects);
+    if(gpu_draws.size()!=static_indices.size())
+      throw std::invalid_argument("Original world geometry count incomplete");
+    for(size_t i=0;i<gpu_draws.size();++i) {
+      const size_t original_index=static_indices[i];
+      const auto& original=exact.calls[original_index];
+      const auto& live=original.observed_vs_matrices;
+      const auto& draw=gpu_draws[i];
+      if(!live || !original.observed_live_vertex_shader_header ||
+         !original.observed_live_pixel_shader_header ||
+         !aot::MatchesOriginalLiveXdkShaderSource(
+             *pack.virtual_ids,*original.observed_live_vertex_shader_header,
+             live->original_vs_guest_object,aot::Stage::Vertex,
+             draw.vertex_source_sha256,exact.sequence,
+             static_cast<uint32_t>(original_index)) ||
+         !aot::MatchesOriginalLiveXdkShaderSource(
+             *pack.virtual_ids,*original.observed_live_pixel_shader_header,
+             live->original_ps_guest_object,aot::Stage::Pixel,
+             draw.pixel_source_sha256,exact.sequence,
+             static_cast<uint32_t>(original_index)))
+        throw std::invalid_argument("Original world VS/PS source header changed");
+      auto source_bound=std::move(gpu_draws[i]);
+      source_bound.draw.source_ordinal=static_cast<uint32_t>(original_index);
+      slots[original_index]=std::move(source_bound);
+    }
+  }
+  output.ordered.reserve(slots.size());
+  for(auto& item:slots) {
+    if(!item)
+      throw std::invalid_argument("Original Vulkan scene has an unowned source Draw");
+    output.ordered.push_back(std::move(*item));
+  }
+  return output;
+}
+} // namespace
+
 native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(
     native_x_renderer::Device& host) noexcept {
   using Result=native_x_renderer::HulkEorPresentResult;
