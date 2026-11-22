@@ -785,6 +785,17 @@ aot::BoundIndexedDraw DiligentEorDirectBackend::StageVerifiedOriginalFontDraw(
     result.original_samplers.push_back(image.identity);
   return result;
 }
+void DiligentEorDirectBackend::DiscardUnsubmittedOriginalFontDraws(
+    uint64_t rejected_frame) noexcept {
+  if(!state_ || state_->scene_open || !rejected_frame)return;
+  auto& s=*state_;
+  for(auto it=s.font_uploads.lower_bound({rejected_frame,0u});
+      it!=s.font_uploads.end() &&
+      it->first.first==rejected_frame;) {
+    s.draw_buffers.erase(it->second.position_handle);
+    it=s.font_uploads.erase(it);
+  }
+}
 void DiligentEorDirectBackend::RetireCompletedOriginalFontDraws(
     uint64_t completed_frame) noexcept {
   if(!state_ || state_->scene_open || !completed_frame)return;
