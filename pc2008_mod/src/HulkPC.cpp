@@ -772,14 +772,22 @@ HRESULT STDMETHODCALLTYPE OnSetTexture(IDirect3DDevice9* dev,DWORD stage,
       // If the optional override is rejected after a texture-type switch,
       // restore the game's original POINT request rather than leaving the
       // previous texture's LINEAR mip state behind.
-      if(FAILED(OnSampler(dev,stage,D3DSAMP_MIPFILTER,D3DTEXF_POINT)))
-        realSampler(dev,stage,D3DSAMP_MIPFILTER,D3DTEXF_POINT);
+      if(FAILED(OnSampler(dev,stage,D3DSAMP_MIPFILTER,D3DTEXF_POINT))) {
+        const HRESULT fallbackHr=realSampler(dev,stage,D3DSAMP_MIPFILTER,D3DTEXF_POINT);
+        if(FAILED(fallbackHr))
+          Log("[D3D9] MIP POINT fallback failed stage=%lu hr=0x%08lX\r\n",
+              (unsigned long)stage,(unsigned long)(unsigned int)fallbackHr);
+      }
     }
     if(anisotropy && linear) {
       // Likewise, a failed anisotropic reapply must not leak the previous
       // texture's anisotropic MIN state onto an unsupported new binding.
-      if(FAILED(OnSampler(dev,stage,D3DSAMP_MINFILTER,D3DTEXF_LINEAR)))
-        realSampler(dev,stage,D3DSAMP_MINFILTER,D3DTEXF_LINEAR);
+      if(FAILED(OnSampler(dev,stage,D3DSAMP_MINFILTER,D3DTEXF_LINEAR))) {
+        const HRESULT fallbackHr=realSampler(dev,stage,D3DSAMP_MINFILTER,D3DTEXF_LINEAR);
+        if(FAILED(fallbackHr))
+          Log("[D3D9] MIN LINEAR fallback failed stage=%lu hr=0x%08lX\r\n",
+              (unsigned long)stage,(unsigned long)(unsigned int)fallbackHr);
+      }
     }
   }
   return hr;
