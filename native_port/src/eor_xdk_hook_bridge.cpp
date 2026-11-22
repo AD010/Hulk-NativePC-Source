@@ -1162,8 +1162,19 @@ bool InstallVerifiedSourceShaderPack(
      !reflection || reflection->size()!=shaders->expected())
     return false;
   std::lock_guard lock(g_mutex);
+  // The app's read-only observer and the render worker may load separate
+  // shared_ptr instances of the exact SAME privately SHA-authenticated
+  // HEORVRT1 and HEORMAT2 files. Address inequality alone used to reject
+  // every Vulkan source-pack handoff even when all 5194 source programs
+  // and every original effect/pass matched. Compare immutable content;
+  // preserve rejection for any real differing source generation.
   if(virtual_ids && g_original_shader_capture_index &&
-     virtual_ids!=g_original_shader_capture_index)
+     virtual_ids!=g_original_shader_capture_index &&
+     !virtual_ids->SameOriginalSources(*g_original_shader_capture_index))
+    return false;
+  if(g_original_effect_capture_catalog &&
+     effects!=g_original_effect_capture_catalog &&
+     !effects->SameOriginalSources(*g_original_effect_capture_catalog))
     return false;
   // A new ShaderEffects generation invalidates source-bound material PSOs,
   // live shader identities and every reusable source owner catalogue.
