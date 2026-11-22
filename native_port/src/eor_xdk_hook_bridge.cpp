@@ -1119,7 +1119,15 @@ bool InstallVerifiedSourceShaderPackFromDirectory(
     reflection->Load(directory/"HEORREF1.bin");
     samplers->Load(directory/"HEORSMP1.bin");
     virtual_ids->Load(directory/"HEORVRT1.bin");
-    if(!shaders->HasFullArchiveCoverage() ||
+    // The source-identity ledgers must cover the complete original USA
+    // ShaderEffects archive, but HEORSPV1 may contain only the original
+    // VS/PS programs actually compiled so far. Each real frame still
+    // requires EVERY current Draw shader to be present and checked by its
+    // original SHA: no generic fallback shader or missing Draw can pass.
+    // Requiring all 5,194 shader variants just to start one valid menu
+    // scene made incremental AOT impossible without improving correctness.
+    if(!shaders->size() || !shaders->expected() ||
+       shaders->size()>shaders->expected() ||
        shaders->expected()!=effects->ShaderCount() ||
        shaders->expected()!=reflection->size() ||
        shaders->expected()!=samplers->ShaderCount() ||
