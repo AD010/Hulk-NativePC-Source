@@ -26,6 +26,19 @@ int main() {
   write();
   EffectCatalog catalog;catalog.Load(path);
   assert(catalog.EffectCount()==2 && catalog.PairCount()==3);
+  EffectCatalog copied;copied.Load(path);
+  assert(&copied!=&catalog && catalog.SameOriginalSources(copied));
+  auto alternate=data;
+  alternate[16+8]^=1; // different VS digest, same effect and stage count
+  {
+    std::ofstream f(path,std::ios::binary|std::ios::trunc);
+    f.write(reinterpret_cast<const char*>(alternate.data()),alternate.size());
+  }
+  EffectCatalog different;different.Load(path);
+  assert(different.EffectCount()==catalog.EffectCount() &&
+         different.ShaderCount()==catalog.ShaderCount() &&
+         !catalog.SameOriginalSources(different));
+  write();
   assert(catalog.ShaderCount()==6);
   hulk::eor::aot::Digest vs{},ps{};vs.fill(0x11);ps.fill(0x22);
   assert(catalog.HasPair(0x111,0,vs,ps));
