@@ -66,6 +66,9 @@ class NativeWorldStream {
   // Protected by mutex_. Never drop a source-proven world model simply
   // because it is not the Hulk-only active/prefetch LOD tier.
   std::set<uint32_t> source_requested_;
+  // Persistent provenance: a failed world-model load remains retryable even
+  // after it is removed from the active request window.
+  std::set<uint32_t> source_known_;
   std::optional<std::pair<uint32_t,model::LoadedNativeGeometry>> staged_;
   bool stopping_ = false;
   std::thread worker_;
