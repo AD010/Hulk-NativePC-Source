@@ -5,6 +5,8 @@
 #include "eor_native_font_geometry.h"
 #include "eor_original_shader_samplers.h"
 #include "eor_original_virtual_shader_identity.h"
+#include <functional>
+#include <optional>
 #include <rex/ppc/context.h>
 #include <native_x_renderer/native_x_renderer.h>
 
@@ -187,6 +189,15 @@ struct VerifiedWorkerEorOwnerCatalog {
   std::shared_ptr<aot::ShaderBindingBackend> gpu;
   struct VerifiedFontMaterial {
     ui::VerifiedFontVertexLayout source_vertex_layout;
+    // Before game initialization the original XDK vertex declaration
+    // guest object is not allocated, and its pointer is per-session.
+    // An independently source-verified EFont declaration resolver may
+    // authenticate the CURRENT source Draw and fill its dynamic pointer
+    // and actual VB stride/position/UV/color encoding on the worker.
+    // Returning nullopt is a hard per-frame UI gate, not an invitation
+    // to use a guessed 24-byte glyph vertex.
+    std::function<std::optional<ui::VerifiedFontVertexLayout>(
+        const xdk::RawDraw&)> resolve_verified_live_vertex_layout;
     // These identifiers must come from independently verified USA archive
     // font material and source XDK EFontShader, NOT a convenient UI image.
     uint32_t original_font_resource_hash=0;
