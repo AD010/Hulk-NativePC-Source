@@ -2,6 +2,7 @@
 #include "RenderDevice.h"
 #include "RefCntAutoPtr.hpp"
 #include <stdexcept>
+#include <mutex>
 #include <tuple>
 #include <utility>
 
@@ -12,6 +13,11 @@ struct DiligentOriginalTextureResidency::State {
       :device(d),assets(owner){}
   Diligent::RefCntAutoPtr<Diligent::IRenderDevice> device;
   const textures::OriginalXboxTextureAssets& assets;
+  // Texture cache is shared by loading/UI and source Draw preparation.
+  // Hold this across both lookup and allocation to prevent duplicate GPU
+  // images and invalidated map iterators when different threads request
+  // the same original atlas at once.
+  mutable std::mutex residency_mutex;
   using Key=std::tuple<uint32_t,OriginalTextureColorSpace,OriginalTextureViewKind>;
   // Host images can remain bound in materials even after LOD cache eviction.
   std::map<Key,std::shared_ptr<const UploadedEorTexture>> textures;
@@ -31,6 +37,7 @@ std::shared_ptr<const UploadedEorTexture> DiligentOriginalTextureResidency::Acqu
       view!=OriginalTextureViewKind::NativeX2DArray))
     throw std::invalid_argument("Original EoR material color space/image dimension not proven");
   const State::Key key{hash,space,view};
+  std::lock_guard lock(state_->residency_mutex);
   const auto old=state_->textures.find(key);
   if(old!=state_->textures.end())return old->second;
   // Direct original resource loader verifies the pinned USA IND, LFXT
@@ -79,9 +86,13 @@ DiligentOriginalTextureResidency::BindMaterial(
   return result;
 }
 std::size_t DiligentOriginalTextureResidency::ResidentCount() const noexcept {
-  return state_ ? state_->textures.size() : 0;
+  if(!state_)return 0;
+  std::lock_guard lock(state_->residency_mutex);
+  return state_->textures.size();
 }
 void DiligentOriginalTextureResidency::Clear() noexcept {
-  if(state_)state_->textures.clear();
+  if(!state_)return;
+  std::lock_guard lock(state_->residency_mutex);
+  state_->textures.clear();
 }
 } // namespace hulk::eor::gpu
