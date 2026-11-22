@@ -1,5 +1,6 @@
 // Native installation-data discovery. No launch scripts and no extra user files.
 #include "assets_locator.h"
+#include "eor_archive.h"
 #include "native_game_data_root_store.h"
 
 #include <rex/cvar.h>
@@ -77,8 +78,7 @@ bool IsUsXex(const std::filesystem::path& file) {
 }
 // The user's USA global index differs from the older Xbox index by
 // 4250 resource entries. Localized indexes may legitimately differ.
-constexpr std::string_view kPinnedUsaIndexSha256 =
-    "ad22432b3484d079080047a5d6b8a0bffa54b7e8affba1d2273003d9b3c6090d";
+constexpr auto kPinnedUsaIndexSha256 = hulk::eor::kUsaGlobalIndexSha256;
 void AuditUsIndex(const std::filesystem::path& root) {
   constexpr auto known_us = kPinnedUsaIndexSha256;
   constexpr std::string_view prior =

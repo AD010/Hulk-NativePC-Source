@@ -29,6 +29,7 @@ struct LoadedNativeGeometry {
 };
 class OriginalModelAssets {
  public:
+  static OriginalModelAssets Open(Index index,const std::filesystem::path& archive);
   static OriginalModelAssets Open(const std::filesystem::path& index,
                                   const std::filesystem::path& archive);
   std::optional<LoadedModel> LoadHash(uint32_t hash) const;

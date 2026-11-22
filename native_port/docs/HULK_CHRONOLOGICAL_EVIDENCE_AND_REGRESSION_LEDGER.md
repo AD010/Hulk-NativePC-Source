@@ -593,3 +593,17 @@ The indexed `uiwidget_pausemenu` widget references the actual settings object (`
 - https://github.com/AD010/Hulk-NativePC-Source/blob/main/native_port/docs/HULK_WORLD_POPIN_LOD_2026-11-12.md
 - https://github.com/AD010/Hulk-NativePC-Source/blob/main/native_port/docs/HULK_D140_LOG201_VISUAL_PERFORMANCE_2026-11-14.md
 - https://github.com/AD010/Hulk-NativePC-Source/blob/main/native_port/docs/HULK_NATIVE_EOR_INDEXED_VERTEX_STREAMS_2026-11-15.md
+### 22 November — USA archive reader and offscreen Vulkan readback
+
+The earlier pause-object analysis used an index with SHA-256 prefix 46e6c6ec.
+The canonical USA index has prefix ad22432b. Its 3,938 Objects and 6,669
+Textures entries agree with the earlier index on hash, offset, size and
+reserved field. The pause-page check now requires the complete USA digest.
+The model and texture loaders authenticate and decode the same byte snapshot.
+
+The offscreen integration test loads the USA logo and font through the runtime
+texture cache. A staging readback matched all 524,288 decoded bytes of each
+512×256 BGRA atlas on Mesa llvmpipe and SwiftShader. The test needs private
+USA inputs. In the existing native_port/tests CMake project, set
+HULK_DILIGENT_CORE, HULK_USA_INDEX and HULK_USA_TEXTURES, build
+hulk_original_ui_vulkan_test, and run ctest -R original_ui_vulkan.

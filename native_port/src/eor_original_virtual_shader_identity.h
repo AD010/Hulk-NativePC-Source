@@ -15,7 +15,10 @@
 #include <vector>
 
 namespace hulk::eor::aot {
-Digest OriginalShaderVirtualSha256(std::span<const uint8_t> bytes) noexcept;
+Digest SourceSha256(std::span<const uint8_t> bytes) noexcept;
+inline Digest OriginalShaderVirtualSha256(std::span<const uint8_t> bytes) noexcept {
+  return SourceSha256(bytes);
+}
 class OriginalVirtualShaderIdentity {
  public:
   // HEORVRT1 + [count:LE32, version:LE32] +

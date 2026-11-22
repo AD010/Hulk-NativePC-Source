@@ -15,6 +15,9 @@
 
 namespace hulk::eor {
 
+inline constexpr std::string_view kUsaGlobalIndexSha256 =
+    "ad22432b3484d079080047a5d6b8a0bffa54b7e8affba1d2273003d9b3c6090d";
+
 enum class ByteOrder { Little, Big };
 
 struct Resource {
@@ -32,6 +35,7 @@ class Index {
  public:
   static Index Decode(std::span<const std::byte> bytes);
   static Index Load(const std::filesystem::path& path);
+  static Index LoadPinnedUsa(const std::filesystem::path& path);
 
   ByteOrder byte_order() const noexcept { return byte_order_; }
   uint32_t footer() const noexcept { return footer_; }

@@ -23,3 +23,26 @@ if(WIN32)
     target_link_libraries(hulk_native_save_path_test PRIVATE shell32 ole32)
 endif()
 add_test(NAME native_save_folder_policy COMMAND hulk_native_save_path_test)
+
+# Offscreen integration against the same Diligent checkout as the port.
+# Private USA files are supplied at test time and are never copied to the build.
+if(HULK_DILIGENT_CORE)
+    enable_language(C)
+    add_subdirectory("${HULK_DILIGENT_CORE}" diligent EXCLUDE_FROM_ALL)
+    add_executable(hulk_original_ui_vulkan_test eor_vulkan_original_ui_test.cpp
+        ../src/eor_archive.cpp ../src/eor_usa_index.cpp
+        ../src/eor_original_virtual_shader_identity.cpp
+        ../src/eor_original_texture_usa.cpp ../src/eor_original_texture_assets.cpp
+        ../src/eor_original_texture_gpu_layout.cpp ../src/eor_original_texture_mip_ranges.cpp
+        ../src/eor_original_texture_streams.cpp ../src/eor_xenos_texture_mips.cpp
+        ../src/eor_verified_sampler_bindings.cpp ../src/eor_diligent_texture_residency.cpp
+        ../src/eor_diligent_xenos_textures.cpp)
+    target_compile_features(hulk_original_ui_vulkan_test PRIVATE cxx_std_20)
+    target_include_directories(hulk_original_ui_vulkan_test PRIVATE ../src)
+    target_link_libraries(hulk_original_ui_vulkan_test PRIVATE
+        Diligent-GraphicsEngineVk-static Diligent-GraphicsEngineVkInterface Diligent-Common)
+    if(HULK_USA_INDEX AND HULK_USA_TEXTURES)
+        add_test(NAME original_ui_vulkan COMMAND hulk_original_ui_vulkan_test
+            "${HULK_USA_INDEX}" "${HULK_USA_TEXTURES}")
+    endif()
+endif()

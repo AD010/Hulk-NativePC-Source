@@ -173,7 +173,7 @@ def inspect_usa_look_options(index: bytes, objects: bytes, image: bytes) -> dict
     from audit_hulk_pc_x360_ui_assets import parse_index
 
     if (hashlib.sha256(index).hexdigest() !=
-            "46e6c6ec9f7428ba3a1737ab7ebad564c1b027b006c3e35156d2e036ab8b2820" or
+            "ad22432b3484d079080047a5d6b8a0bffa54b7e8affba1d2273003d9b3c6090d" or
             hashlib.sha256(objects).hexdigest() != XBOX_OBJECTS_SHA256 or
             hashlib.sha256(image).hexdigest() != USA_IMAGE_SHA256):
         raise ValueError("Unknown USA pause-menu input revision")
@@ -229,7 +229,7 @@ def inspect_usa_look_options(index: bytes, objects: bytes, image: bytes) -> dict
         if hashlib.sha256(blob(body, size)).hexdigest() != digest:
             raise ValueError("USA option PPC implementation changed: " + name)
         bindings.append({"method": name, "registry": hex(row), "body": hex(body)})
-    return {"widget_state_enter": enter, "settings_object_key": key("uipage_pause_settings").hex(),
+    return {"usa_index_sha256": hashlib.sha256(index).hexdigest(), "widget_state_enter": enter, "settings_object_key": key("uipage_pause_settings").hex(),
             "settings_events": changes, "game_options_child_key": child.hex(),
             "game_options_init": init, "registered_original_callbacks": bindings,
             "guest_pitch_boolean": "0x82e53b3c", "guest_yaw_boolean": "0x82e53b3d"}

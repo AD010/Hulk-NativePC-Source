@@ -64,6 +64,8 @@ class OriginalXboxTextureAssets {
   OriginalTextureBatch LoadSurfaceCandidates(
       std::span<const model::SurfaceMaterials> surfaces) const;
  private:
+  static OriginalXboxTextureAssets OpenIndexed(Index index,
+      const std::filesystem::path& archive, const std::filesystem::path& streams);
   Index index_;
   std::filesystem::path archive_;
   std::filesystem::path stream_archive_;

@@ -4,10 +4,13 @@
 namespace hulk::eor::model {
 OriginalModelAssets OriginalModelAssets::Open(const std::filesystem::path& index,
                                                const std::filesystem::path& archive) {
+  return Open(Index::Load(index),archive);
+}
+OriginalModelAssets OriginalModelAssets::Open(Index index,const std::filesystem::path& archive) {
   if (archive.empty() || !std::filesystem::is_regular_file(archive))
     throw std::invalid_argument("Original EoR MODELS.ARC unavailable");
   OriginalModelAssets assets;
-  assets.index_ = Index::Load(index);
+  assets.index_ = std::move(index);
   if (assets.index_.groups().find("Models") == assets.index_.groups().end())
     throw std::invalid_argument("Models group absent in original EoR IND");
   assets.archive_ = archive;

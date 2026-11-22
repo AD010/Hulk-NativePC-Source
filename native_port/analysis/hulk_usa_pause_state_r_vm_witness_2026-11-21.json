@@ -33,6 +33,7 @@
   "no_original_game_instruction_or_script_bytes_published": true,
   "original_ui_page_pause_settings_native_windows_binding_installed": false,
   "usa_original_camera_options": {
+    "usa_index_sha256": "ad22432b3484d079080047a5d6b8a0bffa54b7e8affba1d2273003d9b3c6090d",
     "widget_state_enter": {
       "method": "StateEnter_z",
       "object_offset": 13920,

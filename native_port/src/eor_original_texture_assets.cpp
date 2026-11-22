@@ -17,10 +17,15 @@ OriginalXboxTextureAssets OriginalXboxTextureAssets::Open(
     const std::filesystem::path& index_path,
     const std::filesystem::path& archive_path,
     const std::filesystem::path& stream_path) {
+  return OpenIndexed(Index::Load(index_path),archive_path,stream_path);
+}
+OriginalXboxTextureAssets OriginalXboxTextureAssets::OpenIndexed(
+    Index index,const std::filesystem::path& archive_path,
+    const std::filesystem::path& stream_path) {
   if (archive_path.empty() || !std::filesystem::is_regular_file(archive_path))
     throw std::invalid_argument("Original Xbox Textures.ARC is missing");
   OriginalXboxTextureAssets result;
-  result.index_ = Index::Load(index_path);
+  result.index_ = std::move(index);
   if (result.index_.byte_order() != ByteOrder::Big ||
       !result.index_.groups().contains("Textures"))
     throw std::invalid_argument("Original Xbox EoR texture index/platform mismatch");
