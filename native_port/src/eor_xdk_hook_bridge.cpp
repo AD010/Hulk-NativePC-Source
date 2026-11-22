@@ -1114,7 +1114,13 @@ bool InstallVerifiedSourceShaderPackFromDirectory(
     // All local paths are under ONE caller-selected private root; loading
     // metadata without the compiled original code must never announce a
     // source-complete native Vulkan renderer.
-    shaders->Load(directory/"HEORSPV1.bin");
+    // The private Hulk XenosRecomp/DXC compiler emits
+    // hulk_shader_bank.bin (with HEORSPV1 magic). Accept its generated
+    // filename as well as the explicit HEORSPV1.bin install alias.
+    const auto alias=directory/"HEORSPV1.bin";
+    const auto generated=directory/"hulk_shader_bank.bin";
+    shaders->Load(std::filesystem::is_regular_file(alias) ?
+                  alias : generated);
     effects->Load(directory/"HEORMAT2.bin");
     reflection->Load(directory/"HEORREF1.bin");
     samplers->Load(directory/"HEORSMP1.bin");
