@@ -1091,9 +1091,11 @@ bool InstallOriginalShaderCaptureIndex(
   std::lock_guard lock(g_mutex);
   if(g_offline_shader_pack &&
      ((g_offline_shader_pack->virtual_ids &&
-       g_offline_shader_pack->virtual_ids!=original) ||
+       g_offline_shader_pack->virtual_ids!=original &&
+       !g_offline_shader_pack->virtual_ids->SameOriginalSources(*original)) ||
       (original_effects &&
-       g_offline_shader_pack->effects!=original_effects)))
+       g_offline_shader_pack->effects!=original_effects &&
+       !g_offline_shader_pack->effects->SameOriginalSources(*original_effects))))
     return false;
   g_original_shader_capture_index=std::move(original);
   g_original_effect_capture_catalog=std::move(original_effects);
