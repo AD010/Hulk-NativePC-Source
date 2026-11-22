@@ -655,14 +655,20 @@ static bool MaterialPixelTexturesAgree(
       [](const gpu::VerifiedEorSampler& sampler) {
         return sampler.stage==gpu::OriginalSamplerStage::Pixel;
       });
-  if (!witness.original_xdk_texture_slot_mapping_verified || !mask ||
-      std::popcount(mask)!=pixel_count)
+  // An independently verified XDK pixel-slot map is a hard claim:
+  // reject an inconsistent mask or a missing source texture instead of
+  // accepting an unrelated material by falling back to shader-only match.
+  // Unverified mappings stay undecided and are checked by other provenance.
+  if (!witness.original_xdk_texture_slot_mapping_verified)
     return true;
+  if (std::popcount(mask)!=pixel_count)
+    return false;
+  if(pixel_count==0)return true;
   std::array<uint32_t,16> actual{}, expected{};
   size_t count=0;
   for (uint32_t slot=0;slot<16;++slot) {
     if (!(mask & (1u<<slot))) continue;
-    if (!call.original_pixel_texture_keys[slot]) return true;
+    if (!call.original_pixel_texture_keys[slot]) return false;
     actual[count++]=call.original_pixel_texture_keys[slot];
   }
   size_t pixel=0;
@@ -670,10 +676,10 @@ static bool MaterialPixelTexturesAgree(
     if (sampler.stage!=gpu::OriginalSamplerStage::Pixel)continue;
     if (!sampler.original_texture_hash ||
         !sampler.original_material_ownership_verified)
-      return true;
+      return false;
     expected[pixel++]=sampler.original_texture_hash;
   }
-  if(pixel!=count)return true;
+  if(pixel!=count)return false;
   std::sort(actual.begin(),actual.end());
   std::sort(expected.begin(),expected.end());
   return actual==expected;
