@@ -456,7 +456,28 @@ bool DiligentEorDirectBackend::CanReplayOriginalXdkTimeline(
   // resolve. Other original passes (shadows, MRT, chained post-processing)
   // require distinct native target mappings; rejecting them is safer than
   // pretending a single host RT is equivalent to all guest EDRAM tiles.
-  bool rt=false,depth=false,cleared=false,drew=false,resolved=false,tiling=false;
+  // D3D/XDK render-target binds persist across Present. The original
+  // game may Clear and Draw without issuing SetRenderTarget/SetDepthStencil
+  // again on *every* frame. Admit inherited bindings ONLY if the first
+  // captured real Draw's device shadow independently proves the same
+  // guest device, RT0, depth and shader/declaration owners as this host
+  // target. A pre-Draw rebinding must establish its own source identity
+  // before any Clear; no retroactive proof from a later Draw is allowed.
+  const auto& first=source.calls.front();
+  const bool inherited=first.observed_vs_matrices &&
+      MatchesVerifiedOriginalXdkMainDrawTargets(
+          *first.observed_vs_matrices,state_->format.original_screen);
+  bool pre_draw_rt_change=false,pre_draw_depth_change=false;
+  for(const auto& event:source.commands) {
+    if(event.draw_ordinal!=UINT32_MAX)break;
+    if(event.kind==xdk::CommandKind::SetRenderTarget)
+      pre_draw_rt_change=true;
+    else if(event.kind==xdk::CommandKind::SetDepthStencilSurface)
+      pre_draw_depth_change=true;
+  }
+  bool rt=inherited && !pre_draw_rt_change;
+  bool depth=inherited && !pre_draw_depth_change;
+  bool cleared=false,drew=false,resolved=false,tiling=false;
   for(const auto& cmd:source.commands) {
     if(cmd.draw_ordinal!=UINT32_MAX) {
       if(!rt || !depth || !cleared || resolved)return false;
