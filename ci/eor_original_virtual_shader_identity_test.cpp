@@ -68,6 +68,20 @@ int main() {
   Write(p,blob);
   OriginalVirtualShaderIdentity bank;bank.Load(p);
   assert(bank.size()==2);
+  OriginalVirtualShaderIdentity same_bank;same_bank.Load(p);
+  assert(&same_bank!=&bank &&
+         bank.SameOriginalSources(same_bank) &&
+         same_bank.SameOriginalSources(bank));
+  // Matching record counts alone cannot authorize a new shader generation.
+  // Change the original full source SHA without changing its stage, length
+  // or virtual hash: a separate loaded index must be rejected as different.
+  auto modified_bank=blob;
+  modified_bank[16+32]^=0x01u;
+  Write(p,modified_bank);
+  OriginalVirtualShaderIdentity divergent;divergent.Load(p);
+  assert(divergent.size()==bank.size() &&
+         !bank.SameOriginalSources(divergent));
+  Write(p,blob);
   auto vertex=bank.FindOriginalSource(vs,Stage::Vertex);
   auto pixel=bank.FindOriginalSource(ps,Stage::Pixel);
   assert(vertex && (*vertex)[0]==0x11u);
