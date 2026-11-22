@@ -186,6 +186,12 @@ struct VerifiedWorkerEorOwnerCatalog {
   native::FrameGeometry output{};
   std::vector<native::VerifiedXdkResourceWitness> verified_candidates;
   native::VerifiedOriginalResidentLookup resident_lookup;
+  // Optional render-thread-only hook to NativeWorldStream::RequestSourceVerifiedModels.
+  // A material candidate is a discovery HINT for original model I/O, not
+  // permission to draw it. Only this Present's guest device, declaration,
+  // shader objects, target pair and effect/pass select an upload request.
+  // The resident lookup and ALL full Draw provenance checks still gate GPU.
+  std::function<void(std::span<const uint32_t>)> request_source_models;
   std::shared_ptr<aot::ShaderBindingBackend> gpu;
   struct VerifiedFontMaterial {
     ui::VerifiedFontVertexLayout source_vertex_layout;
