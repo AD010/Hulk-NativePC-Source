@@ -30,6 +30,10 @@ struct BoundIndexedDraw {
   // True ONLY after a verified original DrawVertices stream was checked
   // against sequential decoded host triangle indices by the mesh matcher.
   bool source_nonindexed_linearization_verified = false;
+  // Source-verified EFontShader transient original GPU geometry, keyed by
+  // THIS real Draw and its original font resource/atlas. No invented
+  // MODELS.ARC mesh offset may be required for this variant.
+  bool original_dynamic_font_draw = false;
 };
 // Real original guest VS register values at the exact source Draw.
 // These are NOT automatically a Vulkan UBO or a 16:10 camera update:
