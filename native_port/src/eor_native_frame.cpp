@@ -27,20 +27,27 @@ std::optional<HostRasterWindow> MapOriginalRasterWindow(
   const double sx=double(dest.width)/guest.width, sy=double(dest.height)/guest.height;
   HostRasterWindow out{float(dest.left+v.x*sx),float(dest.top+v.y*sy),
                        float(v.width*sx),float(v.height*sy),v.min_depth,v.max_depth,{}};
-  int x0=int(v.x), y0=int(v.y), x1=x0+int(v.width), y1=y0+int(v.height);
+  // Source EoR viewports may have fractional edges (especially 2D text).
+  // Truncating x/width separately can clip the left edge of a glyph or
+  // lose the final column. Intersect the original signed XDK scissor in
+  // guest space first, then round at the actual PHYSICAL host pixel centres.
+  double x0=v.x,y0=v.y,x1=double(v.x)+v.width,y1=double(v.y)+v.height;
   if (v.scissor_enabled) {
-    x0=std::clamp(v.scissor[0],x0,x1);
-    y0=std::clamp(v.scissor[1],y0,y1);
-    x1=std::clamp(v.scissor[2],x0,x1);
-    y1=std::clamp(v.scissor[3],y0,y1);
+    x0=std::clamp(double(v.scissor[0]),x0,x1);
+    y0=std::clamp(double(v.scissor[1]),y0,y1);
+    x1=std::clamp(double(v.scissor[2]),x0,x1);
+    y1=std::clamp(double(v.scissor[3]),y0,y1);
   }
-  // First physical pixel with a centre on or after each source edge.
-  // Adjacent half-open source rectangles share the same physical edge.
-  const auto edge=[](uint32_t x,uint32_t src,uint32_t dst) {
-    return uint32_t((2ull*x*dst+src-1)/(2ull*src));
+  const auto edge=[](double original,uint32_t src,uint32_t dst) {
+    // First host pixel whose centre falls on or after this source edge.
+    // Exact integer edges match the historical round-to-nearest mapping.
+    return uint32_t(std::clamp(
+        std::ceil(original*double(dst)/src-0.5),0.0,double(dst)));
   };
-  const uint32_t left=edge(x0,guest.width,dest.width), top=edge(y0,guest.height,dest.height);
-  out.scissor={dest.left+left,dest.top+top,edge(x1,guest.width,dest.width)-left,
+  const uint32_t left=edge(x0,guest.width,dest.width);
+  const uint32_t top=edge(y0,guest.height,dest.height);
+  out.scissor={dest.left+left,dest.top+top,
+               edge(x1,guest.width,dest.width)-left,
                edge(y1,guest.height,dest.height)-top};
   if (v.width==0 || v.height==0) {
     // Vulkan requires nonzero viewport extent. The proven empty scissor
