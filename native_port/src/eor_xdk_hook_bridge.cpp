@@ -1378,7 +1378,7 @@ namespace {
 bool InstallVerifiedWorkerEorOwnerCatalogInternal(
     std::shared_ptr<const VerifiedWorkerEorOwnerCatalog> catalog,
     const std::shared_ptr<const VerifiedWorkerEorCatalogFactory>* factory,
-    const std::shared_ptr<const aot::ShaderBank>* bank,
+    const OfflineShaderPack* pack,
     const std::shared_ptr<const VerifiedWorkerEorOwnerCatalog>* expected_previous) {
   if(!catalog || !catalog->device || !catalog->gpu ||
      (!catalog->resident_lookup && !catalog->verified_candidates.empty()) ||
@@ -1440,7 +1440,11 @@ bool InstallVerifiedWorkerEorOwnerCatalogInternal(
   // later allowed a stale GPU catalog to overwrite a newer owner.
   if(!g_offline_shader_pack || !g_offline_shader_pack->virtual_ids ||
      (factory && (!*factory || g_worker_catalog_factory!=*factory)) ||
-     (bank && (!*bank || g_offline_shader_pack->shaders!=*bank)) ||
+     (pack && (g_offline_shader_pack->shaders!=pack->shaders ||
+               g_offline_shader_pack->effects!=pack->effects ||
+               g_offline_shader_pack->reflection!=pack->reflection ||
+               g_offline_shader_pack->samplers!=pack->samplers ||
+               g_offline_shader_pack->virtual_ids!=pack->virtual_ids)) ||
      (expected_previous &&
       g_worker_owner_catalog!=*expected_previous))
     return false;
@@ -1804,7 +1808,7 @@ native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(
   // Recheck generation under lock and never hold the original XDK capture
   // mutex while loading, uploading or compiling any GPU resources.
   std::shared_ptr<const VerifiedWorkerEorCatalogFactory> factory;
-  std::shared_ptr<const aot::ShaderBank> factory_shader_generation;
+  std::optional<OfflineShaderPack> factory_shader_generation;
   {
     std::lock_guard lock(g_mutex);
     // A renderer can stream more original EoR models/materials after the
@@ -1817,7 +1821,7 @@ native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(
         (source_sequence>g_worker_catalog_factory_last_attempt &&
          source_sequence-g_worker_catalog_factory_last_attempt>=60))) {
       factory=g_worker_catalog_factory;
-      factory_shader_generation=g_offline_shader_pack->shaders;
+      factory_shader_generation=*g_offline_shader_pack;
       g_worker_catalog_factory_last_attempt=source_sequence;
     }
   }
@@ -1857,11 +1861,15 @@ native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(
         if(verified && verified!=owner_catalog &&
            InstallVerifiedWorkerEorOwnerCatalogInternal(
                std::move(verified),&factory,
-               &factory_shader_generation,&owner_catalog)) {
+               &*factory_shader_generation,&owner_catalog)) {
           std::lock_guard lock(g_mutex);
           if(g_worker_catalog_factory==factory &&
              g_offline_shader_pack &&
-             g_offline_shader_pack->shaders==factory_shader_generation)
+             g_offline_shader_pack->shaders==factory_shader_generation->shaders &&
+             g_offline_shader_pack->effects==factory_shader_generation->effects &&
+             g_offline_shader_pack->reflection==factory_shader_generation->reflection &&
+             g_offline_shader_pack->samplers==factory_shader_generation->samplers &&
+             g_offline_shader_pack->virtual_ids==factory_shader_generation->virtual_ids)
             owner_catalog=g_worker_owner_catalog;
         }
       }
