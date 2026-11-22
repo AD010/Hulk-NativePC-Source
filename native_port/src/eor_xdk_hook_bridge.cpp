@@ -377,6 +377,15 @@ ScopedOriginalEorShaderMethod::ScopedOriginalEorShaderMethod(
   // Only the LIVE original this[0] vtable disambiguates its real owner.
   if(!ProvenUsaEorShaderMethodEntry(original_method_guest) ||
      !CaptureEnabled())return;
+  // Nested original shader classes may temporarily replace the current
+  // material binding. Remember the parent's exact descriptor so that its
+  // later Draw can still be authenticated against CURRENT guest memory.
+  prior_applied_material_=g_applied_item_material;
+  prior_shader_depth_=g_source_shader_method_depth;
+  prior_rejected_nesting_=g_source_shader_rejected_nesting;
+  if(prior_shader_depth_)
+    prior_shader_instance_=g_source_shader_method_stack[prior_shader_depth_-1].original_shader_instance_guest;
+  touched_material_=true;
   g_applied_item_material={};
   const auto suppress_unverified=[&]() noexcept {
     ++g_source_shader_rejected_nesting;
@@ -420,11 +429,21 @@ ScopedOriginalEorShaderMethod::ScopedOriginalEorShaderMethod(
   active_=true;
 }
 ScopedOriginalEorShaderMethod::~ScopedOriginalEorShaderMethod() noexcept {
-  g_applied_item_material={};
+  if(!touched_material_)return;
   if(suppressed_ && g_source_shader_rejected_nesting)
     --g_source_shader_rejected_nesting;
   if(active_ && g_source_shader_method_depth)
     --g_source_shader_method_depth;
+  // Do not restore a material into a different guest shader owner after
+  // malformed or unbalanced hooks. The live Draw still compares the
+  // restored descriptor to original guest bytes and current XDK slots.
+  const bool same_parent= !prior_shader_depth_ ||
+      (g_source_shader_method_depth==prior_shader_depth_ &&
+       g_source_shader_method_stack[prior_shader_depth_-1].original_shader_instance_guest==prior_shader_instance_);
+  if(same_parent && g_source_shader_method_depth==prior_shader_depth_ &&
+     g_source_shader_rejected_nesting==prior_rejected_nesting_)
+    g_applied_item_material=prior_applied_material_;
+  else g_applied_item_material={};
 }
 
 ScopedOriginalEorRenderItem::ScopedOriginalEorRenderItem(
@@ -444,7 +463,11 @@ ScopedOriginalEorRenderItem::ScopedOriginalEorRenderItem(
   previous_material_=parent.original_engine_render_item_material_guest;
   previous_material_verified_=parent.original_engine_item_material_source_verified;
   previous_verified_=parent.original_engine_item_abi_verified;
+  prior_applied_material_=g_applied_item_material;
   touched_=true;
+  // Prevent one sibling item from inheriting a prior item's texture
+  // descriptor before its own original source material setter executes.
+  g_applied_item_material={};
   // Every sibling item re-enters via 0x82642BD4. NEVER reuse an old
   // item owner's source pointer if the next call is malformed, from
   // another engine renderer or missing a guest shader instance.
@@ -519,7 +542,7 @@ ScopedOriginalEorRenderItem::ScopedOriginalEorRenderItem(
   }
 }
 ScopedOriginalEorRenderItem::~ScopedOriginalEorRenderItem() noexcept {
-  g_applied_item_material={};
+  if(!touched_)return;
   // Nested item invocations are permitted, but only restore into the
   // EXACT original source shader frame. Never revive stale pointers
   // after a different shader nested on top or capture was disabled.
@@ -528,6 +551,10 @@ ScopedOriginalEorRenderItem::~ScopedOriginalEorRenderItem() noexcept {
   auto& parent=g_source_shader_method_stack[shader_source_depth_-1u];
   if(parent.original_shader_instance_guest!=owning_shader_instance_)
     return; // original owning shader scope changed; never revive old owner
+  // The outer item may resume after a nested render-item call. Retain its
+  // source-authenticated descriptor; ReadUsaItemPixelTextures validates
+  // both the actual descriptor and CURRENT hardware slot objects at Draw.
+  g_applied_item_material=prior_applied_material_;
   parent.original_engine_item_method_guest=previous_method_;
   parent.original_engine_render_item_guest=previous_item_;
   parent.original_engine_render_item_context_guest=previous_context_;
