@@ -1793,7 +1793,7 @@ native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(
   }
   if(factory) {
     try {
-      const auto verified=(*factory)(host);
+      auto verified=(*factory)(host);
       // The producer is permitted to reject the current source epoch.
       // Its return value must be an independently validated original
       // material + live XDK owner catalogue on this SAME Vulkan device.
