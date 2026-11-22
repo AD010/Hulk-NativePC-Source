@@ -688,7 +688,8 @@ static bool MaterialPixelTexturesAgree(
 std::vector<VerifiedDrawSource> ResolveCapturedResourceDraws(
     const xdk::Frame& frame,
     std::span<const VerifiedXdkResourceWitness> witnesses,
-    std::span<const model::UploadedOriginalModel* const> residents) {
+    std::span<const model::UploadedOriginalModel* const> residents,
+    std::vector<VerifiedXdkResourceWitness>* selected_live_witnesses) {
   if(!frame.sequence || frame.dropped || frame.dropped_commands ||
      (!frame.commands.empty() &&
       !xdk::ValidateOriginalCommandTimeline(frame)) ||
@@ -717,6 +718,11 @@ std::vector<VerifiedDrawSource> ResolveCapturedResourceDraws(
   }
   std::vector<VerifiedXdkDrawSubmission> matched;
   matched.reserve(frame.calls.size());
+  // Materialize only the *selected* independent source owners. In
+  // particular, a reusable candidate is not a ready-to-submit Draw: it
+  // needs this frame's actual buffers, XDK shader objects and ordinals.
+  std::vector<VerifiedXdkResourceWitness> materialized;
+  if(selected_live_witnesses)materialized.reserve(frame.calls.size());
   // Compute the actual byte-exact guest VB+IB owner ONCE per source Draw,
   // before choosing among multiple possible original EoR material witnesses.
   // This is not a source of surface/pass/PSO authority by itself.
@@ -768,6 +774,7 @@ std::vector<VerifiedDrawSource> ResolveCapturedResourceDraws(
     }
     exact_mesh_at_draw.push_back(exact);
     std::optional<VerifiedXdkDrawSubmission> unique;
+    const VerifiedXdkResourceWitness* selected_owner=nullptr;
     const bool at_draw=by_ordinal[ordinal]!=nullptr;
     const std::span<const WitnessPtr> candidates=at_draw ?
         std::span<const WitnessPtr>(&by_ordinal[ordinal],1) : reusable;
@@ -903,9 +910,21 @@ std::vector<VerifiedDrawSource> ResolveCapturedResourceDraws(
       if(unique)
         throw std::invalid_argument("Ambiguous original Xbox material/mesh mapping");
       unique=std::move(*translated);
+      selected_owner=entry;
     }
     if(!unique)
       throw std::invalid_argument("No verified original Xbox model/material for live Draw");
+    if(selected_live_witnesses) {
+      // Preserve only source-proven flags; authoritative resource pointers
+      // and shader parents come from the current PPC Draw, never a reused
+      // catalogue entry from an earlier frame.
+      auto actual_owner=*selected_owner;
+      actual_owner.original_resources=resources;
+      actual_owner.original_source_engine_shader_method=
+          call.original_engine_shader_method;
+      actual_owner.original_source_submission=*unique;
+      materialized.push_back(std::move(actual_owner));
+    }
     matched.push_back(std::move(*unique));
   }
   // Revalidate every primitive, real source index/vertex window, shader
@@ -941,7 +960,26 @@ std::vector<VerifiedDrawSource> ResolveCapturedResourceDraws(
             "Verified EoR host Draw disagrees with exact original GPU buffer offsets");
     }
   }
+  if(selected_live_witnesses) {
+    // MatchCapturedMixedDraws and subsequent byte checks resolved the
+    // final guest->host index window and stamped this exact Present/ordinal.
+    // Do not expose any partially materialized witnesses on failure.
+    for(size_t i=0;i<resolved.size();++i)
+      std::visit([&](auto& submission) {
+        submission.native_draw=resolved[i];
+      },materialized[i].original_source_submission);
+    *selected_live_witnesses=std::move(materialized);
+  }
   return resolved;
+}
+std::vector<VerifiedXdkResourceWitness> MaterializeLiveOriginalResourceWitnesses(
+    const xdk::Frame& frame,
+    std::span<const VerifiedXdkResourceWitness> verified_candidates,
+    std::span<const model::UploadedOriginalModel* const> residents) {
+  std::vector<VerifiedXdkResourceWitness> exact;
+  (void)ResolveCapturedResourceDraws(
+      frame,verified_candidates,residents,&exact);
+  return exact;
 }
 void ReplayCapturedResourceScene(
     const xdk::Frame& captured,
