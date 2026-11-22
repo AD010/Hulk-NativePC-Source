@@ -546,11 +546,16 @@ ScopedOriginalEorRenderItem::~ScopedOriginalEorRenderItem() noexcept {
   // Nested item invocations are permitted, but only restore into the
   // EXACT original source shader frame. Never revive stale pointers
   // after a different shader nested on top or capture was disabled.
-  if(!touched_ || !shader_source_depth_ ||
-     shader_source_depth_!=g_source_shader_method_depth)return;
+  if(!shader_source_depth_ ||
+     shader_source_depth_!=g_source_shader_method_depth) {
+    g_applied_item_material={};
+    return;
+  }
   auto& parent=g_source_shader_method_stack[shader_source_depth_-1u];
-  if(parent.original_shader_instance_guest!=owning_shader_instance_)
-    return; // original owning shader scope changed; never revive old owner
+  if(parent.original_shader_instance_guest!=owning_shader_instance_) {
+    g_applied_item_material={};
+    return; // the original owning shader changed; never revive stale material
+  }
   // The outer item may resume after a nested render-item call. Retain its
   // source-authenticated descriptor; ReadUsaItemPixelTextures validates
   // both the actual descriptor and CURRENT hardware slot objects at Draw.
