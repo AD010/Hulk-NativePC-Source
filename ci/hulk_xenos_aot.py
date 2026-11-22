@@ -121,6 +121,10 @@ def compile_bank(bank: Path, out: Path, xenos: Path, dxc: Path, common: Path,
     logical = os.cpu_count() or 1
     active_workers = max(1, min(workers or max(1, logical - 2), 8))
     manifest, entries = _entries(bank)
+    # Keep the complete authenticated source inventory even when --limit or
+    # --effect-hash selects a smaller incremental compilation batch.
+    full_index = {(row["sha256"], row["stage"]): row for row in entries}
+    full_count = len(full_index)
     if effect_hashes:
         if effect_catalog is None:
             raise ValueError("Original HEORMAT2 path required for effect-targeted AOT")
@@ -152,10 +156,29 @@ def compile_bank(bank: Path, out: Path, xenos: Path, dxc: Path, common: Path,
             if (previous.get("source_bank_sha256")==manifest["archive_sha256"]
                     and previous.get("toolchain_sha256")==toolchain_sha256):
                 for item in previous.get("compiled", []):
-                    if (isinstance(item, dict) and
-                            SHA.fullmatch(item.get("source_sha256", "")) and
-                            item.get("stage") in ("VS", "PS")):
-                        prior_compiled[item["source_sha256"], item["stage"]]=item
+                    if not isinstance(item, dict):
+                        continue
+                    sha, stage = item.get("source_sha256"), item.get("stage")
+                    if (not isinstance(sha, str) or not SHA.fullmatch(sha)
+                            or stage not in ("VS", "PS")
+                            or (sha, stage) not in full_index
+                            or item.get("private_spirv") != f"{sha}.{stage.lower()}.spv"):
+                        continue
+                    # A previous manifest is never enough to authenticate
+                    # an executable program: re-read and inspect its bytes
+                    # before allowing carry-over to a new partial AOT run.
+                    try:
+                        data = (out / item["private_spirv"]).read_bytes()
+                        if (len(data) != item.get("spirv_bytes") or
+                            hashlib.sha256(data).hexdigest() !=
+                                item.get("spirv_sha256")):
+                            continue
+                        _check_spirv(data)
+                        spirv_info(data, stage)
+                        validate_named_spirv_images(data)
+                        prior_compiled[(sha, stage)] = item
+                    except (OSError, ValueError, TypeError):
+                        continue
         except (OSError, ValueError, TypeError):
             prior_compiled={}  # stale/corrupt output never authorizes AOT
 
@@ -236,17 +259,27 @@ def compile_bank(bank: Path, out: Path, xenos: Path, dxc: Path, common: Path,
                 success.append(good)
             if error is not None:
                 errors.append(error)
+    # Merge successful selected shaders with the still-verified results of
+    # earlier batches. Previous --limit / --effect-hash invocations used to
+    # OVERWRITE the cumulative bank with only that subset, discarding hours
+    # of verified original SPIR-V work and defeating --resume.
+    selected_keys = {(row["sha256"], row["stage"]) for row in entries}
+    cumulative = {key: item for key, item in prior_compiled.items()
+                  if key not in selected_keys}
+    cumulative.update({(item["source_sha256"], item["stage"]): item
+                       for item in success})
+    all_success = sorted(cumulative.values(),
+                         key=lambda item: item["source_sha256"])
     # NativePC binary SPIR-V bank: no JSON parser or runtime DXC required.
-    # The expected count is the FULL original source bank, not the --limit
-    # smoke-test count; partial precompilation cannot become "ready".
-    full_count = len(_entries(bank)[1])
+    # The expected count is ALWAYS the complete authenticated original bank.
+    # Partial compilation is represented honestly as incomplete coverage.
     pack_target = out / "hulk_shader_bank.bin"
     with tempfile.NamedTemporaryFile("wb", dir=out, prefix=".hulk_spv_",
                                      delete=False) as tmp:
         pack_temp = Path(tmp.name)
         tmp.write(b"HEORSPV1")
-        tmp.write(struct.pack("<II", full_count, len(success)))
-        for item in sorted(success, key=lambda entry: entry["source_sha256"]):
+        tmp.write(struct.pack("<II", full_count, len(all_success)))
+        for item in all_success:
             source_sha = bytes.fromhex(item["source_sha256"])
             shader = (out / item["private_spirv"]).read_bytes()
             _check_spirv(shader)
@@ -260,11 +293,12 @@ def compile_bank(bank: Path, out: Path, xenos: Path, dxc: Path, common: Path,
         pack_temp.unlink(missing_ok=True)
     report = {"version": 1, "source_bank_sha256": manifest["archive_sha256"],
               "input_count": len(entries), "workers_used": active_workers,
-              "compiled_count": len(success),
+              "compiled_count": len(all_success),
+              "selected_compiled_count": len(success),
               "reused_verified_count": sum(bool(x.get("reused_verified"))
                                            for x in success),
               "toolchain_sha256": toolchain_sha256,
-              "failed_count": len(errors), "compiled": success, "failed": errors,
+              "failed_count": len(errors), "compiled": all_success, "failed": errors,
               "driver_pipeline_created": False,
               "game_draw_shader_mapping_verified": False,
               "native_renderer_ready": False}
