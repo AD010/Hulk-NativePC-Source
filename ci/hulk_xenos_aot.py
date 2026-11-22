@@ -106,7 +106,7 @@ def compile_bank(bank: Path, out: Path, xenos: Path, dxc: Path, common: Path,
                  repository: Path, limit: int = 0, workers: int = 0,
                  effect_catalog: Path | None = None,
                  effect_hashes: tuple[int, ...] = (),
-                 resume: bool = False) -> dict:
+                 resume: bool = True) -> dict:
     bank = _private(bank, repository)
     out = _private(out, repository)
     if not xenos.is_file() or not dxc.is_file() or not common.is_file():
