@@ -34,10 +34,18 @@ class OriginalVirtualShaderIdentity {
       std::span<const uint8_t> exact_original_virtual_header,
       Stage expected_stage) const noexcept;
   size_t size() const noexcept {return original_.size();}
+  // Two independently loaded, fully authenticated HEORVRT1 catalogues
+  // must compare by their original immutable SHA mappings, NOT the C++
+  // shared_ptr address. Startup AOT loading may create a second copy of
+  // the same pinned original USA metadata bank on a different thread.
+  bool SameOriginalSources(const OriginalVirtualShaderIdentity& rhs) const noexcept {
+    return original_==rhs.original_;
+  }
   void Clear() noexcept {original_.clear();}
  private:
   struct Entry {Digest full_source_sha{};Stage stage=Stage::Vertex;
-                uint32_t virtual_bytes=0;};
+                uint32_t virtual_bytes=0;
+                bool operator==(const Entry&) const = default;};
   std::map<Digest,Entry> original_;
 };
 // A live XDK shader object can be linked to a source SHA only when the
