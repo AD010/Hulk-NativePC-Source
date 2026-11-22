@@ -179,6 +179,65 @@ class AotTests(unittest.TestCase):
                 compile_bank(b,root/"out",root/"x.exe",root/"d.exe",
                              root/"common.h",repo,workers=17)
 
+    def test_killed_full_bank_recovers_from_durable_checkpoint(self):
+        # A 5194-program original bank cannot lose its entire toolchain
+        # result when a long Windows/Work session ends mid-translation.
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory)
+            bank_root,_=bank(root)
+            manifest_path=bank_root/"manifest.json"
+            manifest=json.loads(manifest_path.read_text())
+            for n in range(32):
+                source=bytes([n+1])*80
+                sha=hashlib.sha256(source).hexdigest()
+                (bank_root/"Xenos"/(sha+".xenos.bin")).write_bytes(source)
+                manifest["shader_containers"].append({
+                    "sha256":sha, "stage":"VS", "bytes":len(source),
+                    "private_file":f"Xenos/{sha}.xenos.bin",
+                    "effect":"AABBCCDD"})
+            manifest_path.write_text(json.dumps(manifest))
+            repo=root/"public";repo.mkdir()
+            for name in ("x.exe","d.exe","common.h"):
+                (root/name).write_bytes(b"stable compiler")
+            compiled={"conversions":0}
+            def interrupted(args,**kwargs):
+                if "-Fo" in args:
+                    Path(args[args.index("-Fo")+1]).write_bytes(
+                        fake_legal_spirv("VS"))
+                else:
+                    compiled["conversions"]+=1
+                    if compiled["conversions"]==33:
+                        raise KeyboardInterrupt("synthetic runner shutdown")
+                    Path(args[2]).write_text(HLSL_FIXTURE)
+                return type("Result",(),{"returncode":0})()
+            with patch("hulk_xenos_aot.subprocess.run",side_effect=interrupted):
+                with self.assertRaises(KeyboardInterrupt):
+                    compile_bank(bank_root,root/"out",root/"x.exe",
+                                 root/"d.exe",root/"common.h",repo,workers=1)
+            partial=json.loads((root/"out"/"aot_manifest.json").read_text())
+            self.assertTrue(partial["in_progress"])
+            self.assertEqual(partial["compiled_count"],32)
+            self.assertFalse((root/"out"/"hulk_shader_bank.bin").exists())
+            compiled["conversions"]=0
+            def recover(args,**kwargs):
+                if "-Fo" in args:
+                    Path(args[args.index("-Fo")+1]).write_bytes(
+                        fake_legal_spirv("VS"))
+                else:
+                    compiled["conversions"]+=1
+                    Path(args[2]).write_text(HLSL_FIXTURE)
+                return type("Result",(),{"returncode":0})()
+            with patch("hulk_xenos_aot.subprocess.run",side_effect=recover):
+                result=compile_bank(bank_root,root/"out",root/"x.exe",
+                                    root/"d.exe",root/"common.h",repo,workers=1)
+            self.assertEqual(compiled["conversions"],1)
+            self.assertEqual(result["reused_verified_count"],32)
+            self.assertEqual(result["compiled_count"],33)
+            self.assertEqual(result["failed_count"],0)
+            self.assertFalse(result.get("in_progress",False))
+            self.assertEqual(struct.unpack_from("<II",
+                (root/"out"/"hulk_shader_bank.bin").read_bytes(),8),(33,33))
+
     def test_fail_closed_on_compiler_and_spirv(self):
         with tempfile.TemporaryDirectory() as temp:
             root=Path(temp)
