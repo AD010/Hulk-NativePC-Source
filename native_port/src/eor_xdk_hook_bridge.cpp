@@ -1647,6 +1647,10 @@ native_x_renderer::HulkEorPresentResult ReplayVerifiedMixedOriginalFrame(
     // The graphics queue now owns this source submission; never free its
     // buffer by the pre-BeginScene discard path, even if WaitForIdle fails.
     staged.active=false;
+    // WaitForIdle only covers commands already submitted to Vulkan. Flush
+    // the current immediate context first; otherwise transient UI buffers
+    // may be freed before the glyph DrawIndexed has reached the GPU queue.
+    host.context()->Flush();
     host.context()->WaitForIdle();
     owner->direct_gpu->RetireCompletedOriginalFontDraws(source_sequence);
     g_eor_ready_backbuffers.fetch_add(1,std::memory_order_relaxed);
@@ -1655,6 +1659,7 @@ native_x_renderer::HulkEorPresentResult ReplayVerifiedMixedOriginalFrame(
     if(began_gpu) {
       staged.active=false;
       try {
+        host.context()->Flush();
         host.context()->WaitForIdle();
         owner->direct_gpu->RetireCompletedOriginalFontDraws(source_sequence);
       } catch (...) {
