@@ -295,8 +295,10 @@ def main() -> int:
                    help="Private source-verified HEORMAT2.bin effect/pass ledger")
     p.add_argument("--effect-hash", action="append", type=lambda s:int(s,0),
                    default=[], help="Compile actual VS/PS of this original effect; repeat for scenes")
-    p.add_argument("--resume", action="store_true",
-                   help="reuse only SHA-verified previous results from this exact source/toolchain")
+    p.add_argument("--resume", action="store_true", default=True,
+                   help="reuse only SHA-verified results from this exact source/toolchain (default)")
+    p.add_argument("--no-resume", action="store_false", dest="resume",
+                   help="force rebuilding every original shader from verified Xenos input")
     p.add_argument("--workers", type=int, default=0,
                    help="AOT subprocess concurrency: auto (0) reserves two logical CPUs, max 8; explicit 1..16")
     args = p.parse_args()
