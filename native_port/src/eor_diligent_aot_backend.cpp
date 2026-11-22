@@ -496,7 +496,11 @@ bool DiligentEorDirectBackend::CanReplayOriginalXdkTimeline(
         if(resolved || ((cmd.captured_clear->flags&1u) && !rt) ||
            ((cmd.captured_clear->flags&0x30u) && !depth))
           return false;
-        cleared=true;break;
+        // A stencil/depth-only source Clear does not initialize this
+        // independent host color target. Never present undefined pixels
+        // under an otherwise valid original text/UI Draw.
+        if(cmd.captured_clear->flags&1u)cleared=true;
+        break;
       case xdk::CommandKind::BeginTiling:
         if(tiling || resolved || !rt)return false;
         tiling=true;break;
