@@ -403,12 +403,13 @@ HRESULT STDMETHODCALLTYPE OnCreateDevice(IDirect3D9* api,UINT adapter,
      std::fill_n(mipPointRequested,16,false);
      std::fill_n(minLinearRequested,16,false);
      std::fill_n(afMaximumOverridden,16,false);}
-    // A recreated device can reuse a shader pointer address. Never let
-    // stale CTAB reflection from the old device affect a new shader or HUD.
-    // Do not clear on Reset: D3D9 shader objects can survive that operation.
+    // Do not erase shader reflections belonging to other live D3D9 devices.
+    // CreateVertexShader replaces a reflection entry when an address is reused,
+    // and Reset does not destroy managed shader objects. Clearing the global
+    // map here could silently disable Hor+ on an unrelated live device.
+    // Keep existing entries until shader/device lifetime tracking is added.
     {std::lock_guard lock(shaderMutex);
-     activeVS=nullptr;
-     shaderMap.clear();}
+     activeVS=nullptr;}
     D3DCAPS9 caps{};
     // D3D9 has separate mip-filter capabilities for 2D/cube/volume textures.
     // Keep the exact device caps: DXVK or older native drivers may differ.
