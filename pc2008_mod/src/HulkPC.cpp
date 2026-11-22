@@ -473,15 +473,17 @@ HRESULT STDMETHODCALLTYPE OnReset(IDirect3DDevice9* dev,D3DPRESENT_PARAMETERS* p
   // tracked shader only after a successful reset, not before the call.
   const HRESULT firstHr=realReset(dev,pp);
   HRESULT hr=firstHr;
-  if(FAILED(hr) && changed) {
+  if(FAILED(hr) && pp) {
+    // D3D9 is permitted to rewrite the caller's parameters on failure.
+    // Restore the host request even without an active override; otherwise a
+    // failed ordinary Reset can poison the game's next lost-device retry.
     *pp=original;
-    hr=realReset(dev,pp);
-    // Reset may rewrite the presentation parameters even on failure.
-    // Restore the exact host request when neither the forced mode nor
-    // its unmodified fallback was accepted.
-    if(FAILED(hr)) *pp=original;
-    Log("[D3D9] Reset forced mode failed hr=0x%08lX; original retry hr=0x%08lX\r\n",
-        (unsigned long)(unsigned int)firstHr,(unsigned long)(unsigned int)hr);
+    if(changed) {
+      hr=realReset(dev,pp);
+      if(FAILED(hr)) *pp=original;
+      Log("[D3D9] Reset forced mode failed hr=0x%08lX; original retry hr=0x%08lX\r\n",
+          (unsigned long)(unsigned int)firstHr,(unsigned long)(unsigned int)hr);
+    }
   }
   if(SUCCEEDED(hr)) {
     // Reset can change the presentation window, or clear hDeviceWindow to
