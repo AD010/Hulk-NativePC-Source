@@ -799,13 +799,34 @@ std::vector<VerifiedDrawSource> ResolveCapturedResourceDraws(
       const auto& live_engine=call.original_engine_shader_method;
       const auto& proven_engine=
           candidate.original_source_engine_shader_method;
+      // A previously verified class->material mapping may be reusable
+      // across two instances, but ONLY after the current guest Draw proves
+      // its own complete original mesh bytes and source shader effect.
+      // Never make the class/vtable itself a model/texture identifier.
+      const bool reusable_class=
+          !at_draw && !proven_engine &&
+          candidate.original_shader_class_material_owner_verified &&
+          candidate.original_material_shader_method_guest &&
+          candidate.original_material_shader_vtable_guest &&
+          xdk::ProvenUsaEorShaderMethodVtablePair(
+              candidate.original_material_shader_method_guest,
+              candidate.original_material_shader_vtable_guest) &&
+          exact && call.observed_live_eor_effect_pass;
       if(live_engine) {
-        if(!ValidOriginalEorShaderMethod(*live_engine) ||
-           !proven_engine ||
-           !SameOriginalEorShaderMethod(*live_engine,*proven_engine))
+        if(!ValidOriginalEorShaderMethod(*live_engine))
           continue;
-      } else if(proven_engine) {
-        continue; // stale or fabricated engine source method owner
+        if(proven_engine) {
+          if(!SameOriginalEorShaderMethod(*live_engine,*proven_engine))
+            continue;
+        } else if(!reusable_class ||
+                  live_engine->original_shader_method_guest!=
+                      candidate.original_material_shader_method_guest ||
+                  live_engine->original_shader_vtable_guest!=
+                      candidate.original_material_shader_vtable_guest)
+          continue;
+      } else if(proven_engine ||
+                candidate.original_shader_class_material_owner_verified) {
+        continue; // stale/absent original class parent
       }
       // If the original EoR engine independently authenticated a nonzero
       // vertex declaration slot, its CURRENT XDK allocation must actually
