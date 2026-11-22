@@ -248,6 +248,63 @@ std::optional<uint32_t> IdentifyOriginalMaterialSurface(
   }
   return unique;
 }
+std::optional<uint32_t> IdentifyLiveOriginalXdkMaterialSurface(
+    const model::UploadedOriginalModel& model,
+    const xdk::RawDraw& draw,uint16_t mask) noexcept {
+  if(!model.original_resource_hash ||
+     model.original_identity.platform!=model::Platform::Xbox360 ||
+     !draw.observed_vs_matrices ||
+     !draw.original_engine_shader_method ||
+     !draw.observed_live_eor_effect_pass || !mask)
+    return std::nullopt;
+  const auto& method=*draw.original_engine_shader_method;
+  const auto& state=*draw.observed_vs_matrices;
+  if(!method.original_pass_vs_ps_xdk_binding_verified ||
+     !method.original_pass_sampler_slots_verified ||
+     !method.original_pass_live_texture_objects_present ||
+     !method.original_pass_material_context_guest ||
+     (mask&~method.original_pass_sampler_slot_mask)!=0)
+    return std::nullopt;
+  // Each sampled texture key must be read from the actual guest source
+  // material-context setter and agree with a CURRENT bound XDK texture
+  // object. A stale unbound texture index cannot authorize any surface.
+  std::array<uint32_t,16> observed{};
+  unsigned count=0;
+  for(unsigned slot=0;slot<16;++slot) {
+    if(!(mask&(uint16_t{1}<<slot)))continue;
+    const auto id=draw.original_pixel_texture_keys[slot];
+    if(!id || !state.original_texture_guest_objects[slot])
+      return std::nullopt;
+    for(unsigned i=0;i<count;++i)
+      if(observed[i]==id)return std::nullopt; // duplicate weak evidence
+    observed[count++]=id;
+  }
+  std::optional<uint32_t> unique;
+  for(const auto& surface:model.original_surface_candidates) {
+    if(surface.original_material_name.empty())continue;
+    bool complete=true;
+    for(unsigned i=0;i<count;++i) {
+      bool found=false;
+      for(const auto& indexed:surface.indexed_texture_references) {
+        if(indexed.original_texture_hash==observed[i] &&
+           indexed.original_resource.hash==observed[i] &&
+           indexed.original_resource.size &&
+           !indexed.original_resource.reserved) {
+          found=true;
+          break;
+        }
+      }
+      if(!found) {
+        complete=false;
+        break;
+      }
+    }
+    if(!complete)continue;
+    if(unique)return std::nullopt; // shared texture set is ambiguous
+    unique=surface.ordinal;
+  }
+  return unique;
+}
 std::vector<aot::BoundIndexedDraw> BindVerifiedGeometryDraws(
     std::span<const VerifiedDrawSource> sources,
     std::span<const model::UploadedOriginalModel* const> residents,
