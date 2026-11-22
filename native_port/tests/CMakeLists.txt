@@ -46,3 +46,16 @@ if(HULK_DILIGENT_CORE)
             "${HULK_USA_INDEX}" "${HULK_USA_TEXTURES}")
     endif()
 endif()
+
+# The actual original EFontShader DrawVertices / DrawIndexedVertices source
+# can supply native float4 vertex streams when its current XDK declaration,
+# pass, and atlas identity have been authenticated. Synthetic regression
+# requires no original game files, Vulkan SDK or separate CI workflow.
+add_executable(hulk_original_font_draw_test
+    ../../ci/eor_native_font_geometry_test.cpp
+    ../src/eor_native_font_geometry.cpp
+    ../src/eor_native_attributes.cpp
+    ../src/eor_xdk_draw_capture.cpp)
+target_compile_features(hulk_original_font_draw_test PRIVATE cxx_std_23)
+target_include_directories(hulk_original_font_draw_test PRIVATE ../src)
+add_test(NAME original_font_source_draw COMMAND hulk_original_font_draw_test)
