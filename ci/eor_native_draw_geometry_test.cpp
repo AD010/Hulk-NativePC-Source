@@ -264,6 +264,34 @@ int main(){
   const auto identified=native::IdentifyOriginalMaterialSurface(
       resident,original.original_sampler_slots);
   assert(identified && *identified==0);
+  // One actually observed original XDK SetTexture hash can uniquely
+  // identify a MODELS.ARC surface after the engine's real material setter,
+  // but not after an unverified or stale guest shader/texture binding.
+  xdk::RawDraw materialSource{};
+  materialSource.original_engine_shader_method.emplace();
+  auto& engine=*materialSource.original_engine_shader_method;
+  engine.original_pass_material_context_guest=0x83001000u;
+  engine.original_pass_vs_ps_xdk_binding_verified=true;
+  engine.original_pass_sampler_slots_verified=true;
+  engine.original_pass_live_texture_objects_present=true;
+  engine.original_pass_sampler_slot_mask=1u;
+  materialSource.observed_vs_matrices.emplace();
+  materialSource.observed_vs_matrices->original_texture_guest_objects[0]=0x83002000u;
+  materialSource.observed_live_eor_effect_pass=
+      aot::OriginalEffectPass{0x1234u,0u};
+  materialSource.original_pixel_texture_keys[0]=0xBEEFu;
+  assert(native::IdentifyLiveOriginalXdkMaterialSurface(
+      resident,materialSource,1u)==0u);
+  assert(!native::IdentifyLiveOriginalXdkMaterialSurface(
+      resident,materialSource,2u));
+  materialSource.original_pixel_texture_keys[0]=0xFEEDu;
+  assert(!native::IdentifyLiveOriginalXdkMaterialSurface(
+      resident,materialSource,1u));
+  materialSource.original_pixel_texture_keys[0]=0xBEEFu;
+  engine.original_pass_sampler_slots_verified=false;
+  assert(!native::IdentifyLiveOriginalXdkMaterialSurface(
+      resident,materialSource,1u));
+  engine.original_pass_sampler_slots_verified=true;
   auto bad_texture=original.original_sampler_slots;
   bad_texture[0].original_texture_hash=0xFEEDu;
   assert(!native::IdentifyOriginalMaterialSurface(resident,bad_texture));
