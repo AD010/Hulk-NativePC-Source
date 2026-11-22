@@ -641,9 +641,10 @@ bool ReplayNextVerifiedPpcFrame(
   // MissedSinceTake stays nonzero forever and native replay can never recover.
   // The next independent fully captured frame starts with zero missed loss.
   if(missed) {
-    preview.reset(); // release immutable ownership before TakeIfSequence
+    preview.reset(); // source snapshot no longer authorizes any GPU work
     std::lock_guard lock(g_mutex);
-    (void)g_frames_for_native.DiscardIfSequence(sequence);
+    if(g_frames_for_native.DiscardIfSequence(sequence))
+      g_verified_worker_frame.reset(); // never reuse its stale owner
     return false;
   }
   if(!ValidateOriginalCommandTimeline(*preview))return false;
@@ -1219,7 +1220,8 @@ native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(
       // Discard it atomically while still under the original Present lock,
       // release the temporary preview first, and let the NEXT frame compete.
       source_snapshot.reset();
-      (void)g_frames_for_native.DiscardIfSequence(source_sequence);
+      if(g_frames_for_native.DiscardIfSequence(source_sequence))
+        g_verified_worker_frame.reset(); // require a fresh source-bound bundle
       return Result::kNotReady;
     }
   }
