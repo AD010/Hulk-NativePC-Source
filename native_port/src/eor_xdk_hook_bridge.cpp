@@ -48,6 +48,7 @@ FrameCapture g_collector;
 XdkCallsiteEvidence g_callsite_evidence;
 CompletedFrameMailbox g_frames_for_native;
 std::shared_ptr<const VerifiedWorkerEorFrame> g_verified_worker_frame;
+std::shared_ptr<const VerifiedWorkerEorOwnerCatalog> g_worker_owner_catalog;
 struct OfflineShaderPack {
   std::shared_ptr<const aot::ShaderBank> shaders;
   std::shared_ptr<const aot::EffectCatalog> effects;
@@ -1217,6 +1218,49 @@ bool InstallVerifiedWorkerEorFrameWithResidents(
     return false;
   }
 }
+bool InstallVerifiedWorkerEorOwnerCatalog(
+    std::shared_ptr<const VerifiedWorkerEorOwnerCatalog> catalog) {
+  if(!catalog || !catalog->device || !catalog->gpu ||
+     !catalog->resident_lookup || catalog->verified_candidates.empty() ||
+     !catalog->output.direct_engine_path_ready ||
+     !native::HasFullNativeCompositePixels(
+         catalog->output.world,catalog->output.composite,
+         catalog->output.backbuffer))
+    return false;
+  // Catalogues are REUSABLE original engine material candidates, not
+  // manually forged frames. Exact per-instance guest shader pointers and
+  // frame/ordinal are acquired anew from the real Present inside the worker.
+  for(const auto& item:catalog->verified_candidates) {
+    const auto& owner=std::visit([](const auto& link)
+        ->const native::VerifiedDrawSource& {return link.native_draw;},
+        item.original_source_submission);
+    if(!item.original_guest_resource_to_material_mapping_verified ||
+       !owner.engine_draw_verified || !owner.mesh_material_verified ||
+       !owner.host_vertex_layout_verified || !owner.render_state_verified ||
+       !owner.original_model_hash || owner.original_surface_name.empty() ||
+       owner.original_surface_ordinal==UINT32_MAX ||
+       owner.original_frame_sequence ||
+       owner.original_call_ordinal!=UINT32_MAX ||
+       item.original_source_engine_shader_method)
+      return false;
+    if(item.original_shader_class_material_owner_verified &&
+       (!item.original_material_shader_method_guest ||
+        !item.original_material_shader_vtable_guest ||
+        !ProvenUsaEorShaderMethodVtablePair(
+            item.original_material_shader_method_guest,
+            item.original_material_shader_vtable_guest)))
+      return false;
+  }
+  std::lock_guard lock(g_mutex);
+  g_verified_worker_frame.reset();
+  g_worker_owner_catalog=std::move(catalog);
+  return true;
+}
+void ClearVerifiedWorkerEorOwnerCatalog() noexcept {
+  std::lock_guard lock(g_mutex);
+  g_worker_owner_catalog.reset();
+  g_verified_worker_frame.reset();
+}
 void ClearVerifiedWorkerEorFrame() noexcept {
   std::lock_guard lock(g_mutex);
   g_verified_worker_frame.reset();
@@ -1235,12 +1279,13 @@ native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(
   if(!CaptureEnabled() || !REXCVAR_GET(hulk_eor_vulkan_replay))
     return Result::kNotReady;
   std::shared_ptr<const VerifiedWorkerEorFrame> ready;
+  std::shared_ptr<const VerifiedWorkerEorOwnerCatalog> owner_catalog;
   std::shared_ptr<const Frame> source_snapshot;
   uint64_t source_sequence=0;
   {
     std::lock_guard lock(g_mutex);
     ready=g_verified_worker_frame;
-    if(!ready)return Result::kNotReady;
+    owner_catalog=g_worker_owner_catalog;
     source_snapshot=g_frames_for_native.Peek();
     if(!source_snapshot)return Result::kNotReady;
     source_sequence=source_snapshot->sequence;
@@ -1254,7 +1299,38 @@ native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(
       return Result::kNotReady;
     }
   }
-  if(source_sequence!=ready->original_frame_sequence ||
+  if(owner_catalog &&
+     (!ready || ready->original_frame_sequence!=source_sequence)) {
+    // The render worker, not the guest PPC Present thread, performs the
+    // source-bound witness selection and retains current GPU residents.
+    // This is a real new per-frame producer; no cached guest shader
+    // instance from the preceding frame can be reused as an authority.
+    if(owner_catalog->device!=&host || !host.swap_chain())
+      return Result::kNotReady;
+    try {
+      auto frame=std::make_shared<VerifiedWorkerEorFrame>();
+      frame->original_frame_sequence=source_sequence;
+      frame->device=owner_catalog->device;
+      frame->output=owner_catalog->output;
+      frame->witnesses=owner_catalog->verified_candidates;
+      frame->gpu=owner_catalog->gpu;
+      if(!InstallVerifiedWorkerEorFrameWithResidents(
+             std::move(frame),owner_catalog->resident_lookup))
+        return Result::kNotReady;
+    } catch (...) {
+      return Result::kNotReady; // no Vulkan state touched
+    }
+    {
+      std::lock_guard lock(g_mutex);
+      ready=g_verified_worker_frame;
+      const auto latest=g_frames_for_native.Peek();
+      if(!ready || !latest || latest->sequence!=source_sequence ||
+         ready->original_frame_sequence!=source_sequence ||
+         g_frames_for_native.MissedSinceTake()!=0)
+        return Result::kNotReady;
+    }
+  }
+  if(!ready || source_sequence!=ready->original_frame_sequence ||
      ready->device!=&host || !host.swap_chain())
     return Result::kNotReady;
   const auto& desc=host.swap_chain()->GetDesc();
