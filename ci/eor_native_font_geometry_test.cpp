@@ -46,7 +46,9 @@ int main() {
   xdk::RawDraw call{};
   call.kind=xdk::Kind::DrawVertices;
   call.function=0x8288DF30u;
-  call.lr=0x8266A0C4u;
+  // The original shader-class entry is NOT an XDK DrawVertices call
+  // site. Use the independently proved USA 6534 source BL return address.
+  call.lr=0x82676430u;
   call.gpr[0]=0x83001000u; // guest device
   call.gpr[1]=6u; // original triangle fan
   call.gpr[2]=0u; // first vertex
@@ -115,6 +117,7 @@ int main() {
   auto indexed=call;
   indexed.kind=xdk::Kind::DrawIndexedVertices;
   indexed.function=0x8288E318u;
+  indexed.lr=0x82668184u; // confirmed original DrawIndexedVertices BL site
   indexed.gpr[1]=4u;
   indexed.gpr[2]=0u;
   indexed.gpr[3]=0u;
