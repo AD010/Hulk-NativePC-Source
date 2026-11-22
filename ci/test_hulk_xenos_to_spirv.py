@@ -27,6 +27,27 @@ class OfflineShaderTests(unittest.TestCase):
         with self.assertRaises(ValueError): spirv_info(b'', 'VS')
         with self.assertRaises(ValueError): spirv_info(fake_spv('VS') + b'\0', 'VS')
 
+    def test_aot_entrypoint_matches_native_vulkan_loader(self):
+        # No private game binaries: negative cases that were previously
+        # accepted by offline DXC AOT and later refused by ShaderBank::Load.
+        words = list(struct.unpack('<15I', fake_spv('VS')))
+        duplicated = words + words[10:15]
+        with self.assertRaises(ValueError):
+            spirv_info(struct.pack('<' + 'I'*len(duplicated), *duplicated), 'VS')
+        wrong_padding = words.copy()
+        wrong_padding[14] = 0x12340000  # main NUL followed by hidden bytes
+        with self.assertRaises(ValueError):
+            spirv_info(struct.pack('<15I', *wrong_padding), 'VS')
+        wrong_interface = words.copy()
+        wrong_interface[10] = 0x0006000f
+        wrong_interface.append(0)  # invalid SPIR-V interface ID
+        with self.assertRaises(ValueError):
+            spirv_info(struct.pack('<16I', *wrong_interface), 'VS')
+        with_interface = words.copy()
+        with_interface[10] = 0x0006000f
+        with_interface.append(2)  # valid in-bound interface variable ID
+        self.assertEqual(spirv_info(struct.pack('<16I', *with_interface), 'VS'), 16)
+
     def test_bank_layout_and_reject_duplicate(self):
         vs = ('ab' * 32, 'VS', fake_spv('VS'))
         ps = ('cd' * 32, 'PS', fake_spv('PS'))
