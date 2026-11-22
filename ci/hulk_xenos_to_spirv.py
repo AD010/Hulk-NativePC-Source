@@ -36,7 +36,7 @@ def spirv_info(data: bytes, stage: str) -> int:
         raise ValueError('Invalid SPIR-V header')
     expected_model = 0 if stage == 'VS' else 4
     model_count = 0
-    found_entry = False
+    entry_count = 0
     cursor = 5
     while cursor < len(words):
         op = words[cursor] & 0xffff
@@ -51,14 +51,23 @@ def spirv_info(data: bytes, stage: str) -> int:
             if count < 4:
                 raise ValueError('Invalid SPIR-V entry point')
             if words[cursor + 1] == expected_model:
-                if words[cursor + 2] == 0 or words[cursor + 2] >= words[3]:
-                    raise ValueError('Invalid SPIR-V entry point ID')
-                name = struct.pack('<' + 'I' * (count - 3), *words[cursor + 3:cursor + count])
-                if b'\0' not in name or name.split(b'\0', 1)[0] != b'main':
+                # This EXACTLY matches ShaderBank::Load and Diligent's
+                # EntryPoint="main" ABI. Previously extra entrypoints,
+                # hidden trailing name bytes and invalid interface IDs
+                # survived offline AOT but were rejected at runtime.
+                if (count < 5 or words[cursor + 2] == 0 or
+                        words[cursor + 2] >= words[3] or
+                        words[cursor + 3] != 0x6e69616d or
+                        words[cursor + 4] != 0):
                     raise ValueError('Unexpected SPIR-V entry point')
-                found_entry = True
+                entry_count += 1
+                if entry_count != 1:
+                    raise ValueError('Duplicate original stage entry point')
+                if any(ident == 0 or ident >= words[3]
+                       for ident in words[cursor + 5:cursor + count]):
+                    raise ValueError('Invalid SPIR-V interface ID')
         cursor += count
-    if model_count != 1 or not found_entry:
+    if model_count != 1 or entry_count != 1:
         raise ValueError('Missing Vulkan shader entry or memory model')
     return len(words)
 
