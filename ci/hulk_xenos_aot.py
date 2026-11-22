@@ -16,6 +16,7 @@ import re
 import struct
 import subprocess
 import tempfile
+from hulk_eor_vulkan_hlsl import native_resources
 from hulk_spirv_resource_contract import validate_named_spirv_images
 from hulk_xenos_to_spirv import (
     spirv_info, ADAPTER_MARKER, GRADIENT_ADAPTER_MARKER)
@@ -147,6 +148,9 @@ def compile_bank(bank: Path, out: Path, xenos: Path, dxc: Path, common: Path,
         "xenosrecomp": hashlib.sha256(xenos.read_bytes()).hexdigest(),
         "dxc": hashlib.sha256(dxc.read_bytes()).hexdigest(),
         "shader_common": hashlib.sha256(common.read_bytes()).hexdigest(),
+        "native_hlsl": hashlib.sha256(
+            Path(__file__).with_name("hulk_eor_vulkan_hlsl.py").read_bytes()).hexdigest(),
+        "aot_driver": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
     }
     prior_compiled: dict[tuple[str, str], dict] = {}
     prior_manifest = out / "aot_manifest.json"
@@ -227,11 +231,10 @@ def compile_bank(bank: Path, out: Path, xenos: Path, dxc: Path, common: Path,
             # DXC requires an explicit shader entry point. The original
             # complete-bank compiler already supplies -E main; without it
             # this incremental AOT route may reject valid XenosRecomp HLSL.
+            hlsl.write_text(native_resources(generated, stage), encoding="utf-8")
             cmd = [str(dxc), str(hlsl), "-T", ("vs_6_0" if stage == "VS" else "ps_6_0"),
                    "-E", "main", "-HV", "2021", "-all-resources-bound", "-spirv",
                    "-fvk-use-dx-layout", "-fspv-reflect", "-Fo", str(spv)]
-            if stage == "VS":
-                cmd.append("-fvk-invert-y")
             result = subprocess.run(cmd, capture_output=True, timeout=120, check=False)
             if result.returncode or not spv.is_file():
                 raise RuntimeError(f"DXC SPIR-V exit={result.returncode}")

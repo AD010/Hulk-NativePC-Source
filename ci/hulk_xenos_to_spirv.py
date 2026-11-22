@@ -16,6 +16,7 @@ import re
 import struct
 import subprocess
 import tempfile
+from hulk_eor_vulkan_hlsl import native_resources
 from hulk_spirv_resource_contract import validate_named_spirv_images
 
 MAX_SHADERS = 16384
@@ -164,11 +165,10 @@ def compile_private_bank(manifest_path: Path, output_path: Path, *,
             if ('void main(' not in generated or ADAPTER_MARKER not in generated or
                     GRADIENT_ADAPTER_MARKER not in generated):
                 raise RuntimeError('Missing Hulk-patched XenosRecomp shader entry/adapter identity')
+            hlsl.write_text(native_resources(generated, stage), encoding="utf-8")
             args = [str(dxc), '-T', 'vs_6_0' if stage == 'VS' else 'ps_6_0',
                     '-E', 'main', '-HV', '2021', '-all-resources-bound',
                     '-spirv', '-fvk-use-dx-layout']
-            if stage == 'VS':
-                args.append('-fvk-invert-y')
             args += ['-fspv-reflect', '-Fo', str(spv), str(hlsl)]
             checked(args)
             if not spv.is_file():

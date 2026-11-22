@@ -36,7 +36,8 @@ if(HULK_DILIGENT_CORE)
         ../src/eor_original_texture_gpu_layout.cpp ../src/eor_original_texture_mip_ranges.cpp
         ../src/eor_original_texture_streams.cpp ../src/eor_xenos_texture_mips.cpp
         ../src/eor_verified_sampler_bindings.cpp ../src/eor_diligent_texture_residency.cpp
-        ../src/eor_diligent_xenos_textures.cpp)
+        ../src/eor_diligent_xenos_textures.cpp ../src/eor_diligent_spirv_shaders.cpp
+        ../src/eor_spirv_bank.cpp)
     target_compile_features(hulk_original_ui_vulkan_test PRIVATE cxx_std_20)
     target_include_directories(hulk_original_ui_vulkan_test PRIVATE ../src)
     target_link_libraries(hulk_original_ui_vulkan_test PRIVATE
@@ -44,6 +45,10 @@ if(HULK_DILIGENT_CORE)
     if(HULK_USA_INDEX AND HULK_USA_TEXTURES)
         add_test(NAME original_ui_vulkan COMMAND hulk_original_ui_vulkan_test
             "${HULK_USA_INDEX}" "${HULK_USA_TEXTURES}")
+        if(HULK_USA_SPIRV AND HULK_USA_EFFECTS)
+            add_test(NAME original_font_shader_vulkan COMMAND hulk_original_ui_vulkan_test
+                "${HULK_USA_INDEX}" "${HULK_USA_TEXTURES}" "${HULK_USA_SPIRV}" "${HULK_USA_EFFECTS}")
+        endif()
     endif()
 endif()
 
