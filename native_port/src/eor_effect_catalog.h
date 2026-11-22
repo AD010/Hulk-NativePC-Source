@@ -93,6 +93,13 @@ class EffectCatalog {
     if(it==reverse_.end())return std::nullopt;
     return it->second;
   }
+  // Compare every original SHA pair/ordinal, not only the 233/5194
+  // census. A different ShaderEffects generation may have the same counts.
+  bool SameOriginalSources(const EffectCatalog& rhs) const noexcept {
+    return pair_count_==rhs.pair_count_ &&
+           unique_shader_count_==rhs.unique_shader_count_ &&
+           sources_==rhs.sources_;
+  }
   size_t EffectCount() const noexcept { return sources_.size(); }
   size_t PairCount() const noexcept { return pair_count_; }
   // Actual number of AOT modules, not the number of draw/material references.
