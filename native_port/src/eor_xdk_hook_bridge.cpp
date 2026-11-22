@@ -1372,8 +1372,11 @@ bool InstallVerifiedWorkerEorFrameWithResidents(
     return false;
   }
 }
-bool InstallVerifiedWorkerEorOwnerCatalog(
-    std::shared_ptr<const VerifiedWorkerEorOwnerCatalog> catalog) {
+namespace {
+bool InstallVerifiedWorkerEorOwnerCatalogInternal(
+    std::shared_ptr<const VerifiedWorkerEorOwnerCatalog> catalog,
+    const std::shared_ptr<const VerifiedWorkerEorCatalogFactory>* factory,
+    const std::shared_ptr<const aot::ShaderBank>* bank) {
   if(!catalog || !catalog->device || !catalog->gpu ||
      (!catalog->resident_lookup && !catalog->verified_candidates.empty()) ||
      (catalog->verified_candidates.empty() &&
@@ -1429,11 +1432,23 @@ bool InstallVerifiedWorkerEorOwnerCatalog(
       return false;
   }
   std::lock_guard lock(g_mutex);
-  if(!g_offline_shader_pack || !g_offline_shader_pack->virtual_ids)
+  // Check source-pack/factory generation in the SAME critical section as
+  // publication. Validating the callback under one lock and installing
+  // later allowed a stale GPU catalog to overwrite a newer owner.
+  if(!g_offline_shader_pack || !g_offline_shader_pack->virtual_ids ||
+     (factory && (!*factory || g_worker_catalog_factory!=*factory ||
+                  g_worker_owner_catalog)) ||
+     (bank && (!*bank || g_offline_shader_pack->shaders!=*bank)))
     return false;
   g_verified_worker_frame.reset();
   g_worker_owner_catalog=std::move(catalog);
   return true;
+}
+} // namespace
+bool InstallVerifiedWorkerEorOwnerCatalog(
+    std::shared_ptr<const VerifiedWorkerEorOwnerCatalog> catalog) {
+  return InstallVerifiedWorkerEorOwnerCatalogInternal(
+      std::move(catalog),nullptr,nullptr);
 }
 bool InstallVerifiedWorkerEorCatalogFactory(
     VerifiedWorkerEorCatalogFactory factory) {
@@ -1806,20 +1821,19 @@ native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(
     try {
       auto verified=(*factory)(host);
       if(verified && verified->device==&host) {
+        // A source Present may advance during GPU asset loading; keep
+        // stale-frame detection separate from the atomically checked
+        // material factory generation and shader-bank owner.
         {
           std::lock_guard lock(g_mutex);
-          // Never install a material catalogue built against a replaced
-          // shader/AOT generation or a concurrently unregistered loader.
-          if(g_worker_catalog_factory!=factory ||
-             !g_offline_shader_pack ||
-             g_offline_shader_pack->shaders!=factory_shader_generation ||
-             g_frames_for_native.MissedSinceTake() ||
-             (g_frames_for_native.Peek() &&
-              g_frames_for_native.Peek()->sequence!=source_sequence) ||
-             g_worker_owner_catalog==verified)
+          if(g_frames_for_native.MissedSinceTake() ||
+             !g_frames_for_native.Peek() ||
+             g_frames_for_native.Peek()->sequence!=source_sequence)
             verified.reset();
         }
-        if(verified && InstallVerifiedWorkerEorOwnerCatalog(verified)) {
+        if(verified && InstallVerifiedWorkerEorOwnerCatalogInternal(
+               std::move(verified),&factory,
+               &factory_shader_generation)) {
           std::lock_guard lock(g_mutex);
           if(g_worker_catalog_factory==factory &&
              g_offline_shader_pack &&
