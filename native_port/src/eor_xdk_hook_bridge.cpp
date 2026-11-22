@@ -1840,6 +1840,20 @@ native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(
         // unless real owner/LOD/texture residency changed. Otherwise
         // publish only if the previously observed catalogue generation
         // has not been replaced while our factory compiled resources.
+        if(verified && verified!=owner_catalog) {
+          // World shaders/texture SRVs and their Diligent PSOs can still
+          // be referenced by the prior async Vulkan frame. The factory's
+          // updated private asset catalogue is NOT a Vulkan completion
+          // fence. Flush and wait on this exact original shared worker
+          // device before allowing replacement to release any old
+          // shader/mesh/texture generations. If the device is lost,
+          // retain the old source owner rather than risk a use-after-free.
+          if(owner_catalog) {
+            if(!host.context())return Result::kNotReady;
+            host.context()->Flush();
+            host.context()->WaitForIdle();
+          }
+        }
         if(verified && verified!=owner_catalog &&
            InstallVerifiedWorkerEorOwnerCatalogInternal(
                std::move(verified),&factory,
