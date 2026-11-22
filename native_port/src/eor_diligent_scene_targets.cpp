@@ -157,6 +157,8 @@ bool DiligentSceneTargets::ClearVerifiedOriginalXdk(
      !state_->color || !state_->depth ||
      !xdk::IsOriginalFullTargetClear(source,guest.width,guest.height))
     return false;
+  if((source.flags&0x0eu)!=0)
+    return false; // native EoR scene owns RT0 only, never guest RT1..RT3
   if((source.flags&0x20u) &&
      state_->formats.depth!=NativeDepthFormat::D24S8)
     return false; // no stencil plane on an original D32Float depth RT
