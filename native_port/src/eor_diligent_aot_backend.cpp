@@ -1,4 +1,5 @@
 #include "eor_diligent_aot_backend.h"
+#include "eor_original_font_source.h"
 #include "eor_host_vertex_layout.h"
 #include "eor_spirv_texture_bindings.h"
 #include "native_resolution.h"
@@ -692,7 +693,14 @@ aot::BoundIndexedDraw DiligentEorDirectBackend::StageVerifiedOriginalFontDraw(
     throw std::invalid_argument("Original EFont archive material/pass not resident");
   const auto* owner=found->second;
   const auto& pass=owner->pipeline;
-  if(!pass.original_dynamic_font_vertex_layout_verified ||
+  // Font_Main VS+PS were recovered from the original USA ShaderEffects
+  // source and their exact 508/328-byte Xenos ShaderContainers. Match BOTH
+  // SHA-256 identities from the CURRENT live guest XDK objects before a
+  // transient glyph Draw can use a native Vulkan material PSO.
+  if(!ui::MatchesOriginalUsaFontMainProgram(
+         cpu.original_effect_hash,cpu.original_pass_index,
+         *original_vs,*original_ps) ||
+     !pass.original_dynamic_font_vertex_layout_verified ||
      !pass.original_view_space_verified ||
      pass.original_view_space!=VerifiedOriginalViewSpace::OriginalAspectHud ||
      !pass.original_hud_clip_coordinates_verified ||
