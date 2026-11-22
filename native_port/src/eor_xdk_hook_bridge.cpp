@@ -3,6 +3,7 @@
 // This is an input provenance oracle, not a completed Vulkan renderer.
 #include "eor_xdk_hook_bridge.h"
 #include "eor_usa_material_textures.h"
+#include "eor_diligent_aot_backend.h"
 #include "device.h"
 #include "SwapChain.h"
 #include <rex/cvar.h>
@@ -1293,7 +1294,12 @@ bool InstallVerifiedWorkerEorFrameWithResidents(
 bool InstallVerifiedWorkerEorOwnerCatalog(
     std::shared_ptr<const VerifiedWorkerEorOwnerCatalog> catalog) {
   if(!catalog || !catalog->device || !catalog->gpu ||
-     !catalog->resident_lookup || catalog->verified_candidates.empty() ||
+     (!catalog->resident_lookup && !catalog->verified_candidates.empty()) ||
+     (catalog->verified_candidates.empty() &&
+      catalog->verified_font_materials.empty()) ||
+     (!catalog->verified_font_materials.empty() &&
+      (!catalog->direct_gpu ||
+       catalog->gpu.get()!=catalog->direct_gpu.get())) ||
      !catalog->output.direct_engine_path_ready ||
      !native::HasFullNativeCompositePixels(
          catalog->output.world,catalog->output.composite,
@@ -1323,7 +1329,23 @@ bool InstallVerifiedWorkerEorOwnerCatalog(
             item.original_material_shader_vtable_guest)))
       return false;
   }
+  // A genuine UI pass must have a source-proven XDK vertex declaration
+  // and real atlas ownership; the display name or a logo texture is not
+  // permission to invent a font input layout.
+  for(const auto& font:catalog->verified_font_materials) {
+    const auto& v=font.source_vertex_layout;
+    if(!font.original_font_resource_hash ||
+       font.original_surface_ordinal==UINT32_MAX ||
+       !v.original_vertex_declaration_guest ||
+       !v.original_font_atlas_hash ||
+       !v.original_vertex_declaration_layout_verified ||
+       !v.original_font_sampler_owner_verified ||
+       !v.original_stride || v.original_pixel_texture_slot>=16)
+      return false;
+  }
   std::lock_guard lock(g_mutex);
+  if(!g_offline_shader_pack || !g_offline_shader_pack->virtual_ids)
+    return false;
   g_verified_worker_frame.reset();
   g_worker_owner_catalog=std::move(catalog);
   return true;
