@@ -108,6 +108,7 @@ bool ReplayNextVerifiedPpcFrame(
 // EoR material/mesh owner. No automatic XDK register->EoR ownership guesses.
 // All host buffers/PSO/SRV references and their source owners must stay live
 // until the GPU completion fence; a missing producer means NativeX fallback.
+struct VerifiedWorkerEorOwnerCatalog;
 struct VerifiedWorkerEorFrame {
   // Immutable original USA Present sequence. Never replay resources or
   // materials from a different frame after an asynchronous GPU worker delay.
@@ -126,6 +127,9 @@ struct VerifiedWorkerEorFrame {
   // Index only: does NOT prove a guest shader-object -> virtual-header
   // ownership relation for an XDK Draw. Must not synthesize one.
   std::shared_ptr<const aot::OriginalVirtualShaderIdentity> virtual_ids;
+  // Ties an automatically produced frame to the EXACT live source owner
+  // catalogue generation. Manual per-frame witnesses leave this empty.
+  std::shared_ptr<const VerifiedWorkerEorOwnerCatalog> owner_catalog;
 };
 // Install only the exact private HEORVRT1 source-header index for
 // Xenos-visible read-only Draw observation. This is deliberately independent
