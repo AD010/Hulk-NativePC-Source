@@ -647,8 +647,16 @@ static bool MaterialPixelTexturesAgree(
     const xdk::RawDraw& call, const VerifiedXdkResourceWitness& witness,
     const VerifiedDrawSource& source) {
   const uint16_t mask=witness.source_verified_texture_slot_mask;
+  // This XDK mask describes PIXEL SetTexture bindings only. A material
+  // can also sample textures in its vertex shader: those source samplers
+  // must not disable an otherwise complete original PS texture match.
+  const auto pixel_count=std::count_if(
+      source.original_sampler_slots.begin(),source.original_sampler_slots.end(),
+      [](const gpu::VerifiedEorSampler& sampler) {
+        return sampler.stage==gpu::OriginalSamplerStage::Pixel;
+      });
   if (!witness.original_xdk_texture_slot_mapping_verified || !mask ||
-      std::popcount(mask)!=static_cast<int>(source.original_sampler_slots.size()))
+      std::popcount(mask)!=pixel_count)
     return true;
   std::array<uint32_t,16> actual{}, expected{};
   size_t count=0;
@@ -657,13 +665,15 @@ static bool MaterialPixelTexturesAgree(
     if (!call.original_pixel_texture_keys[slot]) return true;
     actual[count++]=call.original_pixel_texture_keys[slot];
   }
-  for (size_t i=0;i<count;++i) {
-    const auto& sampler=source.original_sampler_slots[i];
-    if (sampler.stage!=gpu::OriginalSamplerStage::Pixel ||
-        !sampler.original_texture_hash || !sampler.original_material_ownership_verified)
+  size_t pixel=0;
+  for (const auto& sampler:source.original_sampler_slots) {
+    if (sampler.stage!=gpu::OriginalSamplerStage::Pixel)continue;
+    if (!sampler.original_texture_hash ||
+        !sampler.original_material_ownership_verified)
       return true;
-    expected[i]=sampler.original_texture_hash;
+    expected[pixel++]=sampler.original_texture_hash;
   }
+  if(pixel!=count)return true;
   std::sort(actual.begin(),actual.end());
   std::sort(expected.begin(),expected.end());
   return actual==expected;
