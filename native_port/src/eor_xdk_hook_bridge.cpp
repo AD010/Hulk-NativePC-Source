@@ -1406,13 +1406,15 @@ bool InstallVerifiedWorkerEorOwnerCatalog(
     const auto& v=font.source_vertex_layout;
     if(!font.original_font_resource_hash ||
        font.original_surface_ordinal==UINT32_MAX ||
-       !v.original_vertex_declaration_guest ||
        !v.original_font_atlas_hash ||
        !font.original_effect_hash ||
        font.original_pass_index==UINT32_MAX ||
-       !v.original_vertex_declaration_layout_verified ||
        !v.original_font_sampler_owner_verified ||
-       !v.original_stride || v.original_pixel_texture_slot>=16)
+       v.original_pixel_texture_slot>=16 ||
+       (!font.resolve_verified_live_vertex_layout &&
+        (!v.original_vertex_declaration_guest ||
+         !v.original_vertex_declaration_layout_verified ||
+         !v.original_stride)))
       return false;
   }
   std::lock_guard lock(g_mutex);
@@ -1476,11 +1478,30 @@ PreparedEorMixedFrame PrepareOriginalMixedDraws(
     if(!live || !call.observed_live_eor_effect_pass)
       throw std::invalid_argument("Original font shader Draw is not source-resident");
     const VerifiedWorkerEorOwnerCatalog::VerifiedFontMaterial* selected=nullptr;
+    std::optional<ui::VerifiedFontVertexLayout> selected_layout;
     for(const auto& font:catalog.verified_font_materials) {
-      const auto& layout=font.source_vertex_layout;
-      if(live->original_vertex_declaration_guest_object!=
-             layout.original_vertex_declaration_guest ||
+      // A startup catalogue cannot know the original game's per-session
+      // XDK declaration pointer. Allow its original ABI verifier to resolve
+      // the CURRENT live declaration on the worker; never infer offsets
+      // from a shader class name, atlas dimensions or stale guest object.
+      const auto live_layout=font.resolve_verified_live_vertex_layout ?
+          font.resolve_verified_live_vertex_layout(call) :
+          std::optional<ui::VerifiedFontVertexLayout>{font.source_vertex_layout};
+      if(!live_layout)continue;
+      const auto& layout=*live_layout;
+      if(!layout.original_vertex_declaration_layout_verified ||
+         !layout.original_font_sampler_owner_verified ||
+         layout.original_stride<12 || layout.original_stride>192 ||
          layout.original_pixel_texture_slot>=16 ||
+         layout.original_font_atlas_hash!=
+             font.source_vertex_layout.original_font_atlas_hash ||
+         layout.original_pixel_texture_slot!=
+             font.source_vertex_layout.original_pixel_texture_slot ||
+         (font.source_vertex_layout.original_vertex_declaration_guest &&
+          layout.original_vertex_declaration_guest!=
+              font.source_vertex_layout.original_vertex_declaration_guest) ||
+         live->original_vertex_declaration_guest_object!=
+             layout.original_vertex_declaration_guest ||
          call.original_pixel_texture_keys[layout.original_pixel_texture_slot]!=
              layout.original_font_atlas_hash ||
          font.original_effect_hash!=
@@ -1491,11 +1512,12 @@ PreparedEorMixedFrame PrepareOriginalMixedDraws(
       if(selected)
         throw std::invalid_argument("Ambiguous original font declaration/atlas owner");
       selected=&font;
+      selected_layout=layout;
     }
-    if(!selected)
+    if(!selected || !selected_layout)
       throw std::invalid_argument("Original EFontShader has no verified material/UV source");
     slots[i]=catalog.direct_gpu->StageVerifiedOriginalFontDraw(
-        call,selected->source_vertex_layout,exact.sequence,
+        call,*selected_layout,exact.sequence,
         static_cast<uint32_t>(i),selected->original_font_resource_hash,
         selected->original_surface_ordinal,*pack.virtual_ids);
   }
