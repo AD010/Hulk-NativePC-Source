@@ -652,6 +652,151 @@ std::size_t DiligentEorDirectBackend::PrewarmResidentOriginalPipelines(
   }
   return warmed;
 }
+aot::BoundIndexedDraw DiligentEorDirectBackend::StageVerifiedOriginalFontDraw(
+    const xdk::RawDraw& call,
+    const ui::VerifiedFontVertexLayout& layout,
+    uint64_t frame,uint32_t ordinal,
+    uint32_t original_font_resource_hash,uint32_t surface_ordinal,
+    const aot::OriginalVirtualShaderIdentity& shader_identity) {
+  if(!state_ || state_->scene_open || state_->frame_preflight_ready ||
+     !frame || ordinal==UINT32_MAX ||
+     !original_font_resource_hash || surface_ordinal==UINT32_MAX ||
+     !call.observed_vs_matrices || !call.observed_shader_constants ||
+     !call.observed_live_vertex_shader_header ||
+     !call.observed_live_pixel_shader_header)
+    throw std::invalid_argument("Original EFont draw has no complete live source");
+  auto& s=*state_;
+  const auto& live=*call.observed_vs_matrices;
+  if(!MatchesVerifiedOriginalXdkMainDrawTargets(live,s.format.original_screen))
+    throw std::invalid_argument("Original EFont render target is not native scene");
+  const auto original_vs=aot::ResolveOriginalLiveXdkShaderSource(
+      shader_identity,*call.observed_live_vertex_shader_header,
+      live.original_vs_guest_object,aot::Stage::Vertex,frame,ordinal);
+  const auto original_ps=aot::ResolveOriginalLiveXdkShaderSource(
+      shader_identity,*call.observed_live_pixel_shader_header,
+      live.original_ps_guest_object,aot::Stage::Pixel,frame,ordinal);
+  if(!original_vs || !original_ps)
+    throw std::invalid_argument("Original EFont VS/PS guest header not authenticated");
+  // This is actual transient EFontShader vertex/index data emitted by the
+  // game, with an independently verified source XDK declaration and atlas.
+  auto cpu=ui::DecodeOriginalLiveFontDraw(call,layout,frame,ordinal);
+  const State::MaterialKey material{
+      original_font_resource_hash,surface_ordinal,
+      cpu.original_effect_hash,cpu.original_pass_index};
+  const auto found=s.material_lookup.find(material);
+  if(found==s.material_lookup.end())
+    throw std::invalid_argument("Original EFont archive material/pass not resident");
+  const auto* owner=found->second;
+  const auto& pass=owner->pipeline;
+  if(!pass.original_dynamic_font_vertex_layout_verified ||
+     !pass.original_view_space_verified ||
+     pass.original_view_space!=VerifiedOriginalViewSpace::OriginalAspectHud ||
+     !pass.original_hud_clip_coordinates_verified ||
+     pass.original_vertex_shader_sha256!=*original_vs ||
+     pass.original_pixel_shader_sha256!=*original_ps ||
+     !s.effects.HasPair(cpu.original_effect_hash,cpu.original_pass_index,
+                        *original_vs,*original_ps) ||
+     !s.bank.Find(*original_vs,aot::Stage::Vertex) ||
+     !s.bank.Find(*original_ps,aot::Stage::Pixel))
+    throw std::invalid_argument("Original EFont material/source shader pair disagrees");
+  const auto& input=pass.exact_host_input_layout;
+  const size_t slot_count=layout.color ? 3u:2u;
+  if(input.size()!=slot_count)
+    throw std::invalid_argument("Original EFont shader expects another vertex declaration");
+  for(size_t i=0;i<input.size();++i) {
+    const uint32_t components=i==0 ? layout.position.components :
+        i==1 ? layout.texcoord.components : layout.color->components;
+    if(input[i].BufferSlot!=i || input[i].NumComponents!=components ||
+       input[i].ValueType!=Diligent::VT_FLOAT32 ||
+       (input[i].RelativeOffset!=0 &&
+        input[i].RelativeOffset!=Diligent::LAYOUT_ELEMENT_AUTO_OFFSET) ||
+       (input[i].Stride!=16u &&
+        input[i].Stride!=Diligent::LAYOUT_ELEMENT_AUTO_STRIDE))
+      throw std::invalid_argument("Original EFont host input differs from decoded XDK declaration");
+  }
+  // A font atlas is a real Textures.ARC key owned by THIS material pass.
+  // A guessed glyph image, nearby UI logo or zero-sampler shader cannot
+  // authorize native Vulkan presentation.
+  unsigned atlases=0;
+  for(const auto& image:owner->original_textures) {
+    const auto& id=image.identity;
+    if(id.stage==OriginalSamplerStage::Pixel &&
+       id.original_texture_hash==cpu.original_font_atlas_hash &&
+       id.original_material_ownership_verified &&
+       id.original_shader_fetch_slot_verified &&
+       id.original_texture_format_and_mips_verified &&
+       image.uploaded && image.uploaded->SRV())
+      ++atlases;
+  }
+  if(atlases!=1u || owner->original_textures.size()!=1u)
+    throw std::invalid_argument("Original EFont pixel atlas does not belong to live material");
+  const State::DrawKey draw_key{frame,ordinal};
+  if(s.font_uploads.contains(draw_key))
+    throw std::invalid_argument("Original EFont frame/ordinal already uploaded");
+  // All source identity checks above precede the FIRST Vulkan allocation.
+  auto gpu=ui::UploadOriginalLiveFontDraw(cpu,s.meshes);
+  const auto handle=gpu.position_handle;
+  NativeEorDrawBuffers buffers{};
+  buffers.position_handle=handle;
+  buffers.index_handle=gpu.index_handle;
+  buffers.vertex_count=gpu.vertex_count;
+  buffers.index_count=gpu.index_count;
+  buffers.host_vertex_slots={gpu.position_handle,gpu.texcoord_handle};
+  if(gpu.color_handle)
+    buffers.host_vertex_slots.push_back(gpu.color_handle);
+  buffers.original_model_hash=original_font_resource_hash;
+  buffers.original_mesh_header_offset=SIZE_MAX; // transient, NOT MODELS.ARC
+  buffers.original_dynamic_font_verified=true;
+  buffers.original_font_frame=frame;
+  buffers.original_font_draw_ordinal=ordinal;
+  buffers.original_font_atlas_hash=cpu.original_font_atlas_hash;
+  auto [storage,added]=s.font_uploads.emplace(draw_key,std::move(gpu));
+  if(!added)throw std::logic_error("Duplicate EFont source GPU generation");
+  try {
+    if(!s.draw_buffers.emplace(handle,std::move(buffers)).second)
+      throw std::logic_error("Duplicate live EFont host buffer identity");
+  } catch (...) {
+    s.font_uploads.erase(storage);
+    throw;
+  }
+  aot::BoundIndexedDraw result{};
+  result.draw.vertex_buffer=handle;
+  result.draw.index_buffer=storage->second.index_handle;
+  result.draw.vertex_shader=live.original_vs_guest_object;
+  result.draw.pixel_shader=live.original_ps_guest_object;
+  result.draw.index_count=storage->second.index_count;
+  result.draw.first_index=0;
+  result.draw.base_vertex=0;
+  result.draw.source_frame=frame;
+  result.draw.source_ordinal=ordinal;
+  result.draw.guest_vs_matrices=*call.observed_vs_matrices;
+  result.draw.guest_shader_constants=call.observed_shader_constants;
+  result.vertex_source_sha256=*original_vs;
+  result.pixel_source_sha256=*original_ps;
+  result.effect_hash=cpu.original_effect_hash;
+  result.pass_index=cpu.original_pass_index;
+  result.original_model_hash=original_font_resource_hash;
+  result.original_surface_ordinal=surface_ordinal;
+  result.original_mesh_header_offset=SIZE_MAX;
+  result.source_nonindexed_linearization_verified=
+      bool(xdk::DecodeOriginalVerticesXdkCall(call));
+  result.original_dynamic_font_draw=true;
+  for(const auto& image:owner->original_textures)
+    result.original_samplers.push_back(image.identity);
+  return result;
+}
+void DiligentEorDirectBackend::RetireCompletedOriginalFontDraws(
+    uint64_t completed_frame) noexcept {
+  if(!state_ || state_->scene_open || !completed_frame)return;
+  auto& s=*state_;
+  // Caller must have observed the actual Vulkan completion fence, not
+  // merely the next original guest Present or a CPU-side submission.
+  for(auto it=s.font_uploads.begin();it!=s.font_uploads.end();) {
+    if(it->first.first>completed_frame)break;
+    s.draw_buffers.erase(it->second.position_handle);
+    it=s.font_uploads.erase(it);
+  }
+}
 bool DiligentEorDirectBackend::PreflightOriginalScene(
     std::span<const aot::BoundIndexedDraw> draws) {
   auto& s=*state_;
