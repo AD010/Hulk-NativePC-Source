@@ -159,6 +159,23 @@ bool InstallVerifiedWorkerEorFrame(
 bool InstallVerifiedWorkerEorFrameWithResidents(
     std::shared_ptr<const VerifiedWorkerEorFrame> frame,
     const native::VerifiedOriginalResidentLookup& lookup);
+// Persistent source-authenticated material/mesh catalogue. Register once,
+// then the existing Vulkan worker binds those candidates to EACH actual
+// original PPC Present without inventing a shader or guest buffer identity.
+// The lookup is render-thread-only and must remain valid until Clear.
+// Only candidates with independently verified original engine ownership
+// are accepted. Dynamic EFontShader geometry still needs its own proven
+// original live vertex-layout and cannot be substituted by an archive mesh.
+struct VerifiedWorkerEorOwnerCatalog {
+  native_x_renderer::Device* device=nullptr;
+  native::FrameGeometry output{};
+  std::vector<native::VerifiedXdkResourceWitness> verified_candidates;
+  native::VerifiedOriginalResidentLookup resident_lookup;
+  std::shared_ptr<aot::ShaderBindingBackend> gpu;
+};
+bool InstallVerifiedWorkerEorOwnerCatalog(
+    std::shared_ptr<const VerifiedWorkerEorOwnerCatalog> catalog);
+void ClearVerifiedWorkerEorOwnerCatalog() noexcept;
 void ClearVerifiedWorkerEorFrame() noexcept;
 // Exact native EoR Vulkan *backbuffer completion*, not the guest XDK frame
 // count and not proof the host GPU swapchain has finished Present.
