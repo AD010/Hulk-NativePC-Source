@@ -14,6 +14,7 @@
 #include <bit>
 #include <set>
 #include <tuple>
+#include <limits>
 #include <stdexcept>
 #include <utility>
 
@@ -84,6 +85,30 @@ bool HasVerifiedHostAttributeLayout(
 }
 // Attribute count is distinct from GPU stream count: multiple nonoverlapping
 // declared inputs may share a single decoded float4 source buffer.
+// Original EFontShader draws upload independent native FLOAT4 slots for
+// position/UV/color. A static Xbox mesh's slot-0 XYZ12 interpretation
+// must NEVER be reused for these 2D attributes.
+uint32_t SourceFontSlotMask(
+    std::span<const Diligent::LayoutElement> layout,
+    std::span<const uint64_t> slots) {
+  if(layout.size()!=slots.size() || layout.size()<2 ||
+     layout.size()>3)return 0;
+  uint32_t mask=0;
+  for(const auto& item:layout) {
+    if(item.BufferSlot>=slots.size() || !slots[item.BufferSlot] ||
+       (mask & (1u<<item.BufferSlot)) ||
+       item.ValueType!=Diligent::VT_FLOAT32 ||
+       item.NumComponents<2 || item.NumComponents>4 ||
+       (item.RelativeOffset!=0 &&
+        item.RelativeOffset!=Diligent::LAYOUT_ELEMENT_AUTO_OFFSET) ||
+       (item.Stride!=16u &&
+        item.Stride!=Diligent::LAYOUT_ELEMENT_AUTO_STRIDE) ||
+       item.Frequency!=Diligent::INPUT_ELEMENT_FREQUENCY_PER_VERTEX)
+      return 0;
+    mask |= 1u<<item.BufferSlot;
+  }
+  return mask==(1u<<slots.size())-1u ? mask:0u;
+}
 uint32_t SourceVertexSlotMask(
     std::span<const Diligent::LayoutElement> layout,
     std::span<const uint64_t> slots) {
@@ -240,6 +265,10 @@ struct DiligentEorDirectBackend::State {
   // Per actual guest frame/ordinal, with no shader remapping or inter-Draw
   // state inheritance. Only source-proven translator-used floats are packed.
   using DrawKey=std::pair<uint64_t,uint32_t>;
+  // Original EFontShader writes a transient VB generation each frame.
+  // Keep exact immutable native float4/index32 allocations until the
+  // host GPU fence has COMPLETED, never while its Draw may be in flight.
+  std::map<DrawKey,ui::UploadedLiveFontGeometry> font_uploads;
   struct PackedConstants {
     std::vector<float> vertex,pixel;
     native::HostRasterWindow raster{};
@@ -362,9 +391,19 @@ DiligentEorDirectBackend::DiligentEorDirectBackend(
     if(gpu.NumRenderTargets!=1 || gpu.RTVFormats[0]!=color ||
        gpu.DSVFormat!=depth || gpu.SmplDesc.Count!=frame.samples)
       throw std::invalid_argument("Native Vulkan PSO format/sample contract disagrees with scene");
-    if(!HasVerifiedHostAttributeLayout(pass.exact_host_input_layout))
+    if(pass.original_dynamic_font_vertex_layout_verified) {
+      const auto& layout=pass.exact_host_input_layout;
+      std::vector<uint64_t> symbolic(layout.size(),1u);
+      if(pass.original_view_space!=VerifiedOriginalViewSpace::OriginalAspectHud ||
+         !pass.original_view_space_verified ||
+         !pass.original_hud_clip_coordinates_verified ||
+         !SourceFontSlotMask(layout,symbolic))
+        throw std::invalid_argument(
+            "Original font pass lacks proven HUD float4 input and clip semantics");
+    } else if(!HasVerifiedHostAttributeLayout(pass.exact_host_input_layout)) {
       throw std::invalid_argument(
           "EoR original vertex layout overruns or aliases actual host GPU attribute buffers");
+    }
     if(!effects.HasPair(pass.original_effect_hash,pass.original_pass_index,
                         pass.original_vertex_shader_sha256,
                         pass.original_pixel_shader_sha256))
@@ -376,6 +415,7 @@ DiligentEorDirectBackend::DiligentEorDirectBackend(
     const auto& slots=resident.host_vertex_slots;
     if(!position || resident.position_handle!=position ||
        !resident.original_model_hash ||
+       resident.original_dynamic_font_verified ||
        resident.original_mesh_header_offset==SIZE_MAX ||
        !resident.index_handle || resident.vertex_count<3 ||
        !resident.index_count || (resident.index_count%3)!=0 ||
