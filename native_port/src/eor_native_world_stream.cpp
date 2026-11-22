@@ -36,11 +36,13 @@ bool NativeWorldStream::Failed(uint32_t hash) const {
   return failed_.contains(hash);
 }
 void NativeWorldStream::RetryFailed(uint32_t hash) {
-  // Only known original LOD identifiers may be retried.
+  // Retrying is restricted to hashes previously authenticated by the
+  // caller, including world models outside the player-only LOD tiers.
   bool known=false;
   for (const auto& tier:lod_.Tiers()) if (tier.original_model_hash==hash) known=true;
-  if(!known) throw std::invalid_argument("Unrecognized original EoR LOD resource hash");
   std::lock_guard lock(mutex_);
+  if (!known && !source_known_.contains(hash))
+    throw std::invalid_argument("Unrecognized original EoR model resource hash");
   failed_.erase(hash);
 }
 void NativeWorldStream::Queue(uint32_t hash, bool urgent) {
@@ -93,8 +95,20 @@ void NativeWorldStream::RequestSourceVerifiedModels(
          !source_requested_.contains(hash))
         throw std::invalid_argument("Original streamed model request cap reached");
       source_requested_.insert(hash);
+      try {
+        source_known_.insert(hash);
+      } catch (...) {
+        source_requested_.erase(hash);
+        throw;
+      }
     }
-    Queue(hash,false); // urgent LOD stays ahead of background world models
+    try {
+      Queue(hash,false); // urgent LOD stays ahead of background world models
+    } catch (...) {
+      std::lock_guard lock(mutex_);
+      source_requested_.erase(hash);
+      throw;
+    }
   }
 }
 LodDecision NativeWorldStream::Tick(double distance) {
