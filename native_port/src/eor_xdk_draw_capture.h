@@ -668,6 +668,11 @@ class CompletedFrameMailbox {
   uint64_t MissedSinceTake() const noexcept {return missed_since_take_;}
   // Atomically reject a stale frame after another original guest Present.
   std::optional<DeliveredFrame> TakeIfSequence(uint64_t source_sequence);
+  // A missed Present cannot be replayed. Drop the pending epoch by its
+  // exact source sequence EVEN WHILE other threads retain read-only Peek()
+  // snapshots. Unlike Take(), this never moves data still being inspected.
+  // Used only for loss recovery, not to authorize any native GPU Draw.
+  bool DiscardIfSequence(uint64_t source_sequence) noexcept;
   uint64_t TotalOverwritten() const noexcept {return total_overwritten_;}
   void Reset() noexcept;
  private:
