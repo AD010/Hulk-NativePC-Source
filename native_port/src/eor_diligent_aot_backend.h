@@ -10,6 +10,8 @@
 #include "eor_diligent_original_pipeline.h"
 #include "eor_diligent_texture_residency.h"
 #include "eor_original_model_upload.h"
+#include "eor_native_font_geometry.h"
+#include "eor_original_virtual_shader_identity.h"
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -58,6 +60,12 @@ struct NativeEorDrawBuffers {
   // that another model's physical index/vertex buffers may be used.
   uint32_t original_model_hash=0;
   size_t original_mesh_header_offset=SIZE_MAX;
+  // Dynamic EFontShader only: the original guest geometry is transient
+  // XDK VB/IB data, not an archived MODELS.ARC mesh/header offset.
+  bool original_dynamic_font_verified=false;
+  uint64_t original_font_frame=0;
+  uint32_t original_font_draw_ordinal=UINT32_MAX;
+  uint32_t original_font_atlas_hash=0;
 };
 // Build real immutable host XYZ/index buffer table from original uploaded
 // Xbox360 models. Other shader input slots must be independently decoded.
@@ -109,6 +117,23 @@ class DiligentEorDirectBackend final : public aot::ShaderBindingBackend {
   // more models can request further batches BEFORE the next GPU scene.
   // Returns the number of newly cached verified owner-specific pipelines.
   std::size_t PrewarmResidentOriginalPipelines(std::size_t max_new);
+  // Stage the REAL EFontShader GPU geometry into the existing original
+  // Vulkan pipeline BEFORE scene BeginScene. Builds one ordinary ordered
+  // BoundIndexedDraw for ReplayAotScene, using original live VS/PS source
+  // digests, exact source pass, checked font atlas, XDK constants and
+  // immutable host float4/index32 buffers. Never manufactures a model.
+  // The source-proven font resource hash must already own a matching
+  // independently verified material pass in this backend.
+  aot::BoundIndexedDraw StageVerifiedOriginalFontDraw(
+      const xdk::RawDraw& source,
+      const ui::VerifiedFontVertexLayout& original_layout,
+      uint64_t source_frame,uint32_t source_ordinal,
+      uint32_t original_font_resource_hash,uint32_t original_surface_ordinal,
+      const aot::OriginalVirtualShaderIdentity& original_shaders);
+  // Call ONLY after the host GPU completion fence for completed_frame.
+  // An in-flight font VB/IB is never destroyed just because source Present
+  // advanced or a later game frame started.
+  void RetireCompletedOriginalFontDraws(uint64_t completed_frame) noexcept;
   bool PreflightOriginalScene(
       std::span<const aot::BoundIndexedDraw> draws) override;
   bool CanReplayOriginalXdkTimeline(const xdk::Frame& source) const override;
