@@ -216,6 +216,19 @@ struct VerifiedWorkerEorOwnerCatalog {
 };
 bool InstallVerifiedWorkerEorOwnerCatalog(
     std::shared_ptr<const VerifiedWorkerEorOwnerCatalog> catalog);
+// Build a resident, completely VERIFIED material/mesh/font catalog on the
+// actual Vulkan worker when the NativeX device and source Present exist.
+// Register this callback from the engine's original-asset material loader:
+// it must check real archive owner, host PSOs, XDK screen and vertex layout.
+// A null/unproved result never becomes render-eligible. The worker retries
+// infrequently when newer original assets arrive, rather than requiring
+// a hand-installed catalog for every current guest Present.
+using VerifiedWorkerEorCatalogFactory=std::function<
+    std::shared_ptr<const VerifiedWorkerEorOwnerCatalog>(
+        native_x_renderer::Device&)>;
+bool InstallVerifiedWorkerEorCatalogFactory(
+    VerifiedWorkerEorCatalogFactory factory);
+void ClearVerifiedWorkerEorCatalogFactory() noexcept;
 void ClearVerifiedWorkerEorOwnerCatalog() noexcept;
 void ClearVerifiedWorkerEorFrame() noexcept;
 // Exact native EoR Vulkan *backbuffer completion*, not the guest XDK frame
