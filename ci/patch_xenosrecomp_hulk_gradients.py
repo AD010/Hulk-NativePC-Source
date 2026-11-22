@@ -106,11 +106,20 @@ def main():
     parser.add_argument('checkout',type=Path)
     root=parser.parse_args().checkout
     c,h,s=root/CPP,root/HPP,root/COMMON
-    cpp,hpp,common,changed=patch_sources(c.read_text(),h.read_text(),s.read_text())
-    if changed:
+    from patch_xenosrecomp_hulk_programs import MARK as PROGRAMS_MARK, patch_programs
+    cpp,hpp,common=c.read_text(),h.read_text(),s.read_text()
+    if PROGRAMS_MARK in cpp:
+        patch_programs(cpp)  # verify the entire installed frontend
+        if GATE not in cpp or HPP_NEW not in hpp or HELPER not in common:
+            raise ValueError('Incomplete original gradient/compiler support')
+        changed=False
+    else:
+        cpp,hpp,common,_=patch_sources(cpp,hpp,common)
+        cpp=patch_programs(cpp)
         c.write_text(cpp,encoding='utf-8',newline='\n')
         h.write_text(hpp,encoding='utf-8',newline='\n')
         s.write_text(common,encoding='utf-8',newline='\n')
+        changed=True
     print('Hulk native 2D SampleGrad:', 'installed' if changed else 'already installed')
 
 if __name__ == '__main__':

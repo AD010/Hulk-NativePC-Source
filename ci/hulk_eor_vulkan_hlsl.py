@@ -30,7 +30,11 @@ def native_resources(hlsl: str, stage: str) -> str:
     used = {}
     def resource(match):
         name, kind = match.groups()
-        slot = declared.get((name, kind))
+        # XenosRecomp emits one CTAB sampler entry per named resource.
+        # A 1D fetch uses that same slot and its own typed Vulkan view.
+        if kind == 'Texture1D' and 'HULK_EOR_SOURCE_INTERFACE_V2' not in prefix:
+            raise ValueError('Unchecked original 1D sampling mode')
+        slot = declared.get((name, 'Sampler' if kind == 'Texture1D' else kind))
         if slot is None:
             raise ValueError('Original fetch has no CTAB descriptor ' + name)
         symbol = f'Hulk{kind}_s{slot}'
@@ -39,7 +43,7 @@ def native_resources(hlsl: str, stage: str) -> str:
         used[kind, slot] = name
         return symbol
 
-    body = re.sub(r'\b(\w+)_(Texture2D|Texture3D|TextureCube|Sampler)DescriptorIndex\b', resource, body)
+    body = re.sub(r'\b(\w+)_(Texture1D|Texture2D|Texture3D|TextureCube|Sampler)DescriptorIndex\b', resource, body)
     if 'DescriptorIndex' in body:
         raise ValueError('Unsupported original texture fetch reference')
     # Diligent maps HLSL vertex semantics to the explicit numeric input
@@ -55,7 +59,7 @@ def native_resources(hlsl: str, stage: str) -> str:
     for kind, slot in sorted(used):
         var_type = 'SamplerState' if kind == 'Sampler' else kind + '<float4>'
         # Each stage has its own descriptor namespace in the native PSO.
-        binding = bases[kind] // 4 + slot
+        binding = (64 if kind == 'Texture1D' else bases[kind] // 4) + slot
         set_index = 1 if stage == 'PS' else 0
         declarations.append(f'[[vk::binding({binding}, {set_index})]] {var_type} Hulk{kind}_s{slot};')
 
@@ -103,4 +107,11 @@ def native_resources(hlsl: str, stage: str) -> str:
     if bank + '[' in prefix:
         declarations.append(f'cbuffer Hulk{stage_name}Constants : register(b{1 if stage=="VS" else 2}, space2) '
                             f'{{ float4 {bank}[256]; }};')
+    if 'tfetch2DLevelZero(' in body:
+        declarations.append('float4 tfetch2DLevelZero(Texture2D<float4> image, SamplerState state, '
+                            'float2 uv, float2 offset) { uint w,h; image.GetDimensions(w,h); '
+                            'return image.SampleLevel(state, uv + offset / float2(w,h), 0.0); }')
+    if any(kind == 'Texture1D' for kind, slot in used):
+        declarations.append('float4 tfetch1D(Texture1D<float4> image, SamplerState state, float u) '
+                            '{ return image.Sample(state, u); }')
     return '\n'.join(declarations) + '\n' + prefix + entry + body
