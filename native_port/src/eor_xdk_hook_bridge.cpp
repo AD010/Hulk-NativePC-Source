@@ -643,7 +643,7 @@ bool ReplayNextVerifiedPpcFrame(
   if(missed) {
     preview.reset(); // release immutable ownership before TakeIfSequence
     std::lock_guard lock(g_mutex);
-    (void)g_frames_for_native.TakeIfSequence(sequence);
+    (void)g_frames_for_native.DiscardIfSequence(sequence);
     return false;
   }
   if(!ValidateOriginalCommandTimeline(*preview))return false;
@@ -1219,7 +1219,7 @@ native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(
       // Discard it atomically while still under the original Present lock,
       // release the temporary preview first, and let the NEXT frame compete.
       source_snapshot.reset();
-      (void)g_frames_for_native.TakeIfSequence(source_sequence);
+      (void)g_frames_for_native.DiscardIfSequence(source_sequence);
       return Result::kNotReady;
     }
   }
