@@ -912,6 +912,27 @@ std::vector<VerifiedDrawSource> ResolveCapturedResourceDraws(
             return w.native_draw;
           },candidate.original_source_submission);
       if (!MaterialPixelTexturesAgree(call,candidate,candidate_source)) continue;
+      // A true game material setter can supply an additional independent
+      // cross-check: if its live XDK texture hashes identify ONE original
+      // MODELS.ARC surface in the byte-exact source model, another shader-
+      // compatible surface must not claim that same indexed Draw.
+      // Unknown/ambiguous texture-to-surface identity remains undecided;
+      // it can NEVER by itself manufacture a verified source witness.
+      if(exact && candidate.original_xdk_texture_slot_mapping_verified &&
+         candidate.source_verified_texture_slot_mask) {
+        const model::UploadedOriginalModel* live_model=nullptr;
+        for(const auto* resident:residents)
+          if(resident && resident->original_resource_hash==exact->model_hash) {
+            live_model=resident;break;
+          }
+        if(live_model) {
+          const auto source_surface=IdentifyLiveOriginalXdkMaterialSurface(
+              *live_model,call,candidate.source_verified_texture_slot_mask);
+          if(source_surface &&
+             *source_surface!=candidate_source.original_surface_ordinal)
+            continue;
+        }
+      }
       // A live original ShaderContainer VS/PS pair can authenticate the
       // exact original ShaderEffects effect/pass without a Vulkan backend.
       // Use that strong PPC Draw evidence to ELIMINATE other legitimate
