@@ -124,7 +124,15 @@ LodDecision NativeWorldStream::Tick(double distance) {
             model::UploadOriginalModel(std::move(prepared->second),backend_));
         if (!gpu_.emplace(hash,std::move(uploaded)).second)
           throw std::logic_error("Original EoR GPU model already resident");
-        lod_.SetResident(hash,true);
+        // World buildings, civilians, vehicles and UI models are NOT
+        // necessarily player LOD-tier entries. ResidentLodSet explicitly
+        // rejects unknown hashes: a valid original GPU upload must never
+        // be mislabeled as a failed stream merely for not being a Hulk LOD.
+        for(const auto& tier:lod_.Tiers())
+          if(tier.original_model_hash==hash) {
+            lod_.SetResident(hash,true);
+            break;
+          }
       } catch (...) {
         std::lock_guard lock(mutex_);
         failed_.insert(hash);
