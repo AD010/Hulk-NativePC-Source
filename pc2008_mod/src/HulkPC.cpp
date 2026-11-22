@@ -907,7 +907,12 @@ HRESULT STDMETHODCALLTYPE OnSampler(IDirect3DDevice9* dev,DWORD sampler,
             }
             const HRESULT rollbackHr=realSampler(
                 dev,sampler,D3DSAMP_MAXANISOTROPY,rollbackMaximum);
-            if(FAILED(rollbackHr)) {
+            if(SUCCEEDED(rollbackHr)) {
+              // The original MAX has been restored. A previous successful AF
+              // override must no longer own a stale rollback record.
+              std::lock_guard lock(mipMutex);
+              afMaximumOverridden[sampler]=false;
+            } else {
               // The driver's MAX state may still be our forced value.
               // Retain the original game maximum for a later texture/MIN
               // transition rather than silently losing rollback ownership.
