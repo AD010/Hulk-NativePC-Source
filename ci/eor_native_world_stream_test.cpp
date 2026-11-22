@@ -122,6 +122,9 @@ void CheckSourceVerifiedWorldModels() {
     });
     assert(stream.ResidentShared(77u)->original_resource_hash==77u);
     assert(stream.ResidentShared(88u)->original_resource_hash==88u);
+    // Upload success for source-proven scene models cannot be reported as
+    // failure by the player-only LOD map.
+    assert(!stream.Failed(77u) && !stream.Failed(88u));
     // Real environment model files survive player-only LOD movement.
     stream.Tick(900.0);
     assert(stream.Resident(77u) && stream.Resident(88u));
