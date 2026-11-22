@@ -21,6 +21,21 @@ class ModelSource {
   // Called ONLY by I/O worker; must not touch Diligent or guest PPC memory.
   virtual std::optional<model::LoadedNativeGeometry> Load(uint32_t original_hash) = 0;
 };
+// Real original USA Models.ARC + pinned IND supplier. Unlike test fixtures,
+// this resolves each requested GPU model directly from the user's own
+// verified archive bytes on the existing independent native I/O thread.
+// Rendering still requires separate material, XDK Draw and shader proofs.
+class PinnedUsaArchiveModelSource final : public ModelSource {
+ public:
+  static std::unique_ptr<PinnedUsaArchiveModelSource> Open(
+      const std::filesystem::path& original_usa_index,
+      const std::filesystem::path& original_models_arc);
+  explicit PinnedUsaArchiveModelSource(model::OriginalModelAssets assets)
+      : assets_(std::move(assets)) {}
+  std::optional<model::LoadedNativeGeometry> Load(uint32_t hash) override;
+ private:
+  model::OriginalModelAssets assets_;
+};
 class NativeWorldStream {
  public:
   NativeWorldStream(std::unique_ptr<ModelSource> source,
