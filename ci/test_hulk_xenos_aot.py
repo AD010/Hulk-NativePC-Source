@@ -130,6 +130,17 @@ class AotTests(unittest.TestCase):
             self.assertEqual(first["failed_count"],0)
             self.assertEqual(first["compiled"],second["compiled"])
             self.assertEqual(bank_first,bank_second)
+            # A resumable AOT pass must never spawn an external compiler if
+            # each previously authenticated shader/host-tool SHA still agrees.
+            with patch("hulk_xenos_aot.subprocess.run",
+                       side_effect=AssertionError("redundant shader compile")):
+                resumed = compile_bank(b, root/"out",root/"x.exe",root/"d.exe",
+                                       root/"common.h",repo,workers=2,
+                                       resume=True)
+            self.assertEqual(resumed["reused_verified_count"],2)
+            self.assertEqual(resumed["failed_count"],0)
+            self.assertEqual((root/"out"/"hulk_shader_bank.bin").read_bytes(),
+                             bank_first)
             self.assertEqual(struct.unpack_from("<II",bank_first,8),(2,2))
             self.assertEqual(set(e["source_sha256"] for e in first["compiled"]),
                              {first_sha,second_sha})
