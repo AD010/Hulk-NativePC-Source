@@ -12,6 +12,7 @@
 #include <cstring>
 #include <cstdint>
 #include <limits>
+#include <map>
 #include <mutex>
 #include <memory>
 #include <new>
@@ -1165,15 +1166,42 @@ bool InstallVerifiedWorkerEorFrameWithResidents(
       return false;
   }
   try {
-    // Original EoR model/mesh/surface owner must already have been proven
-    // by actual engine ABI. This stage uses the existing USA archive stream
-    // GPU buffers, not reconstructed or guessed XDK shader state.
-    // Pair the ORIGINAL shader class invocation at each XDK Draw with
-    // independently authenticated engine mesh/material candidates from
-    // this exact Present. This is a real producer of SOURCE-PARENT data,
-    // NOT a generator of missing material/pass/texture GPU witnesses.
+    // A producer may supply independently verified reusable original
+    // material/mesh candidates instead of synthesizing a witness for each
+    // identical XDK Draw. Acquire ONLY real already-uploaded Xbox models;
+    // their host GPU buffers remain strongly owned through submission.
+    std::map<uint32_t,std::shared_ptr<const model::UploadedOriginalModel>>
+        candidate_models;
+    for(const auto& candidate:frame->witnesses) {
+      const auto& owner=std::visit([](const auto& link)
+          ->const native::VerifiedDrawSource& {return link.native_draw;},
+          candidate.original_source_submission);
+      if(!candidate.original_guest_resource_to_material_mapping_verified ||
+         !owner.engine_draw_verified || !owner.mesh_material_verified ||
+         !owner.host_vertex_layout_verified || !owner.render_state_verified ||
+         !owner.original_model_hash ||
+         (owner.original_frame_sequence &&
+          owner.original_frame_sequence!=source->sequence))
+        return false;
+      if(candidate_models.contains(owner.original_model_hash))continue;
+      auto model=lookup(owner.original_model_hash);
+      if(!model || model->original_resource_hash!=owner.original_model_hash ||
+         model->original_identity.platform!=model::Platform::Xbox360)
+        return false;
+      candidate_models.emplace(owner.original_model_hash,std::move(model));
+    }
+    std::vector<const model::UploadedOriginalModel*> borrowed;
+    borrowed.reserve(candidate_models.size());
+    for(const auto& [_,model]:candidate_models)
+      borrowed.push_back(model.get());
+    // The actual per-Draw producer: authenticate all current PPC XDK
+    // shader, buffer, sampler and material bindings against original
+    // resident meshes. Reusable candidates become EXACT frame/ordinal
+    // witnesses only after unique current-source selection.
+    auto materialized=native::MaterializeLiveOriginalResourceWitnesses(
+        *source,frame->witnesses,borrowed);
     auto source_parents=native::AttachLiveEorShaderMethodParents(
-        *source,frame->witnesses);
+        *source,materialized);
     auto residents=native::RetainVerifiedOriginalFrameResidents(
         *source,source_parents,lookup);
     if(residents.empty())return false;
@@ -1181,7 +1209,8 @@ bool InstallVerifiedWorkerEorFrameWithResidents(
     complete->witnesses=std::move(source_parents);
     complete->residents=std::move(residents);
     // A newer XDK Present can replace source while retrieving models.
-    // Leave the final exact frame check to TryWorkerEorFrame and replay.
+    // InstallVerifiedWorkerEorFrame rechecks the source sequence under
+    // the original Present mutex before publishing to the GPU worker.
     return InstallVerifiedWorkerEorFrame(std::move(complete));
   } catch (...) {
     // No GPU work started. Keep the established NativeX presentation.
