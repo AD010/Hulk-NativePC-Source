@@ -128,7 +128,13 @@ class AotTests(unittest.TestCase):
             self.assertEqual(first["workers_used"],2)
             self.assertEqual(first["compiled_count"],2)
             self.assertEqual(first["failed_count"],0)
-            self.assertEqual(first["compiled"],second["compiled"])
+            # A resumed row has reused_verified=True: compare its exact
+            # authenticated shader identity, not the diagnostic reuse flag.
+            self.assertEqual(
+                [(x["source_sha256"],x["stage"],x["spirv_sha256"])
+                 for x in first["compiled"]],
+                [(x["source_sha256"],x["stage"],x["spirv_sha256"])
+                 for x in second["compiled"]])
             self.assertEqual(bank_first,bank_second)
             # A resumable AOT pass must never spawn an external compiler if
             # each previously authenticated shader/host-tool SHA still agrees.
@@ -142,6 +148,31 @@ class AotTests(unittest.TestCase):
             self.assertEqual((root/"out"/"hulk_shader_bank.bin").read_bytes(),
                              bank_first)
             self.assertEqual(struct.unpack_from("<II",bank_first,8),(2,2))
+            # Compiling only one effect/source must retain all earlier
+            # verified AOT results and preserve the full HEORSPV1 image.
+            with patch("hulk_xenos_aot.subprocess.run",
+                       side_effect=AssertionError("unexpected subset recompile")):
+                subset = compile_bank(b,root/"out",root/"x.exe",root/"d.exe",
+                                      root/"common.h",repo,workers=2,limit=1)
+            self.assertEqual(subset["input_count"],1)
+            self.assertEqual(subset["selected_compiled_count"],1)
+            self.assertEqual(subset["compiled_count"],2)
+            self.assertEqual((root/"out"/"hulk_shader_bank.bin").read_bytes(),
+                             bank_first)
+            # An interrupted incremental migration can compile one input,
+            # resume the remaining original shaders and build a complete
+            # bank without recompiling the authenticated first output.
+            with patch("hulk_xenos_aot.subprocess.run",side_effect=worker):
+                first_batch=compile_bank(b,root/"incremental",root/"x.exe",
+                                         root/"d.exe",root/"common.h",repo,
+                                         workers=2,limit=1)
+                completed=compile_bank(b,root/"incremental",root/"x.exe",
+                                       root/"d.exe",root/"common.h",repo,workers=2)
+            self.assertEqual(first_batch["compiled_count"],1)
+            self.assertEqual(completed["compiled_count"],2)
+            self.assertEqual(completed["reused_verified_count"],1)
+            self.assertEqual(struct.unpack_from("<II",
+                (root/"incremental"/"hulk_shader_bank.bin").read_bytes(),8),(2,2))
             self.assertEqual(set(e["source_sha256"] for e in first["compiled"]),
                              {first_sha,second_sha})
             with self.assertRaises(ValueError):
