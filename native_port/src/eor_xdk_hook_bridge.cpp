@@ -802,6 +802,32 @@ void CapturePpcDraw(Kind kind, uint32_t guest, const PPCContext& ctx,
           g_applied_item_material,owner.original_pass_material_context_guest,
           owner.original_engine_render_item_material_guest,
           draw.observed_vs_matrices->original_texture_guest_objects,ReadGuest,guest_base);
+    } else if (owner.original_pass_vs_ps_xdk_binding_verified &&
+               owner.original_pass_sampler_slots_verified &&
+               g_applied_item_material.context &&
+               g_applied_item_material.context==
+                   owner.original_pass_material_context_guest &&
+               g_applied_item_material.descriptor &&
+               g_applied_item_material.selector &&
+               g_applied_item_material.parameters &&
+               g_applied_item_material==ReadUsaAppliedMaterial(
+                   owner.original_pass_material_context_guest,
+                   g_applied_item_material.descriptor,ReadGuest,guest_base)) {
+      // EFontShader and other non-Decal EoR classes can bind an original
+      // material without the independent per-item descriptor ABI. The
+      // setter is observed in THIS original shader-method TLS scope;
+      // compare the descriptor's CURRENT game bytes, pass material context
+      // and bound XDK texture-object pointers before claiming a texture
+      // archive hash. Never infer an atlas from a similar shader or logo.
+      const auto current=ReadUsaMaterialPixelTextures(
+          owner.original_pass_material_context_guest,
+          g_applied_item_material.selector,g_applied_item_material.parameters,
+          draw.observed_vs_matrices->original_texture_guest_objects,
+          ReadGuest,guest_base);
+      for(uint32_t slot=0;slot<current.size();++slot)
+        if(owner.original_pass_sampler_slot_mask &
+           (uint16_t(1u)<<slot))
+          draw.original_pixel_texture_keys[slot]=current[slot];
     }
   }
   // Keep buffer revisions and their Draw in the same Present epoch.
