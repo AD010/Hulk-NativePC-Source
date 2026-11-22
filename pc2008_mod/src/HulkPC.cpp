@@ -384,13 +384,18 @@ HRESULT STDMETHODCALLTYPE OnCreateDevice(IDirect3D9* api,UINT adapter,
   if(intervalChanged)
     pp->PresentationInterval=D3DPRESENT_INTERVAL_IMMEDIATE;
   HRESULT hr=realCreateDevice(api,adapter,type,window,flags,pp,result);
-  if(FAILED(hr) && changed) {
+  if(FAILED(hr)) {
+    // A failed driver call may mutate presentation parameters even when no
+    // override was requested. Never return driver-written garbage to the game.
     *pp=original;
-    if(result)*result=nullptr;
-    hr=realCreateDevice(api,adapter,type,window,flags,pp,result);
-    // Some D3D9 implementations mutate pp even when both attempts fail.
-    // Never leak a failed forced mode or driver-written garbage to the host.
-    if(FAILED(hr)) *pp=original;
+    *result=nullptr;
+    if(changed) {
+      hr=realCreateDevice(api,adapter,type,window,flags,pp,result);
+      if(FAILED(hr)) {
+        *pp=original;
+        *result=nullptr;
+      }
+    }
   }
   if(SUCCEEDED(hr) && *result) {
     // A successful fallback may have changed hDeviceWindow. Record the
