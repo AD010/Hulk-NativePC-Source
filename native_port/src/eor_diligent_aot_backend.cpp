@@ -424,7 +424,11 @@ bool DiligentEorDirectBackend::CanReplayOriginalXdkCommand(
     case xdk::CommandKind::SetDepthStencilSurface:
       return cmd.gpr[1]==original.guest_depth;
     case xdk::CommandKind::ClearF:
+      // This native render pass owns RT0 and one depth target only.
+      // Xbox ClearF can address RT1..RT3, which we must not silently
+      // ignore and then present as a fully reproduced source frame.
       return cmd.captured_clear &&
+          (cmd.captured_clear->flags & 0x0eu)==0 &&
           xdk::IsOriginalFullTargetClear(
               *cmd.captured_clear,s.frame.original_guest.width,
               s.frame.original_guest.height) &&
@@ -536,8 +540,13 @@ std::size_t DiligentEorDirectBackend::PrewarmResidentOriginalPipelines(
   for(const auto& [_,mesh]:s.draw_buffers)
     resident_models.insert(mesh.original_model_hash);
   std::size_t warmed=0;
+  std::size_t attempted=0;
+  // Avoid a pathological startup when a large number of source passes
+  // have no compiled SPIR-V variant yet. Skip an unsupported pass instead
+  // of abandoning prewarming ALL the valid resident UI/world materials.
+  const std::size_t attempt_budget=std::max(max_new,std::size_t{128});
   for(const auto& owner:s.passes) {
-    if(warmed>=max_new)break;
+    if(warmed>=max_new || attempted>=attempt_budget)break;
     if(!resident_models.contains(owner.original_model_hash))continue;
     const State::MaterialKey key{
         owner.original_model_hash,owner.original_surface_ordinal,
@@ -545,6 +554,7 @@ std::size_t DiligentEorDirectBackend::PrewarmResidentOriginalPipelines(
         owner.pipeline.original_pass_index};
     if(s.pipeline_cache.contains(key) &&
        s.material_bindings.contains(key))continue;
+    ++attempted;
     try {
       if(!s.pipeline_cache.contains(key)) {
         // Original material/VS/PS/host-vertex-layout identity is verified
@@ -570,7 +580,9 @@ std::size_t DiligentEorDirectBackend::PrewarmResidentOriginalPipelines(
     } catch (...) {
       s.material_bindings.erase(key);
       s.pipeline_cache.erase(key);
-      break; // Never let optional prewarm break guest game initialization.
+      // A missing/invalid source shader cannot poison preparation of the
+      // NEXT independently verified material in this same resident scene.
+      continue; // Prewarm is optional and must not break guest startup.
     }
   }
   return warmed;
