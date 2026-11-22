@@ -55,6 +55,11 @@ struct VerifiedOriginalGraphicsPass {
   bool material_pass_verified=false;
   bool original_render_state_verified=false;
   bool original_host_vertex_layout_verified=false;
+  // Source-proof that this particular ORIGINAL EFontShader pass consumes
+  // independently decoded transient float4 font attributes, NOT static
+  // MODELS.ARC XYZ meshes. Verified against the live original declaration,
+  // shader input layout, pass state and atlas ownership by the installer.
+  bool original_dynamic_font_vertex_layout_verified=false;
 };
 struct OriginalVulkanPipeline {
   Diligent::RefCntAutoPtr<Diligent::IPipelineState> pipeline;
