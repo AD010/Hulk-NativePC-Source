@@ -77,8 +77,35 @@ def _entries(bank: Path) -> tuple[dict, list[dict]]:
     return manifest, [unique[key] for key in sorted(unique)]
 
 
+def _source_shaders_for_effects(source: Path, effects: set[int]) -> set[str]:
+    """Exact stage SHA pairs from private authentic HEORMAT2, never names."""
+    data = source.read_bytes()
+    if len(data) < 16 or data[:8] != b"HEORMAT2":
+        raise ValueError("Verified original HEORMAT2 effect ledger missing")
+    count, version = struct.unpack_from("<II", data, 8)
+    if version != 2 or not 0 < count <= 16384 or len(data) != 16 + 72 * count:
+        raise ValueError("Malformed original effect/pass shader digest bank")
+    found: set[int] = set()
+    selected: set[str] = set()
+    for i in range(count):
+        at = 16 + 72 * i
+        effect, ordinal = struct.unpack_from("<II", data, at)
+        if effect not in effects:
+            continue
+        if ordinal > 16384:
+            raise ValueError("Unsafe original effect pass")
+        found.add(effect)
+        selected.add(data[at + 8:at + 40].hex())
+        selected.add(data[at + 40:at + 72].hex())
+    if found != effects:
+        raise ValueError("Requested source effect hash is not in original HEORMAT2")
+    return selected
+
+
 def compile_bank(bank: Path, out: Path, xenos: Path, dxc: Path, common: Path,
-                 repository: Path, limit: int = 0, workers: int = 0) -> dict:
+                 repository: Path, limit: int = 0, workers: int = 0,
+                 effect_catalog: Path | None = None,
+                 effect_hashes: tuple[int, ...] = ()) -> dict:
     bank = _private(bank, repository)
     out = _private(out, repository)
     if not xenos.is_file() or not dxc.is_file() or not common.is_file():
@@ -93,6 +120,16 @@ def compile_bank(bank: Path, out: Path, xenos: Path, dxc: Path, common: Path,
     logical = os.cpu_count() or 1
     active_workers = max(1, min(workers or max(1, logical - 2), 8))
     manifest, entries = _entries(bank)
+    if effect_hashes:
+        if effect_catalog is None:
+            raise ValueError("Original HEORMAT2 path required for effect-targeted AOT")
+        wanted = set(effect_hashes)
+        if any(not 0 < v < 2**32 for v in wanted):
+            raise ValueError("Invalid source effect hash")
+        effect_sources = _source_shaders_for_effects(effect_catalog, wanted)
+        entries = [row for row in entries if row["sha256"] in effect_sources]
+        if {row["sha256"] for row in entries} != effect_sources:
+            raise ValueError("Source effect references a shader missing from private manifest")
     if limit:
         entries = entries[:limit]
     out.mkdir(parents=True, exist_ok=True)
@@ -209,13 +246,18 @@ def main() -> int:
     p.add_argument("--xenosrecomp", type=Path, required=True)
     p.add_argument("--dxc", type=Path, required=True)
     p.add_argument("--common", type=Path, required=True)
-    p.add_argument("--limit", type=int, default=0, help="0 = all; try 1 for first real shader")
+    p.add_argument("--limit", type=int, default=0,
+                   help="0 = all selected shaders; use a small limit for first compilation")
+    p.add_argument("--effect-catalog", type=Path,
+                   help="Private source-verified HEORMAT2.bin effect/pass ledger")
+    p.add_argument("--effect-hash", action="append", type=lambda s:int(s,0),
+                   default=[], help="Compile actual VS/PS of this original effect; repeat for scenes")
     p.add_argument("--workers", type=int, default=0,
                    help="AOT subprocess concurrency: auto (0) reserves two logical CPUs, max 8; explicit 1..16")
     args = p.parse_args()
     report = compile_bank(args.bank, args.out, args.xenosrecomp, args.dxc,
                           args.common, Path(__file__).resolve().parents[1], args.limit,
-                          args.workers)
+                          args.workers, args.effect_catalog, tuple(args.effect_hash))
     print(json.dumps({"attempted": report["input_count"],
                       "workers": report["workers_used"],
                       "compiled": report["compiled_count"],
