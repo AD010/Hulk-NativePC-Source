@@ -72,7 +72,11 @@ void NativeWorldStream::Queue(uint32_t hash, bool urgent) {
 }
 void NativeWorldStream::RequestSourceVerifiedModels(
     std::span<const uint32_t> hashes) {
-  if(hashes.size()>4096)
+  // The authenticated USA source archive enumerates 4,174 models; the
+  // request window must support that full game catalogue, including
+  // streamed city buildings, not merely the player LOD set.
+  constexpr size_t kOriginalWorldModelLimit=16384;
+  if(hashes.size()>kOriginalWorldModelLimit)
     throw std::invalid_argument("Too many original world model source owners");
   for(const uint32_t hash:hashes)
     if(!hash)throw std::invalid_argument("Null original world model hash");
@@ -84,7 +88,7 @@ void NativeWorldStream::RequestSourceVerifiedModels(
     {
       std::lock_guard lock(mutex_);
       if(stopping_)return;
-      if(source_requested_.size()>=4096 &&
+      if(source_requested_.size()>=kOriginalWorldModelLimit &&
          !source_requested_.contains(hash))
         throw std::invalid_argument("Original streamed model request cap reached");
       source_requested_.insert(hash);
@@ -167,7 +171,13 @@ void NativeWorldStream::Worker() {
       std::lock_guard lock(mutex_);
       if (stopping_) return;
       if (raw) staged_.emplace(hash,std::move(*raw));
-      else { failed_.insert(hash);queued_.erase(hash); }
+      else {
+        failed_.insert(hash);
+        queued_.erase(hash);
+        // An absent/corrupt original asset cannot permanently consume
+        // a slot in the authentic world-model source request window.
+        source_requested_.erase(hash);
+      }
     }
     wake_.notify_all();
   }
