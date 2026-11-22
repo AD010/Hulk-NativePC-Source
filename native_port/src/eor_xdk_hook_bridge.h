@@ -7,6 +7,7 @@
 #include <rex/ppc/context.h>
 #include <native_x_renderer/native_x_renderer.h>
 
+namespace hulk::eor::gpu {class DiligentEorDirectBackend;}
 namespace hulk::eor::xdk {
 // Verified USA EoR script-VM global state_r (original guest 0x8264C798).
 // Its r3 argument is the authentic original VM call context; the
@@ -176,6 +177,18 @@ struct VerifiedWorkerEorOwnerCatalog {
   std::vector<native::VerifiedXdkResourceWitness> verified_candidates;
   native::VerifiedOriginalResidentLookup resident_lookup;
   std::shared_ptr<aot::ShaderBindingBackend> gpu;
+  struct VerifiedFontMaterial {
+    ui::VerifiedFontVertexLayout source_vertex_layout;
+    // These identifiers must come from independently verified USA archive
+    // font material and source XDK EFontShader, NOT a convenient UI image.
+    uint32_t original_font_resource_hash=0;
+    uint32_t original_surface_ordinal=UINT32_MAX;
+  };
+  std::vector<VerifiedFontMaterial> verified_font_materials;
+  // Must point at the SAME independently verified Vulkan backend as gpu.
+  // Absent means dynamic font replay is not available and a real UI frame
+  // falls back without presenting incomplete world-only graphics.
+  std::shared_ptr<gpu::DiligentEorDirectBackend> direct_gpu;
 };
 bool InstallVerifiedWorkerEorOwnerCatalog(
     std::shared_ptr<const VerifiedWorkerEorOwnerCatalog> catalog);
