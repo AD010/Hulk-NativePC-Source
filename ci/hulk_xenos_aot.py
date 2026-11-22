@@ -105,7 +105,8 @@ def _source_shaders_for_effects(source: Path, effects: set[int]) -> set[str]:
 def compile_bank(bank: Path, out: Path, xenos: Path, dxc: Path, common: Path,
                  repository: Path, limit: int = 0, workers: int = 0,
                  effect_catalog: Path | None = None,
-                 effect_hashes: tuple[int, ...] = ()) -> dict:
+                 effect_hashes: tuple[int, ...] = (),
+                 resume: bool = False) -> dict:
     bank = _private(bank, repository)
     out = _private(out, repository)
     if not xenos.is_file() or not dxc.is_file() or not common.is_file():
@@ -134,15 +135,54 @@ def compile_bank(bank: Path, out: Path, xenos: Path, dxc: Path, common: Path,
         entries = entries[:limit]
     out.mkdir(parents=True, exist_ok=True)
     success, errors = [], []
+    # All three build-time tools contribute to the exact HLSL/SPIR-V
+    # semantics. Never reuse a private .spv from another translator,
+    # DXC revision or shared shader constants. The original Xenos bytes
+    # themselves are already SHA-256 validated by _entries().
+    toolchain_sha256 = {
+        "xenosrecomp": hashlib.sha256(xenos.read_bytes()).hexdigest(),
+        "dxc": hashlib.sha256(dxc.read_bytes()).hexdigest(),
+        "shader_common": hashlib.sha256(common.read_bytes()).hexdigest(),
+    }
+    prior_compiled: dict[tuple[str, str], dict] = {}
+    prior_manifest = out / "aot_manifest.json"
+    if resume and prior_manifest.is_file():
+        try:
+            previous=json.loads(prior_manifest.read_text(encoding="utf-8"))
+            if (previous.get("source_bank_sha256")==manifest["archive_sha256"]
+                    and previous.get("toolchain_sha256")==toolchain_sha256):
+                for item in previous.get("compiled", []):
+                    if (isinstance(item, dict) and
+                            SHA.fullmatch(item.get("source_sha256", "")) and
+                            item.get("stage") in ("VS", "PS")):
+                        prior_compiled[item["source_sha256"], item["stage"]]=item
+        except (OSError, ValueError, TypeError):
+            prior_compiled={}  # stale/corrupt output never authorizes AOT
 
     def compile_one(row: dict) -> tuple[dict | None, dict | None]:
         sha, stage = row["sha256"], row["stage"]
         hlsl = out / f"{sha}.{stage.lower()}.hlsl"
         spv = out / f"{sha}.{stage.lower()}.spv"
         source = bank / row["private_file"]
-        # The input bank is validated before workers start. Each digest owns
-        # its own two output files; no shared temporary source or DXC state.
-        # On retry, never accept stale output left by a previous invocation.
+        # Reuse an EXACT previously compiled original Xenos program only
+        # when the source archive and EVERY compiler tool hash matches.
+        # The output is independently revalidated by stage, SPIR-V opcode
+        # structure, reflection contract, length and recorded SHA-256.
+        previous=prior_compiled.get((sha,stage))
+        if previous and previous.get("private_spirv")==spv.name:
+            try:
+                compiled=spv.read_bytes()
+                if (len(compiled)==previous.get("spirv_bytes") and
+                    hashlib.sha256(compiled).hexdigest()==
+                        previous.get("spirv_sha256")):
+                    _check_spirv(compiled)
+                    spirv_info(compiled,stage)
+                    validate_named_spirv_images(compiled)
+                    return ({**previous,"reused_verified": True},None)
+            except (OSError, ValueError, TypeError):
+                pass  # corrupt/obsolete shader is recompiled, never loaded
+        # Each digest has isolated files; never accept a stale output after
+        # an unsuccessful compiler attempt.
         hlsl.unlink(missing_ok=True)
         spv.unlink(missing_ok=True)
         try:
@@ -221,6 +261,9 @@ def compile_bank(bank: Path, out: Path, xenos: Path, dxc: Path, common: Path,
     report = {"version": 1, "source_bank_sha256": manifest["archive_sha256"],
               "input_count": len(entries), "workers_used": active_workers,
               "compiled_count": len(success),
+              "reused_verified_count": sum(bool(x.get("reused_verified"))
+                                           for x in success),
+              "toolchain_sha256": toolchain_sha256,
               "failed_count": len(errors), "compiled": success, "failed": errors,
               "driver_pipeline_created": False,
               "game_draw_shader_mapping_verified": False,
@@ -252,12 +295,15 @@ def main() -> int:
                    help="Private source-verified HEORMAT2.bin effect/pass ledger")
     p.add_argument("--effect-hash", action="append", type=lambda s:int(s,0),
                    default=[], help="Compile actual VS/PS of this original effect; repeat for scenes")
+    p.add_argument("--resume", action="store_true",
+                   help="reuse only SHA-verified previous results from this exact source/toolchain")
     p.add_argument("--workers", type=int, default=0,
                    help="AOT subprocess concurrency: auto (0) reserves two logical CPUs, max 8; explicit 1..16")
     args = p.parse_args()
     report = compile_bank(args.bank, args.out, args.xenosrecomp, args.dxc,
                           args.common, Path(__file__).resolve().parents[1], args.limit,
-                          args.workers, args.effect_catalog, tuple(args.effect_hash))
+                          args.workers, args.effect_catalog,
+                          tuple(args.effect_hash), args.resume)
     print(json.dumps({"attempted": report["input_count"],
                       "workers": report["workers_used"],
                       "compiled": report["compiled_count"],
