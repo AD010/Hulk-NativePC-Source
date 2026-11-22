@@ -61,8 +61,20 @@ int main() {
   v.scissor={1,0,4,4};
   const auto adjacent=MapOriginalRasterWindow(v,{4,4},{0,0,6,6});
   assert(adjacent && adjacent->scissor.left==1 && adjacent->scissor.width==5);
+  // Real UI/font viewports can start and end between source pixels:
+  // convert source edges directly to host pixel centres instead of
+  // truncating both coordinates before scaling.
+  v={0.75f,0.f,5.5f,4.f,0.f,1.f,false,{}};
+  auto glyph=MapOriginalRasterWindow(v,{10,10},{0,0,10,10});
+  assert(glyph && glyph->scissor.left==1 && glyph->scissor.width==5);
+  glyph=MapOriginalRasterWindow(v,{10,10},{0,0,20,20});
+  assert(glyph && glyph->scissor.left==1 && glyph->scissor.width==11);
+  v.scissor_enabled=true;
+  v.scissor={2,0,5,10};
+  glyph=MapOriginalRasterWindow(v,{10,10},{0,0,20,20});
+  assert(glyph && glyph->scissor.left==4 && glyph->scissor.width==6);
   v.min_depth=std::numeric_limits<float>::quiet_NaN();
-  assert(!MapOriginalRasterWindow(v,{4,4},{0,0,6,6}));
+  assert(!MapOriginalRasterWindow(v,{10,10},{0,0,20,20}));
   // Real-source target ownership is checked per Draw, not only at the
   // preceding original SetRenderTarget command. Test IDs are synthetic.
   hulk::eor::gpu::VerifiedOriginalXdkScreen target{};
