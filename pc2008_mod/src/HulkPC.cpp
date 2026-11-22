@@ -887,18 +887,26 @@ HRESULT STDMETHODCALLTYPE OnSampler(IDirect3DDevice9* dev,DWORD sampler,
         DWORD previousMaximum=0;
         if(SUCCEEDED(dev->GetSamplerState(sampler,D3DSAMP_MAXANISOTROPY,
                                           &previousMaximum))) {
+          // Repeated LINEAR requests can observe our own forced maximum.
+          // Keep the original game's value as the rollback target.
+          DWORD rollbackMaximum=previousMaximum;
+          {
+            std::lock_guard lock(mipMutex);
+            if(afMaximumOverridden[sampler])
+              rollbackMaximum=afOriginalMaximum[sampler];
+          }
           if(SUCCEEDED(realSampler(dev,sampler,D3DSAMP_MAXANISOTROPY,maximum))) {
             if(SUCCEEDED(realSampler(dev,sampler,type,D3DTEXF_ANISOTROPIC))) {
               std::lock_guard lock(mipMutex);
               minLinearRequested[sampler]=true;
               if(!afMaximumOverridden[sampler]) {
-                afOriginalMaximum[sampler]=previousMaximum;
+                afOriginalMaximum[sampler]=rollbackMaximum;
                 afMaximumOverridden[sampler]=true;
               }
               return D3D_OK;
             }
             const HRESULT rollbackHr=realSampler(
-                dev,sampler,D3DSAMP_MAXANISOTROPY,previousMaximum);
+                dev,sampler,D3DSAMP_MAXANISOTROPY,rollbackMaximum);
             if(FAILED(rollbackHr)) {
               // The driver's MAX state may still be our forced value.
               // Retain the original game maximum for a later texture/MIN
@@ -906,7 +914,7 @@ HRESULT STDMETHODCALLTYPE OnSampler(IDirect3DDevice9* dev,DWORD sampler,
               {
                 std::lock_guard lock(mipMutex);
                 if(!afMaximumOverridden[sampler]) {
-                  afOriginalMaximum[sampler]=previousMaximum;
+                  afOriginalMaximum[sampler]=rollbackMaximum;
                   afMaximumOverridden[sampler]=true;
                 }
               }
