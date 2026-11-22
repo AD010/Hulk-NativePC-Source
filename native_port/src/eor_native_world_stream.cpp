@@ -70,6 +70,28 @@ void NativeWorldStream::Queue(uint32_t hash, bool urgent) {
   }
   wake_.notify_one();
 }
+void NativeWorldStream::RequestSourceVerifiedModels(
+    std::span<const uint32_t> hashes) {
+  if(hashes.size()>4096)
+    throw std::invalid_argument("Too many original world model source owners");
+  for(const uint32_t hash:hashes)
+    if(!hash)throw std::invalid_argument("Null original world model hash");
+  // No GPU calls, guest buffer reads or archive material guesses here:
+  // this only queues original-model I/O. A complete shader/material
+  // witness is still required by the native Vulkan Draw resolver.
+  for(const uint32_t hash:hashes) {
+    if(gpu_.contains(hash))continue;
+    {
+      std::lock_guard lock(mutex_);
+      if(stopping_)return;
+      if(source_requested_.size()>=4096 &&
+         !source_requested_.contains(hash))
+        throw std::invalid_argument("Original streamed model request cap reached");
+      source_requested_.insert(hash);
+    }
+    Queue(hash,false); // urgent LOD stays ahead of background world models
+  }
+}
 LodDecision NativeWorldStream::Tick(double distance) {
   // Invalid camera data must not consume a prepared asset or queue new work.
   if (!(distance >= 0.0) || !std::isfinite(distance))
@@ -85,7 +107,13 @@ LodDecision NativeWorldStream::Tick(double distance) {
   const LodDecision needed = lod_.Update(distance);
   if (prepared) {
     const uint32_t hash = prepared->first;
-    const bool useful = hash == needed.request_model_hash ||
+    bool source_required=false;
+    {
+      std::lock_guard lock(mutex_);
+      source_required=source_requested_.contains(hash);
+    }
+    const bool useful = source_required ||
+                        hash == needed.request_model_hash ||
                         hash == needed.prefetch_model_hash ||
                         hash == needed.active_model_hash;
     if (useful) {
@@ -105,6 +133,9 @@ LodDecision NativeWorldStream::Tick(double distance) {
     {
       std::lock_guard lock(mutex_);
       queued_.erase(hash);
+      // The immutable uploaded model now owns its buffers. Source hash
+      // remains in the full EoR material catalogue, not in this queue.
+      if(gpu_.contains(hash))source_requested_.erase(hash);
     }
     wake_.notify_one();
   }
