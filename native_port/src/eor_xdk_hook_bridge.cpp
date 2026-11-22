@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cstring>
+#include <filesystem>
 #include <cstdint>
 #include <limits>
 #include <map>
@@ -1100,6 +1101,38 @@ void ClearOriginalShaderCaptureIndex() noexcept {
   // not be allowed to authorize a new independent Vulkan Present.
   g_worker_owner_catalog.reset();
   g_verified_worker_frame.reset();
+}
+bool InstallVerifiedSourceShaderPackFromDirectory(
+    const std::filesystem::path& directory) noexcept {
+  if(directory.empty())return false;
+  try {
+    auto shaders=std::make_shared<aot::ShaderBank>();
+    auto effects=std::make_shared<aot::EffectCatalog>();
+    auto reflection=std::make_shared<aot::ReflectionBank>();
+    auto samplers=std::make_shared<aot::OriginalXdkShaderSamplers>();
+    auto virtual_ids=std::make_shared<aot::OriginalVirtualShaderIdentity>();
+    // All local paths are under ONE caller-selected private root; loading
+    // metadata without the compiled original code must never announce a
+    // source-complete native Vulkan renderer.
+    shaders->Load(directory/"HEORSPV1.bin");
+    effects->Load(directory/"HEORMAT2.bin");
+    reflection->Load(directory/"HEORREF1.bin");
+    samplers->Load(directory/"HEORSMP1.bin");
+    virtual_ids->Load(directory/"HEORVRT1.bin");
+    if(!shaders->HasFullArchiveCoverage() ||
+       shaders->expected()!=effects->ShaderCount() ||
+       shaders->expected()!=reflection->size() ||
+       shaders->expected()!=samplers->ShaderCount() ||
+       shaders->expected()!=virtual_ids->size())
+      return false;
+    return InstallVerifiedSourceShaderPack(
+        std::move(shaders),std::move(effects),std::move(reflection),
+        std::move(samplers),std::move(virtual_ids));
+  } catch (...) {
+    // Missing files, incomplete AOT compiler outputs, corrupt SPIR-V or
+    // archive digest mismatches NEVER replace the current verified bank.
+    return false;
+  }
 }
 bool InstallVerifiedSourceShaderPack(
     std::shared_ptr<const aot::ShaderBank> shaders,
