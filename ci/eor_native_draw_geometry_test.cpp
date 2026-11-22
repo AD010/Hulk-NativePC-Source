@@ -533,8 +533,33 @@ int main(){
   auto materialDraw=runtime;
   materialDraw.calls[0].original_pixel_texture_keys[0]=valid_sampler.original_texture_hash;
   assert(native::ResolveCapturedResourceDraws(materialDraw,catalog,models).size()==1);
+  // The real Vulkan worker consumes concrete per-Present owners; a
+  // reusable material candidate must be stamped with this Draw's actual
+  // XDK resource snapshot, source sequence, ordinal and decoded geometry.
+  const auto liveOwners=native::MaterializeLiveOriginalResourceWitnesses(
+      materialDraw,catalog,models);
+  assert(liveOwners.size()==1 &&
+         liveOwners[0].original_guest_resource_to_material_mapping_verified &&
+         liveOwners[0].original_resources==
+             native::ResourcesAtDraw(*materialDraw.calls[0].observed_vs_matrices));
+  const auto& exactOwner=std::get<native::VerifiedXdkIndexedSubmission>(
+      liveOwners[0].original_source_submission).native_draw;
+  assert(exactOwner.original_frame_sequence==materialDraw.sequence &&
+         exactOwner.original_call_ordinal==0 &&
+         exactOwner.original_model_hash==0xCAFE &&
+         exactOwner.original_mesh_header_offset==40 &&
+         exactOwner.original_vs_matrices &&
+         exactOwner.original_vs_matrices->original_guest_device==
+             materialDraw.calls[0].gpr[0]);
   materialDraw.calls[0].original_pixel_texture_keys[0]^=0x1000;
-  Reject([&]{(void)native::ResolveCapturedResourceDraws(materialDraw,catalog,models);});
+  Reject([&]{(void)native::MaterializeLiveOriginalResourceWitnesses(
+      materialDraw,catalog,models);});
+  // Failure cannot leak a half-built set of source Draw witnesses.
+  std::vector<native::VerifiedXdkResourceWitness> unchanged=liveOwners;
+  Reject([&]{(void)native::ResolveCapturedResourceDraws(
+      materialDraw,catalog,models,&unchanged);});
+  assert(unchanged.size()==1 && unchanged[0].original_resources==
+         liveOwners[0].original_resources);
   // Real ShaderClass -> original XDK Draw identity, sourced from the
   // independently validated original PPC virtual method and vtable.
   // Attaching its parent to an ALREADY independent material witness
@@ -601,6 +626,17 @@ int main(){
   std::vector<native::VerifiedXdkResourceWitness> per_draw{next,first};
   auto ordered=native::ResolveCapturedResourceDraws(repeated,per_draw,models);
   assert(ordered.size()==2 && ordered[0].first_index==0 && ordered[1].first_index==3);
+  const auto actualPair=native::MaterializeLiveOriginalResourceWitnesses(
+      repeated,per_draw,models);
+  assert(actualPair.size()==2);
+  for(size_t ordinal=0;ordinal<actualPair.size();++ordinal) {
+    const auto& source=std::visit([](const auto& link)
+        ->const native::VerifiedDrawSource& {return link.native_draw;},
+        actualPair[ordinal].original_source_submission);
+    assert(source.original_frame_sequence==repeated.sequence &&
+           source.original_call_ordinal==ordinal &&
+           source.first_index==ordered[ordinal].first_index);
+  }
   per_draw.push_back(first);
   Reject([&]{(void)native::ResolveCapturedResourceDraws(repeated,per_draw,models);});
   first_source.original_frame_sequence++;
