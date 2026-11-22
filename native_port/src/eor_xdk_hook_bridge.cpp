@@ -1189,6 +1189,8 @@ bool InstallVerifiedWorkerEorFrameWithResidents(
     // their host GPU buffers remain strongly owned through submission.
     std::map<uint32_t,std::shared_ptr<const model::UploadedOriginalModel>>
         candidate_models;
+    std::vector<native::VerifiedXdkResourceWitness> applicable;
+    applicable.reserve(frame->witnesses.size());
     for(const auto& candidate:frame->witnesses) {
       const auto& owner=std::visit([](const auto& link)
           ->const native::VerifiedDrawSource& {return link.native_draw;},
@@ -1200,13 +1202,41 @@ bool InstallVerifiedWorkerEorFrameWithResidents(
          (owner.original_frame_sequence &&
           owner.original_frame_sequence!=source->sequence))
         return false;
-      if(candidate_models.contains(owner.original_model_hash))continue;
-      auto model=lookup(owner.original_model_hash);
-      if(!model || model->original_resource_hash!=owner.original_model_hash ||
-         model->original_identity.platform!=model::Platform::Xbox360)
-        return false;
-      candidate_models.emplace(owner.original_model_hash,std::move(model));
+      // Avoid loading the ENTIRE world material catalogue each Present.
+      // The original XDK shader/declaration/device pair is a prefilter
+      // ONLY, never a material proof. The final byte-for-byte VB/IB,
+      // effect/pass, sampler, surface and per-Draw checks remain mandatory.
+      const auto& expected=candidate.original_resources;
+      const bool possible=std::any_of(source->calls.begin(),
+          source->calls.end(),[&](const RawDraw& call) {
+            if(!call.observed_vs_matrices)return false;
+            const auto actual=native::ResourcesAtDraw(
+                *call.observed_vs_matrices);
+            if(actual.device!=expected.device ||
+               actual.vertex_declaration!=expected.vertex_declaration ||
+               actual.vertex_shader!=expected.vertex_shader ||
+               actual.pixel_shader!=expected.pixel_shader ||
+               actual.rt0!=expected.rt0 || actual.depth!=expected.depth)
+              return false;
+            if(call.observed_live_eor_effect_pass &&
+               (call.observed_live_eor_effect_pass->effect_hash!=
+                    owner.original_effect_hash ||
+                call.observed_live_eor_effect_pass->pass_index!=
+                    owner.original_pass_index))
+              return false;
+            return true;
+          });
+      if(!possible)continue;
+      if(!candidate_models.contains(owner.original_model_hash)) {
+        auto model=lookup(owner.original_model_hash);
+        if(!model || model->original_resource_hash!=owner.original_model_hash ||
+           model->original_identity.platform!=model::Platform::Xbox360)
+          return false; // possible active source is not resident: no GPU Draw
+        candidate_models.emplace(owner.original_model_hash,std::move(model));
+      }
+      applicable.push_back(candidate);
     }
+    if(applicable.empty())return false;
     std::vector<const model::UploadedOriginalModel*> borrowed;
     borrowed.reserve(candidate_models.size());
     for(const auto& [_,model]:candidate_models)
@@ -1216,7 +1246,7 @@ bool InstallVerifiedWorkerEorFrameWithResidents(
     // resident meshes. Reusable candidates become EXACT frame/ordinal
     // witnesses only after unique current-source selection.
     auto materialized=native::MaterializeLiveOriginalResourceWitnesses(
-        *source,frame->witnesses,borrowed);
+        *source,applicable,borrowed);
     auto source_parents=native::AttachLiveEorShaderMethodParents(
         *source,materialized);
     auto residents=native::RetainVerifiedOriginalFrameResidents(
