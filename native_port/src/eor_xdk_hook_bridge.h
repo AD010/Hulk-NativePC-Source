@@ -184,6 +184,11 @@ struct VerifiedWorkerEorOwnerCatalog {
     // font material and source XDK EFontShader, NOT a convenient UI image.
     uint32_t original_font_resource_hash=0;
     uint32_t original_surface_ordinal=UINT32_MAX;
+    // The true ShaderEffects owner of this very material, proved from
+    // both current XDK ShaderContainer headers. Multiple font materials
+    // can share the same declaration and atlas but use different passes.
+    uint32_t original_effect_hash=0;
+    uint32_t original_pass_index=UINT32_MAX;
   };
   std::vector<VerifiedFontMaterial> verified_font_materials;
   // Must point at the SAME independently verified Vulkan backend as gpu.
