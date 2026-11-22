@@ -184,8 +184,16 @@ void NativeWorldStream::Worker() {
     {
       std::lock_guard lock(mutex_);
       if (stopping_) return;
-      if (raw) staged_.emplace(hash,std::move(*raw));
-      else {
+      // A malformed or allocation-failing geometry move must not escape
+      // the worker thread and terminate the entire game process.
+      if (raw) {
+        try {
+          staged_.emplace(hash, std::move(*raw));
+        } catch (...) {
+          raw.reset();
+        }
+      }
+      if (!staged_) {
         failed_.insert(hash);
         queued_.erase(hash);
         // An absent/corrupt original asset cannot permanently consume
