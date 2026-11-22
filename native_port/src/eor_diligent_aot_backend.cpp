@@ -763,13 +763,33 @@ bool DiligentEorDirectBackend::PreflightOriginalScene(
     const auto mesh=s.draw_buffers.find(d.vertex_buffer);
     if(mesh==s.draw_buffers.end() ||
        mesh->second.original_model_hash!=item.original_model_hash ||
-       item.original_mesh_header_offset==SIZE_MAX ||
-       mesh->second.original_mesh_header_offset!=
-           item.original_mesh_header_offset ||
-       mesh->second.index_handle!=d.index_buffer ||
-       !SourceVertexSlotMask(
-           selected->pipeline.exact_host_input_layout,
-           mesh->second.host_vertex_slots) ||
+       mesh->second.index_handle!=d.index_buffer)
+      return false;
+    const bool is_font=mesh->second.original_dynamic_font_verified;
+    if(item.original_dynamic_font_draw!=is_font ||
+       selected->pipeline.original_dynamic_font_vertex_layout_verified!=is_font)
+      return false;
+    if(is_font) {
+      // A transient font draw NEVER owns a MODELS.ARC mesh header. The
+      // caller must stage exactly this original source frame and ordinal,
+      // with the atlas hash validated against the selected material pass.
+      if(item.original_mesh_header_offset!=SIZE_MAX ||
+         mesh->second.original_mesh_header_offset!=SIZE_MAX ||
+         mesh->second.original_font_frame!=d.source_frame ||
+         mesh->second.original_font_draw_ordinal!=d.source_ordinal ||
+         !mesh->second.original_font_atlas_hash)
+        return false;
+    } else if(item.original_mesh_header_offset==SIZE_MAX ||
+              mesh->second.original_mesh_header_offset!=
+                  item.original_mesh_header_offset)
+      return false;
+    if(!(is_font ?
+         SourceFontSlotMask(
+             selected->pipeline.exact_host_input_layout,
+             mesh->second.host_vertex_slots) :
+         SourceVertexSlotMask(
+             selected->pipeline.exact_host_input_layout,
+             mesh->second.host_vertex_slots)) ||
        !s.meshes.IndexWindowInRange(d.index_buffer,d.first_index,
                                     d.index_count,d.base_vertex,
                                     mesh->second.vertex_count))
@@ -981,14 +1001,23 @@ bool DiligentEorDirectBackend::DrawIndexed(const native::IndexedDraw& draw) {
   const auto& layout=s.selected->pipeline.exact_host_input_layout;
   // Different passes of the same mesh may consume different streams.
   // Keep the original binding numbers even when a pass skips a slot.
-  const uint32_t used_slots=SourceVertexSlotMask(layout,slots);
+  const bool is_font=resident.original_dynamic_font_verified;
+  if(is_font &&
+     (resident.original_font_frame!=draw.source_frame ||
+      resident.original_font_draw_ordinal!=draw.source_ordinal ||
+      !s.selected->pipeline.original_dynamic_font_vertex_layout_verified))
+    return false;
+  const uint32_t used_slots=is_font ?
+      SourceFontSlotMask(layout,slots) :
+      SourceVertexSlotMask(layout,slots);
   if(!used_slots)return false;
   const auto binding_count=std::bit_width(used_slots);
   std::array<Diligent::IBuffer*,16> buffers{};
   std::array<Diligent::Uint64,16> offsets{};
   for(uint32_t i=0;i<binding_count;++i) {
     if(!(used_slots & (1u << i)))continue;
-    if(s.meshes.KindOf(slots[i])!=(i==0?0u:3u))return false;
+    if(s.meshes.KindOf(slots[i])!=(is_font?3u:(i==0?0u:3u)))
+      return false;
     buffers[i]=s.meshes.FindBuffer(slots[i]);
     if(!buffers[i])return false;
   }
