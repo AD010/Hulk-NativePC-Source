@@ -770,8 +770,20 @@ HRESULT STDMETHODCALLTYPE OnSetTexture(IDirect3DDevice9* dev,DWORD stage,
         }
         return hr;
       }
-      std::lock_guard lock(mipMutex);
-      afMaximumOverridden[stage]=false;
+      {
+        std::lock_guard lock(mipMutex);
+        afMaximumOverridden[stage]=false;
+      }
+      // Unbinding a texture must also retire the anisotropic MIN filter
+      // installed by this ASI. Otherwise a later texture can inherit AF
+      // despite the engine having requested LINEAR. Do not change MIN when
+      // the sampler was never overridden or when MAX restoration failed.
+      if(!texture && linear) {
+        const HRESULT minHr=realSampler(dev,stage,D3DSAMP_MINFILTER,D3DTEXF_LINEAR);
+        if(FAILED(minHr))
+          Log("[D3D9] AF MIN restore on unbind failed stage=%lu hr=0x%08lX\\r\\n",
+              (unsigned long)stage,(unsigned long)(unsigned int)minHr);
+      }
     }
     // Reapply after binding: capability checks depend on the bound texture.
     // This also restores the game's LINEAR min filter when the next texture
