@@ -2,6 +2,7 @@
 #include "eor_xdk_draw_capture.h"
 #include "eor_usa_material_textures.h"
 #include "eor_native_draw_geometry.h"
+#include "eor_native_font_geometry.h"
 #include "eor_original_shader_samplers.h"
 #include "eor_original_virtual_shader_identity.h"
 #include <rex/ppc/context.h>
