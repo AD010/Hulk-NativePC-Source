@@ -81,6 +81,11 @@ bool DiligentSceneTargets::Prepare(const native::FrameGeometry& frame,
   if(Same(state_->physical,frame.world) && state_->samples==frame.samples &&
      state_->formats.color==verified.color && state_->formats.depth==verified.depth &&
      state_->color && state_->depth && state_->resolved) {
+    // Native attachment storage is reusable at the same extent/format,
+    // but the verified Xbox RT0/depth/front-buffer *owner* can change
+    // after a menu transition, loading screen or resource recreation.
+    // Never retain last Present's source identity with the new frame.
+    state_->formats=verified;
     state_->prepared=true;
     return true;
   }
