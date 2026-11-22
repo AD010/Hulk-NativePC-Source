@@ -299,7 +299,11 @@ DiligentEorDirectBackend::DiligentEorDirectBackend(
      !frame.direct_engine_path_ready || !state_->bind_constants ||
      !state_->composite || !bank.size() ||
      effects.ShaderCount()!=bank.expected() || state_->passes.empty() ||
-     state_->draw_buffers.empty())
+     (state_->draw_buffers.empty() &&
+      std::none_of(state_->passes.begin(),state_->passes.end(),
+          [](const NativeEorPassResources& p) {
+            return p.pipeline.original_dynamic_font_vertex_layout_verified;
+          })))
     throw std::invalid_argument("Original EoR engine Draw/constant/output Vulkan ABI not verified");
   if(!formats.original_color_format_verified ||
      !formats.original_depth_format_verified)
