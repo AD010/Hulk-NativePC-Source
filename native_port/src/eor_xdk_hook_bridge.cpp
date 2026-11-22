@@ -1535,6 +1535,17 @@ native_x_renderer::HulkEorPresentResult ReplayVerifiedMixedOriginalFrame(
   // This path does not invoke ResolveCapturedResourceDraws for EFontShader:
   // a transient vertex buffer is NOT a static MODELS.ARC mesh. The exact
   // ordered sequence is reconstructed with mixed source-proven producers.
+  // Guard every rejection AFTER staging: an overwritten source Present
+  // must not strand one generation of glyph VB/IB allocations indefinitely.
+  struct DiscardUnsubmitted {
+    gpu::DiligentEorDirectBackend* backend;
+    uint64_t frame;
+    bool active=true;
+    ~DiscardUnsubmitted() {
+      if(active && backend)
+        backend->DiscardUnsubmittedOriginalFontDraws(frame);
+    }
+  } staged{owner->direct_gpu.get(),source_sequence};
   bool began_gpu=false;
   try {
     if(!owner->gpu->CanReplayOriginalXdkTimeline(*snapshot))
@@ -1574,13 +1585,23 @@ native_x_renderer::HulkEorPresentResult ReplayVerifiedMixedOriginalFrame(
     // Vulkan context's actual completion barrier rather than destroying
     // still-in-flight resources. This costs CPU/GPU overlap for now; it
     // does NOT alter guest Havok or forge a second window Present.
+    // The graphics queue now owns this source submission; never free its
+    // buffer by the pre-BeginScene discard path, even if WaitForIdle fails.
+    staged.active=false;
     host.context()->WaitForIdle();
     owner->direct_gpu->RetireCompletedOriginalFontDraws(source_sequence);
     g_eor_ready_backbuffers.fetch_add(1,std::memory_order_relaxed);
     return Result::kBackbufferReady;
   } catch (...) {
     if(began_gpu) {
-      try { host.context()->WaitForIdle(); } catch (...) {}
+      staged.active=false;
+      try {
+        host.context()->WaitForIdle();
+        owner->direct_gpu->RetireCompletedOriginalFontDraws(source_sequence);
+      } catch (...) {
+        // Device loss: keep references for backend shutdown, never
+        // free in-flight allocations under an unverified GPU fence.
+      }
       g_eor_gpu_failures.fetch_add(1,std::memory_order_relaxed);
       return Result::kFailedAfterGpu;
     }
