@@ -1510,6 +1510,83 @@ PreparedEorMixedFrame PrepareOriginalMixedDraws(
   }
   return output;
 }
+native_x_renderer::HulkEorPresentResult ReplayVerifiedMixedOriginalFrame(
+    native_x_renderer::Device& host,
+    std::shared_ptr<const VerifiedWorkerEorOwnerCatalog> owner,
+    std::shared_ptr<const Frame> snapshot,uint64_t source_sequence) noexcept {
+  using Result=native_x_renderer::HulkEorPresentResult;
+  if(!snapshot || !owner || !owner->direct_gpu || !host.context() ||
+     !host.swap_chain() || snapshot->sequence!=source_sequence ||
+     owner->device!=&host ||
+     !ValidateOriginalCommandTimeline(*snapshot))
+    return Result::kNotReady;
+  const auto& swap=host.swap_chain()->GetDesc();
+  if(swap.Width!=owner->output.backbuffer.width ||
+     swap.Height!=owner->output.backbuffer.height)
+    return Result::kNotReady;
+  OfflineShaderPack pack;
+  {
+    std::lock_guard lock(g_mutex);
+    if(g_worker_owner_catalog!=owner || !g_offline_shader_pack ||
+       g_frames_for_native.MissedSinceTake()!=0)
+      return Result::kNotReady;
+    pack=*g_offline_shader_pack;
+  }
+  // This path does not invoke ResolveCapturedResourceDraws for EFontShader:
+  // a transient vertex buffer is NOT a static MODELS.ARC mesh. The exact
+  // ordered sequence is reconstructed with mixed source-proven producers.
+  bool began_gpu=false;
+  try {
+    if(!owner->gpu->CanReplayOriginalXdkTimeline(*snapshot))
+      return Result::kNotReady;
+    auto prepared=PrepareOriginalMixedDraws(*snapshot,*owner,pack);
+    if(prepared.ordered.size()!=snapshot->calls.size())
+      return Result::kNotReady;
+    for(const auto& draw:prepared.ordered)
+      if(!pack.shaders->Find(draw.vertex_source_sha256,aot::Stage::Vertex) ||
+         !pack.shaders->Find(draw.pixel_source_sha256,aot::Stage::Pixel))
+        return Result::kNotReady;
+    // The source producer may advance while Vulkan allocates transient UI
+    // vertices. Consume ONLY the SAME original guest Present and the SAME
+    // verified source catalog/shader bank generation. No stale XDK shaders
+    // or archive material owners may be passed to host Clear/Present.
+    snapshot.reset();
+    std::optional<DeliveredFrame> delivered;
+    {
+      std::lock_guard lock(g_mutex);
+      if(g_worker_owner_catalog!=owner || !g_offline_shader_pack ||
+         g_offline_shader_pack->shaders!=pack.shaders ||
+         g_offline_shader_pack->effects!=pack.effects ||
+         g_offline_shader_pack->reflection!=pack.reflection ||
+         g_offline_shader_pack->virtual_ids!=pack.virtual_ids ||
+         g_frames_for_native.MissedSinceTake()!=0)
+        return Result::kNotReady;
+      delivered=g_frames_for_native.TakeIfSequence(source_sequence);
+    }
+    if(!delivered || delivered->overwritten_since_take)
+      return Result::kNotReady;
+    aot::ReplayAotScene(owner->output,prepared.ordered,
+        *pack.shaders,*pack.effects,*pack.reflection,*owner->gpu,
+        &delivered->frame,&began_gpu);
+    // The original resident-model owner and transient glyph GPU buffers
+    // must survive the host graphics completion fence. NativeX exposes
+    // no verified per-source fence to this bridge yet: use the existing
+    // Vulkan context's actual completion barrier rather than destroying
+    // still-in-flight resources. This costs CPU/GPU overlap for now; it
+    // does NOT alter guest Havok or forge a second window Present.
+    host.context()->WaitForIdle();
+    owner->direct_gpu->RetireCompletedOriginalFontDraws(source_sequence);
+    g_eor_ready_backbuffers.fetch_add(1,std::memory_order_relaxed);
+    return Result::kBackbufferReady;
+  } catch (...) {
+    if(began_gpu) {
+      try { host.context()->WaitForIdle(); } catch (...) {}
+      g_eor_gpu_failures.fetch_add(1,std::memory_order_relaxed);
+      return Result::kFailedAfterGpu;
+    }
+    return Result::kNotReady;
+  }
+}
 } // namespace
 
 native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(
