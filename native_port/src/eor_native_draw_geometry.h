@@ -129,6 +129,14 @@ void ValidateLiveOriginalShaderPasses(
 std::optional<uint32_t> IdentifyOriginalMaterialSurface(
     const model::UploadedOriginalModel& original_model,
     std::span<const gpu::VerifiedEorSampler> live_sampler_evidence) noexcept;
+// Cross-check an already observed original EoR material->XDK sampler state
+// against the ORIGINAL archive's independently indexed surface textures.
+// This is NOT a shader-variable/fetch-slot mapping or GPU material PSO
+// producer: it only identifies a UNIQUE surface within a proven model.
+std::optional<uint32_t> IdentifyLiveOriginalXdkMaterialSurface(
+    const model::UploadedOriginalModel& original_model,
+    const xdk::RawDraw& source_draw,
+    uint16_t original_verified_pixel_slot_mask) noexcept;
 struct VerifiedXdkResourceWitness {
   OriginalXdkResourceIdentity original_resources;
   VerifiedXdkDrawSubmission original_source_submission;
