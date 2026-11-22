@@ -1103,6 +1103,7 @@ void ClearOriginalShaderCaptureIndex() noexcept {
   std::lock_guard lock(g_mutex);
   g_original_effect_capture_catalog.reset();
   g_original_shader_capture_index.reset();
+  g_worker_catalog_factory_last_attempt=0;
   // Any old catalogue attached to that original shader generation must
   // not be allowed to authorize a new independent Vulkan Present.
   g_worker_owner_catalog.reset();
@@ -1190,8 +1191,10 @@ bool InstallVerifiedSourceShaderPack(
      g_offline_shader_pack->effects!=effects ||
      g_offline_shader_pack->reflection!=reflection ||
      g_offline_shader_pack->samplers!=samplers ||
-     g_offline_shader_pack->virtual_ids!=virtual_ids)
+     g_offline_shader_pack->virtual_ids!=virtual_ids) {
     g_worker_owner_catalog.reset();
+    g_worker_catalog_factory_last_attempt=0;
+  }
   g_verified_worker_frame.reset();
   g_offline_shader_pack=OfflineShaderPack{
       std::move(shaders),std::move(effects),std::move(reflection),
@@ -1209,6 +1212,8 @@ void ClearVerifiedSourceShaderPack() noexcept {
   std::lock_guard lock(g_mutex);
   g_verified_worker_frame.reset();
   g_worker_owner_catalog.reset();
+  g_worker_catalog_factory.reset();
+  g_worker_catalog_factory_last_attempt=0;
   const auto old=g_offline_shader_pack;
   g_offline_shader_pack.reset();
   if(old && g_original_shader_capture_index==old->virtual_ids)
@@ -1780,40 +1785,51 @@ native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(
   // Recheck generation under lock and never hold the original XDK capture
   // mutex while loading, uploading or compiling any GPU resources.
   std::shared_ptr<const VerifiedWorkerEorCatalogFactory> factory;
-  if(!owner_catalog) {
+  std::shared_ptr<const aot::ShaderBank> factory_shader_generation;
+  {
     std::lock_guard lock(g_mutex);
+    // A renderer can stream more original EoR models/materials after the
+    // first city/intro frame. Refresh a genuine source catalogue at most
+    // once per 60 completed Present epochs. A returned same shared_ptr
+    // means no change, so it never destroys cached GPU pipelines.
     if(g_worker_catalog_factory && g_offline_shader_pack &&
        g_offline_shader_pack->virtual_ids &&
        (!g_worker_catalog_factory_last_attempt ||
         (source_sequence>g_worker_catalog_factory_last_attempt &&
          source_sequence-g_worker_catalog_factory_last_attempt>=60))) {
       factory=g_worker_catalog_factory;
+      factory_shader_generation=g_offline_shader_pack->shaders;
       g_worker_catalog_factory_last_attempt=source_sequence;
     }
   }
   if(factory) {
     try {
       auto verified=(*factory)(host);
-      // The producer is permitted to reject the current source epoch.
-      // Its return value must be an independently validated original
-      // material + live XDK owner catalogue on this SAME Vulkan device.
       if(verified && verified->device==&host) {
         {
           std::lock_guard lock(g_mutex);
+          // Never install a material catalogue built against a replaced
+          // shader/AOT generation or a concurrently unregistered loader.
           if(g_worker_catalog_factory!=factory ||
-             g_worker_owner_catalog || !g_offline_shader_pack)
+             !g_offline_shader_pack ||
+             g_offline_shader_pack->shaders!=factory_shader_generation ||
+             g_frames_for_native.MissedSinceTake() ||
+             (g_frames_for_native.Peek() &&
+              g_frames_for_native.Peek()->sequence!=source_sequence) ||
+             g_worker_owner_catalog==verified)
             verified.reset();
         }
         if(verified && InstallVerifiedWorkerEorOwnerCatalog(verified)) {
           std::lock_guard lock(g_mutex);
-          if(g_worker_catalog_factory==factory)
+          if(g_worker_catalog_factory==factory &&
+             g_offline_shader_pack &&
+             g_offline_shader_pack->shaders==factory_shader_generation)
             owner_catalog=g_worker_owner_catalog;
         }
       }
     } catch (...) {
-      // A failed archive/material resolver must not bring down the game.
-      // Retain the NativeX compatibility image rather than submitting a
-      // partial 3D frame or a fabricated font glyph.
+      // A failed original archive/material resolver cannot bring down
+      // the PPC guest or submit a partial world-only Vulkan image.
     }
   }
   // Original EFontShader geometry is transient by design. Route the
