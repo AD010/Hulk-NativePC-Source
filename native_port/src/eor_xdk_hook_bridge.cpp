@@ -16,6 +16,7 @@
 #include <cstdint>
 #include <limits>
 #include <map>
+#include <set>
 #include <mutex>
 #include <memory>
 #include <new>
@@ -1903,6 +1904,21 @@ native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(
   if(owner_catalog && owner_catalog->request_source_models &&
      !owner_catalog->verified_candidates.empty()) {
     try {
+      // One indexed lookup per source Draw instead of O(catalog * Draws)
+      // repeated scanning during every original 60/165-FPS Present.
+      // Without an exact live effect/pass, shader objects alone are not
+      // sufficient to select resident model candidates.
+      using SourcePassKey=std::array<uint32_t,8>;
+      std::set<SourcePassKey> active_source_passes;
+      for(const auto& call:source_snapshot->calls) {
+        if(!call.observed_vs_matrices ||
+           !call.observed_live_eor_effect_pass)continue;
+        const auto x=native::ResourcesAtDraw(*call.observed_vs_matrices);
+        active_source_passes.insert(SourcePassKey{
+            x.device,x.vertex_declaration,x.vertex_shader,x.pixel_shader,
+            x.rt0,x.depth,call.observed_live_eor_effect_pass->effect_hash,
+            call.observed_live_eor_effect_pass->pass_index});
+      }
       std::vector<uint32_t> relevant;
       relevant.reserve(owner_catalog->verified_candidates.size());
       for(const auto& candidate:owner_catalog->verified_candidates) {
@@ -1916,24 +1932,12 @@ native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(
            !original.mesh_material_verified)
           continue;
         const auto& expected=candidate.original_resources;
-        const bool live=std::any_of(source_snapshot->calls.begin(),
-            source_snapshot->calls.end(),[&](const RawDraw& call) {
-              if(!call.observed_vs_matrices)return false;
-              const auto observed=native::ResourcesAtDraw(
-                  *call.observed_vs_matrices);
-              return observed.device==expected.device &&
-                     observed.vertex_declaration==expected.vertex_declaration &&
-                     observed.vertex_shader==expected.vertex_shader &&
-                     observed.pixel_shader==expected.pixel_shader &&
-                     observed.rt0==expected.rt0 &&
-                     observed.depth==expected.depth &&
-                     (!call.observed_live_eor_effect_pass ||
-                      (call.observed_live_eor_effect_pass->effect_hash==
-                           original.original_effect_hash &&
-                       call.observed_live_eor_effect_pass->pass_index==
-                           original.original_pass_index));
-            });
-        if(live)relevant.push_back(original.original_model_hash);
+        if(active_source_passes.contains(SourcePassKey{
+               expected.device,expected.vertex_declaration,
+               expected.vertex_shader,expected.pixel_shader,
+               expected.rt0,expected.depth,original.original_effect_hash,
+               original.original_pass_index}))
+          relevant.push_back(original.original_model_hash);
       }
       std::sort(relevant.begin(),relevant.end());
       relevant.erase(std::unique(relevant.begin(),relevant.end()),relevant.end());
