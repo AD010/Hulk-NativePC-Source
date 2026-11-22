@@ -4,6 +4,24 @@
 #include <stdexcept>
 #include <utility>
 namespace hulk::eor::world {
+std::unique_ptr<PinnedUsaArchiveModelSource>
+PinnedUsaArchiveModelSource::Open(
+    const std::filesystem::path& original_usa_index,
+    const std::filesystem::path& original_models_arc) {
+  if(original_usa_index.empty() || original_models_arc.empty())
+    throw std::invalid_argument("Missing original USA EoR model assets");
+  // Reject a different-region or repacked source IND before enqueueing a
+  // single GPU model. Never silently mix USA XEX/ShaderEffects addresses
+  // with an unverified second archive generation.
+  auto index=Index::LoadPinnedUsa(original_usa_index);
+  return std::make_unique<PinnedUsaArchiveModelSource>(
+      model::OriginalModelAssets::Open(std::move(index),original_models_arc));
+}
+std::optional<model::LoadedNativeGeometry>
+PinnedUsaArchiveModelSource::Load(uint32_t hash) {
+  if(!hash)return std::nullopt;
+  return assets_.LoadNativeGeometryHash(hash);
+}
 NativeWorldStream::NativeWorldStream(std::unique_ptr<ModelSource> source,
     model::NativeMeshUploadBackend& backend, std::vector<LodTier> tiers,
     LodPolicy policy)
