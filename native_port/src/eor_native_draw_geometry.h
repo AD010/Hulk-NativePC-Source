@@ -156,6 +156,16 @@ struct VerifiedXdkResourceWitness {
   // never substitutes for that original owner verification.
   std::optional<xdk::OriginalEorShaderMethodAtDraw>
       original_source_engine_shader_method;
+  // Optional independently proved original EoR shader CLASS -> material
+  // ownership, for repeated model instances. A class name/vtable alone is
+  // NOT an owner and the XDK object address is not the archived model hash.
+  // This proof is supplied by original EoR source ABI, never inferred by
+  // the Vulkan resolver. Only reusable candidates with exact guest VB/IB
+  // archive matches and exact live VS/PS effect/pass may use this class
+  // binding to replace a stale per-instance pointer with the current one.
+  uint32_t original_material_shader_method_guest=0;
+  uint32_t original_material_shader_vtable_guest=0;
+  bool original_shader_class_material_owner_verified=false;
 };
 // Pair already verified EoR material/mesh candidate witnesses with their
 // EXACT original PPC shader class method at Draw, if one was observed.
