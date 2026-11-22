@@ -1069,6 +1069,10 @@ void ClearOriginalShaderCaptureIndex() noexcept {
   std::lock_guard lock(g_mutex);
   g_original_effect_capture_catalog.reset();
   g_original_shader_capture_index.reset();
+  // Any old catalogue attached to that original shader generation must
+  // not be allowed to authorize a new independent Vulkan Present.
+  g_worker_owner_catalog.reset();
+  g_verified_worker_frame.reset();
 }
 bool InstallVerifiedSourceShaderPack(
     std::shared_ptr<const aot::ShaderBank> shaders,
@@ -1087,8 +1091,16 @@ bool InstallVerifiedSourceShaderPack(
   if(virtual_ids && g_original_shader_capture_index &&
      virtual_ids!=g_original_shader_capture_index)
     return false;
-  // A new original ShaderEffects generation must NEVER be attached to
-  // an already queued frame from the previous bank's digest identities.
+  // A new ShaderEffects generation invalidates source-bound material PSOs,
+  // live shader identities and every reusable source owner catalogue.
+  // Register the new owner catalogue after installing the new shader pack.
+  if(!g_offline_shader_pack ||
+     g_offline_shader_pack->shaders!=shaders ||
+     g_offline_shader_pack->effects!=effects ||
+     g_offline_shader_pack->reflection!=reflection ||
+     g_offline_shader_pack->samplers!=samplers ||
+     g_offline_shader_pack->virtual_ids!=virtual_ids)
+    g_worker_owner_catalog.reset();
   g_verified_worker_frame.reset();
   g_offline_shader_pack=OfflineShaderPack{
       std::move(shaders),std::move(effects),std::move(reflection),
@@ -1098,6 +1110,7 @@ bool InstallVerifiedSourceShaderPack(
 void ClearVerifiedSourceShaderPack() noexcept {
   std::lock_guard lock(g_mutex);
   g_verified_worker_frame.reset();
+  g_worker_owner_catalog.reset();
   g_offline_shader_pack.reset();
 }
 bool InstallVerifiedWorkerEorFrame(
@@ -1119,7 +1132,10 @@ bool InstallVerifiedWorkerEorFrame(
     if(!same_frame)return false;
   }
   std::lock_guard lock(g_mutex);
-  if(!g_offline_shader_pack)return false;
+  if(!g_offline_shader_pack ||
+     (frame->owner_catalog &&
+      frame->owner_catalog!=g_worker_owner_catalog))
+    return false;
   const auto& pack=*g_offline_shader_pack;
   // Never permit a caller's independently constructed ShaderEffects
   // generation to be mixed with the app's actual loaded USA source pack.
@@ -1286,6 +1302,9 @@ native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(
     std::lock_guard lock(g_mutex);
     ready=g_verified_worker_frame;
     owner_catalog=g_worker_owner_catalog;
+    if(ready && ready->owner_catalog &&
+       ready->owner_catalog!=owner_catalog)
+      ready.reset(); // last source catalogue was replaced or cleared
     source_snapshot=g_frames_for_native.Peek();
     if(!source_snapshot)return Result::kNotReady;
     source_sequence=source_snapshot->sequence;
@@ -1314,6 +1333,7 @@ native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(
       frame->output=owner_catalog->output;
       frame->witnesses=owner_catalog->verified_candidates;
       frame->gpu=owner_catalog->gpu;
+      frame->owner_catalog=owner_catalog;
       if(!InstallVerifiedWorkerEorFrameWithResidents(
              std::move(frame),owner_catalog->resident_lookup))
         return Result::kNotReady;
@@ -1326,6 +1346,8 @@ native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(
       const auto latest=g_frames_for_native.Peek();
       if(!ready || !latest || latest->sequence!=source_sequence ||
          ready->original_frame_sequence!=source_sequence ||
+         ready->owner_catalog!=owner_catalog ||
+         g_worker_owner_catalog!=owner_catalog ||
          g_frames_for_native.MissedSinceTake()!=0)
         return Result::kNotReady;
     }
