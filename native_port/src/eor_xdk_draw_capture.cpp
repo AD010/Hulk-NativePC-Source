@@ -151,6 +151,17 @@ std::optional<DeliveredFrame> CompletedFrameMailbox::TakeIfSequence(
      pending_->sequence!=source_sequence)return std::nullopt;
   return Take();
 }
+bool CompletedFrameMailbox::DiscardIfSequence(
+    uint64_t source_sequence) noexcept {
+  if(!source_sequence || !pending_ ||
+     pending_->sequence!=source_sequence)return false;
+  // Preview owners keep the immutable snapshot alive; clearing ONLY the
+  // mailbox permits a new source Present to recover after an overwritten
+  // frame without ever admitting a stale frame for Vulkan submission.
+  pending_.reset();
+  missed_since_take_=0;
+  return true;
+}
 void CompletedFrameMailbox::Reset() noexcept {
   pending_.reset();
   missed_since_take_=0;
