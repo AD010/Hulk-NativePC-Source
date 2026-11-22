@@ -776,7 +776,9 @@ HRESULT STDMETHODCALLTYPE OnSetTexture(IDirect3DDevice9* dev,DWORD stage,
     // Reapply after binding: capability checks depend on the bound texture.
     // This also restores the game's LINEAR min filter when the next texture
     // cannot use the anisotropic override from a previous texture.
-    if(forceTrilinearMip && point) {
+    // An unbound stage has no texture to filter. Preserve the game's recorded
+    // requests for a future binding, but do not force enhanced filtering now.
+    if(texture && forceTrilinearMip && point) {
       // If the optional override is rejected after a texture-type switch,
       // restore the game's original POINT request rather than leaving the
       // previous texture's LINEAR mip state behind.
@@ -787,7 +789,7 @@ HRESULT STDMETHODCALLTYPE OnSetTexture(IDirect3DDevice9* dev,DWORD stage,
               (unsigned long)stage,(unsigned long)(unsigned int)fallbackHr);
       }
     }
-    if(anisotropy && linear) {
+    if(texture && anisotropy && linear) {
       // Likewise, a failed anisotropic reapply must not leak the previous
       // texture's anisotropic MIN state onto an unsupported new binding.
       if(FAILED(OnSampler(dev,stage,D3DSAMP_MINFILTER,D3DTEXF_LINEAR))) {
