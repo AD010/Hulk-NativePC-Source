@@ -242,6 +242,7 @@ struct DiligentEorDirectBackend::State {
   using DrawKey=std::pair<uint64_t,uint32_t>;
   struct PackedConstants {
     std::vector<float> vertex,pixel;
+    native::HostRasterWindow raster{};
   };
   std::map<DrawKey,PackedConstants> packed_constants;
   bool frame_preflight_ready=false;
@@ -639,6 +640,20 @@ bool DiligentEorDirectBackend::PreflightOriginalScene(
     // never use a stale uniform buffer or a guessed float count.
     try {
       State::PackedConstants packed;
+      native::Rect viewport_area{0,0,s.frame.world.width,s.frame.world.height};
+      if(s.frame.widescreen_camera &&
+         selected->pipeline.original_view_space==VerifiedOriginalViewSpace::OriginalAspectHud) {
+        const auto fitted=display::FitOriginalPicture(
+            s.frame.world.width,s.frame.world.height,
+            s.frame.original_guest.width,s.frame.original_guest.height);
+        if(!fitted.valid)return false;
+        viewport_area={fitted.x,fitted.y,fitted.width,fitted.height};
+      }
+      if(!d.guest_vs_matrices->raster)return false;
+      const auto raster=native::MapOriginalRasterWindow(
+          *d.guest_vs_matrices->raster,s.frame.original_guest,viewport_area);
+      if(!raster)return false;
+      packed.raster=*raster;
       packed.vertex=aot::PackOriginalXdkFloatConstants(
           *d.guest_shader_constants,
           *selected->pipeline.original_vs_float_layout,
@@ -923,34 +938,12 @@ bool DiligentEorDirectBackend::DrawIndexed(const native::IndexedDraw& draw) {
       s.textures_ready=false;
       return false;
     }
-    // Set a known viewport and scissor EVERY original EoR draw. Before
-    // this correction, the ordinary 16:9 path inherited stale dynamic
-    // state from whichever native/UI pass previously touched the Vulkan
-    // context; a partial rectangle could silently clip whole buildings.
-    native::Rect viewport_area{
-        0,0,s.frame.world.width,s.frame.world.height};
-    if(s.frame.widescreen_camera &&
-       s.selected->pipeline.original_view_space==
-           VerifiedOriginalViewSpace::OriginalAspectHud) {
-      // Source-verified HUD is letterboxed to the original 16:9 area
-      // without changing the independent native 3D scene's aspect.
-      const auto fitted=display::FitOriginalPicture(
-          s.frame.world.width,s.frame.world.height,
-          s.frame.original_guest.width,s.frame.original_guest.height);
-      if(!fitted.valid || !fitted.width || !fitted.height)
-        return false;
-      viewport_area={fitted.x,fitted.y,fitted.width,fitted.height};
-    }
+    const auto& raster=packed->second.raster;
+    const auto& clip=raster.scissor;
     const Diligent::Viewport original_viewport{
-        static_cast<float>(viewport_area.left),
-        static_cast<float>(viewport_area.top),
-        static_cast<float>(viewport_area.width),
-        static_cast<float>(viewport_area.height),0.f,1.f};
+        raster.x,raster.y,raster.width,raster.height,raster.min_depth,raster.max_depth};
     const Diligent::Rect original_scissor{
-        static_cast<int>(viewport_area.left),
-        static_cast<int>(viewport_area.top),
-        static_cast<int>(viewport_area.left+viewport_area.width),
-        static_cast<int>(viewport_area.top+viewport_area.height)};
+        int(clip.left),int(clip.top),int(clip.left+clip.width),int(clip.top+clip.height)};
     s.context->SetViewports(1,&original_viewport,
                            s.frame.world.width,s.frame.world.height);
     s.context->SetScissorRects(1,&original_scissor,

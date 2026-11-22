@@ -52,6 +52,9 @@ OriginalVulkanPipeline CreateOriginalVulkanPipeline(
   ci.pVS=vertex;
   ci.pPS=pixel;
   ci.GraphicsPipeline=state;
+  // XDK always clips against the source viewport. MapOriginalRasterWindow
+  // additionally intersects the source scissor only when the game enables it.
+  ci.GraphicsPipeline.RasterizerDesc.ScissorEnable=true;
   ci.GraphicsPipeline.InputLayout.NumElements=
       static_cast<Diligent::Uint32>(pass.exact_host_input_layout.size());
   ci.GraphicsPipeline.InputLayout.LayoutElements=pass.exact_host_input_layout.data();

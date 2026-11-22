@@ -12,6 +12,11 @@
 #include <utility>
 
 namespace hulk::eor::xdk {
+struct OriginalRasterWindow {
+  float x=0, y=0, width=0, height=0, min_depth=0, max_depth=1;
+  bool scissor_enabled=false;
+  std::array<int32_t,4> scissor{};
+};
 struct OriginalVsMatrices {
   static constexpr uint32_t kFirstRegister=7;
   static constexpr uint32_t kLastRegister=25;
@@ -31,6 +36,7 @@ struct OriginalVsMatrices {
   std::array<uint32_t,16> original_vertex_buffer_guest_objects{};
   std::array<float,kRegisterCount*4> c7_through_c25{};
   uint32_t finite_register_mask=0;
+  std::optional<OriginalRasterWindow> raster;
 };
 struct MatrixRegisters {
   uint32_t original_first_register=0;
@@ -81,6 +87,14 @@ inline std::optional<OriginalVsMatrices> CaptureUsaVsMatrices(
   result.original_depth_guest_object=at(12456);
   for(uint32_t i=0;i<result.original_texture_guest_objects.size();++i)
     result.original_texture_guest_objects[i]=at(12544+i*4);
+  // USA GetViewport (0x8287E5E8) reads six BE floats. SetScissorRect
+  // (0x8287E4C0) clips to the active viewport and consults +11856
+  // before intersecting the original signed RECT at +12676.
+  const auto fp=[&](uint32_t offset) { return std::bit_cast<float>(at(offset)); };
+  result.raster=OriginalRasterWindow{fp(12648),fp(12652),fp(12656),fp(12660),
+      fp(12664),fp(12668),at(11856)!=0,
+      {std::bit_cast<int32_t>(at(12676)),std::bit_cast<int32_t>(at(12680)),
+       std::bit_cast<int32_t>(at(12684)),std::bit_cast<int32_t>(at(12688))}};
   for(size_t reg=0;reg<OriginalVsMatrices::kRegisterCount;++reg) {
     bool finite=true;
     for(size_t component=0;component<4;++component) {

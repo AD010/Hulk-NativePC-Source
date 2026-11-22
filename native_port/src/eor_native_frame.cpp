@@ -1,5 +1,7 @@
 #include "eor_native_frame.h"
 #include "native_resolution.h"
+#include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <stdexcept>
 
@@ -10,6 +12,44 @@ void Check(Size v) {
     throw std::invalid_argument("Invalid host or game viewport size");
 }
 } // namespace
+
+std::optional<HostRasterWindow> MapOriginalRasterWindow(
+    const xdk::OriginalRasterWindow& v, Size guest, Rect dest) noexcept {
+  if (!guest.width || !guest.height || guest.width>16384 || guest.height>16384 ||
+      !dest.width || !dest.height || uint64_t(dest.left)+dest.width>16384 ||
+      uint64_t(dest.top)+dest.height>16384) return std::nullopt;
+  // Ordered comparisons reject NaNs. An unsupported off-target viewport
+  // must not be clipped into a different projection.
+  if (!(v.x>=0 && v.y>=0 && v.width>=0 && v.height>=0 &&
+        double(v.x)+v.width<=guest.width && double(v.y)+v.height<=guest.height &&
+        v.min_depth>=0 && v.min_depth<=1 && v.max_depth>=0 && v.max_depth<=1))
+    return std::nullopt;
+  const double sx=double(dest.width)/guest.width, sy=double(dest.height)/guest.height;
+  HostRasterWindow out{float(dest.left+v.x*sx),float(dest.top+v.y*sy),
+                       float(v.width*sx),float(v.height*sy),v.min_depth,v.max_depth,{}};
+  int x0=int(v.x), y0=int(v.y), x1=x0+int(v.width), y1=y0+int(v.height);
+  if (v.scissor_enabled) {
+    x0=std::clamp(v.scissor[0],x0,x1);
+    y0=std::clamp(v.scissor[1],y0,y1);
+    x1=std::clamp(v.scissor[2],x0,x1);
+    y1=std::clamp(v.scissor[3],y0,y1);
+  }
+  // First physical pixel with a centre on or after each source edge.
+  // Adjacent half-open source rectangles share the same physical edge.
+  const auto edge=[](uint32_t x,uint32_t src,uint32_t dst) {
+    return uint32_t((2ull*x*dst+src-1)/(2ull*src));
+  };
+  const uint32_t left=edge(x0,guest.width,dest.width), top=edge(y0,guest.height,dest.height);
+  out.scissor={dest.left+left,dest.top+top,edge(x1,guest.width,dest.width)-left,
+               edge(y1,guest.height,dest.height)-top};
+  if (v.width==0 || v.height==0) {
+    // Vulkan requires nonzero viewport extent. The proven empty scissor
+    // still executes the draw and covers zero fragments.
+    out.x=float(dest.left); out.y=float(dest.top);
+    out.width=float(dest.width); out.height=float(dest.height);
+  }
+  return out;
+}
 
 FrameGeometry PlanFrame(const FrameSetup& s) {
   Check(s.backbuffer);

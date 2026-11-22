@@ -11,6 +11,13 @@ namespace hulk::eor::native {
 struct Size { uint32_t width = 0, height = 0; };
 struct Rect { uint32_t left = 0, top = 0, width = 0, height = 0; };
 
+struct HostRasterWindow {
+  float x, y, width, height, min_depth, max_depth;
+  Rect scissor;
+};
+std::optional<HostRasterWindow> MapOriginalRasterWindow(
+    const xdk::OriginalRasterWindow& source, Size guest, Rect destination) noexcept;
+
 // A native EoR frame must reach the host swapchain at its REAL scene
 // pixel density. The original 1280x720 guest surface cannot silently
 // become a 2560x1440/2560x1600 host scene through a blit or stretch.

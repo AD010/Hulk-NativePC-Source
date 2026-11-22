@@ -4,6 +4,7 @@
 #include "../native_port/src/native_resolution.h"
 #include <array>
 #include <cmath>
+#include <limits>
 #include <cassert>
 #include <stdexcept>
 #include <vector>
@@ -36,6 +37,32 @@ template<class F> void MustThrow(F f) {
   assert(found);
 }
 int main() {
+  hulk::eor::xdk::OriginalRasterWindow v{64,32,800,400,0.25f,0.75f,true,{96,48,400,296}};
+  const Rect hud{0,80,2560,1440};
+  auto raster=MapOriginalRasterWindow(v,{1280,720},hud);
+  assert(raster && raster->x==128 && raster->y==144 && raster->width==1600 && raster->height==800);
+  assert(raster->min_depth==0.25f && raster->max_depth==0.75f);
+  assert(raster->scissor.left==192 && raster->scissor.top==176 &&
+         raster->scissor.width==608 && raster->scissor.height==496);
+  v.scissor={-50,-10,2000,3000};
+  raster=MapOriginalRasterWindow(v,{1280,720},hud);
+  assert(raster && raster->scissor.left==128 && raster->scissor.width==1600);
+  v.scissor={900,32,950,40};
+  assert(MapOriginalRasterWindow(v,{1280,720},hud)->scissor.width==0);
+  v.scissor_enabled=false;
+  assert(MapOriginalRasterWindow(v,{1280,720},hud)->scissor.width==1600);
+  v.width=0;
+  raster=MapOriginalRasterWindow(v,{1280,720},hud);
+  assert(raster && raster->width>0 && !raster->scissor.width);
+  v.width=2000;
+  assert(!MapOriginalRasterWindow(v,{1280,720},hud));
+  v={0,0,4,4,0,1,true,{0,0,1,4}};
+  assert(MapOriginalRasterWindow(v,{4,4},{0,0,6,6})->scissor.width==1);
+  v.scissor={1,0,4,4};
+  const auto adjacent=MapOriginalRasterWindow(v,{4,4},{0,0,6,6});
+  assert(adjacent && adjacent->scissor.left==1 && adjacent->scissor.width==5);
+  v.min_depth=std::numeric_limits<float>::quiet_NaN();
+  assert(!MapOriginalRasterWindow(v,{4,4},{0,0,6,6}));
   // Real-source target ownership is checked per Draw, not only at the
   // preceding original SetRenderTarget command. Test IDs are synthetic.
   hulk::eor::gpu::VerifiedOriginalXdkScreen target{};

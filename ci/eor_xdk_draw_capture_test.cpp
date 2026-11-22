@@ -428,7 +428,15 @@ int main() {
   W(guest,device+12544,0x8200BEEF);
   W(guest,device+12548,0x8200BABE);
   W(guest,device+1920+11*16,std::bit_cast<uint32_t>(1.5f));
+  W(guest,device+11856,1);
+  const std::array<float,6> viewport{23,17,800,480,0.2f,0.7f};
+  for(size_t i=0;i<viewport.size();++i) W(guest,device+12648+4*i,std::bit_cast<uint32_t>(viewport[i]));
+  W(guest,device+12676,0xfffffffeu); W(guest,device+12684,811);
   const auto matrix=CaptureUsaVsMatrices(device,ReadFake,&guest);
+  assert(matrix && matrix->raster && matrix->raster->scissor_enabled);
+  assert(matrix->raster->x==23 && matrix->raster->width==800 && matrix->raster->height==480);
+  assert(matrix->raster->min_depth==0.2f && matrix->raster->max_depth==0.7f);
+  assert(matrix->raster->scissor[0]==-2 && matrix->raster->scissor[2]==811);
   assert(matrix && matrix->original_guest_device==device &&
          matrix->original_vs_guest_object==0x82ABCDEFu &&
          matrix->original_ps_guest_object==0x82FEDCBAu &&

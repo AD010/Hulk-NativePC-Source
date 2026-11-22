@@ -360,8 +360,11 @@ class NativeEorLinkCoverage(unittest.TestCase):
         start=source.index("bool DiligentEorDirectBackend::DrawIndexed(")
         end=source.index("bool DiligentEorDirectBackend::ResolveScene(",start)
         render=source[start:end]
-        self.assertIn("native::Rect viewport_area{",render)
-        self.assertIn("VerifiedOriginalViewSpace::OriginalAspectHud",render)
+        preflight=source[source.index("bool DiligentEorDirectBackend::PreflightOriginalScene("):start]
+        self.assertIn("VerifiedOriginalViewSpace::OriginalAspectHud",preflight)
+        self.assertIn("native::MapOriginalRasterWindow(",preflight)
+        self.assertIn("raster=packed->second.raster",render)
+        self.assertIn("raster.min_depth,raster.max_depth",render)
         self.assertIn("s.context->SetViewports(1,&original_viewport",render)
         self.assertIn("s.context->SetScissorRects(1,&original_scissor",render)
         self.assertLess(render.index("SetViewports("),
