@@ -311,6 +311,22 @@ bool NativeXInitialize(
   if(requested_eor) {
     rex::cvar::SetFlagByName("hulk_eor_xdk_capture","true");
     rex::cvar::SetFlagByName("native_x_renderer_present_with_swaps","false");
+    // The user-owned private source folder is independent of the shipped
+    // binary and must contain the REAL compiled HEORSPV1, plus all four
+    // authenticated USA metadata banks. A metadata-only archive is not
+    // an executable shader library. Never claim native graphics readiness
+    // until the complete digest-matched source pack is installed.
+    std::filesystem::path original_source_root=cache/"eor_source";
+    if(const char* custom=std::getenv("HULK_EOR_SOURCE_BANK_DIR");
+       custom && *custom)
+      original_source_root=std::filesystem::path(custom);
+    if(hulk::eor::xdk::InstallVerifiedSourceShaderPackFromDirectory(
+           original_source_root))
+      REXLOG_INFO("[HULK/EOR-WORKER] authenticated original HEORSPV1 "
+                  "VS/PS and four matching source metadata banks loaded");
+    else
+      REXLOG_WARN("[HULK/EOR-WORKER] complete original AOT shader bank "
+                  "unavailable; independent EoR Draws remain gated");
   }
   const bool eor_worker_allowed = requested_eor &&
       rex::cvar::Query<bool>("hulk_eor_xdk_capture") &&
