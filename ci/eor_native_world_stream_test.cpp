@@ -1,5 +1,6 @@
 #include "../native_port/src/eor_native_world_stream.h"
 #include <atomic>
+#include <array>
 #include <cassert>
 #include <chrono>
 #include <condition_variable>
@@ -107,6 +108,31 @@ void CheckSharedGpuResidentLifetime() {
   verified_frame_resident.reset(); // after the caller's completion fence
   assert(gpu.freed.size()==3);
 }
+void CheckSourceVerifiedWorldModels() {
+  FakeGpu gpu;
+  {
+    NativeWorldStream stream(std::make_unique<Source>(),gpu,
+        {{11,100.0},{22,300.0},{33,std::numeric_limits<double>::infinity()}});
+    const std::array<uint32_t,2> authenticated_world{77u,88u};
+    stream.RequestSourceVerifiedModels(authenticated_world);
+    RetryUntil([&] {
+      stream.Tick(20.0);
+      return stream.Resident(77u)!=nullptr &&
+             stream.Resident(88u)!=nullptr;
+    });
+    assert(stream.ResidentShared(77u)->original_resource_hash==77u);
+    assert(stream.ResidentShared(88u)->original_resource_hash==88u);
+    // Real environment model files survive player-only LOD movement.
+    stream.Tick(900.0);
+    assert(stream.Resident(77u) && stream.Resident(88u));
+    stream.RequestSourceVerifiedModels(authenticated_world);
+    bool rejected=false;
+    try {stream.RequestSourceVerifiedModels(std::array<uint32_t,1>{0u});}
+    catch(const std::invalid_argument&) {rejected=true;}
+    assert(rejected);
+  }
+  assert(gpu.serial>=6 && gpu.freed.size()==gpu.serial);
+}
 void CheckRapidCameraJump() {
   FakeGpu gpu;
   auto state = std::make_shared<PriorityState>();
@@ -174,4 +200,5 @@ int main() {
   assert(gpu.freed.size()==6);
   CheckRapidCameraJump();
   CheckSharedGpuResidentLifetime();
+  CheckSourceVerifiedWorldModels();
 }
