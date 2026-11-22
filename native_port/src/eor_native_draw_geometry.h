@@ -184,6 +184,16 @@ RetainVerifiedOriginalFrameResidents(
 std::vector<VerifiedDrawSource> ResolveCapturedResourceDraws(
     const xdk::Frame& frame,
     std::span<const VerifiedXdkResourceWitness> original_witnesses,
+    std::span<const model::UploadedOriginalModel* const> residents,
+    std::vector<VerifiedXdkResourceWitness>* selected_live_witnesses=nullptr);
+// Convert reusable original engine material candidates into EXACT per-Draw
+// GPU witnesses. Each accepted candidate must independently establish its
+// model, surface, mesh, sampler and shader identity, then survive byte-exact
+// comparison with the current Xbox buffer generation and shader objects.
+// Nothing missing is fabricated: ambiguous or unowned Draws reject the frame.
+std::vector<VerifiedXdkResourceWitness> MaterializeLiveOriginalResourceWitnesses(
+    const xdk::Frame& frame,
+    std::span<const VerifiedXdkResourceWitness> verified_candidates,
     std::span<const model::UploadedOriginalModel* const> residents);
 void ReplayCapturedResourceScene(
     const xdk::Frame& frame,
