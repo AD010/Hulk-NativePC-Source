@@ -259,7 +259,10 @@ template<typename Fn> bool ReplaceVtable(void* object,size_t index,Fn hook,Fn& o
   DWORD protect=0;
   if(!VirtualProtect(slot,sizeof(void*),PAGE_EXECUTE_READWRITE,&protect))return false;
   const auto current=*slot;
-  bool success=true;
+  // A slot already pointing at our hook is usable only if its trampoline
+  // was recorded. Otherwise forwarding would recurse or fail at runtime.
+  // Do not claim installation succeeded for an orphaned hook.
+  bool success=(current!=reinterpret_cast<void*>(hook) || original!=nullptr);
   if(current!=reinterpret_cast<void*>(hook)) {
     if(!original) original=reinterpret_cast<Fn>(current);
     if(current!=reinterpret_cast<void*>(original))success=false;
