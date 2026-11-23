@@ -105,6 +105,13 @@ struct UsaIndexBufferBinding {
 };
 std::optional<UsaIndexBufferBinding> ReadUsaIndexBufferBinding(
     uint32_t object,ReadGuestBytes read,void* state) noexcept;
+struct UsaVertexDeclaration {
+  uint32_t object=0;
+  uint16_t streams=0;
+  bool font_main_elements=false;
+};
+std::optional<UsaVertexDeclaration> ReadUsaVertexDeclaration(
+    uint32_t object,ReadGuestBytes read,void* state) noexcept;
 struct UsaVertexStreamBinding {
   uint32_t object=0,allocation_address=0,allocation_bytes=0;
   uint32_t offset=0,length=0,stride=0;
@@ -510,6 +517,7 @@ struct RawDraw {
   bool captured_vertex_bindings=false;
   std::array<std::optional<UsaVertexStreamBinding>,16> vertex_bindings{};
   std::optional<UsaIndexBufferBinding> index_binding;
+  std::optional<UsaVertexDeclaration> vertex_declaration;
 };
 // Original USA Decal direct XDK call is at guest 0x8265B538.
 // An engine render-item->geometry witness, if present, must match the

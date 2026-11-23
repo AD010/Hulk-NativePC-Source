@@ -221,6 +221,42 @@ int main() {
   assert(in.inline_glyphs && in.inline_glyphs->vertex_count==8);
   auto source_layout=ui::ResolveUsaInlineFontLayout(in);
   assert(source_layout && source_layout->original_stride==24);
+  const auto declaration=xdk::ReadUsaVertexDeclaration(decl,read,&mem);
+  assert(declaration && declaration->object==decl && declaration->streams==1 && declaration->font_main_elements);
+  write(decl+64,(15u<<16)|12);
+  auto multi=xdk::ReadUsaVertexDeclaration(decl,read,&mem);
+  assert(multi && multi->streams==0x8001 && !multi->font_main_elements);
+  write(decl+64,(16u<<16)|12);assert(!xdk::ReadUsaVertexDeclaration(decl,read,&mem));
+  write(decl+64,12);write(decl+24,UINT32_MAX);assert(!xdk::ReadUsaVertexDeclaration(decl,read,&mem));
+  write(decl+24,3);assert(!xdk::ReadUsaVertexDeclaration(UINT32_MAX,read,&mem));
+  auto buffered=captured;
+  buffered.observed_live_eor_effect_pass=in.observed_live_eor_effect_pass;
+  buffered.observed_vs_matrices->original_vertex_declaration_guest_object=decl;
+  buffered.vertex_declaration=declaration;
+  buffered.source_ib=ib;
+  buffered.index_binding=xdk::UsaIndexBufferBinding{
+      ib->guest_object,ib->guest_address,ib->guest_size,2,1};
+  auto padded=std::make_shared<xdk::OriginalGuestBufferBytes>(*vb);
+  padded->bytes.assign(8,std::byte{0xff});
+  const auto& originals=in.inline_glyphs->payload->bytes;
+  for(size_t i=0;i<4;++i) {
+    padded->bytes.insert(padded->bytes.end(),originals.begin()+24*i,originals.begin()+24*(i+1));
+    padded->bytes.insert(padded->bytes.end(),4,std::byte{0xcc});
+  }
+  padded->guest_size=static_cast<uint32_t>(padded->bytes.size());
+  buffered.source_vb0=padded;
+  buffered.vertex_bindings[0]=xdk::UsaVertexStreamBinding{
+      padded->guest_object,padded->guest_address,padded->guest_size,8,padded->guest_size-8,28};
+  auto buffered_layout=ui::ResolveUsaBufferedFontLayout(buffered);
+  assert(buffered_layout && buffered_layout->original_stride==28 &&
+         buffered_layout->original_vertex_declaration_guest==decl);
+  auto buffered_glyph=ui::DecodeOriginalLiveFontDraw(buffered,*buffered_layout,22,3);
+  assert(buffered_glyph.triangle_indices==g.triangle_indices &&
+         buffered_glyph.colors[0]==model::HostAttribute({128/255.f,64/255.f,32/255.f,1.f}));
+  buffered.vertex_declaration=multi;
+  assert(!ui::ResolveUsaBufferedFontLayout(buffered));
+  buffered.vertex_declaration=declaration;buffered.original_pixel_texture_keys[0]=0;
+  assert(!ui::ResolveUsaBufferedFontLayout(buffered));
   auto glyphs=ui::DecodeOriginalLiveFontDraw(in,*source_layout,22,3);
   assert(glyphs.triangle_indices==std::vector<uint32_t>({0,1,2,0,2,3,4,5,6,4,6,7}));
   assert(glyphs.colors[0]==model::HostAttribute({128/255.f,64/255.f,32/255.f,1.f}));

@@ -893,6 +893,8 @@ void CapturePpcDraw(Kind kind, uint32_t guest, const PPCContext& ctx,
             draw,ctx.r31.u32,ctx.r1.u32,ReadGuest,guest_base,g_original_buffers);
       } else {
         draw.captured_vertex_bindings=true;
+        draw.vertex_declaration=ReadUsaVertexDeclaration(
+            state.original_vertex_declaration_guest_object,ReadGuest,guest_base);
         const auto capture_stream=[&](uint32_t slot) {
           const uint32_t object=state.original_vertex_buffer_guest_objects[slot];
           auto& binding=draw.vertex_bindings[slot];
@@ -900,12 +902,15 @@ void CapturePpcDraw(Kind kind, uint32_t guest, const PPCContext& ctx,
           if(binding)draw.source_vertex_streams[slot]=g_original_buffers.Capture(object,
               binding->allocation_address,binding->allocation_bytes,ReadGuest,guest_base);
         };
-        capture_stream(0);
+        // SetStreamSource retains old bindings. Only the current declaration
+        // can consume them. Preserve legacy capture if the declaration is unreadable.
+        const uint16_t streams=draw.vertex_declaration ? draw.vertex_declaration->streams : UINT16_MAX;
+        if(streams&1u)capture_stream(0);
         draw.source_vb0=draw.source_vertex_streams[0];
         if(kind==Kind::DrawIndexedVertices)
           draw.source_ib=SourceIndexBuffer(state.original_index_buffer_guest_object,guest_base,draw.index_binding);
         for(uint32_t slot=1;slot<draw.source_vertex_streams.size();++slot)
-          if(state.original_vertex_buffer_guest_objects[slot])capture_stream(slot);
+          if((streams&(1u<<slot)) && state.original_vertex_buffer_guest_objects[slot])capture_stream(slot);
       }
     } catch (const std::bad_alloc&) {
       draw.source_vb0.reset();
@@ -1580,10 +1585,13 @@ PreparedEorMixedFrame PrepareOriginalMixedDraws(
       // XDK declaration pointer. Allow its original ABI verifier to resolve
       // the CURRENT live declaration on the worker; never infer offsets
       // from a shader class name, atlas dimensions or stale guest object.
-      const auto live_layout=call.kind==Kind::EndVertices ?
-          ui::ResolveUsaInlineFontLayout(call) : font.resolve_verified_live_vertex_layout ?
-          font.resolve_verified_live_vertex_layout(call) :
-          std::optional<ui::VerifiedFontVertexLayout>{font.source_vertex_layout};
+      auto live_layout=call.kind==Kind::EndVertices ?
+          ui::ResolveUsaInlineFontLayout(call) : ui::ResolveUsaBufferedFontLayout(call);
+      if(!live_layout && call.kind!=Kind::EndVertices &&
+         !(call.vertex_declaration && call.vertex_declaration->font_main_elements)) {
+        live_layout=font.resolve_verified_live_vertex_layout ? font.resolve_verified_live_vertex_layout(call) :
+            std::optional<ui::VerifiedFontVertexLayout>{font.source_vertex_layout};
+      }
       if(!live_layout)continue;
       const auto& layout=*live_layout;
       if(!layout.original_vertex_declaration_layout_verified ||

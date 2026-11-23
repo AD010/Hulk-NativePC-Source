@@ -55,29 +55,44 @@ LiveFontGeometry DecodeUsaInlineGlyphPayload(std::span<const std::byte> bytes) {
   return output;
 }
 
-std::optional<VerifiedFontVertexLayout> ResolveUsaInlineFontLayout(const xdk::RawDraw& call) {
-  const auto& batch=call.inline_glyphs;
+namespace {
+std::optional<VerifiedFontVertexLayout> ResolveUsaFontMaterial(
+    const xdk::RawDraw& call,uint32_t declaration,uint32_t stride) {
   const auto& pass=call.observed_live_eor_effect_pass;
   const auto& parent=call.original_engine_shader_method;
   const auto& device=call.observed_vs_matrices;
-  // Font_Main's original PS samples register 0. The archive key and live
-  // texture object must have been matched by this Draw's material setter.
-  if(call.kind!=xdk::Kind::EndVertices || !xdk::DecodeOriginalFontVertices(call) ||
-     !pass || pass->effect_hash!=kOriginalFontMainEffectHash ||
+  if(!pass || pass->effect_hash!=kOriginalFontMainEffectHash ||
      pass->pass_index!=kOriginalFontMainPassIndex || !parent || !device ||
+     parent->original_shader_method_guest!=0x8266A0C0u ||
+     parent->original_shader_vtable_guest!=0x8206ED6Cu ||
+     !parent->original_shader_method_vtable_verified ||
      !parent->original_pass_vs_ps_xdk_binding_verified ||
-     !parent->original_pass_sampler_slots_verified ||
-     parent->original_pass_sampler_slot_mask!=1u ||
+     !parent->original_pass_sampler_slots_verified || parent->original_pass_sampler_slot_mask!=1u ||
      !parent->original_pass_live_texture_objects_present ||
-     batch->declaration!=device->original_vertex_declaration_guest_object ||
+     !declaration || declaration!=device->original_vertex_declaration_guest_object ||
      !call.original_pixel_texture_keys[0] || !device->original_texture_guest_objects[0])
     return {};
   auto layout=UsaInlineDeclaration();
-  layout.original_vertex_declaration_guest=batch->declaration;
+  layout.original_stride=stride;
+  layout.original_vertex_declaration_guest=declaration;
   layout.original_font_atlas_hash=call.original_pixel_texture_keys[0];
   layout.original_vertex_declaration_layout_verified=true;
   layout.original_font_sampler_owner_verified=true;
   return layout;
+}
+}
+std::optional<VerifiedFontVertexLayout> ResolveUsaInlineFontLayout(const xdk::RawDraw& call) {
+  if(call.kind!=xdk::Kind::EndVertices || !xdk::DecodeOriginalFontVertices(call))return {};
+  return ResolveUsaFontMaterial(call,call.inline_glyphs->declaration,24);
+}
+std::optional<VerifiedFontVertexLayout> ResolveUsaBufferedFontLayout(const xdk::RawDraw& call) {
+  const auto& decl=call.vertex_declaration;
+  const auto& stream=call.vertex_bindings[0];
+  if((call.kind!=xdk::Kind::DrawVertices && call.kind!=xdk::Kind::DrawIndexedVertices) ||
+     !call.captured_vertex_bindings || !decl || !decl->font_main_elements || decl->streams!=1 ||
+     !call.source_vb0 || !stream || !stream->Matches(*call.source_vb0) ||
+     stream->stride<24 || stream->stride>192 || stream->stride%4)return {};
+  return ResolveUsaFontMaterial(call,decl->object,stream->stride);
 }
 
 LiveFontGeometry DecodeOriginalLiveFontDraw(

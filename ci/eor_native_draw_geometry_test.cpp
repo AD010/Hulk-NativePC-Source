@@ -941,6 +941,10 @@ int main(){
       sharedIb->guest_object,sharedIb->guest_address,sharedIb->guest_size,2,1};
   movingFrame.calls[0]=moved;
   auto linearOwner=trueOwner;linearOwner.original_linear_index_stream_verified=true;
+  movingFrame.calls[0].vertex_declaration=xdk::UsaVertexDeclaration{
+      live_state.original_vertex_declaration_guest_object,2,false};
+  Reject([&]{(void)native::ResolveCapturedResourceDraws(movingFrame,std::vector{linearOwner},models);});
+  movingFrame.calls[0].vertex_declaration->streams=1;
   const auto current=native::ResolveCapturedResourceDraws(movingFrame,std::vector{linearOwner},models);
   assert(current.size()==1 && !current[0].first_index && !current[0].host_base_vertex);
   auto& scoped=std::get<native::VerifiedXdkIndexedSubmission>(linearOwner.original_source_submission);

@@ -943,6 +943,10 @@ std::vector<VerifiedDrawSource> ResolveCapturedResourceDraws(
       // exist in this Draw snapshot and have the same verified object ID.
       // Additional position/normal/TBN streams may no longer be silently
       // presumed equal to the slot-0 source buffer.
+      if(call.vertex_declaration &&
+         (call.vertex_declaration->object!=resources.vertex_declaration ||
+          (candidate.source_verified_vertex_stream_slot_mask & ~call.vertex_declaration->streams)))
+        continue;
       bool source_streams_present=true;
       for(uint32_t slot=1;slot<16;++slot) {
         if(!(candidate.source_verified_vertex_stream_slot_mask &

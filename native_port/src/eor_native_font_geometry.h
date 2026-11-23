@@ -33,6 +33,8 @@ struct VerifiedFontVertexLayout {
   bool original_index_encoding_verified=false;
 };
 std::optional<VerifiedFontVertexLayout> ResolveUsaInlineFontLayout(const xdk::RawDraw& call);
+// Exact USA Font_Main elements and current SetStreamSource window on buffered Draws.
+std::optional<VerifiedFontVertexLayout> ResolveUsaBufferedFontLayout(const xdk::RawDraw& call);
 struct LiveFontGeometry {
   uint64_t original_frame_sequence=0;
   uint32_t original_draw_ordinal=UINT32_MAX;

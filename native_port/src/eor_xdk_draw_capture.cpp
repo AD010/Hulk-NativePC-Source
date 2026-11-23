@@ -40,6 +40,34 @@ std::optional<uint32_t> UsaIndexBufferBinding::Read(
   }
   return value;
 }
+std::optional<UsaVertexDeclaration> ReadUsaVertexDeclaration(
+    uint32_t object,ReadGuestBytes read,void* state) noexcept {
+  // USA 82871188 reads the element count at +24 and walks the entries
+  // at +52. The creator at 82870C40 writes stream/offset as two BE16s,
+  // followed by type and method/usage/index. The count excludes the terminator.
+  constexpr size_t max_elements=64,entry_bytes=12;
+  if(!object || !read || uint64_t(object)+52>(uint64_t{1}<<32))return {};
+  std::array<std::byte,4> count_bytes{};
+  if(!read(state,object+24,count_bytes.data(),count_bytes.size()))return {};
+  const auto count=SourceWord(count_bytes.data());
+  if(!count || count>max_elements ||
+     uint64_t(object)+52+count*entry_bytes>(uint64_t{1}<<32))return {};
+  std::array<std::byte,max_elements*entry_bytes> raw;
+  if(!read(state,object+52,raw.data(),count*entry_bytes))return {};
+  constexpr std::array<uint32_t,9> font{
+      0,0x2A23B9,0, 12,0x182886,0xA0000, 16,0x2C23A5,0x50000};
+  UsaVertexDeclaration declaration{object,0,count==3};
+  for(uint32_t i=0;i<count;++i) {
+    const auto* entry=raw.data()+i*entry_bytes;
+    const uint32_t stream=SourceWord(entry)>>16;
+    if(stream>=16)return {};
+    declaration.streams|=static_cast<uint16_t>(1u<<stream);
+    if(declaration.font_main_elements)
+      for(size_t word=0;word<3;++word)
+        if(SourceWord(entry+word*4)!=font[i*3+word])declaration.font_main_elements=false;
+  }
+  return declaration;
+}
 std::optional<UsaVertexStreamBinding> ReadUsaVertexStreamBinding(
     uint32_t device,uint32_t slot,uint32_t object,ReadGuestBytes read,void* state) noexcept {
   if(!device || !object || slot>=16 || !read || uint64_t(object)+32>(uint64_t{1}<<32) ||
@@ -221,18 +249,9 @@ std::optional<OriginalInlineGlyphBatch> CaptureUsaInlineGlyphs(
   // written by the original memcpy, observed before the guest commits.
   const uint32_t payload=word(device+13448u);
   if (!payload || word(device+13456u)!=glyphs*24u) return {};
-  // Match the three packed XDK declaration entries in order: FLOAT3
-  // position (XYZ1), D3DCOLOR, FLOAT2 texcoord (XY01), all on stream 0.
-  constexpr std::array<uint32_t,9> elements{
-      0,0x2A23B9,0, 12,0x182886,0xA0000, 16,0x2C23A5,0x50000};
-  const uint64_t decl=gpu->original_vertex_declaration_guest_object;
-  if (word(decl+24u)!=3u) return {};
-  std::array<std::byte,36> raw{};
-  if (decl+52u+raw.size()>uint64_t(UINT32_MAX)+1u ||
-      !read(state,uint32_t(decl+52u),raw.data(),raw.size())) return {};
-  for (size_t i=0;i<raw.size();++i)
-    if (std::to_integer<uint8_t>(raw[i])!=
-        uint8_t(elements[i/4]>>(24u-8u*(i%4)))) return {};
+  const uint32_t decl=gpu->original_vertex_declaration_guest_object;
+  const auto declaration=ReadUsaVertexDeclaration(decl,read,state);
+  if(!declaration || !declaration->font_main_elements)return {};
   auto bytes=buffers.Capture(wrapper,payload,glyphs*96u,read,state);
   if (!bytes) return {};
   return OriginalInlineGlyphBatch{uint32_t(decl),glyphs*4u,std::move(bytes)};
