@@ -27,7 +27,10 @@ OriginalVulkanPipeline CreateOriginalVulkanPipeline(
     throw std::invalid_argument("Original EoR Vulkan PSO has no verified effect/shader pairing");
   const auto& state=pass.exact_render_state;
   if(state.NumRenderTargets==0 || state.NumRenderTargets>DILIGENT_MAX_RENDER_TARGETS ||
-     state.DSVFormat==Diligent::TEX_FORMAT_UNKNOWN ||
+     (pass.original_depth_unbound!=(state.DSVFormat==Diligent::TEX_FORMAT_UNKNOWN)) ||
+     (pass.original_depth_unbound &&
+      (state.DepthStencilDesc.DepthEnable || state.DepthStencilDesc.DepthWriteEnable ||
+       state.DepthStencilDesc.StencilEnable)) ||
      (state.SmplDesc.Count!=1 && state.SmplDesc.Count!=2 &&
       state.SmplDesc.Count!=4 && state.SmplDesc.Count!=8) ||
      state.PrimitiveTopology!=Diligent::PRIMITIVE_TOPOLOGY_TRIANGLE_LIST)

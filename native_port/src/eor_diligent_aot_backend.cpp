@@ -278,6 +278,7 @@ struct DiligentEorDirectBackend::State {
   };
   std::map<DrawKey,PackedConstants> packed_constants;
   bool frame_preflight_ready=false;
+  bool first_draw_depth_bound=false;
   bool scene_open=false,constants_ready=false,program_ready=false;
   bool textures_ready=false,finished=false;
   bool source_timeline_active=false;
@@ -321,7 +322,10 @@ DiligentEorDirectBackend::DiligentEorDirectBackend(
           Diligent::TEX_FORMAT_D24_UNORM_S8_UINT :
       formats.depth==NativeDepthFormat::D32Float ?
           Diligent::TEX_FORMAT_D32_FLOAT : Diligent::TEX_FORMAT_UNKNOWN;
-  if(color==Diligent::TEX_FORMAT_UNKNOWN || depth==Diligent::TEX_FORMAT_UNKNOWN)
+  if(color==Diligent::TEX_FORMAT_UNKNOWN || (formats.depth==NativeDepthFormat::None ?
+      (!formats.original_screen.exact_guest_to_native_targets_verified || !formats.original_screen.guest_device ||
+       !formats.original_screen.guest_rt0 || formats.original_screen.guest_depth) :
+      depth==Diligent::TEX_FORMAT_UNKNOWN))
     throw std::invalid_argument("Unknown EoR native scene format");
   for(size_t i=0;i<state_->passes.size();++i) {
     const auto& owner=state_->passes[i];
@@ -398,7 +402,9 @@ DiligentEorDirectBackend::DiligentEorDirectBackend(
     // The owned host scene has exactly one color RT and one depth RT.
     // Never bind a PSO expecting mismatched sample counts or formats.
     if(gpu.NumRenderTargets!=1 || gpu.RTVFormats[0]!=color ||
-       gpu.DSVFormat!=depth || gpu.SmplDesc.Count!=frame.samples)
+       gpu.DSVFormat!=(pass.original_depth_unbound ? Diligent::TEX_FORMAT_UNKNOWN : depth) ||
+       (!pass.original_depth_unbound && formats.depth==NativeDepthFormat::None) ||
+       gpu.SmplDesc.Count!=frame.samples)
       throw std::invalid_argument("Native Vulkan PSO format/sample contract disagrees with scene");
     if(pass.original_dynamic_font_vertex_layout_verified) {
       const auto& layout=pass.exact_host_input_layout;
@@ -464,14 +470,14 @@ bool DiligentEorDirectBackend::CanReplayOriginalXdkCommand(
   const auto& original=s.format.original_screen;
   if(!original.exact_guest_to_native_targets_verified ||
      !original.guest_device || !original.guest_rt0 ||
-     !original.guest_depth || !original.guest_front_buffer ||
+     (!original.guest_depth && s.format.depth!=NativeDepthFormat::None) || !original.guest_front_buffer ||
      cmd.gpr[0]!=original.guest_device)
     return false;
   switch(cmd.kind) {
     case xdk::CommandKind::SetRenderTarget:
       return cmd.gpr[1]==0 && cmd.gpr[2]==original.guest_rt0;
     case xdk::CommandKind::SetDepthStencilSurface:
-      return cmd.gpr[1]==original.guest_depth;
+      return !cmd.gpr[1] || cmd.gpr[1]==original.guest_depth;
     case xdk::CommandKind::ClearF:
       // This native render pass owns RT0 and one depth target only.
       // Xbox ClearF can address RT1..RT3, which we must not silently
@@ -481,6 +487,7 @@ bool DiligentEorDirectBackend::CanReplayOriginalXdkCommand(
           xdk::IsOriginalFullTargetClear(
               *cmd.captured_clear,s.frame.original_guest.width,
               s.frame.original_guest.height) &&
+          (!(cmd.captured_clear->flags&0x30u) || s.format.depth!=NativeDepthFormat::None) &&
           ((cmd.captured_clear->flags & 0x20u)==0 ||
            s.format.depth==NativeDepthFormat::D24S8);
     case xdk::CommandKind::Resolve:
@@ -515,7 +522,8 @@ bool DiligentEorDirectBackend::CanReplayOriginalXdkTimeline(
   const auto& first=source.calls.front();
   const bool inherited=first.observed_vs_matrices &&
       MatchesVerifiedOriginalXdkMainDrawTargets(
-          *first.observed_vs_matrices,state_->format.original_screen);
+          *first.observed_vs_matrices,state_->format.original_screen,
+          first.observed_vs_matrices->original_depth_guest_object!=0);
   bool pre_draw_rt_change=false,pre_draw_depth_change=false;
   for(const auto& event:source.commands) {
     if(event.draw_ordinal!=UINT32_MAX)break;
@@ -525,11 +533,16 @@ bool DiligentEorDirectBackend::CanReplayOriginalXdkTimeline(
       pre_draw_depth_change=true;
   }
   bool rt=inherited && !pre_draw_rt_change;
-  bool depth=inherited && !pre_draw_depth_change;
+  std::optional<uint32_t> depth;
+  if(inherited && !pre_draw_depth_change)depth=first.observed_vs_matrices->original_depth_guest_object;
   bool cleared=false,drew=false,resolved=false,tiling=false;
   for(const auto& cmd:source.commands) {
     if(cmd.draw_ordinal!=UINT32_MAX) {
-      if(!rt || !depth || !cleared || resolved)return false;
+      const auto& call=source.calls[cmd.draw_ordinal];
+      if(!rt || !depth || !cleared || resolved || !call.observed_vs_matrices ||
+         call.observed_vs_matrices->original_depth_guest_object!=*depth ||
+         !MatchesVerifiedOriginalXdkMainDrawTargets(*call.observed_vs_matrices,
+             state_->format.original_screen,*depth!=0))return false;
       drew=true;
       continue;
     }
@@ -540,10 +553,10 @@ bool DiligentEorDirectBackend::CanReplayOriginalXdkTimeline(
         rt=true;break;
       case xdk::CommandKind::SetDepthStencilSurface:
         if(resolved)return false;
-        depth=true;break;
+        depth=cmd.gpr[1];break;
       case xdk::CommandKind::ClearF:
         if(resolved || ((cmd.captured_clear->flags&1u) && !rt) ||
-           ((cmd.captured_clear->flags&0x30u) && !depth))
+           ((cmd.captured_clear->flags&0x30u) && (!depth || !*depth)))
           return false;
         // A stencil/depth-only source Clear does not initialize this
         // independent host color target. Never present undefined pixels
@@ -583,8 +596,9 @@ bool DiligentEorDirectBackend::ReplayOriginalXdkCommand(
   if(!s.scene_open || s.finished)return false;
   s.source_timeline_active=true;
   switch(cmd.kind) {
-    case xdk::CommandKind::SetRenderTarget:
     case xdk::CommandKind::SetDepthStencilSurface:
+      return s.scene.SetDepthBound(cmd.gpr[1]!=0);
+    case xdk::CommandKind::SetRenderTarget:
     case xdk::CommandKind::BeginTiling:
     case xdk::CommandKind::EndTiling:
       // Host scene is already bound. The exact source target identity and
@@ -895,7 +909,7 @@ bool DiligentEorDirectBackend::PreflightOriginalScene(
     // BEFORE pipeline compilation, color clears or the first Vulkan Draw.
     if(!d.source_frame || !d.guest_vs_matrices ||
        !MatchesVerifiedOriginalXdkMainDrawTargets(
-           *d.guest_vs_matrices,s.format.original_screen) ||
+           *d.guest_vs_matrices,s.format.original_screen,!selected->pipeline.original_depth_unbound) ||
        !d.guest_shader_constants)
       return false;
     // The native shader's reflected block selects direct c0..255 addressing
@@ -1061,6 +1075,7 @@ bool DiligentEorDirectBackend::PreflightOriginalScene(
     }
   } catch (...) {return false;}
   s.packed_constants=std::move(prepared_constants);
+  s.first_draw_depth_bound=draws.front().draw.guest_vs_matrices->original_depth_guest_object!=0;
   s.frame_preflight_ready=true;
   return true;
 }
@@ -1072,6 +1087,7 @@ bool DiligentEorDirectBackend::BeginScene(native::Size world,uint32_t samples) {
   // Consume the provenance gate before touching any Vulkan render targets.
   s.frame_preflight_ready=false;
   if(!s.scene.Prepare(s.frame,s.format) || !s.scene.BeginScene())return false;
+  if(!s.scene.SetDepthBound(s.first_draw_depth_bound)) {s.scene.AbortScene();return false;}
   s.scene_open=true;s.finished=false;s.selected=nullptr;
   s.source_timeline_active=false;
   s.source_resolve_recorded=false;

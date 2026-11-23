@@ -98,6 +98,12 @@ int main() {
   assert(!MatchesVerifiedOriginalXdkMainDrawTargets(alien,target));
   alien=actual;alien.original_depth_guest_object=0x3001u;
   assert(!MatchesVerifiedOriginalXdkMainDrawTargets(alien,target));
+  assert(!MatchesVerifiedOriginalXdkMainDrawTargets(actual,target,false));
+  alien=actual;alien.original_depth_guest_object=0;
+  assert(!MatchesVerifiedOriginalXdkMainDrawTargets(alien,target));
+  assert(MatchesVerifiedOriginalXdkMainDrawTargets(alien,target,false));
+  alien.original_ps_guest_object=0;
+  assert(!MatchesVerifiedOriginalXdkMainDrawTargets(alien,target,false));
   alien=actual;alien.original_guest_device=0x1001u;
   assert(!MatchesVerifiedOriginalXdkMainDrawTargets(alien,target));
   alien=actual;alien.original_vs_guest_object=0u;

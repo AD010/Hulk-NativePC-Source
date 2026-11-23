@@ -60,6 +60,9 @@ struct VerifiedOriginalGraphicsPass {
   // MODELS.ARC XYZ meshes. Verified against the live original declaration,
   // shader input layout, pass state and atlas ownership by the installer.
   bool original_dynamic_font_vertex_layout_verified=false;
+  // The original pass has no depth/stencil attachment. Unknown DSV format
+  // alone is insufficient, as it can also indicate missing format evidence.
+  bool original_depth_unbound=false;
 };
 struct OriginalVulkanPipeline {
   Diligent::RefCntAutoPtr<Diligent::IPipelineState> pipeline;

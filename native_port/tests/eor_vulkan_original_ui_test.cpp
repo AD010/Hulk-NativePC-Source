@@ -1,6 +1,7 @@
 // Offscreen Vulkan integration. Supply the original USA INDEX.IND and TEXTURES.ARC.
 #include "eor_diligent_texture_residency.h"
 #include "eor_diligent_original_pipeline.h"
+#include "eor_diligent_scene_targets.h"
 #include "eor_diligent_material_textures.h"
 #include "eor_effect_catalog.h"
 #include "eor_original_font_source.h"
@@ -152,16 +153,19 @@ static void VerifyFillRectRegisters(IRenderDevice* device,IDeviceContext* contex
   auto shared=BufferOf(device,BIND_UNIFORM_BUFFER,std::array<uint32_t,8>{});
   for(auto stage:{SHADER_TYPE_VERTEX,SHADER_TYPE_PIXEL})
     pso.bindings->GetVariableByName(stage,"HulkSharedConstants")->Set(shared);
-  for(int half=0;half<2;++half) {
+  auto paint=[&](const eor::gpu::OriginalVulkanPipeline& active,int half) {
+    context->SetPipelineState(active.pipeline);
     Rect scissor{half*32,0,(half+1)*32,32};
     context->SetScissorRects(1,&scissor,64,32);
     std::array<float,1024> registers{};
     registers[21*4+half]=1;
     registers[21*4+3]=1;
-    modules.BindDirectFloatRegisters(context,pso.bindings,Stage::Pixel,registers);
-    context->CommitShaderResources(pso.bindings,RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+    modules.BindDirectFloatRegisters(context,active.bindings,Stage::Pixel,registers);
+    context->CommitShaderResources(active.bindings,RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
     context->DrawIndexed({3,VT_UINT32,DRAW_FLAG_VERIFY_ALL});
-  }
+  };
+  paint(pso,0);
+  paint(pso,1);
   context->SetRenderTargets(0,nullptr,nullptr,RESOURCE_STATE_TRANSITION_MODE_NONE);
   const auto pixels=ReadPixels(device,context,color);
   for(size_t i=0;i<pixels.size();i+=4) {
@@ -171,6 +175,58 @@ static void VerifyFillRectRegisters(IRenderDevice* device,IDeviceContext* contex
     if(!std::equal(expected.begin(),expected.end(),pixels.begin()+i))
       throw std::runtime_error("Original FillRect PS c21 lost its draw-specific value");
   }
+  auto without_depth=pass;
+  without_depth.exact_render_state.DSVFormat=TEX_FORMAT_UNKNOWN;
+  without_depth.exact_render_state.DepthStencilDesc.DepthWriteEnable=False;
+  auto expect_rejected=[&](const eor::gpu::VerifiedOriginalGraphicsPass& invalid) {
+    try {
+      eor::gpu::CreateOriginalVulkanPipeline(device,modules,bank,effects,invalid);
+    } catch(const std::invalid_argument&) {return;}
+    throw std::runtime_error("Accepted an unverified color-only PSO");
+  };
+  expect_rejected(without_depth);
+  without_depth.original_depth_unbound=true;
+  auto depth_writing=without_depth;
+  depth_writing.exact_render_state.DepthStencilDesc.DepthWriteEnable=True;
+  expect_rejected(depth_writing);
+  auto color_only=eor::gpu::CreateOriginalVulkanPipeline(device,modules,bank,effects,without_depth);
+  for(auto stage:{SHADER_TYPE_VERTEX,SHADER_TYPE_PIXEL})
+    color_only.bindings->GetVariableByName(stage,"HulkSharedConstants")->Set(shared);
+
+  eor::gpu::DiligentSceneTargets scene(device,context);
+  eor::native::FrameGeometry frame{};
+  frame.direct_engine_path_ready=true;
+  frame.world={64,32}; frame.backbuffer=frame.world; frame.composite={0,0,64,32}; frame.samples=1;
+  eor::gpu::VerifiedSceneFormat formats{eor::gpu::NativeColorFormat::Rgba8,
+      eor::gpu::NativeDepthFormat::D32Float,true,true,{}};
+  formats.original_screen={1,2,3,0,true,false,false}; // Controlled attachment identities.
+  eor::xdk::OriginalXdkClearF clear{};
+  clear.flags=1; clear.has_color=true; clear.color={0,0,1,1};
+  if(!scene.Prepare(frame,formats) || !scene.BeginScene() || !scene.ClearVerifiedOriginalXdk(clear,frame.world))
+    throw std::runtime_error("Failed to initialize the depth-bound test scene");
+  paint(pso,0);
+  if(!scene.SetDepthBound(false))throw std::runtime_error("Failed to detach DSV");
+  clear.flags=0x11;
+  if(scene.ClearVerifiedOriginalXdk(clear,frame.world))
+    throw std::runtime_error("Accepted a combined clear without a DSV");
+  paint(color_only,1);
+  clear.flags=0x10;
+  if(!scene.SetDepthBound(true) || !scene.ClearVerifiedOriginalXdk(clear,frame.world) ||
+     !scene.ResolveScene() || ReadPixels(device,context,scene.ResolvedColorSRV()->GetTexture())!=pixels)
+    throw std::runtime_error("Detaching or restoring the DSV changed color pixels");
+
+  formats.depth=eor::gpu::NativeDepthFormat::None;
+  if(scene.Prepare(frame,formats))throw std::runtime_error("Accepted contradictory depth owner");
+  formats.original_screen.guest_depth=0;
+  clear.flags=1;
+  if(!scene.Prepare(frame,formats) || !scene.BeginScene() || scene.SetDepthBound(true) ||
+     !scene.ClearVerifiedOriginalXdk(clear,frame.world))
+    throw std::runtime_error("Failed to initialize the color-only scene");
+  paint(color_only,0);
+  paint(color_only,1);
+  if(!scene.ResolveScene() || ReadPixels(device,context,scene.ResolvedColorSRV()->GetTexture())!=pixels)
+    throw std::runtime_error("Color-only rendering differs from the original two draws");
+  std::cout<<"Original FillRect preserved 2048 pixels through DSV detach/reattach and color-only rendering\n";
   std::cout<<"Original FillRect PS c21 matched both draws and all 2048 pixels\n";
 }
 

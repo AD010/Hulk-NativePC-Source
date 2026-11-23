@@ -15,7 +15,7 @@ namespace hulk::eor::gpu {
 // Explicit original EoR game color/depth format evidence must be converted
 // to these host formats by the caller; never select one from surface size.
 enum class NativeColorFormat : uint8_t { Unknown, Rgba8, Rgba16Float };
-enum class NativeDepthFormat : uint8_t { Unknown, D24S8, D32Float };
+enum class NativeDepthFormat : uint8_t { Unknown, D24S8, D32Float, None };
 // Original XDK device/screen identities must come from an independent
 // USA executable memory proof. Renderer must NEVER derive them from a
 // shader name, material hash or nearest active PM4 target.
@@ -35,12 +35,12 @@ struct VerifiedOriginalXdkScreen {
  // bypass the observed SetRenderTarget chronology.
 inline bool MatchesVerifiedOriginalXdkMainDrawTargets(
     const xdk::OriginalVsMatrices& observed,
-    const VerifiedOriginalXdkScreen& screen) noexcept {
+    const VerifiedOriginalXdkScreen& screen,bool depth_bound=true) noexcept {
   return screen.exact_guest_to_native_targets_verified &&
-         screen.guest_device && screen.guest_rt0 && screen.guest_depth &&
+         screen.guest_device && screen.guest_rt0 && (!depth_bound || screen.guest_depth) &&
          observed.original_guest_device == screen.guest_device &&
          observed.original_rt0_guest_object == screen.guest_rt0 &&
-         observed.original_depth_guest_object == screen.guest_depth &&
+         observed.original_depth_guest_object == (depth_bound ? screen.guest_depth : 0u) &&
          observed.original_vertex_declaration_guest_object &&
          observed.original_vs_guest_object &&
          observed.original_ps_guest_object;
@@ -63,6 +63,7 @@ class DiligentSceneTargets {
   // SAME host frame geometry. Never substitutes a guest 1280x720 surface.
   bool Prepare(const native::FrameGeometry& frame,
                VerifiedSceneFormat verified);
+  bool SetDepthBound(bool bind);
   bool BeginScene(); // does not clear: the real EoR Clear/Depth ABI owns it
   // Execute original XDK ClearF on independently OWNED native RT0/depth.
   // The caller must already prove these host views own the original guest

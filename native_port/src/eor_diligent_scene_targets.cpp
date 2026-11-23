@@ -34,7 +34,7 @@ struct DiligentSceneTargets::State {
   native::Size physical{};
   VerifiedSceneFormat formats{};
   uint32_t samples=0;
-  bool prepared=false, bound=false, ready=false;
+  bool prepared=false, bound=false, depth_bound=false, ready=false;
 };
 DiligentSceneTargets::DiligentSceneTargets(Diligent::IRenderDevice* d,Diligent::IDeviceContext* c)
     :state_(d && c ? std::make_unique<State>(d,c) : nullptr) {
@@ -68,7 +68,10 @@ bool DiligentSceneTargets::Prepare(const native::FrameGeometry& frame,
   if(!frame.direct_engine_path_ready || !verified.original_color_format_verified ||
      !verified.original_depth_format_verified ||
      Color(verified.color)==Diligent::TEX_FORMAT_UNKNOWN ||
-     Depth(verified.depth)==Diligent::TEX_FORMAT_UNKNOWN ||
+     (verified.depth==NativeDepthFormat::None ?
+          (!verified.original_screen.exact_guest_to_native_targets_verified || !verified.original_screen.guest_device ||
+       !verified.original_screen.guest_rt0 || verified.original_screen.guest_depth) :
+          Depth(verified.depth)==Diligent::TEX_FORMAT_UNKNOWN) ||
      !frame.world.width || !frame.world.height || frame.world.width>16384 ||
      frame.world.height>16384 || !frame.backbuffer.width || !frame.backbuffer.height ||
      frame.world.width>frame.backbuffer.width || frame.world.height>frame.backbuffer.height ||
@@ -80,7 +83,7 @@ bool DiligentSceneTargets::Prepare(const native::FrameGeometry& frame,
     return false;
   if(Same(state_->physical,frame.world) && state_->samples==frame.samples &&
      state_->formats.color==verified.color && state_->formats.depth==verified.depth &&
-     state_->color && state_->depth && state_->resolved) {
+     state_->color && (state_->depth || verified.depth==NativeDepthFormat::None) && state_->resolved) {
     // Native attachment storage is reusable at the same extent/format,
     // but the verified Xbox RT0/depth/front-buffer *owner* can change
     // after a menu transition, loading screen or resource recreation.
@@ -106,11 +109,13 @@ bool DiligentSceneTargets::Prepare(const native::FrameGeometry& frame,
   try {
     state_->device->CreateTexture(desc,nullptr,&new_color);
     if(!new_color || !new_color->GetDefaultView(Diligent::TEXTURE_VIEW_RENDER_TARGET))return false;
-    desc.Name="EoR verified host depth";
-    desc.Format=Depth(verified.depth);
-    desc.BindFlags=Diligent::BIND_DEPTH_STENCIL;
-    state_->device->CreateTexture(desc,nullptr,&new_depth);
-    if(!new_depth || !new_depth->GetDefaultView(Diligent::TEXTURE_VIEW_DEPTH_STENCIL))return false;
+    if(verified.depth!=NativeDepthFormat::None) {
+      desc.Name="EoR verified host depth";
+      desc.Format=Depth(verified.depth);
+      desc.BindFlags=Diligent::BIND_DEPTH_STENCIL;
+      state_->device->CreateTexture(desc,nullptr,&new_depth);
+      if(!new_depth || !new_depth->GetDefaultView(Diligent::TEXTURE_VIEW_DEPTH_STENCIL))return false;
+    }
     if(frame.samples!=1) {
       desc.Name="EoR resolved host scene color";
       desc.SampleCount=1;desc.Format=Color(verified.color);
@@ -132,12 +137,13 @@ bool DiligentSceneTargets::Prepare(const native::FrameGeometry& frame,
   return true;
 }
 bool DiligentSceneTargets::BeginScene() {
-  if (!state_ || !state_->prepared || state_->bound || !state_->color || !state_->depth || !state_->resolved) return false;
+  if (!state_ || !state_->prepared || state_->bound || !state_->color || !state_->resolved) return false;
   state_->ready=false;
   try {
     auto* rtv=state_->color->GetDefaultView(Diligent::TEXTURE_VIEW_RENDER_TARGET);
-    auto* dsv=state_->depth->GetDefaultView(Diligent::TEXTURE_VIEW_DEPTH_STENCIL);
-    if(!rtv || !dsv)return false;
+    state_->depth_bound=state_->formats.depth!=NativeDepthFormat::None;
+    auto* dsv=state_->depth ? state_->depth->GetDefaultView(Diligent::TEXTURE_VIEW_DEPTH_STENCIL) : nullptr;
+    if(!rtv || (state_->depth_bound && !dsv))return false;
     // A driver may bind the target and then throw (device loss/resize).
     // Record ownership first so AbortScene always attempts to detach it.
     state_->bound=true;
@@ -156,10 +162,22 @@ bool DiligentSceneTargets::BeginScene() {
     return true;
   } catch (...) {AbortScene();return false;}
 }
+bool DiligentSceneTargets::SetDepthBound(bool bind) {
+  if(!state_ || !state_->bound || (bind && !state_->depth))return false;
+  if(state_->depth_bound==bind)return true;
+  auto* rtv=state_->color->GetDefaultView(Diligent::TEXTURE_VIEW_RENDER_TARGET);
+  auto* dsv=bind ? state_->depth->GetDefaultView(Diligent::TEXTURE_VIEW_DEPTH_STENCIL) : nullptr;
+  if(!rtv || (bind && !dsv))return false;
+  try {
+    state_->context->SetRenderTargets(1,&rtv,dsv,Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+    state_->depth_bound=bind;
+    return true;
+  } catch (...) {AbortScene();return false;}
+}
 bool DiligentSceneTargets::ClearVerifiedOriginalXdk(
     const xdk::OriginalXdkClearF& source,native::Size guest) {
   if(!state_ || !state_->prepared || !state_->bound ||
-     !state_->color || !state_->depth ||
+     !state_->color || ((source.flags&0x30u) && !state_->depth_bound) ||
      !xdk::IsOriginalFullTargetClear(source,guest.width,guest.height))
     return false;
   if((source.flags&0x0eu)!=0)
