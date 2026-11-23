@@ -42,11 +42,14 @@ SamplerFn realSampler{};
 SetTextureFn realSetTexture{};
 // Sampler requests must be reapplied when a texture of another type is bound.
 std::mutex mipMutex;
-bool mipPointRequested[16]{};
-bool minLinearRequested[16]{};
-// Restore the game's sampler maximum when an AF override leaves its texture.
-bool afMaximumOverridden[16]{};
-DWORD afOriginalMaximum[16]{};
+// Isolate sampler rollback state by D3D9 device, including DXVK devices.
+struct DeviceSamplerState {
+  bool mipPointRequested[16]{};
+  bool minLinearRequested[16]{};
+  bool afMaximumOverridden[16]{};
+  DWORD afOriginalMaximum[16]{};
+};
+std::unordered_map<IDirect3DDevice9*,DeviceSamplerState> samplerStates;
 struct ShaderInfo {
   UINT view = 0, world = 0;
   WORD matrixClass = 0;
@@ -405,9 +408,7 @@ HRESULT STDMETHODCALLTYPE OnCreateDevice(IDirect3D9* api,UINT adapter,
     // A new device starts with fresh sampler state. Never replay requests
     // recorded for a previous device after a CreateDevice/recreate cycle.
     {std::lock_guard lock(mipMutex);
-     std::fill_n(mipPointRequested,16,false);
-     std::fill_n(minLinearRequested,16,false);
-     std::fill_n(afMaximumOverridden,16,false);}
+     samplerStates[*result]=DeviceSamplerState{};}
     // Do not erase shader reflections belonging to other live D3D9 devices.
     // CreateVertexShader replaces a reflection entry when an address is reused,
     // and Reset does not destroy managed shader objects. Clearing the global
@@ -498,9 +499,7 @@ HRESULT STDMETHODCALLTYPE OnReset(IDirect3DDevice9* dev,D3DPRESENT_PARAMETERS* p
     presentationWindow.store(effectiveWindow,std::memory_order_release);
     {std::lock_guard lock(shaderMutex);activeVS=nullptr;}
     {std::lock_guard lock(mipMutex);
-     std::fill_n(mipPointRequested,16,false);
-     std::fill_n(minLinearRequested,16,false);
-     std::fill_n(afMaximumOverridden,16,false);}
+     samplerStates[dev]=DeviceSamplerState{};}
   }
   if(pp)Log("[D3D9] Reset %ux%u windowed=%u hr=0x%08lX\r\n",
             pp->BackBufferWidth,pp->BackBufferHeight,
@@ -746,10 +745,10 @@ HRESULT STDMETHODCALLTYPE OnSetTexture(IDirect3DDevice9* dev,DWORD stage,
     bool point=false,linear=false,restoreMaximum=false;
     DWORD originalMaximum=0;
     {std::lock_guard lock(mipMutex);
-     point=mipPointRequested[stage];
-     linear=minLinearRequested[stage];
-     restoreMaximum=afMaximumOverridden[stage];
-     originalMaximum=afOriginalMaximum[stage];
+     point=samplerStates[dev].mipPointRequested[stage];
+     linear=samplerStates[dev].minLinearRequested[stage];
+     restoreMaximum=samplerStates[dev].afMaximumOverridden[stage];
+     originalMaximum=samplerStates[dev].afOriginalMaximum[stage];
     }
     // MIP restoration is independent of AF MAX restoration. Do it first:
     // even if the driver rejects MAXANISOTROPY rollback and we return early,
@@ -785,7 +784,7 @@ HRESULT STDMETHODCALLTYPE OnSetTexture(IDirect3DDevice9* dev,DWORD stage,
       }
       {
         std::lock_guard lock(mipMutex);
-        afMaximumOverridden[stage]=false;
+        samplerStates[dev].afMaximumOverridden[stage]=false;
       }
       // Unbinding a texture must also retire the anisotropic MIN filter
       // installed by this ASI. Otherwise a later texture can inherit AF
@@ -835,7 +834,7 @@ HRESULT STDMETHODCALLTYPE OnSampler(IDirect3DDevice9* dev,DWORD sampler,
     const HRESULT hr=realSampler(dev,sampler,type,value);
     if(SUCCEEDED(hr)) {
       std::lock_guard lock(mipMutex);
-      afMaximumOverridden[sampler]=false;
+      samplerStates[dev].afMaximumOverridden[sampler]=false;
     }
     return hr;
   }
@@ -847,19 +846,19 @@ HRESULT STDMETHODCALLTYPE OnSampler(IDirect3DDevice9* dev,DWORD sampler,
     if(FAILED(minHr))return minHr;
     {
       std::lock_guard lock(mipMutex);
-      minLinearRequested[sampler]=false;
+      samplerStates[dev].minLinearRequested[sampler]=false;
     }
     bool overridden=false;
     DWORD originalMaximum=0;
     {std::lock_guard lock(mipMutex);
-     overridden=afMaximumOverridden[sampler];
-     originalMaximum=afOriginalMaximum[sampler];}
+     overridden=samplerStates[dev].afMaximumOverridden[sampler];
+     originalMaximum=samplerStates[dev].afOriginalMaximum[sampler];}
     if(overridden) {
       const HRESULT restoreHr=realSampler(dev,sampler,D3DSAMP_MAXANISOTROPY,
                                           originalMaximum);
       if(SUCCEEDED(restoreHr)) {
         std::lock_guard lock(mipMutex);
-        afMaximumOverridden[sampler]=false;
+        samplerStates[dev].afMaximumOverridden[sampler]=false;
       } else {
         Log("[D3D9] AF maximum restore on MIN change failed stage=%lu hr=0x%08lX\r\n",
             (unsigned long)sampler,(unsigned long)(unsigned int)restoreHr);
@@ -935,16 +934,16 @@ HRESULT STDMETHODCALLTYPE OnSampler(IDirect3DDevice9* dev,DWORD sampler,
           DWORD rollbackMaximum=previousMaximum;
           {
             std::lock_guard lock(mipMutex);
-            if(afMaximumOverridden[sampler])
-              rollbackMaximum=afOriginalMaximum[sampler];
+            if(samplerStates[dev].afMaximumOverridden[sampler])
+              rollbackMaximum=samplerStates[dev].afOriginalMaximum[sampler];
           }
           if(SUCCEEDED(realSampler(dev,sampler,D3DSAMP_MAXANISOTROPY,maximum))) {
             if(SUCCEEDED(realSampler(dev,sampler,type,D3DTEXF_ANISOTROPIC))) {
               std::lock_guard lock(mipMutex);
-              minLinearRequested[sampler]=true;
-              if(!afMaximumOverridden[sampler]) {
-                afOriginalMaximum[sampler]=rollbackMaximum;
-                afMaximumOverridden[sampler]=true;
+              samplerStates[dev].minLinearRequested[sampler]=true;
+              if(!samplerStates[dev].afMaximumOverridden[sampler]) {
+                samplerStates[dev].afOriginalMaximum[sampler]=rollbackMaximum;
+                samplerStates[dev].afMaximumOverridden[sampler]=true;
               }
               return D3D_OK;
             }
@@ -954,16 +953,16 @@ HRESULT STDMETHODCALLTYPE OnSampler(IDirect3DDevice9* dev,DWORD sampler,
               // The original MAX has been restored. A previous successful AF
               // override must no longer own a stale rollback record.
               std::lock_guard lock(mipMutex);
-              afMaximumOverridden[sampler]=false;
+              samplerStates[dev].afMaximumOverridden[sampler]=false;
             } else {
               // The driver's MAX state may still be our forced value.
               // Retain the original game maximum for a later texture/MIN
               // transition rather than silently losing rollback ownership.
               {
                 std::lock_guard lock(mipMutex);
-                if(!afMaximumOverridden[sampler]) {
-                  afOriginalMaximum[sampler]=rollbackMaximum;
-                  afMaximumOverridden[sampler]=true;
+                if(!samplerStates[dev].afMaximumOverridden[sampler]) {
+                  samplerStates[dev].afOriginalMaximum[sampler]=rollbackMaximum;
+                  samplerStates[dev].afMaximumOverridden[sampler]=true;
                 }
               }
               Log("[D3D9] AF maximum rollback after rejected MIN failed stage=%lu hr=0x%08lX\r\n",
@@ -988,8 +987,8 @@ HRESULT STDMETHODCALLTYPE OnSampler(IDirect3DDevice9* dev,DWORD sampler,
   }
   if(SUCCEEDED(hr) && (trackMip || trackMin)) {
     std::lock_guard lock(mipMutex);
-    if(trackMip)mipPointRequested[sampler]=pointRequested;
-    if(trackMin)minLinearRequested[sampler]=linearRequested;
+    if(trackMip)samplerStates[dev].mipPointRequested[sampler]=pointRequested;
+    if(trackMin)samplerStates[dev].minLinearRequested[sampler]=linearRequested;
   }
   // An earlier texture may have used our anisotropic MIN override. When the
   // game next requests LINEAR but the new binding does not support AF, the
@@ -1001,15 +1000,15 @@ HRESULT STDMETHODCALLTYPE OnSampler(IDirect3DDevice9* dev,DWORD sampler,
     DWORD originalMaximum=0;
     {
       std::lock_guard lock(mipMutex);
-      overridden=afMaximumOverridden[sampler];
-      originalMaximum=afOriginalMaximum[sampler];
+      overridden=samplerStates[dev].afMaximumOverridden[sampler];
+      originalMaximum=samplerStates[dev].afOriginalMaximum[sampler];
     }
     if(overridden) {
       const HRESULT restoreHr=realSampler(
           dev,sampler,D3DSAMP_MAXANISOTROPY,originalMaximum);
       if(SUCCEEDED(restoreHr)) {
         std::lock_guard lock(mipMutex);
-        afMaximumOverridden[sampler]=false;
+        samplerStates[dev].afMaximumOverridden[sampler]=false;
       } else {
         Log("[D3D9] AF maximum restore on unsupported LINEAR failed stage=%lu hr=0x%08lX\r\n",
             (unsigned long)sampler,(unsigned long)(unsigned int)restoreHr);
