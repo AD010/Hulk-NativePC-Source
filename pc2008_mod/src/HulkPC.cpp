@@ -785,6 +785,16 @@ HRESULT STDMETHODCALLTYPE OnSetTexture(IDirect3DDevice9* dev,DWORD stage,
               (unsigned long)stage,(unsigned long)(unsigned int)minHr);
       }
     }
+    // The engine requested POINT mip filtering before the ASI upgraded it to
+    // LINEAR. Retire that upgrade when the texture is unbound, just as the
+    // anisotropic MIN override is retired above. Keep the recorded request
+    // so a later supported texture can receive trilinear filtering again.
+    if(!texture && forceTrilinearMip && point) {
+      const HRESULT mipHr=realSampler(dev,stage,D3DSAMP_MIPFILTER,D3DTEXF_POINT);
+      if(FAILED(mipHr))
+        Log("[D3D9] MIP POINT restore on unbind failed stage=%lu hr=0x%08lX\r\n",
+            (unsigned long)stage,(unsigned long)(unsigned int)mipHr);
+    }
     // Reapply after binding: capability checks depend on the bound texture.
     // This also restores the game's LINEAR min filter when the next texture
     // cannot use the anisotropic override from a previous texture.
