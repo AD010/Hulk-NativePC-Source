@@ -363,21 +363,35 @@ IDirect3D9* WINAPI OnCreate9(UINT sdk) {
     Log("[ASI] HULK.EXE x86; Direct3DCreate9 / CreateDevice hook installed\r\n");
   return api;
 }
+// Attach-time and late worker attempts must agree on IAT ownership. An
+// already installed hook is success, not a reason to retry for two seconds.
+std::mutex iatHookMutex;
 bool HookIat() {
   if(!OriginalHulk())return false;
+  std::lock_guard<std::mutex> lock(iatHookMutex);
   auto* exe=reinterpret_cast<uint8_t*>(GetModuleHandleW(nullptr));
   HMODULE dll=GetModuleHandleW(L"d3d9.dll");
   if(!dll)return false;
   void* target=reinterpret_cast<void*>(GetProcAddress(dll,"Direct3DCreate9"));
   auto** thunk=reinterpret_cast<void**>(exe+0x003cc310u);
-  if(!target || *thunk!=target)return false;
+  if(!target)return false;
+  if(*thunk==reinterpret_cast<void*>(&OnCreate9))
+    return realCreate9!=nullptr;
+  if(*thunk!=target)return false; // Do not overwrite another ASI's hook.
   DWORD old=0;
-  if(!VirtualProtect(thunk,4,PAGE_READWRITE,&old))return false;
-  realCreate9=reinterpret_cast<Create9>(*thunk);
+  if(!VirtualProtect(thunk,sizeof(void*),PAGE_READWRITE,&old))return false;
+  // Recheck after changing page protection, before taking ownership.
+  if(*thunk!=target) {
+    DWORD unused=0;
+    VirtualProtect(thunk,sizeof(void*),old,&unused);
+    return false;
+  }
+  realCreate9=reinterpret_cast<Create9>(target);
   InterlockedExchangePointer(reinterpret_cast<PVOID volatile*>(thunk),
                              reinterpret_cast<PVOID>(&OnCreate9));
-  DWORD unused=0;VirtualProtect(thunk,4,old,&unused);
-  return true;
+  DWORD unused=0;
+  VirtualProtect(thunk,sizeof(void*),old,&unused);
+  return *thunk==reinterpret_cast<void*>(&OnCreate9);
 }
 DWORD WINAPI TryLateHook(void* context) {
   // The game can parse its camera before its first Direct3DCreate9 call.
