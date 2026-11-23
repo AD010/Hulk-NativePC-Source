@@ -22,6 +22,7 @@ static_assert(sizeof(void*) == 4, "The Incredible Hulk PC 2008 is PE32/x86");
 namespace {
 using Create9 = IDirect3D9* (WINAPI*)(UINT);
 using CreateDeviceFn = HRESULT (STDMETHODCALLTYPE*)(IDirect3D9*,UINT,D3DDEVTYPE,HWND,DWORD,D3DPRESENT_PARAMETERS*,IDirect3DDevice9**);
+using ReleaseDeviceFn = ULONG (STDMETHODCALLTYPE*)(IDirect3DDevice9*);
 using PresentFn = HRESULT (STDMETHODCALLTYPE*)(IDirect3DDevice9*,const RECT*,const RECT*,HWND,const RGNDATA*);
 using ResetFn = HRESULT (STDMETHODCALLTYPE*)(IDirect3DDevice9*,D3DPRESENT_PARAMETERS*);
 using CreateVSFn = HRESULT (STDMETHODCALLTYPE*)(IDirect3DDevice9*,const DWORD*,IDirect3DVertexShader9**);
@@ -33,6 +34,7 @@ using SetTextureFn = HRESULT (STDMETHODCALLTYPE*)(IDirect3DDevice9*,DWORD,IDirec
 Create9 realCreate9{};
 CreateDeviceFn realCreateDevice{};
 PresentFn realPresent{};
+ReleaseDeviceFn realReleaseDevice{};
 ResetFn realReset{};
 CreateVSFn realCreateVS{};
 CreatePSFn realCreatePS{};
@@ -306,6 +308,7 @@ ShaderInfo ReadCtab(IDirect3DVertexShader9* shader) {
 }
 HRESULT STDMETHODCALLTYPE OnCreateDevice(IDirect3D9*,UINT,D3DDEVTYPE,HWND,
                                          DWORD,D3DPRESENT_PARAMETERS*,IDirect3DDevice9**);
+ULONG STDMETHODCALLTYPE OnReleaseDevice(IDirect3DDevice9*);
 HRESULT STDMETHODCALLTYPE OnPresent(IDirect3DDevice9*,const RECT*,const RECT*,HWND,const RGNDATA*);
 HRESULT STDMETHODCALLTYPE OnReset(IDirect3DDevice9*,D3DPRESENT_PARAMETERS*);
 HRESULT STDMETHODCALLTYPE OnCreateVS(IDirect3DDevice9*,const DWORD*,IDirect3DVertexShader9**);
@@ -431,6 +434,11 @@ HRESULT STDMETHODCALLTYPE OnCreateDevice(IDirect3D9* api,UINT adapter,
       mipLinearCapsCube=caps.CubeTextureFilterCaps & D3DPTFILTERCAPS_MIPFLINEAR;
       mipLinearCapsVolume=caps.VolumeTextureFilterCaps & D3DPTFILTERCAPS_MIPFLINEAR;
     }
+    // Device COM lifetime owns its sampler rollback records. Hook the
+    // shared D3D9/DXVK vtable only when the original Release matches.
+    // If another plugin already owns this slot, do not overwrite it.
+    if(!ReplaceVtable(*result,2,&OnReleaseDevice,realReleaseDevice))
+      Log("[D3D9] Release hook unavailable; sampler lifetime tracking limited\r\n");
     ReplaceVtable(*result,16,&OnReset,realReset);
     ReplaceVtable(*result,17,&OnPresent,realPresent);
     ReplaceVtable(*result,91,&OnCreateVS,realCreateVS);
@@ -448,6 +456,17 @@ HRESULT STDMETHODCALLTYPE OnCreateDevice(IDirect3D9* api,UINT adapter,
         (unsigned)fixAspect,anisotropy);
   }
   return hr;
+}
+ULONG STDMETHODCALLTYPE OnReleaseDevice(IDirect3DDevice9* dev) {
+  if(!realReleaseDevice)return 1;
+  // The COM object is invalid after the final Release. Use its pointer only
+  // as an opaque map key, never dereference it after the call.
+  const ULONG remaining=realReleaseDevice(dev);
+  if(remaining==0) {
+    std::lock_guard lock(mipMutex);
+    samplerStates.erase(dev);
+  }
+  return remaining;
 }
 HRESULT STDMETHODCALLTYPE OnReset(IDirect3DDevice9* dev,D3DPRESENT_PARAMETERS* pp) {
   if(!realReset)return D3DERR_INVALIDCALL;
