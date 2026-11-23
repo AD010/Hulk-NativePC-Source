@@ -65,6 +65,12 @@ if(HULK_DILIGENT_CORE)
                     add_test(NAME original_captured_glyph_sampler_vulkan COMMAND hulk_original_ui_vulkan_test
                         "${HULK_USA_INDEX}" "${HULK_USA_TEXTURES}" "${HULK_USA_SPIRV}"
                         "${HULK_USA_EFFECTS}" "${HULK_USA_FONT_GLYPHS}" "${HULK_USA_FONT_FETCH}")
+                    if(HULK_USA_REFLECTION AND HULK_USA_VIRTUAL_IDS AND HULK_USA_SHADER_DIR)
+                        add_test(NAME original_staged_glyph_replay_vulkan COMMAND hulk_original_ui_vulkan_test
+                            "${HULK_USA_INDEX}" "${HULK_USA_TEXTURES}" "${HULK_USA_SPIRV}" "${HULK_USA_EFFECTS}"
+                            "${HULK_USA_FONT_GLYPHS}" "${HULK_USA_FONT_FETCH}" "${HULK_USA_REFLECTION}"
+                            "${HULK_USA_VIRTUAL_IDS}" "${HULK_USA_SHADER_DIR}")
+                    endif()
                 endif()
             endif()
         endif()

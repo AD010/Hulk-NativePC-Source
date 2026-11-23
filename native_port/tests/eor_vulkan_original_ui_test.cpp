@@ -348,13 +348,127 @@ static void VerifyMaterialReplay(IRenderDevice* device,IDeviceContext* context,
              "64000 pixels matched in one offscreen composite\n";
 }
 
+// Shader objects and the command timeline below belong to the test. The glyph
+// stream, shader containers, atlas and texture fetch are supplied privately.
+static void VerifyStagedGlyphReplay(IRenderDevice* device,IDeviceContext* context,
+    eor::gpu::DiligentAotShaderModules& modules,const eor::aot::ShaderBank& bank,
+    const eor::aot::EffectCatalog& effects,eor::gpu::VerifiedOriginalGraphicsPass pass,
+    eor::gpu::DiligentOriginalTextureResidency& residency,IBuffer* shared,
+    const std::vector<std::byte>& glyphs,const std::array<uint32_t,6>& fetch,
+    eor::native::Size size,const std::vector<std::byte>& expected_bgra,
+    const char* reflection_path,const char* virtual_path,const char* source_dir) {
+  namespace xdk=eor::xdk;
+  namespace gpu=eor::gpu;
+  namespace aot=eor::aot;
+  aot::ReflectionBank reflection;
+  reflection.Load(reflection_path);
+  aot::OriginalVirtualShaderIdentity identities;
+  identities.Load(virtual_path);
+  xdk::FrameCapture capture;
+  const auto sequence=capture.NextFrameSequence();
+  const auto ordinal=capture.NextDrawOrdinal();
+  auto shader_object=[&](const aot::Digest& digest,aot::Stage stage,uint32_t object) {
+    std::string name;
+    constexpr char hex[]="0123456789abcdef";
+    for(auto b:digest) { name+=hex[b>>4];name+=hex[b&15]; }
+    std::ifstream file(std::filesystem::path(source_dir)/(name+".xenos.bin"),std::ios::binary);
+    std::vector<uint8_t> container{std::istreambuf_iterator<char>(file),{}};
+    if(aot::SourceSha256(container)!=digest)throw std::runtime_error("Font shader container SHA mismatch");
+    const size_t header=object+(stage==aot::Stage::Vertex ? 872u : 40u);
+    std::vector<uint8_t> memory(header+container.size());
+    std::copy(container.begin(),container.end(),memory.begin()+header);
+    auto read=[](void* state,uint32_t address,std::byte* bytes,size_t count) {
+      const auto& memory=*static_cast<const std::vector<uint8_t>*>(state);
+      if(address>memory.size() || count>memory.size()-address)return false;
+      std::memcpy(bytes,memory.data()+address,count);
+      return true;
+    };
+    return aot::ObserveOriginalBoundXdkShader(identities,object,stage,read,&memory,sequence,ordinal);
+  };
+  gpu::VerifiedSceneFormat format{gpu::NativeColorFormat::Rgba8,gpu::NativeDepthFormat::D32Float,
+      true,true,{1,2,3,4,true,true,false}};
+  const auto& screen=format.original_screen;
+  eor::native::FrameGeometry frame{size,size,{0,0,size.width,size.height},1,false,true,{1280,720}};
+  pass.original_view_space=gpu::VerifiedOriginalViewSpace::OriginalAspectHud;
+  pass.original_view_space_verified=pass.original_hud_clip_coordinates_verified=true;
+  pass.exact_render_state.RTVFormats[0]=TEX_FORMAT_RGBA8_UNORM;
+  constexpr uint32_t fixture_owner=1,atlas_hash=0xdad1dd22;
+  gpu::VerifiedEorSampler sampler{fixture_owner,0,pass.original_effect_hash,pass.original_pass_index,
+      atlas_hash,0,gpu::OriginalSamplerStage::Pixel,"HulkTexture2D_s0",true,true,true};
+  gpu::VerifiedNativeMaterialPass material{fixture_owner,0,pass,
+      {{sampler,gpu::OriginalTextureColorSpace::Linear,gpu::OriginalTextureViewKind::Native2D}}};
+  gpu::DiligentMeshUploadBackend meshes(device);
+  gpu::DiligentSceneTargets scene(device,context);
+  unsigned composites=0;
+  auto output=[&](ITextureView* image,eor::native::Rect,eor::native::Size) {
+    auto rgba=ReadPixels(device,context,image->GetTexture());
+    for(size_t i=0;i<rgba.size();i+=4)std::swap(rgba[i],rgba[i+2]);
+    if(rgba!=expected_bgra)throw std::runtime_error("Staged Font_Main readback differs from reference");
+    ++composites;return true;
+  };
+  auto constants=[&](IShaderResourceBinding* binding,const auto&...) {
+    for(auto stage:{SHADER_TYPE_VERTEX,SHADER_TYPE_PIXEL})
+      binding->GetVariableByName(stage,"HulkSharedConstants")->Set(shared);
+    return true;
+  };
+  gpu::DiligentEorDirectBackend backend(device,context,scene,meshes,modules,bank,effects,frame,format,
+      gpu::AcquireVerifiedNativeMaterialPasses({&material,1},residency),{},constants,output);
+  xdk::RawDraw call;
+  call.kind=xdk::Kind::EndVertices;call.function=0x8288d8f8;call.lr=0x82676344;call.gpr[0]=screen.guest_device;
+  xdk::OriginalVsMatrices live;
+  live.original_guest_device=screen.guest_device;live.original_rt0_guest_object=screen.guest_rt0;
+  live.original_depth_guest_object=screen.guest_depth;live.original_vertex_declaration_guest_object=8;
+  live.original_vs_guest_object=0x100;live.original_ps_guest_object=0x200;
+  live.original_texture_guest_objects[0]=0x300;
+  live.raster=xdk::OriginalRasterWindow{0,0,1280,720,0,1};
+  call.observed_vs_matrices=live;
+  call.original_font_fetch=fetch;call.original_pixel_texture_keys[0]=atlas_hash;
+  call.observed_live_vertex_shader_header=shader_object(pass.original_vertex_shader_sha256,aot::Stage::Vertex,live.original_vs_guest_object);
+  call.observed_live_pixel_shader_header=shader_object(pass.original_pixel_shader_sha256,aot::Stage::Pixel,live.original_ps_guest_object);
+  if(!call.observed_live_vertex_shader_header || !call.observed_live_pixel_shader_header)
+    throw std::runtime_error("Could not identify Font_Main shader headers");
+  call.observed_live_eor_effect_pass=aot::ResolveOriginalLiveEorEffectPass(identities,effects,
+      *call.observed_live_vertex_shader_header,*call.observed_live_pixel_shader_header,
+      live.original_vs_guest_object,live.original_ps_guest_object,sequence,ordinal);
+  xdk::OriginalEorShaderMethodAtDraw parent;
+  parent.original_shader_method_guest=0x8266a0c0;parent.original_shader_vtable_guest=0x8206ed6c;
+  parent.original_shader_instance_guest=0x400;parent.nesting_depth=1;
+  parent.original_pass_material_context_guest=0x600;parent.original_pass_state_one_based=1;
+  parent.original_pass_vertex_handle_entry_guest=0x640;parent.original_pass_pixel_handle_entry_guest=0x644;
+  parent.original_shader_method_vtable_verified=parent.original_pass_vs_ps_xdk_binding_verified=true;
+  parent.original_pass_sampler_slots_verified=parent.original_pass_live_texture_objects_present=true;
+  parent.original_pass_sampler_slot_mask=1;parent.original_pass_vs_xdk_guest_object=live.original_vs_guest_object;
+  parent.original_pass_ps_xdk_guest_object=live.original_ps_guest_object;
+  call.original_engine_shader_method=parent;
+  auto regs=std::make_shared<xdk::OriginalShaderRegisters>();
+  regs->complete_float_banks=true;call.observed_shader_constants=regs;
+  auto vb=std::make_shared<xdk::OriginalGuestBufferBytes>();
+  vb->guest_address=vb->guest_object=0x500;vb->guest_size=static_cast<uint32_t>(glyphs.size());vb->bytes=glyphs;
+  call.inline_glyphs=xdk::OriginalInlineGlyphBatch{live.original_vertex_declaration_guest_object,vb->guest_size/24,vb};
+  const auto layout=eor::ui::ResolveUsaInlineFontLayout(call);
+  if(!layout)throw std::runtime_error("Original Font_Main declaration unresolved");
+  const auto staged=backend.StageVerifiedOriginalFontDraw(call,*layout,sequence,ordinal,fixture_owner,0,identities);
+  using Kind=xdk::CommandKind;
+  xdk::RawCommand clear{Kind::ClearF,0x82888c40,0,{screen.guest_device,1}};
+  clear.captured_clear=xdk::OriginalXdkClearF{};
+  clear.captured_clear->flags=1;clear.captured_clear->has_color=true;clear.captured_clear->color={1,0,1,1};
+  capture.RecordCommand(clear);capture.Record(call);
+  capture.RecordCommand({Kind::Resolve,0x828897f8,0,{screen.guest_device,0,0,screen.guest_front_buffer}});
+  capture.RecordCommand({Kind::Present,0x82880778,0,{screen.guest_device,screen.guest_front_buffer}});
+  const auto timeline=capture.Finish();
+  aot::ReplayAotScene(frame,{&staged,1},bank,effects,reflection,backend,&timeline);
+  if(composites!=1)throw std::runtime_error("Staged glyph replay did not complete exactly once");
+  backend.RetireCompletedOriginalFontDraws(sequence); // ReadPixels waited for completion.
+  std::cout<<"Production Font_Main replay matched "<<size.width*size.height<<" pixels in one offscreen composite\n";
+}
+
 // This fixture exercises the original font shaders on a controlled quad.
 // Game-generated glyph positions, UI events and presentation are separate.
 static void VerifyFontDraw(IRenderDevice* device, IDeviceContext* context,
                            const eor::textures::OriginalXboxTextureAssets& assets,
                            eor::gpu::DiligentOriginalTextureResidency& residency,
                            const char* bank_path,const char* effects_path,const char* captured_path,
-                           const char* fetch_path) {
+                           const char* fetch_path,char** replay_inputs) {
   eor::aot::EffectCatalog effects;
   effects.Load(effects_path);
   eor::aot::ShaderBank bank;
@@ -424,11 +538,12 @@ static void VerifyFontDraw(IRenderDevice* device, IDeviceContext* context,
       {0,0,0,1,1,1,1,1,0,0},{1,0,0,1,1,1,1,1,1,0},
       {0,1,0,1,1,1,1,1,0,1},{1,1,0,1,1,1,1,1,1,1}};
   std::vector<uint32_t> indices={0,1,2,2,1,3};
+  std::vector<std::byte> raw;
   if(captured_path) {
     std::ifstream f(captured_path,std::ios::binary|std::ios::ate);
     const auto size=f.tellg();
     if(size<=0 || size>65535*24) throw std::runtime_error("Invalid source glyph payload size");
-    std::vector<std::byte> raw(static_cast<size_t>(size));
+    raw.resize(static_cast<size_t>(size));
     f.seekg(0);
     if(!f.read(reinterpret_cast<char*>(raw.data()),size)) throw std::runtime_error("Unreadable glyph payload");
     const auto batch=eor::ui::DecodeUsaInlineGlyphPayload(raw);
@@ -565,6 +680,9 @@ static void VerifyFontDraw(IRenderDevice* device, IDeviceContext* context,
       auto observed=ReadPixels(device,context,target);
       if(observed!=sampled)throw std::runtime_error("Captured sampler differs from linear reference");
       if(observed==reference.blocks)throw std::runtime_error("Sampling fixture did not distinguish linear from point");
+      if(replay_inputs)
+        VerifyStagedGlyphReplay(device,context,shaders,bank,effects,pass,residency,shared,raw,words,
+            {desc.Width,desc.Height},observed,replay_inputs[0],replay_inputs[1],replay_inputs[2]);
       // Exercise the world material path's instruction override against the
       // same real descriptor. The actual Font_Main program above inherits it.
       auto overridden=glyph_binding();
@@ -582,7 +700,7 @@ static void VerifyFontDraw(IRenderDevice* device, IDeviceContext* context,
 
 int main(int argc,char** argv) {
   try {
-    if (argc!=3 && argc!=5 && argc!=6 && argc!=7) throw std::invalid_argument("Expected USA INDEX.IND and TEXTURES.ARC paths");
+    if (argc!=3 && argc!=5 && argc!=6 && argc!=7 && argc!=10) throw std::invalid_argument("Expected USA INDEX.IND and TEXTURES.ARC paths");
     auto* factory=LoadAndGetEngineFactoryVk();
     if (!factory) throw std::runtime_error("Diligent Vulkan factory unavailable");
     EngineVkCreateInfo ci{};
@@ -599,7 +717,7 @@ int main(int argc,char** argv) {
     eor::gpu::DiligentOriginalTextureResidency residency(device,assets);
     VerifyAtlas(device,context,assets,residency,0x995ad5dc);
     VerifyAtlas(device,context,assets,residency,0xdad1dd22);
-    if(argc>=5) VerifyFontDraw(device,context,assets,residency,argv[3],argv[4],argc>=6 ? argv[5] : nullptr,argc==7 ? argv[6] : nullptr);
+    if(argc>=5) VerifyFontDraw(device,context,assets,residency,argv[3],argv[4],argc>=6 ? argv[5] : nullptr,argc>=7 ? argv[6] : nullptr,argc==10 ? argv+7 : nullptr);
   } catch (const std::exception& error) {
     std::cerr<<error.what()<<'\n';
     return 1;
