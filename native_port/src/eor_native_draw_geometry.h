@@ -114,6 +114,8 @@ struct ExactOriginalGuestMesh {
   // Original Xbox index width, source-proven by the complete bound
   // GPU allocation. The host still uploads native uint32 DrawIndexed.
   uint8_t original_index_element_bytes=0;
+  // All four VGT DMA byte orders, when sampled at the original Draw.
+  std::optional<uint8_t> original_index_dma_endian{};
 };
 // Source-proven model and mesh ONLY; the independently observed EoR shader,
 // material/surface and camera remain separate mandatory ownership gates.

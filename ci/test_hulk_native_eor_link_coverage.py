@@ -290,7 +290,7 @@ class NativeEorLinkCoverage(unittest.TestCase):
         self.assertIn("binding->allocation_address,binding->allocation_bytes,ReadGuest,guest_base",hook)
         self.assertIn("state.original_index_buffer_guest_object",hook)
         self.assertIn("g_original_buffers.Reset();",hook)
-        self.assertIn("g_original_buffers.Capture(object,address,bytes,ReadGuest,guest_base)",hook)
+        self.assertIn("g_original_buffers.Capture(object,binding->address,binding->bytes,ReadGuest,guest_base)",hook)
         self.assertIn("rec.original_source_vertex_bytes=m.original_vertex_stream;",source)
         self.assertIn("IdentifyExactOriginalGuestMesh(",geom)
         # Actual XDK buffer may be BE16/LE16 or BE32/LE32. Accept only

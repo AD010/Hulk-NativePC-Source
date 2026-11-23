@@ -188,14 +188,18 @@ LiveFontGeometry DecodeOriginalLiveFontDraw(
       }
     }
   } else {
-    if(!layout.original_index_encoding_verified ||
-       (layout.original_index_element_bytes!=2u &&
-        layout.original_index_element_bytes!=4u) ||
+    const auto* binding=call.captured_vertex_bindings && call.index_binding ? &*call.index_binding : nullptr;
+    if((call.captured_vertex_bindings && (!binding || !call.source_ib || !binding->Matches(*call.source_ib))) ||
+       (!binding && (!layout.original_index_encoding_verified ||
+          (layout.original_index_element_bytes!=2u && layout.original_index_element_bytes!=4u))) ||
+       (binding && layout.original_index_encoding_verified &&
+        (layout.original_index_element_bytes!=binding->element_bytes ||
+         binding->ByteXor()!=(layout.original_index_big_endian ? binding->element_bytes-1 : 0u))) ||
        !call.source_ib || indexed->index_count<3 ||
        indexed->index_count>262143u || indexed->index_count%3u)
       throw std::invalid_argument("Unverified original EFont index-buffer format");
     const auto& ib=*call.source_ib;
-    const uint32_t size=layout.original_index_element_bytes;
+    const uint32_t size=binding ? binding->element_bytes : layout.original_index_element_bytes;
     if(!ib.guest_object || !ib.guest_address ||
        ib.guest_object!=state.original_index_buffer_guest_object ||
        ib.guest_size!=ib.bytes.size() || ib.bytes.empty() ||
@@ -208,8 +212,10 @@ LiveFontGeometry DecodeOriginalLiveFontDraw(
     for(uint32_t i=0;i<indexed->index_count;++i) {
       const uint64_t byte_at=
           (uint64_t(indexed->first_index)+i)*size;
-      const uint32_t raw=ReadIndex(ib.bytes.data()+byte_at,size,
-                                   layout.original_index_big_endian);
+      const auto value=binding ? binding->Read(ib.bytes,indexed->first_index+i) :
+          std::optional<uint32_t>(ReadIndex(ib.bytes.data()+byte_at,size,layout.original_index_big_endian));
+      if(!value)throw std::invalid_argument("EFont DMA index exceeds the bound allocation");
+      const uint32_t raw=*value;
       const int64_t original=int64_t(raw)+indexed->base_vertex;
       if(original<0 || original>=int64_t(stream.size()/layout.original_stride))
         throw std::invalid_argument("Original EFont guest index out of range");

@@ -90,6 +90,21 @@ struct OriginalGuestBufferBytes {
   uint32_t guest_object=0,guest_address=0,guest_size=0;
   std::vector<std::byte> bytes;
 };
+struct UsaIndexBufferBinding {
+  uint32_t object=0,address=0,bytes=0,element_bytes=0,endian=0;
+  bool Matches(const OriginalGuestBufferBytes& buffer) const noexcept {
+    return object && object==buffer.guest_object && address==buffer.guest_address &&
+           bytes==buffer.guest_size && bytes==buffer.bytes.size() &&
+           (element_bytes==2 || element_bytes==4) && address%element_bytes==0 &&
+           !(bytes%element_bytes) && endian<4;
+  }
+  // From least to most significant byte, the four DMA modes use these
+  // permutations within a physical DWORD. 16-bit pairs can exchange lanes.
+  uint32_t ByteXor() const noexcept {return endian^(endian>>1);}
+  std::optional<uint32_t> Read(std::span<const std::byte> raw,uint32_t index) const noexcept;
+};
+std::optional<UsaIndexBufferBinding> ReadUsaIndexBufferBinding(
+    uint32_t object,ReadGuestBytes read,void* state) noexcept;
 struct UsaVertexStreamBinding {
   uint32_t object=0,allocation_address=0,allocation_bytes=0;
   uint32_t offset=0,length=0,stride=0;
@@ -494,6 +509,7 @@ struct RawDraw {
   std::optional<std::array<uint32_t,6>> original_font_fetch;
   bool captured_vertex_bindings=false;
   std::array<std::optional<UsaVertexStreamBinding>,16> vertex_bindings{};
+  std::optional<UsaIndexBufferBinding> index_binding;
 };
 // Original USA Decal direct XDK call is at guest 0x8265B538.
 // An engine render-item->geometry witness, if present, must match the

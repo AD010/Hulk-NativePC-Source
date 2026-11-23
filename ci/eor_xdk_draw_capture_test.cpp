@@ -20,6 +20,30 @@ void W(GuestMemory& m,uint32_t address,uint32_t v) {
   auto* p=m.bytes.data()+address;
   for(int i=0;i<4;++i)p[i]=std::byte(uint8_t(v>>(24-8*i)));
 }
+void CheckIndexDmaFormats() {
+  GuestMemory m;
+  constexpr uint32_t object=0x200;
+  const std::array<std::byte,8> bytes{std::byte{0},std::byte{1},std::byte{2},std::byte{3},
+                                     std::byte{4},std::byte{5},std::byte{6},std::byte{7}};
+  constexpr uint32_t expected16[]={0x0100,0x0001,0x0203,0x0302};
+  constexpr uint32_t expected32[]={0x03020100,0x02030001,0x00010203,0x01000302};
+  W(m,object+24,0x4000); W(m,object+28,8);
+  for(uint32_t width:{2u,4u})for(uint32_t mode=0;mode<4;++mode) {
+    W(m,object,((width==4u)?0x80000000u:0u)|(mode<<29)|2u);
+    auto binding=ReadUsaIndexBufferBinding(object,ReadFake,&m);
+    assert(binding && binding->element_bytes==width && binding->endian==mode);
+    assert(binding->Read(bytes,0)==(width==2u?expected16[mode]:expected32[mode]));
+    assert(!binding->Read(bytes,8/width));
+  }
+  W(m,object,(2u<<29)|2u);
+  W(m,object+24,0x4002);W(m,object+28,6);
+  auto interior=ReadUsaIndexBufferBinding(object,ReadFake,&m);
+  const auto six=std::span(bytes).first(6);
+  assert(interior && !interior->Read(six,0) && interior->Read(six,1)==0x0405);
+  W(m,object+24,0x4001);assert(!ReadUsaIndexBufferBinding(object,ReadFake,&m));
+  W(m,object+24,0xfffffffc);W(m,object+28,8);assert(!ReadUsaIndexBufferBinding(object,ReadFake,&m));
+  W(m,object+24,0x4000);W(m,object+28,7);assert(!ReadUsaIndexBufferBinding(object,ReadFake,&m));
+}
 void CheckBoundVertexWindow() {
   GuestMemory m;
   constexpr uint32_t device=0x100,object=0x4000,slot=7;
@@ -112,6 +136,7 @@ void CheckBufferSnapshots() {
 }
 int main() {
   CheckBoundVertexWindow();
+  CheckIndexDmaFormats();
   // SHA-pinned USA PPC AOT verified one direct bl into DrawVertices and
   // five into DrawIndexedVertices. Tail branches do NOT create an LR:
   // never mistake their callsite+4 for an authenticated source owner.

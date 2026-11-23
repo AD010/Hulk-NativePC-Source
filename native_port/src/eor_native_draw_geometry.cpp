@@ -40,6 +40,35 @@ std::optional<ExactOriginalGuestMesh> IdentifyExactOriginalGuestMesh(
            ib->bytes.size()/2u)
       return std::nullopt;
   }
+  // Keep common BE/LE byte streams borrowed. Only the two genuinely
+  // mixed byte/halfword orders require a normalized search window.
+  std::span<const std::byte> index_data;
+  std::vector<std::byte> normalized;
+  uint32_t index_origin=0,required_width=0;
+  bool required_big=false;
+  if(ib) {
+    index_data=ib->bytes;
+    if(draw.captured_vertex_bindings) {
+      const auto& format=draw.index_binding;
+      if(!format || !format->Matches(*ib))return {};
+      required_width=format->element_bytes;
+      const auto permutation=format->ByteXor();
+      required_big=permutation==required_width-1u;
+      if(permutation && !required_big) {
+        // A permuted lane outside the allocation cannot be authenticated.
+        const uint32_t head=(0u-format->address)&3u;
+        if(head>=index_data.size())return {};
+        const size_t size=(index_data.size()-head)&~size_t{3};
+        normalized.resize(size);
+        for(size_t i=0;i<size;++i)normalized[i]=index_data[head+(i^permutation)];
+        index_origin=head/required_width;
+        index_data=normalized;
+      }
+      if(indexed->first_index<index_origin ||
+         uint64_t(indexed->first_index)+indexed->index_count>
+             index_origin+index_data.size()/required_width)return {};
+    }
+  }
   std::optional<ExactOriginalGuestMesh> unique;
   for(const auto* model:residents) {
     if(!model || !model->original_resource_hash ||
@@ -84,15 +113,17 @@ std::optional<ExactOriginalGuestMesh> IdentifyExactOriginalGuestMesh(
         // Original XDK index resources can be 16-bit OR 32-bit. Only
         // full byte-exact source stream identity can authorize the width.
         for(uint32_t index_bytes:{2u,4u}) {
+          if(required_width && required_width!=index_bytes)continue;
           // first_index and index_count are ELEMENT counts, not byte offsets.
           // The 16-bit initial screen does not bound a D3DFMT_INDEX32 Draw:
           // reading k*4 below could otherwise escape the captured allocation.
-          if(ib->bytes.size()%index_bytes ||
+          if(index_data.size()%index_bytes ||
              mesh.index_count>UINT32_MAX/index_bytes ||
              uint64_t(indexed->first_index)+indexed->index_count >
-                 ib->bytes.size()/index_bytes)
+                 index_origin+index_data.size()/index_bytes)
             continue;
           for(bool big:{true,false}) {
+            if(required_width && big!=required_big)continue;
             std::vector<std::byte> encoded;
             encoded.reserve(mesh.index_count*index_bytes);
             bool valid=true;
@@ -106,18 +137,18 @@ std::optional<ExactOriginalGuestMesh> IdentifyExactOriginalGuestMesh(
                 encoded.push_back(std::byte((index>>shift)&0xffu));
               }
             }
-            if(!valid || encoded.empty() || encoded.size()>ib->bytes.size())
+            if(!valid || encoded.empty() || encoded.size()>index_data.size())
               continue;
             const auto index_matcher=std::boyer_moore_horspool_searcher(
                 encoded.begin(),encoded.end());
-            auto ib_from=ib->bytes.begin();
-            while(ib_from!=ib->bytes.end()) {
-              const auto found=std::search(ib_from,ib->bytes.end(),index_matcher);
-              if(found==ib->bytes.end())break;
+            auto ib_from=index_data.begin();
+            while(ib_from!=index_data.end()) {
+              const auto found=std::search(ib_from,index_data.end(),index_matcher);
+              if(found==index_data.end())break;
               ib_from=found+1;
-              const uint64_t byte_index=uint64_t(found-ib->bytes.begin());
+              const uint64_t byte_index=uint64_t(found-index_data.begin());
               if(byte_index%index_bytes)continue;
-              const uint64_t first=byte_index/index_bytes;
+              const uint64_t first=index_origin+byte_index/index_bytes;
               if(first>UINT32_MAX ||
                  indexed->first_index<first ||
                  uint64_t(indexed->first_index)+indexed->index_count>
@@ -130,7 +161,7 @@ std::optional<ExactOriginalGuestMesh> IdentifyExactOriginalGuestMesh(
                 uint32_t index=0;
                 for(uint32_t byte=0;byte<index_bytes;++byte) {
                   const uint32_t value=std::to_integer<uint8_t>(
-                      ib->bytes[k*index_bytes+byte]);
+                      index_data[(k-index_origin)*index_bytes+byte]);
                   const uint32_t shift=8u*(big?
                       index_bytes-1u-byte:byte);
                   index|=value<<shift;
@@ -165,6 +196,7 @@ std::optional<ExactOriginalGuestMesh> IdentifyExactOriginalGuestMesh(
                   big,origin,
                   static_cast<uint32_t>(first),
                   static_cast<uint8_t>(index_bytes)};
+              if(required_width)unique->original_index_dma_endian=static_cast<uint8_t>(draw.index_binding->endian);
             }
           }
         }
@@ -805,7 +837,7 @@ std::vector<VerifiedDrawSource> ResolveCapturedResourceDraws(
   // Changing GPU buffer bytes or baseVertex/firstIndex invalidates the key.
   using OriginalGeometryKey=std::tuple<
       uintptr_t,uintptr_t,uint32_t,uint32_t,uint32_t,uint32_t,uint32_t,
-      uint32_t,uint32_t,uint8_t,uint32_t,uint32_t>;
+      uint32_t,uint32_t,uint8_t,uint32_t,uint32_t,uint32_t>;
   std::map<OriginalGeometryKey,
            std::optional<ExactOriginalGuestMesh>> exact_source_cache;
   for(size_t ordinal=0;ordinal<frame.calls.size();++ordinal) {
@@ -824,7 +856,8 @@ std::vector<VerifiedDrawSource> ResolveCapturedResourceDraws(
     std::optional<ExactOriginalGuestMesh> exact;
     const auto& stream=call.vertex_bindings[0];
     if(call.captured_vertex_bindings && (!stream || !call.source_vb0 ||
-       !stream->Matches(*call.source_vb0) || (indexed && !call.source_ib)))
+       !stream->Matches(*call.source_vb0) || (indexed && (!call.index_binding || !call.source_ib ||
+       !call.index_binding->Matches(*call.source_ib)))))
       throw std::invalid_argument("Original draw vertex/index binding unavailable");
     if(call.source_vb0 && (!indexed || call.source_ib)) {
       const OriginalGeometryKey key{
@@ -834,7 +867,9 @@ std::vector<VerifiedDrawSource> ResolveCapturedResourceDraws(
           call.gpr[1],call.gpr[2],call.gpr[3],call.gpr[4],
           call.function,static_cast<uint8_t>(call.kind),
           call.captured_vertex_bindings ? stream->offset : 0u,
-          call.captured_vertex_bindings ? stream->stride : 0u};
+          call.captured_vertex_bindings ? stream->stride : 0u,
+          call.captured_vertex_bindings && indexed ?
+              call.index_binding->element_bytes*4+call.index_binding->endian : 0u};
       auto [found,inserted]=exact_source_cache.try_emplace(key);
       if(inserted)
         found->second=IdentifyExactOriginalGuestMesh(call,residents);

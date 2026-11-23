@@ -5,6 +5,41 @@
 #include <utility>
 
 namespace hulk::eor::xdk {
+namespace {
+uint32_t SourceWord(const std::byte* b) noexcept {
+  uint32_t v=0;
+  for(unsigned i=0;i<4;++i)v=(v<<8)|std::to_integer<uint8_t>(b[i]);
+  return v;
+}
+}
+std::optional<UsaIndexBufferBinding> ReadUsaIndexBufferBinding(
+    uint32_t object,ReadGuestBytes read,void* state) noexcept {
+  if(!object || !read || uint64_t(object)+32>(uint64_t{1}<<32))return {};
+  std::array<std::byte,32> header{};
+  if(!read(state,object,header.data(),header.size()))return {};
+  // USA DrawIndexedVertices: r22 = device+12436; 8288E5CC..E654 uses
+  // flag bit 31 for startIndex*2 or *4, and bits 29..30 for VGT_DMA_SIZE.
+  const uint32_t flags=SourceWord(header.data()),width=(flags>>31)?4u:2u;
+  const uint32_t address=SourceWord(header.data()+24),bytes=SourceWord(header.data()+28);
+  if(!address || address%width || !bytes || bytes%width ||
+     uint64_t(address)+bytes>(uint64_t{1}<<32))return {};
+  return UsaIndexBufferBinding{object,address,bytes,width,(flags>>29)&3u};
+}
+std::optional<uint32_t> UsaIndexBufferBinding::Read(
+    std::span<const std::byte> raw,uint32_t index) const noexcept {
+  if((element_bytes!=2 && element_bytes!=4) || endian>=4 || bytes!=raw.size() ||
+     !address || address%element_bytes || bytes%element_bytes ||
+     uint64_t(address)+bytes>(uint64_t{1}<<32) ||
+     index>=bytes/element_bytes)return {};
+  const uint64_t at=uint64_t(address)+uint64_t(index)*element_bytes;
+  uint32_t value=0;
+  for(uint32_t i=0;i<element_bytes;++i) {
+    const auto physical=(at+i)^ByteXor();
+    if(physical<address || physical-address>=bytes)return {};
+    value|=std::to_integer<uint32_t>(raw[size_t(physical-address)])<<(i*8);
+  }
+  return value;
+}
 std::optional<UsaVertexStreamBinding> ReadUsaVertexStreamBinding(
     uint32_t device,uint32_t slot,uint32_t object,ReadGuestBytes read,void* state) noexcept {
   if(!device || !object || slot>=16 || !read || uint64_t(object)+32>(uint64_t{1}<<32) ||
@@ -17,13 +52,8 @@ std::optional<UsaVertexStreamBinding> ReadUsaVertexStreamBinding(
   if(!read(state,object+24,resource.data(),8) ||
      !read(state,device+(239-slot)*8,bound.data(),8) ||
      !read(state,device+12528+slot,&stride,1))return {};
-  const auto word=[](const std::byte* b) {
-    uint32_t v=0;
-    for(unsigned i=0;i<4;++i)v=(v<<8)|std::to_integer<uint8_t>(b[i]);
-    return v;
-  };
-  const uint32_t tagged=word(resource.data()),source_size=word(resource.data()+4);
-  const uint32_t physical=word(bound.data()),bound_size=word(bound.data()+4);
+  const uint32_t tagged=SourceWord(resource.data()),source_size=SourceWord(resource.data()+4);
+  const uint32_t physical=SourceWord(bound.data()),bound_size=SourceWord(bound.data()+4);
   constexpr uint32_t length_mask=0x03fffffcu; // 24-bit size in DWORDs at bits 2..25
   const uint32_t address=tagged&~3u,bytes=source_size&length_mask,length=bound_size&length_mask;
   if((tagged&3u)!=3 || !address || length>bytes || !length || !std::to_integer<uint8_t>(stride) ||

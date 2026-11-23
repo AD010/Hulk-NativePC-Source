@@ -154,6 +154,20 @@ int main() {
   Rejected([&]{(void)ui::DecodeOriginalLiveFontDraw(indexed,layout,22,0);});
   indexed_layout.original_index_big_endian=false;
   Rejected([&]{(void)ui::DecodeOriginalLiveFontDraw(indexed,indexed_layout,22,0);});
+  auto captured=indexed;
+  captured.captured_vertex_bindings=true;
+  captured.vertex_bindings[0]=xdk::UsaVertexStreamBinding{
+      vb->guest_object,vb->guest_address,vb->guest_size,0,vb->guest_size,layout.original_stride};
+  captured.index_binding=xdk::UsaIndexBufferBinding{
+      ib->guest_object,ib->guest_address,ib->guest_size,2,1};
+  assert(ui::DecodeOriginalLiveFontDraw(captured,layout,22,0).triangle_indices==g.triangle_indices);
+  Rejected([&]{(void)ui::DecodeOriginalLiveFontDraw(captured,indexed_layout,22,0);});
+  auto swapped=std::make_shared<xdk::OriginalGuestBufferBytes>(*ib);
+  for(size_t i=0;i<ib->bytes.size();++i)swapped->bytes[i^2u]=ib->bytes[i];
+  captured.source_ib=swapped;captured.index_binding->endian=2;
+  assert(ui::DecodeOriginalLiveFontDraw(captured,layout,22,0).triangle_indices==g.triangle_indices);
+  captured.index_binding->bytes-=2;
+  Rejected([&]{(void)ui::DecodeOriginalLiveFontDraw(captured,layout,22,0);});
   auto wrong=call;wrong.original_pixel_texture_keys[0]^=1;
   Rejected([&]{(void)ui::DecodeOriginalLiveFontDraw(wrong,layout,22,0);});
   wrong=call;wrong.original_engine_shader_method->original_shader_vtable_guest=0x8206EBFCu;

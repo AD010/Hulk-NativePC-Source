@@ -589,23 +589,12 @@ ScopedOriginalEorRenderItem::~ScopedOriginalEorRenderItem() noexcept {
 // allocation byte length at +28 (both PPC big endian). This capture NEVER
 // trusts the address without the checked ReadGuest, nor logs game bytes.
 std::shared_ptr<const OriginalGuestBufferBytes> SourceIndexBuffer(
-    uint32_t object,void* guest_base) {
-  if(!object || object>UINT32_MAX-32u)return {};
-  std::array<std::byte,8> meta{};
-  if(!ReadGuest(guest_base,object+24u,meta.data(),meta.size()))return {};
-  const auto be32=[](const std::byte* p) {
-    return uint32_t(std::to_integer<uint8_t>(p[0]))<<24 |
-           uint32_t(std::to_integer<uint8_t>(p[1]))<<16 |
-           uint32_t(std::to_integer<uint8_t>(p[2]))<<8 |
-           uint32_t(std::to_integer<uint8_t>(p[3]));
-  };
-  const uint32_t address=be32(meta.data()),bytes=be32(meta.data()+4);
-  if(!address || bytes<6 || bytes>(8u<<20) ||
-     uint64_t(address)+bytes>uint64_t(UINT32_MAX)+1u)return {};
-  // Capture still reads current bytes on every Draw. Deduplicate storage,
-  // not memory observations: guest dynamic buffers can change in place.
-  return g_original_buffers.Capture(object,address,bytes,ReadGuest,guest_base);
+    uint32_t object,void* guest_base,std::optional<UsaIndexBufferBinding>& binding) {
+  binding=ReadUsaIndexBufferBinding(object,ReadGuest,guest_base);
+  if(!binding)return {};
+  return g_original_buffers.Capture(object,binding->address,binding->bytes,ReadGuest,guest_base);
 }
+
 bool CaptureEnabled() { return REXCVAR_GET(hulk_eor_xdk_capture); }
 std::optional<DeliveredFrame> TakeCompletedPpcFrame() {
   std::lock_guard lock(g_mutex);
@@ -914,7 +903,7 @@ void CapturePpcDraw(Kind kind, uint32_t guest, const PPCContext& ctx,
         capture_stream(0);
         draw.source_vb0=draw.source_vertex_streams[0];
         if(kind==Kind::DrawIndexedVertices)
-          draw.source_ib=SourceIndexBuffer(state.original_index_buffer_guest_object,guest_base);
+          draw.source_ib=SourceIndexBuffer(state.original_index_buffer_guest_object,guest_base,draw.index_binding);
         for(uint32_t slot=1;slot<draw.source_vertex_streams.size();++slot)
           if(state.original_vertex_buffer_guest_objects[slot])capture_stream(slot);
       }

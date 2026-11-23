@@ -737,6 +737,29 @@ int main(){
          realMesh->guest_first_vertex==0 &&
          realMesh->guest_first_index==0 &&
          realMesh->original_index_element_bytes==2);
+  for(uint32_t width:{2u,4u})for(uint32_t mode=0;mode<4;++mode) {
+    const auto& mesh=realModel.decoded_meshes[0];
+    auto gpu_indices=std::make_shared<xdk::OriginalGuestBufferBytes>(*ib);
+    gpu_indices->bytes.resize(width*mesh.triangle_list_indices.size());
+    gpu_indices->guest_size=static_cast<uint32_t>(gpu_indices->bytes.size());
+    constexpr uint32_t byte_xor[]={0,1,3,2};
+    for(size_t i=0;i<mesh.triangle_list_indices.size();++i)
+      for(unsigned byte=0;byte<width;++byte)
+        gpu_indices->bytes[(i*width+byte)^byte_xor[mode]]=std::byte(mesh.triangle_list_indices[i]>>(8*byte));
+    auto captured=realBufferDraw;
+    captured.source_ib=gpu_indices;captured.captured_vertex_bindings=true;
+    captured.vertex_bindings[0]=xdk::UsaVertexStreamBinding{
+      vb->guest_object,vb->guest_address,vb->guest_size,0,vb->guest_size,mesh.original_vertex_stride};
+    captured.index_binding=xdk::UsaIndexBufferBinding{
+      ib->guest_object,ib->guest_address,gpu_indices->guest_size,width,mode};
+    const auto exact=native::IdentifyExactOriginalGuestMesh(captured,models);
+    assert(exact && exact->original_index_element_bytes==width && exact->original_index_dma_endian==mode &&
+           exact->original_index_big_endian==(byte_xor[mode]==width-1));
+    captured.index_binding->endian^=1;
+    assert(!native::IdentifyExactOriginalGuestMesh(captured,models));
+    captured.index_binding.reset();
+    assert(!native::IdentifyExactOriginalGuestMesh(captured,models));
+  }
   // Two endian interpretations of ONE physically identical original
   // 16-bit index stream are not two EoR mesh owners. Degenerate source
   // triangles can contain all-zero indices, yielding the same bytes in
@@ -796,6 +819,8 @@ int main(){
   interior.vertex_bindings[0]=xdk::UsaVertexStreamBinding{
       sharedVb->guest_object,sharedVb->guest_address,sharedVb->guest_size,
       stride,sharedVb->guest_size-stride,stride};
+  interior.index_binding=xdk::UsaIndexBufferBinding{
+      sharedIb->guest_object,sharedIb->guest_address,sharedIb->guest_size,2,1};
   interior.gpr[2]=0;
   const auto relative=native::IdentifyExactOriginalGuestMesh(interior,models);
   assert(relative && relative->guest_first_vertex==0 && relative->guest_first_index==1);
