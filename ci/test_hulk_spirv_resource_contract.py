@@ -20,6 +20,22 @@ NAME = [0x00050005, 4, 0x69445f67, 0x73756666, 0x00000065]  # g_Diffuse
 BAD_UNRELATED_NAME = [0x00050005, 9, 0x64616220, 0x65707974, 0]  # " badtype"
 
 
+
+
+def standalone_sampler_words(binding=5, descriptor_set=1):
+    # OpTypeSampler %6; OpTypePointer %7 UniformConstant %6;
+    # OpVariable %7 %8 UniformConstant, as used for separate SamplerState.
+    return ([0x0002001a, 6, 0x00040020, 7, 0, 6, 0x0004003b, 7, 8, 0],
+            [0x00040047, 8, 33, binding,
+             0x00040047, 8, 34, descriptor_set])
+
+
+def op_name(identifier, name):
+    payload = name.encode("ascii") + b"\0"
+    payload += b"\0" * (-len(payload) % 4)
+    words = list(struct.unpack("<" + "I" * (len(payload) // 4), payload))
+    return [((len(words) + 2) << 16) | 5, identifier, *words]
+
 class NativeImageResourceContract(unittest.TestCase):
     def test_empty_shader_no_resources_is_valid(self):
         self.assertEqual(validate_named_spirv_images(words_to_bytes(HEADER)), 0)
@@ -27,6 +43,37 @@ class NativeImageResourceContract(unittest.TestCase):
     def test_original_named_sampler_and_binding(self):
         spv = words_to_bytes(HEADER + NAME + BINDINGS + IMAGE)
         self.assertEqual(validate_named_spirv_images(spv), 1)
+
+
+    def test_standalone_xenos_sampler_binding(self):
+        # An absent OpName on an original Xenos sampler must fail closed.
+        sampler, decorations = standalone_sampler_words()
+        self.assertEqual(validate_named_spirv_images(words_to_bytes(
+            HEADER + op_name(8, "HulkSampler_s3") + decorations + sampler)), 1)
+
+    def test_missing_sampler_name_fails_before_native_bind(self):
+        sampler, decorations = standalone_sampler_words()
+        with self.assertRaisesRegex(ValueError, "lost native descriptor/name"):
+            validate_named_spirv_images(words_to_bytes(HEADER + decorations + sampler))
+
+    def test_missing_sampler_descriptor_set_fails(self):
+        sampler, decorations = standalone_sampler_words()
+        with self.assertRaisesRegex(ValueError, "lost native descriptor/name"):
+            validate_named_spirv_images(words_to_bytes(
+                HEADER + op_name(8, "HulkSampler_s3") + decorations[:4] + sampler))
+
+    def test_sampler_image_binding_collision_fails(self):
+        sampler, decorations = standalone_sampler_words(binding=2, descriptor_set=0)
+        with self.assertRaisesRegex(ValueError, "Duplicate EoR sampled image"):
+            validate_named_spirv_images(words_to_bytes(
+                HEADER + op_name(8, "HulkSampler_s3") + NAME +
+                decorations + BINDINGS + sampler + IMAGE))
+
+    def test_separate_image_and_sampler_descriptors_both_checked(self):
+        sampler, decorations = standalone_sampler_words()
+        self.assertEqual(validate_named_spirv_images(words_to_bytes(
+            HEADER + op_name(8, "HulkSampler_s3") + NAME +
+            decorations + BINDINGS + sampler + IMAGE)), 2)
 
     def test_missing_sampled_image_name_fails(self):
         with self.assertRaisesRegex(ValueError, "lost native descriptor/name"):
