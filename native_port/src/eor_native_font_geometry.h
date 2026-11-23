@@ -32,6 +32,8 @@ struct VerifiedFontVertexLayout {
   bool original_index_big_endian=true;
   bool original_index_encoding_verified=false;
 };
+// Only atlas ownership is known before the original game allocates its declaration.
+bool UsesLiveUsaFontDeclaration(const VerifiedFontVertexLayout& source) noexcept;
 std::optional<VerifiedFontVertexLayout> ResolveUsaInlineFontLayout(const xdk::RawDraw& call);
 // Exact USA Font_Main elements and current SetStreamSource window on buffered Draws.
 std::optional<VerifiedFontVertexLayout> ResolveUsaBufferedFontLayout(const xdk::RawDraw& call);

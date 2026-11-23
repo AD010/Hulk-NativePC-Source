@@ -250,6 +250,21 @@ int main() {
   auto buffered_layout=ui::ResolveUsaBufferedFontLayout(buffered);
   assert(buffered_layout && buffered_layout->original_stride==28 &&
          buffered_layout->original_vertex_declaration_guest==decl);
+  ui::VerifiedFontVertexLayout archive_atlas;
+  archive_atlas.original_font_atlas_hash=buffered_layout->original_font_atlas_hash;
+  assert(!ui::UsesLiveUsaFontDeclaration(archive_atlas));
+  archive_atlas.original_font_sampler_owner_verified=true;
+  assert(ui::UsesLiveUsaFontDeclaration(archive_atlas));
+  auto partial=archive_atlas;
+  partial.original_stride=28;
+  assert(!ui::UsesLiveUsaFontDeclaration(partial));
+  partial=archive_atlas;partial.original_vertex_declaration_guest=decl;
+  assert(!ui::UsesLiveUsaFontDeclaration(partial));
+  partial=archive_atlas;partial.original_pixel_texture_slot=1;
+  assert(!ui::UsesLiveUsaFontDeclaration(partial));
+  partial=archive_atlas;partial.texcoord=buffered_layout->texcoord;
+  assert(!ui::UsesLiveUsaFontDeclaration(partial));
+  Rejected([&]{(void)ui::DecodeOriginalLiveFontDraw(buffered,archive_atlas,22,3);});
   auto buffered_glyph=ui::DecodeOriginalLiveFontDraw(buffered,*buffered_layout,22,3);
   assert(buffered_glyph.triangle_indices==g.triangle_indices &&
          buffered_glyph.colors[0]==model::HostAttribute({128/255.f,64/255.f,32/255.f,1.f}));

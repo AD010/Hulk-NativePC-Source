@@ -1456,7 +1456,7 @@ bool InstallVerifiedWorkerEorOwnerCatalogInternal(
        font.original_pass_index!=ui::kOriginalFontMainPassIndex ||
        !v.original_font_sampler_owner_verified ||
        v.original_pixel_texture_slot>=16 ||
-       (!font.resolve_verified_live_vertex_layout &&
+       (!font.resolve_verified_live_vertex_layout && !ui::UsesLiveUsaFontDeclaration(v) &&
         (!v.original_vertex_declaration_guest ||
          !v.original_vertex_declaration_layout_verified ||
          !v.original_stride)))
@@ -1587,7 +1587,9 @@ PreparedEorMixedFrame PrepareOriginalMixedDraws(
       // from a shader class name, atlas dimensions or stale guest object.
       auto live_layout=call.kind==Kind::EndVertices ?
           ui::ResolveUsaInlineFontLayout(call) : ui::ResolveUsaBufferedFontLayout(call);
-      if(!live_layout && call.kind!=Kind::EndVertices &&
+      if(!live_layout && (font.resolve_verified_live_vertex_layout ||
+                          font.source_vertex_layout.original_vertex_declaration_layout_verified) &&
+         call.kind!=Kind::EndVertices &&
          !(call.vertex_declaration && call.vertex_declaration->font_main_elements)) {
         live_layout=font.resolve_verified_live_vertex_layout ? font.resolve_verified_live_vertex_layout(call) :
             std::optional<ui::VerifiedFontVertexLayout>{font.source_vertex_layout};

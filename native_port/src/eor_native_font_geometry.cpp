@@ -81,6 +81,13 @@ std::optional<VerifiedFontVertexLayout> ResolveUsaFontMaterial(
   return layout;
 }
 }
+bool UsesLiveUsaFontDeclaration(const VerifiedFontVertexLayout& source) noexcept {
+  return source.original_font_sampler_owner_verified && source.original_font_atlas_hash &&
+         source.original_pixel_texture_slot==0 && !source.original_vertex_declaration_guest &&
+         !source.original_vertex_declaration_layout_verified && !source.original_stride &&
+         source.position==model::VerifiedAttributeLayout{} && source.texcoord==model::VerifiedAttributeLayout{} &&
+         !source.color && !source.original_index_encoding_verified && !source.original_index_element_bytes;
+}
 std::optional<VerifiedFontVertexLayout> ResolveUsaInlineFontLayout(const xdk::RawDraw& call) {
   if(call.kind!=xdk::Kind::EndVertices || !xdk::DecodeOriginalFontVertices(call))return {};
   return ResolveUsaFontMaterial(call,call.inline_glyphs->declaration,24);
