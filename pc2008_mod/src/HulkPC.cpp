@@ -799,6 +799,15 @@ HRESULT STDMETHODCALLTYPE OnSetTexture(IDirect3DDevice9* dev,DWORD stage,
             Log("[D3D9] AF MIN repair failed stage=%lu hr=0x%08lX\r\n",
                 (unsigned long)stage,(unsigned long)(unsigned int)minHr);
         }
+        // An AF rollback failure must not leave the previous texture's
+        // enhanced LINEAR MIP state on a newly bound single-level/UI texture.
+        // The normal OnSampler reapply below is skipped by this early return.
+        if(texture && forceTrilinearMip && point) {
+          const HRESULT mipHr=realSampler(dev,stage,D3DSAMP_MIPFILTER,D3DTEXF_POINT);
+          if(FAILED(mipHr))
+            Log("[D3D9] MIP POINT repair after AF failure stage=%lu hr=0x%08lX\r\n",
+                (unsigned long)stage,(unsigned long)(unsigned int)mipHr);
+        }
         return hr;
       }
       {
