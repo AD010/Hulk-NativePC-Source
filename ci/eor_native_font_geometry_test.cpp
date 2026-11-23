@@ -98,6 +98,20 @@ int main() {
   layout.original_vertex_declaration_layout_verified=true;
   layout.original_font_sampler_owner_verified=true;
   const auto f=ui::DecodeOriginalLiveFontDraw(call,layout,21,4);
+  auto shifted=call;
+  auto prefixed=std::make_shared<xdk::OriginalGuestBufferBytes>(*call.source_vb0);
+  prefixed->bytes.insert(prefixed->bytes.begin(),12,std::byte{0xff});
+  prefixed->guest_size+=12;
+  shifted.source_vb0=prefixed;
+  shifted.captured_vertex_bindings=true;
+  shifted.vertex_bindings[0]=xdk::UsaVertexStreamBinding{
+      prefixed->guest_object,prefixed->guest_address,prefixed->guest_size,12,
+      prefixed->guest_size-12,layout.original_stride};
+  auto offset_glyph=ui::DecodeOriginalLiveFontDraw(shifted,layout,21,4);
+  assert(offset_glyph.positions==f.positions && offset_glyph.texcoords==f.texcoords &&
+         offset_glyph.triangle_indices==f.triangle_indices);
+  shifted.vertex_bindings[0]->length+=4;
+  Rejected([&]{(void)ui::DecodeOriginalLiveFontDraw(shifted,layout,21,4);});
   assert(f.original_frame_sequence==21 && f.original_draw_ordinal==4 &&
          f.original_shader_instance_guest==parent.original_shader_instance_guest);
   assert(f.positions.size()==4 && f.texcoords.size()==4 && f.colors.size()==4);

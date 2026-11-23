@@ -90,6 +90,19 @@ struct OriginalGuestBufferBytes {
   uint32_t guest_object=0,guest_address=0,guest_size=0;
   std::vector<std::byte> bytes;
 };
+struct UsaVertexStreamBinding {
+  uint32_t object=0,allocation_address=0,allocation_bytes=0;
+  uint32_t offset=0,length=0,stride=0;
+  bool Matches(const OriginalGuestBufferBytes& buffer) const noexcept {
+    return object && object==buffer.guest_object && allocation_address==buffer.guest_address &&
+           allocation_bytes==buffer.guest_size && buffer.bytes.size()==allocation_bytes &&
+           offset<=allocation_bytes && length==allocation_bytes-offset && length && stride;
+  }
+};
+// USA SetStreamSource stores an encoded vertex fetch pair. Recover the
+// current byte window from the resource and the same device's bound slot.
+std::optional<UsaVertexStreamBinding> ReadUsaVertexStreamBinding(
+    uint32_t device,uint32_t slot,uint32_t object,ReadGuestBytes read,void* state) noexcept;
 // Per-Present immutable snapshots. Re-read at EVERY Draw: object/address
 // equality does not prove unchanged vertices. Only byte equality permits
 // reuse. Caller serializes Capture/Reset with the original frame collector.
@@ -479,6 +492,8 @@ struct RawDraw {
   std::optional<OriginalInlineGlyphBatch> inline_glyphs;
   // Pixel fetch constant s0, copied at the same Font_Main Draw as its atlas.
   std::optional<std::array<uint32_t,6>> original_font_fetch;
+  bool captured_vertex_bindings=false;
+  std::array<std::optional<UsaVertexStreamBinding>,16> vertex_bindings{};
 };
 // Original USA Decal direct XDK call is at guest 0x8265B538.
 // An engine render-item->geometry witness, if present, must match the

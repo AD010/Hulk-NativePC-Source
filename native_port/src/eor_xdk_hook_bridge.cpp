@@ -585,10 +585,10 @@ ScopedOriginalEorRenderItem::~ScopedOriginalEorRenderItem() noexcept {
   parent.original_engine_item_abi_verified=previous_verified_;
 }
 
-// Original USA XDK 6534 resource object: GPU buffer address at +24,
+// Original USA XDK 6534 index buffer: GPU address at +24,
 // allocation byte length at +28 (both PPC big endian). This capture NEVER
 // trusts the address without the checked ReadGuest, nor logs game bytes.
-std::shared_ptr<const OriginalGuestBufferBytes> SourceGpuBuffer(
+std::shared_ptr<const OriginalGuestBufferBytes> SourceIndexBuffer(
     uint32_t object,void* guest_base) {
   if(!object || object>UINT32_MAX-32u)return {};
   std::array<std::byte,8> meta{};
@@ -903,18 +903,20 @@ void CapturePpcDraw(Kind kind, uint32_t guest, const PPCContext& ctx,
         draw.inline_glyphs=CaptureUsaInlineGlyphs(
             draw,ctx.r31.u32,ctx.r1.u32,ReadGuest,guest_base,g_original_buffers);
       } else {
-        const auto vb0=state.original_vertex_buffer_guest_objects[0];
-        if(vb0)
-          draw.source_vertex_streams[0]=SourceGpuBuffer(vb0,guest_base);
+        draw.captured_vertex_bindings=true;
+        const auto capture_stream=[&](uint32_t slot) {
+          const uint32_t object=state.original_vertex_buffer_guest_objects[slot];
+          auto& binding=draw.vertex_bindings[slot];
+          binding=ReadUsaVertexStreamBinding(state.original_guest_device,slot,object,ReadGuest,guest_base);
+          if(binding)draw.source_vertex_streams[slot]=g_original_buffers.Capture(object,
+              binding->allocation_address,binding->allocation_bytes,ReadGuest,guest_base);
+        };
+        capture_stream(0);
         draw.source_vb0=draw.source_vertex_streams[0];
         if(kind==Kind::DrawIndexedVertices)
-          draw.source_ib=SourceGpuBuffer(
-              state.original_index_buffer_guest_object,guest_base);
-        for(size_t slot=1;slot<draw.source_vertex_streams.size();++slot) {
-          const auto object=state.original_vertex_buffer_guest_objects[slot];
-          if(object)
-            draw.source_vertex_streams[slot]=SourceGpuBuffer(object,guest_base);
-        }
+          draw.source_ib=SourceIndexBuffer(state.original_index_buffer_guest_object,guest_base);
+        for(uint32_t slot=1;slot<draw.source_vertex_streams.size();++slot)
+          if(state.original_vertex_buffer_guest_objects[slot])capture_stream(slot);
       }
     } catch (const std::bad_alloc&) {
       draw.source_vb0.reset();

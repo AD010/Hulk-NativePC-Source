@@ -22,6 +22,10 @@ std::optional<ExactOriginalGuestMesh> IdentifyExactOriginalGuestMesh(
   if(!vb.guest_object || !vb.guest_address ||
      vb.guest_object!=state.original_vertex_buffer_guest_objects[0] ||
      vb.bytes.empty() || vb.guest_size!=vb.bytes.size())return std::nullopt;
+  const auto& binding=draw.vertex_bindings[0];
+  if(draw.captured_vertex_bindings && (!binding || !binding->Matches(vb)))return {};
+  const uint32_t stream_offset=draw.captured_vertex_bindings ? binding->offset : 0;
+  const uint32_t stream_bytes=vb.guest_size-stream_offset;
   const auto indexed=xdk::DecodeOriginalIndexedXdkCall(draw);
   const auto plain=xdk::DecodeOriginalVerticesXdkCall(draw);
   if(!indexed && !plain)return std::nullopt;
@@ -43,7 +47,7 @@ std::optional<ExactOriginalGuestMesh> IdentifyExactOriginalGuestMesh(
     for(const auto& mesh:model->meshes.meshes()) {
       const auto& source=mesh.original_source_vertex_bytes;
       const uint32_t stride=mesh.original_vertex_stride;
-      if(!stride || !mesh.vertex_count ||
+      if(!stride || (draw.captured_vertex_bindings && binding->stride!=stride) || !mesh.vertex_count ||
          source.size()!=uint64_t(mesh.vertex_count)*stride ||
          source.size()>vb.bytes.size() ||
          mesh.host_indices.size()!=mesh.index_count ||
@@ -59,21 +63,18 @@ std::optional<ExactOriginalGuestMesh> IdentifyExactOriginalGuestMesh(
         const auto v=std::search(vb_from,vb.bytes.end(),vb_matcher);
         if(v==vb.bytes.end())break;
         vb_from=v+1;
-        const auto byte_offset=uint64_t(v-vb.bytes.begin());
-        if(byte_offset%stride)continue;
-        const uint64_t origin=byte_offset/stride;
-        if(origin>UINT32_MAX ||
-           origin+mesh.vertex_count>vb.bytes.size()/stride)
-          continue;
+        const int64_t delta=(v-vb.bytes.begin())-int64_t(stream_offset);
+        if(delta%stride)continue;
+        const int64_t origin=delta/stride;
+        const int64_t limit=stream_bytes/stride;
         if(plain) {
-          if(plain->start_vertex<origin ||
-             uint64_t(plain->start_vertex)+plain->vertex_count>
-                 origin+mesh.vertex_count)
+          const int64_t end=int64_t(plain->start_vertex)+plain->vertex_count;
+          if(int64_t(plain->start_vertex)<origin || end>origin+mesh.vertex_count || end>limit)
             continue;
           if(unique)return std::nullopt;
           unique=ExactOriginalGuestMesh{
               model->original_resource_hash,mesh.original_header_offset,
-              false,static_cast<uint32_t>(origin),0,0};
+              false,origin,0,0};
           continue;
         }
         // The Xbox source's original full index window may start after
@@ -136,8 +137,8 @@ std::optional<ExactOriginalGuestMesh> IdentifyExactOriginalGuestMesh(
                 }
                 const int64_t guest_vertex=
                     int64_t(index)+indexed->base_vertex;
-                if(guest_vertex<int64_t(origin) ||
-                   guest_vertex>=int64_t(origin+mesh.vertex_count)) {
+                if(guest_vertex<0 || guest_vertex>=limit || guest_vertex<origin ||
+                   guest_vertex>=origin+mesh.vertex_count) {
                   window_valid=false;break;
                 }
               }
@@ -161,7 +162,7 @@ std::optional<ExactOriginalGuestMesh> IdentifyExactOriginalGuestMesh(
               }
               unique=ExactOriginalGuestMesh{
                   model->original_resource_hash,mesh.original_header_offset,
-                  big,static_cast<uint32_t>(origin),
+                  big,origin,
                   static_cast<uint32_t>(first),
                   static_cast<uint8_t>(index_bytes)};
             }
@@ -804,7 +805,7 @@ std::vector<VerifiedDrawSource> ResolveCapturedResourceDraws(
   // Changing GPU buffer bytes or baseVertex/firstIndex invalidates the key.
   using OriginalGeometryKey=std::tuple<
       uintptr_t,uintptr_t,uint32_t,uint32_t,uint32_t,uint32_t,uint32_t,
-      uint32_t,uint32_t,uint8_t>;
+      uint32_t,uint32_t,uint8_t,uint32_t,uint32_t>;
   std::map<OriginalGeometryKey,
            std::optional<ExactOriginalGuestMesh>> exact_source_cache;
   for(size_t ordinal=0;ordinal<frame.calls.size();++ordinal) {
@@ -821,13 +822,19 @@ std::vector<VerifiedDrawSource> ResolveCapturedResourceDraws(
     if(!indexed && !vertices)
       throw std::invalid_argument("Unverified original Xbox primitive/Draw method");
     std::optional<ExactOriginalGuestMesh> exact;
+    const auto& stream=call.vertex_bindings[0];
+    if(call.captured_vertex_bindings && (!stream || !call.source_vb0 ||
+       !stream->Matches(*call.source_vb0) || (indexed && !call.source_ib)))
+      throw std::invalid_argument("Original draw vertex/index binding unavailable");
     if(call.source_vb0 && (!indexed || call.source_ib)) {
       const OriginalGeometryKey key{
           reinterpret_cast<uintptr_t>(call.source_vb0.get()),
           reinterpret_cast<uintptr_t>(call.source_ib.get()),
           resources.vertex_buffers[0],resources.index_buffer,
           call.gpr[1],call.gpr[2],call.gpr[3],call.gpr[4],
-          call.function,static_cast<uint8_t>(call.kind)};
+          call.function,static_cast<uint8_t>(call.kind),
+          call.captured_vertex_bindings ? stream->offset : 0u,
+          call.captured_vertex_bindings ? stream->stride : 0u};
       auto [found,inserted]=exact_source_cache.try_emplace(key);
       if(inserted)
         found->second=IdentifyExactOriginalGuestMesh(call,residents);
@@ -906,7 +913,9 @@ std::vector<VerifiedDrawSource> ResolveCapturedResourceDraws(
         if(!(candidate.source_verified_vertex_stream_slot_mask &
               (uint16_t(1u)<<slot)))continue;
         const auto& bytes=call.source_vertex_streams[slot];
-        if(!bytes || !bytes->guest_object ||
+        const auto& range=call.vertex_bindings[slot];
+        if(!bytes || (call.captured_vertex_bindings && (!range || !range->Matches(*bytes))) ||
+           !bytes->guest_object ||
            bytes->guest_object!=resources.vertex_buffers[slot] ||
            bytes->guest_size!=bytes->bytes.size() ||
            bytes->bytes.empty()) {

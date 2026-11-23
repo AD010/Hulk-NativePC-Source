@@ -138,7 +138,7 @@ class OriginalEorShaderClassesTests(unittest.TestCase):
                          bridge)
         self.assertNotIn("InstallVerifiedWorkerEorFrame(", bridge[
             bridge.index("ScopedOriginalEorShaderMethod::ScopedOriginalEorShaderMethod"):
-            bridge.index("// Original USA XDK 6534 resource object")
+            bridge.index("std::shared_ptr<const OriginalGuestBufferBytes> SourceIndexBuffer(")
         ])
 
 

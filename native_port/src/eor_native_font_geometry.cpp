@@ -142,6 +142,13 @@ LiveFontGeometry DecodeOriginalLiveFontDraw(
     output.original_pass_index=call.observed_live_eor_effect_pass->pass_index;
     return output;
   }
+  auto stream=std::span<const std::byte>(vb.bytes);
+  if(call.captured_vertex_bindings) {
+    const auto& bound=call.vertex_bindings[0];
+    if(!bound || !bound->Matches(vb) || bound->stride!=layout.original_stride)
+      throw std::invalid_argument("EFont stream does not match the active XDK binding");
+    stream=stream.subspan(bound->offset,bound->length);
+  }
   CheckFormat(layout.position,layout.original_stride);
   CheckFormat(layout.texcoord,layout.original_stride);
   if(layout.position.components<2)
@@ -204,7 +211,7 @@ LiveFontGeometry DecodeOriginalLiveFontDraw(
       const uint32_t raw=ReadIndex(ib.bytes.data()+byte_at,size,
                                    layout.original_index_big_endian);
       const int64_t original=int64_t(raw)+indexed->base_vertex;
-      if(original<0 || original>=int64_t(vb.bytes.size()/layout.original_stride))
+      if(original<0 || original>=int64_t(stream.size()/layout.original_stride))
         throw std::invalid_argument("Original EFont guest index out of range");
       const auto vertex=static_cast<uint32_t>(original);
       minimum=std::min(minimum,vertex);
@@ -220,7 +227,7 @@ LiveFontGeometry DecodeOriginalLiveFontDraw(
   }
   if(!number_of_vertices ||
      uint64_t(first_vertex)+number_of_vertices>
-       vb.bytes.size()/layout.original_stride ||
+       stream.size()/layout.original_stride ||
      indices.size()<3 || indices.size()>262143u || indices.size()%3u)
     throw std::invalid_argument("Original EFont source VB window invalid");
   LiveFontGeometry output;
@@ -233,7 +240,7 @@ LiveFontGeometry DecodeOriginalLiveFontDraw(
   output.original_pass_index=call.observed_live_eor_effect_pass->pass_index;
   const size_t from=size_t(first_vertex)*layout.original_stride;
   const size_t length=size_t(number_of_vertices)*layout.original_stride;
-  DecodeFontAttributes(std::span(vb.bytes).subspan(from,length),layout,output);
+  DecodeFontAttributes(stream.subspan(from,length),layout,output);
   output.triangle_indices=std::move(indices);
   return output;
 }

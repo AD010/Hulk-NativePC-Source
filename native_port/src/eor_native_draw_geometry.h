@@ -108,7 +108,9 @@ struct ExactOriginalGuestMesh {
   bool original_index_big_endian=false;
   // Origin of the exact guest source mesh INSIDE the larger live XDK
   // allocations. The caller must still verify its shader/material/surface.
-  uint32_t guest_first_vertex=0,guest_first_index=0;
+  // Mesh origin relative to the currently bound (possibly interior) VB window.
+  int64_t guest_first_vertex=0;
+  uint32_t guest_first_index=0;
   // Original Xbox index width, source-proven by the complete bound
   // GPU allocation. The host still uploads native uint32 DrawIndexed.
   uint8_t original_index_element_bytes=0;

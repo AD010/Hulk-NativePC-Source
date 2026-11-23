@@ -788,6 +788,21 @@ int main(){
          packed->guest_first_index==1 &&
          packed->original_index_big_endian &&
          packed->original_index_element_bytes==2);
+  // SetStreamSource may point inside a shared VB before a Draw with
+  // baseVertex=0. Its physical byte window is independent of the IB offset.
+  auto interior=packedDraw;
+  const auto stride=realModel.decoded_meshes[0].original_vertex_stride;
+  interior.captured_vertex_bindings=true;
+  interior.vertex_bindings[0]=xdk::UsaVertexStreamBinding{
+      sharedVb->guest_object,sharedVb->guest_address,sharedVb->guest_size,
+      stride,sharedVb->guest_size-stride,stride};
+  interior.gpr[2]=0;
+  const auto relative=native::IdentifyExactOriginalGuestMesh(interior,models);
+  assert(relative && relative->guest_first_vertex==0 && relative->guest_first_index==1);
+  interior.vertex_bindings[0]->stride+=4;
+  assert(!native::IdentifyExactOriginalGuestMesh(interior,models));
+  interior.vertex_bindings[0].reset();
+  assert(!native::IdentifyExactOriginalGuestMesh(interior,models));
   // Reuse the SAME original source mesh uploaded as host index32 but
   // preserve byte-exact original Xbox D3DFMT_INDEX32 source allocation.
   auto ib32=std::make_shared<xdk::OriginalGuestBufferBytes>(*ib);

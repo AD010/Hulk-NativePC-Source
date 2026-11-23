@@ -283,8 +283,11 @@ class NativeEorLinkCoverage(unittest.TestCase):
         geom=(ROOT / "native_port/src/eor_native_draw_geometry.cpp").read_text()
         source=(ROOT / "native_port/src/eor_native_mesh_upload.cpp").read_text()
         test=(ROOT / "ci/eor_native_draw_geometry_test.cpp").read_text()
-        self.assertIn("SourceGpuBuffer(",hook)
-        self.assertIn("state.original_vertex_buffer_guest_objects[0]",hook)
+        self.assertIn("draw.source_ib=SourceIndexBuffer(",hook)
+        self.assertIn("capture_stream(0);",hook)
+        self.assertIn("state.original_vertex_buffer_guest_objects[slot]",hook)
+        self.assertIn("binding=ReadUsaVertexStreamBinding(",hook)
+        self.assertIn("binding->allocation_address,binding->allocation_bytes,ReadGuest,guest_base",hook)
         self.assertIn("state.original_index_buffer_guest_object",hook)
         self.assertIn("g_original_buffers.Reset();",hook)
         self.assertIn("g_original_buffers.Capture(object,address,bytes,ReadGuest,guest_base)",hook)
@@ -295,7 +298,8 @@ class NativeEorLinkCoverage(unittest.TestCase):
         self.assertIn("for(uint32_t index_bytes:{2u,4u})",geom)
         self.assertIn("if(unique)return std::nullopt;",geom)
         self.assertIn("indexed->first_index)+indexed->index_count>",geom)
-        self.assertIn("guest_vertex>=int64_t(origin+mesh.vertex_count)",geom)
+        self.assertIn("guest_vertex>=origin+mesh.vertex_count",geom)
+        self.assertIn("guest_vertex>=limit",geom)
         self.assertIn("Actual original XDK buffer bytes disprove engine mesh owner",geom)
         self.assertIn("wrongIb->bytes[0]=std::byte{0xFA};",test)
 
@@ -326,7 +330,8 @@ class NativeEorLinkCoverage(unittest.TestCase):
         header=(ROOT / "native_port/src/eor_native_draw_geometry.h").read_text()
         cpp=(ROOT / "ci/eor_native_draw_geometry_test.cpp").read_text()
         self.assertIn("boyer_moore_horspool_searcher",geometry)
-        self.assertIn("guest_first_vertex=0,guest_first_index=0",header)
+        self.assertIn("int64_t guest_first_vertex=0",header)
+        self.assertIn("uint32_t guest_first_index=0",header)
         self.assertIn("original->first_index-exact->guest_first_index",geometry)
         self.assertIn("resolved[i].first_index!=",geometry)
         self.assertIn("original->base_vertex)-exact->guest_first_vertex",geometry)
@@ -377,7 +382,7 @@ class NativeEorLinkCoverage(unittest.TestCase):
         header=(ROOT / "native_port/src/eor_xdk_draw_capture.h").read_text()
         geo=(ROOT / "native_port/src/eor_native_draw_geometry.cpp").read_text()
         self.assertIn("source_vertex_streams{}",header)
-        self.assertIn("draw.source_vertex_streams[slot]=SourceGpuBuffer(",src)
+        self.assertIn("draw.source_vertex_streams[slot]=g_original_buffers.Capture(",src)
         self.assertIn("draw.source_vb0=draw.source_vertex_streams[0]",src)
         self.assertIn("draw.source_vertex_streams={};",src)
         # Under the fixed per-Present budget the required indexed buffer
@@ -386,9 +391,9 @@ class NativeEorLinkCoverage(unittest.TestCase):
         end=src.index("void CapturePpcCommand(",start)
         capture=src[start:end]
         self.assertLess(capture.index("draw.source_vb0=draw.source_vertex_streams[0]"),
-                        capture.index("draw.source_ib=SourceGpuBuffer("))
-        self.assertLess(capture.index("draw.source_ib=SourceGpuBuffer("),
-                        capture.index("for(size_t slot=1;"))
+                        capture.index("draw.source_ib=SourceIndexBuffer("))
+        self.assertLess(capture.index("draw.source_ib=SourceIndexBuffer("),
+                        capture.index("for(uint32_t slot=1;"))
         self.assertIn("call.source_vertex_streams[slot]",geo)
         self.assertIn("source_streams_present=false;break;",geo)
         self.assertIn("if(!source_streams_present)continue;",geo)

@@ -20,6 +20,25 @@ void W(GuestMemory& m,uint32_t address,uint32_t v) {
   auto* p=m.bytes.data()+address;
   for(int i=0;i<4;++i)p[i]=std::byte(uint8_t(v>>(24-8*i)));
 }
+void CheckBoundVertexWindow() {
+  GuestMemory m;
+  constexpr uint32_t device=0x100,object=0x4000,slot=7;
+  const uint32_t pair=device+(239-slot)*8;
+  // Nonzero fetch type/endian/high bits are part of the packed XDK fields.
+  W(m,object+24,0xf1234003);W(m,object+28,0x10000182);
+  W(m,pair,0x11235023);W(m,pair+4,0x10000162);
+  m.bytes[device+12528+slot]=std::byte{7};
+  const auto bound=[&]{return ReadUsaVertexStreamBinding(device,slot,object,ReadFake,&m);};
+  auto b=bound();
+  assert(b && b->object==object && b->allocation_address==0xf1234000 &&
+         b->allocation_bytes==384 && b->offset==32 && b->length==352 && b->stride==28);
+  W(m,pair,0x11235003);assert(!bound());
+  W(m,pair,0x11235023);W(m,pair+4,0x10000160);assert(!bound());
+  W(m,pair+4,0x100001a2);assert(!bound());
+  W(m,pair+4,0x10000162);W(m,object+24,0xf1234002);assert(!bound());
+  assert(!ReadUsaVertexStreamBinding(UINT32_MAX,slot,object,ReadFake,&m));
+  assert(!ReadUsaVertexStreamBinding(device,16,object,ReadFake,&m));
+}
 void CheckBufferSnapshots() {
   GuestMemory guest;
   const uint32_t object=0x100, address=0x200, bytes=12;
@@ -92,6 +111,7 @@ void CheckBufferSnapshots() {
 }
 }
 int main() {
+  CheckBoundVertexWindow();
   // SHA-pinned USA PPC AOT verified one direct bl into DrawVertices and
   // five into DrawIndexedVertices. Tail branches do NOT create an LR:
   // never mistake their callsite+4 for an authenticated source owner.

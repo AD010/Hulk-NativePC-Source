@@ -5,6 +5,38 @@
 #include <utility>
 
 namespace hulk::eor::xdk {
+std::optional<UsaVertexStreamBinding> ReadUsaVertexStreamBinding(
+    uint32_t device,uint32_t slot,uint32_t object,ReadGuestBytes read,void* state) noexcept {
+  if(!device || !object || slot>=16 || !read || uint64_t(object)+32>(uint64_t{1}<<32) ||
+     uint64_t(device)+12544>(uint64_t{1}<<32))return {};
+  std::array<std::byte,8> resource{},bound{};
+  std::byte stride{};
+  // SetStreamSource 8287E674..E6B0 adds the byte offset to the tagged
+  // address and subtracts it from the encoded length. GetStreamSource
+  // 8287E7A4..E7E8 reads the same reverse-numbered slot and stride / 4.
+  if(!read(state,object+24,resource.data(),8) ||
+     !read(state,device+(239-slot)*8,bound.data(),8) ||
+     !read(state,device+12528+slot,&stride,1))return {};
+  const auto word=[](const std::byte* b) {
+    uint32_t v=0;
+    for(unsigned i=0;i<4;++i)v=(v<<8)|std::to_integer<uint8_t>(b[i]);
+    return v;
+  };
+  const uint32_t tagged=word(resource.data()),source_size=word(resource.data()+4);
+  const uint32_t physical=word(bound.data()),bound_size=word(bound.data()+4);
+  constexpr uint32_t length_mask=0x03fffffcu; // 24-bit size in DWORDs at bits 2..25
+  const uint32_t address=tagged&~3u,bytes=source_size&length_mask,length=bound_size&length_mask;
+  if((tagged&3u)!=3 || !address || length>bytes || !length || !std::to_integer<uint8_t>(stride) ||
+     (source_size&~length_mask)!=(bound_size&~length_mask) ||
+     uint64_t(address)+bytes>(uint64_t{1}<<32))return {};
+  const auto offset=bytes-length;
+  const auto effective=tagged+offset;
+  // PPC srwi/addi/rlwinm (mask bit 19)/clrlwi at 8287E688..E6A8.
+  const uint32_t expected=(effective&0x1fffffffu)+(((effective>>20)+512u)&0x1000u);
+  if(physical!=expected)return {};
+  return UsaVertexStreamBinding{object,address,bytes,offset,length,
+                                uint32_t(std::to_integer<uint8_t>(stride))*4u};
+}
 std::shared_ptr<const OriginalGuestBufferBytes>
 OriginalGuestBufferSnapshots::Capture(
     uint32_t object,uint32_t address,uint32_t bytes,
