@@ -256,12 +256,14 @@ void ReplayAotScene(const native::FrameGeometry& frame,
       auto& cache=stage==Stage::Vertex ? vsImageCache : psImageCache;
       auto found=cache.find(key);
       if(found==cache.end())
-        found=cache.emplace(key,InspectSpirvImageResources(program->spirv)).first;
+        found=cache.emplace(key,InspectSpirvImageResources(program->spirv,stage)).first;
       const auto& images=found->second;
       for(const auto& image:images) {
         size_t matches=0;
+        const auto fixed=DecodeFixedAotImageSlot(image.exact_variable_name);
         for(const auto& slot:value.original_samplers)
           if(slot.exact_shader_variable_name==image.exact_variable_name &&
+             (!fixed || slot.original_fetch_register==fixed->slot) &&
              slot.stage==(stage==Stage::Vertex ?
                    gpu::OriginalSamplerStage::Vertex :
                    gpu::OriginalSamplerStage::Pixel))

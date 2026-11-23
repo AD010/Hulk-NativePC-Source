@@ -1,4 +1,5 @@
 #include "eor_native_draw_geometry.h"
+#include "eor_spirv_texture_bindings.h"
 #include <algorithm>
 #include <bit>
 #include <functional>
@@ -734,6 +735,14 @@ static bool MaterialPixelTexturesAgree(
     if (!sampler.original_texture_hash ||
         !sampler.original_material_ownership_verified)
       return false;
+    // For native scalar PS images the translator explicitly encodes the
+    // original stage-local CTAB slot. The same set of hashes in reversed
+    // slots is a different material (for example, albedo and normal).
+    if(const auto fixed=aot::DecodeFixedAotImageSlot(sampler.exact_shader_variable_name)) {
+      if(fixed->slot!=sampler.original_fetch_register || !(mask&(1u<<fixed->slot)) ||
+         call.original_pixel_texture_keys[fixed->slot]!=sampler.original_texture_hash)
+        return false;
+    }
     expected[pixel++]=sampler.original_texture_hash;
   }
   if(pixel!=count)return false;

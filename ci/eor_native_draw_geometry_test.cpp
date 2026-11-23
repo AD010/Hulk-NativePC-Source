@@ -566,6 +566,25 @@ int main(){
   auto materialDraw=runtime;
   materialDraw.calls[0].original_pixel_texture_keys[0]=valid_sampler.original_texture_hash;
   assert(native::ResolveCapturedResourceDraws(materialDraw,catalog,models).size()==1);
+  auto twoSlotFrame=materialDraw;
+  auto twoSlotOwners=catalog;
+  auto& twoSlot=twoSlotOwners.front();
+  twoSlot.source_verified_texture_slot_mask=3u;
+  auto& pixelSlots=std::get<native::VerifiedXdkIndexedSubmission>(
+      twoSlot.original_source_submission).native_draw.original_sampler_slots;
+  pixelSlots[0].exact_shader_variable_name="HulkTexture2D_s0";
+  auto normal=pixelSlots[0];
+  normal.original_fetch_register=1;
+  normal.exact_shader_variable_name="HulkTexture2D_s1";
+  normal.original_texture_hash=0xEEFF;
+  pixelSlots.push_back(normal);
+  twoSlotFrame.calls[0].original_pixel_texture_keys[1]=normal.original_texture_hash;
+  twoSlotFrame.calls[0].observed_vs_matrices->original_texture_guest_objects[1]=0x83009A10;
+  twoSlot.original_resources.textures[1]=0x83009A10;
+  assert(native::ResolveCapturedResourceDraws(twoSlotFrame,twoSlotOwners,models).size()==1);
+  std::swap(twoSlotFrame.calls[0].original_pixel_texture_keys[0],
+            twoSlotFrame.calls[0].original_pixel_texture_keys[1]);
+  Reject([&]{(void)native::ResolveCapturedResourceDraws(twoSlotFrame,twoSlotOwners,models);});
   // The real Vulkan worker consumes concrete per-Present owners; a
   // reusable material candidate must be stamped with this Draw's actual
   // XDK resource snapshot, source sequence, ordinal and decoded geometry.

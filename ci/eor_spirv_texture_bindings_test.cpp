@@ -42,6 +42,20 @@ int main() {
          bindings[0].descriptor_set==0 && bindings[0].binding==2 &&
          bindings[0].spirv_dim==1 && !bindings[0].image_arrayed &&
          !bindings[0].image_multisampled);
+  auto canonical=shader;
+  canonical.resize(canonical.size()-named.size()-1);
+  auto fixed_name=Text("HulkTexture2D_s2");
+  std::vector<uint32_t> fixed_var{4};
+  fixed_var.insert(fixed_var.end(),fixed_name.begin(),fixed_name.end());
+  Add(canonical,5,fixed_var);
+  assert(InspectSpirvImageResources(canonical,Stage::Vertex).size()==1);
+  Reject([&]{(void)InspectSpirvImageResources(canonical,Stage::Pixel);});
+  auto wrong_shape=canonical;wrong_shape[8]=3;
+  Reject([&]{(void)InspectSpirvImageResources(wrong_shape);});
+  assert(DecodeFixedAotImageSlot("HulkTextureCube_s15")->binding==47);
+  assert(!DecodeFixedAotImageSlot("g_Diffuse"));
+  for(const char* name:{"HulkTexture2D_s","HulkTexture2D_s01","HulkTexture2D_s16"})
+    Reject([&]{(void)DecodeFixedAotImageSlot(name);});
   // NativeX-like source texture is a 2D array, despite one array layer.
   auto arrayed=shader;
   // OpTypeImage Arrayed operand is 5 after the type instruction word.

@@ -357,7 +357,7 @@ DiligentEorDirectBackend::DiligentEorDirectBackend(
                                       pass.original_pixel_shader_sha256,stage);
       if(!binary)
         throw std::invalid_argument("Original EoR material shader absent from native AOT bank");
-      const auto reflected=aot::InspectSpirvImageResources(binary->spirv);
+      const auto reflected=aot::InspectSpirvImageResources(binary->spirv,stage);
       for(const auto& image:reflected) {
         if(image.spirv_dim!=1 || image.image_multisampled)
           throw std::invalid_argument("Original EoR material requires unsupported non-2D or multisampled shader image");
@@ -370,7 +370,9 @@ DiligentEorDirectBackend::DiligentEorDirectBackend(
                 (stage==aot::Stage::Vertex ? OriginalSamplerStage::Vertex :
                                              OriginalSamplerStage::Pixel) &&
              texture.identity.exact_shader_variable_name==image.exact_variable_name) {
-            if(texture.required_view!=view || !texture.uploaded ||
+            const auto fixed=aot::DecodeFixedAotImageSlot(image.exact_variable_name);
+            if((fixed && fixed->slot!=texture.identity.original_fetch_register) ||
+               texture.required_view!=view || !texture.uploaded ||
                texture.uploaded->view_kind!=view)
               throw std::invalid_argument("EoR original texture view disagrees with actual SPIR-V image type");
             ++matches;

@@ -1,5 +1,6 @@
 #include "eor_spirv_texture_bindings.h"
 #include <map>
+#include <charconv>
 #include <set>
 #include <stdexcept>
 #include <utility>
@@ -46,8 +47,26 @@ const Type* FindImageType(uint32_t id, const std::map<uint32_t,Type>& types) {
   throw std::invalid_argument("Cyclic/deep original shader image type chain");
 }
 }
+std::optional<FixedAotImageSlot> DecodeFixedAotImageSlot(std::string_view name) {
+  if(!name.starts_with("HulkTexture"))return {};
+  name.remove_prefix(11);
+  struct Shape {std::string_view prefix;uint32_t dim,base;};
+  constexpr Shape shapes[]={{"1D_s",0,64},{"2D_s",1,0},{"3D_s",2,16},{"Cube_s",3,32}};
+  for(const auto& shape:shapes) {
+    if(!name.starts_with(shape.prefix))continue;
+    name.remove_prefix(shape.prefix.size());
+    uint32_t slot=0;
+    const auto end=name.data()+name.size();
+    const auto parsed=std::from_chars(name.data(),end,slot);
+    if(parsed.ec==std::errc{} && parsed.ptr==end && slot<16 &&
+       !(name.size()>1 && name.front()=='0'))
+      return FixedAotImageSlot{slot,shape.dim,shape.base+slot};
+    break;
+  }
+  throw std::invalid_argument("Invalid scalar AOT image slot");
+}
 std::vector<SpirvImageResource> InspectSpirvImageResources(
-    std::span<const uint32_t> shader) {
+    std::span<const uint32_t> shader,std::optional<Stage> stage) {
   if(shader.size()<5 || shader.size()>1000000 ||
      shader[0]!=0x07230203u ||
      shader[3]==0 || shader[3]>1000000 ||
@@ -121,6 +140,12 @@ std::vector<SpirvImageResource> InspectSpirvImageResources(
     // Two distinct image descriptors with the same name can bind the wrong
     // material even if their SPIR-V set/binding numbers differ.
     auto exact_name=Name(name->second);
+    if(const auto fixed=DecodeFixedAotImageSlot(exact_name)) {
+      if(image->dim!=fixed->dimension || image->arrayed || image->multisampled ||
+         bind->second!=fixed->binding || set->second>1 ||
+         (stage && set->second!=(*stage==Stage::Pixel ? 1u : 0u)))
+        throw std::invalid_argument("Scalar AOT image differs from original stage, dimension or binding");
+    }
     if(!unique_image_names.insert(exact_name).second)
       throw std::invalid_argument(
           "Ambiguous duplicated original SPIR-V image resource variable name");
