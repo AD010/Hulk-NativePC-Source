@@ -446,6 +446,13 @@ HRESULT STDMETHODCALLTYPE OnCreateDevice(IDirect3D9* api,UINT adapter,
   if(SUCCEEDED(hr) && *result) {
     // A successful fallback may have changed hDeviceWindow. Record the
     // effective presentation HWND, not the application's focus HWND.
+    // Device lifetime tracking must be installed before any other device
+    // hooks or sampler records. Incompatible DXVK/foreign COM vtables fail
+    // closed instead of leaving uncollectable per-device state behind.
+    if(!ReplaceVtable(*result,2,&OnReleaseDevice,realReleaseDevice)) {
+      Log("[D3D9] Release hook unavailable; refusing partial device hooks\r\n");
+      return hr;
+    }
     // A new device starts with fresh sampler state. Never replay requests
     // recorded for a previous device after a CreateDevice/recreate cycle.
     {std::lock_guard lock(mipMutex);
@@ -474,11 +481,6 @@ HRESULT STDMETHODCALLTYPE OnCreateDevice(IDirect3D9* api,UINT adapter,
       mipLinearCapsCube=caps.CubeTextureFilterCaps & D3DPTFILTERCAPS_MIPFLINEAR;
       mipLinearCapsVolume=caps.VolumeTextureFilterCaps & D3DPTFILTERCAPS_MIPFLINEAR;
     }
-    // Device COM lifetime owns its sampler rollback records. Hook the
-    // shared D3D9/DXVK vtable only when the original Release matches.
-    // If another plugin already owns this slot, do not overwrite it.
-    if(!ReplaceVtable(*result,2,&OnReleaseDevice,realReleaseDevice))
-      Log("[D3D9] Release hook unavailable; sampler lifetime tracking limited\r\n");
     ReplaceVtable(*result,16,&OnReset,realReset);
     ReplaceVtable(*result,17,&OnPresent,realPresent);
     ReplaceVtable(*result,91,&OnCreateVS,realCreateVS);
