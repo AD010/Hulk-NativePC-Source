@@ -164,7 +164,7 @@ class NativeEorLinkCoverage(unittest.TestCase):
         self.assertIn("!HasVerifiedHostAttributeLayout(pass.exact_host_input_layout)", constructor)
         preflight = backend.split("bool DiligentEorDirectBackend::PreflightOriginalScene(", 1)[1]
         preflight = preflight.split("bool DiligentEorDirectBackend::BeginScene(", 1)[0]
-        self.assertIn("!SourceVertexSlotMask(", preflight)
+        self.assertRegex(preflight, r"if\(!\(is_font \?\s*SourceFontSlotMask\([^)]+\) :\s*SourceVertexSlotMask\([^)]+\)\) \|\|")
         self.assertNotIn("mesh->second.host_vertex_slots.size()!=", preflight)
 
 
@@ -180,7 +180,7 @@ class NativeEorLinkCoverage(unittest.TestCase):
         self.assertIn("slot == 0 && (attribute.components != 3 || offset != 0)", validator)
         preflight = backend.split("bool DiligentEorDirectBackend::PreflightOriginalScene(", 1)[1]
         preflight = preflight.split("bool DiligentEorDirectBackend::BeginScene(", 1)[0]
-        self.assertIn("!SourceVertexSlotMask(", preflight)
+        self.assertRegex(preflight, r"if\(!\(is_font \?\s*SourceFontSlotMask\([^)]+\) :\s*SourceVertexSlotMask\([^)]+\)\) \|\|")
         draw = backend.split("bool DiligentEorDirectBackend::DrawIndexed(", 1)[1]
         self.assertIn("SourceVertexSlotMask(layout,slots)", draw)
         uploaded = (ROOT / "ci/eor_native_mesh_upload_test.cpp").read_text()
@@ -263,8 +263,9 @@ class NativeEorLinkCoverage(unittest.TestCase):
         self.assertIn("g_eor_gpu_failures.fetch_add(1", hook)
         self.assertIn('key == "hulk_eor_vulkan_replay"', options)
         self.assertIn("GetEorWorkerStatus()", menu)
-        self.assertLess(hook.index("if(submitted) {\n      g_eor_ready_backbuffers"),
-                        hook.index("return Result::kBackbufferReady"))
+        for start in ("RetireCompletedOriginalFontDraws(source_sequence);", "if(submitted) {"):
+            success=hook.index("g_eor_ready_backbuffers.fetch_add(1", hook.index(start))
+            self.assertLess(success, hook.index("return Result::kBackbufferReady", hook.index(start)))
 
     def test_real_usa_menu_quad_fan_reaches_verified_vulkan_topology(self):
         bridge=(ROOT / "native_port/src/eor_aot_draw_bridge.cpp").read_text()
@@ -603,8 +604,8 @@ class NativeEorLinkCoverage(unittest.TestCase):
         self.assertIn("source_sequence!=ready->original_frame_sequence", worker)
         self.assertIn("original.native_draw.original_frame_sequence ==", hook)
         self.assertLess(worker.index("source_snapshot.reset();"),
-                        worker.index("(void)g_frames_for_native.TakeIfSequence(source_sequence)"))
-        self.assertLess(worker.index("g_frames_for_native.TakeIfSequence(source_sequence)"),
+                        worker.index("g_frames_for_native.DiscardIfSequence(source_sequence)"))
+        self.assertLess(worker.index("g_frames_for_native.DiscardIfSequence(source_sequence)"),
                         worker.index("ReplayNextVerifiedPpcFrame("))
         self.assertNotIn("if(lost)return Result::kNotReady", worker)
         self.assertIn("native_x_renderer::SetHulkEorPresentCallback(nullptr);", app)
@@ -669,9 +670,9 @@ class NativeEorLinkCoverage(unittest.TestCase):
         self.assertIn("if(missed) {", hook)
         self.assertLess(hook.index("if(missed) {"),
                         hook.index("gpu.CanReplayOriginalXdkTimeline(*preview)"))
-        self.assertLess(hook.index("preview.reset(); // release immutable ownership"),
-                        hook.index("(void)g_frames_for_native.TakeIfSequence(sequence)"))
-        self.assertLess(hook.index("(void)g_frames_for_native.TakeIfSequence(sequence)"),
+        self.assertLess(hook.index("preview.reset();", hook.index("if(missed) {")),
+                        hook.index("g_frames_for_native.DiscardIfSequence(sequence)"))
+        self.assertLess(hook.index("g_frames_for_native.DiscardIfSequence(sequence)"),
                         hook.index("if(!ValidateOriginalCommandTimeline(*preview))"))
         self.assertIn("native::ReplayDeliveredResourceScene(*delivered,witnesses", hook)
         self.assertIn("if(delivered.overwritten_since_take)", scene)

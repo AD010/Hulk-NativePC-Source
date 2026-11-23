@@ -14,7 +14,7 @@
 #include <tuple>
 
 namespace hulk::eor::xdk {
-enum class Kind : uint8_t { DrawVertices, DrawIndexedVertices, DrawVerticesUP };
+enum class Kind : uint8_t { DrawVertices, DrawIndexedVertices, DrawVerticesUP, EndVertices };
 // These six bl instructions were observed in the PRIVATE AOT corpus from
 // SHA-pinned USA default.xex (98,726 generated PPC function definitions).
 // r3..r6 / r3..r7 are independently verified source XDK method arguments.
@@ -24,6 +24,7 @@ enum class Kind : uint8_t { DrawVertices, DrawIndexedVertices, DrawVerticesUP };
 inline constexpr uint32_t ProvenUsaXdkDirectBlCaller(
     uint32_t xdk_function,uint32_t source_lr) noexcept {
   switch(xdk_function) {
+    case 0x8288D8F8u: return source_lr==0x82676344u ? 0x82676328u : 0u;
     case 0x8288DF30u: // XDK DrawVertices: only one source-defined bl.
       return source_lr==0x82676430u ? 0x82676400u : 0u;
     case 0x8288E318u: // XDK DrawIndexedVertices: five source-defined bl.
@@ -45,7 +46,7 @@ inline constexpr uint32_t ProvenUsaXdkDirectBlCaller(
 enum class CommandKind : uint8_t {
   DrawVertices, DrawIndexedVertices, DrawVerticesUP,
   SetRenderTarget, SetDepthStencilSurface,
-  ClearF, Resolve, BeginTiling, EndTiling, Present
+  ClearF, Resolve, BeginTiling, EndTiling, Present, EndVertices
 };
 // Source-verified ClearF(dev, flags, rect, color*, Z in f1, stencil).
 // Values are BE-decoded at the REAL PPC call, before guest memory can
@@ -434,6 +435,12 @@ struct OriginalEorShaderMethodAtDraw {
   bool original_engine_item_material_source_verified=false;
   bool original_engine_item_abi_verified=false;
 };
+// BeginVertices returns a writable inline allocation. EndVertices commits it
+// without binding a VB, so the old device stream 0 is unrelated.
+struct OriginalInlineGlyphBatch {
+  uint32_t declaration=0, vertex_count=0;
+  std::shared_ptr<const OriginalGuestBufferBytes> payload;
+};
 struct RawDraw {
   Kind kind{};
   uint32_t function = 0, lr = 0;
@@ -469,6 +476,7 @@ struct RawDraw {
   // from an unrelated shader class or adjacent EoR archive record.
   std::optional<aot::OriginalEffectPass> observed_live_eor_effect_pass;
   std::array<uint32_t,16> original_pixel_texture_keys{};
+  std::optional<OriginalInlineGlyphBatch> inline_glyphs;
 };
 // Original USA Decal direct XDK call is at guest 0x8265B538.
 // An engine render-item->geometry witness, if present, must match the
@@ -625,6 +633,10 @@ struct VerticesXdkCall {
   uint32_t primitive=0, start_vertex=0, vertex_count=0;
 };
 std::optional<VerticesXdkCall> DecodeOriginalVerticesXdkCall(const RawDraw& call);
+std::optional<OriginalInlineGlyphBatch> CaptureUsaInlineGlyphs(
+    const RawDraw& call,uint32_t wrapper,uint32_t wrapper_sp,
+    ReadGuestBytes reader,void* state,OriginalGuestBufferSnapshots& buffers);
+std::optional<VerticesXdkCall> DecodeOriginalFontVertices(const RawDraw& call);
 // Original USA frontend DrawVertices prim=6 (D3DPT_TRIANGLEFAN) emits two
 // triangles for a four-vertex quad; Vulkan's native DrawIndexed uses lists.
 // Topology conversion is independent of archive/game resource ownership.

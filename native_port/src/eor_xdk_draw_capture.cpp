@@ -124,6 +124,69 @@ std::optional<VerticesXdkCall> DecodeOriginalVerticesXdkCall(const RawDraw& call
   return VerticesXdkCall{call.function,call.lr,call.gpr[0],call.gpr[1],
                          call.gpr[2],call.gpr[3]};
 }
+std::optional<OriginalInlineGlyphBatch> CaptureUsaInlineGlyphs(
+    const RawDraw& call,uint32_t wrapper,uint32_t sp,ReadGuestBytes read,
+    void* state,OriginalGuestBufferSnapshots& buffers) {
+  const auto& parent=call.original_engine_shader_method;
+  const auto& gpu=call.observed_vs_matrices;
+  if (!read || call.kind!=Kind::EndVertices || call.function!=0x8288D8F8u ||
+      call.lr!=0x82676344u || !wrapper || !sp || !parent || !gpu ||
+      !parent->original_shader_method_vtable_verified || !parent->nesting_depth ||
+      parent->original_shader_method_guest!=0x8266A0C0u ||
+      parent->original_shader_vtable_guest!=0x8206ED6Cu ||
+      !parent->original_shader_instance_guest || !call.gpr[0] ||
+      gpu->original_guest_device!=call.gpr[0]) return {};
+  const auto word=[&](uint64_t at)->uint32_t {
+    std::array<std::byte,4> raw{};
+    if (at>UINT32_MAX-3u || !read(state,uint32_t(at),raw.data(),4)) return 0;
+    uint32_t v=0;
+    for (auto b:raw) v=(v<<8)|std::to_integer<uint8_t>(b);
+    return v;
+  };
+  const uint64_t engine=wrapper, device=call.gpr[0], stack=sp;
+  const uint64_t decl_ref=uint64_t(parent->original_shader_instance_guest)+200u;
+  // The wrapper at 82676328 saves its caller LR at old SP-8 then
+  // allocates 96 bytes. The font emitter keeps the glyph count at old SP+80.
+  if (word(stack)!=stack+96u || word(stack+88u)!=0x8266A0B8u ||
+      word(engine)!=device || word(engine+12u)!=decl_ref ||
+      word(engine+28u)!=13u || word(engine+36u)!=24u ||
+      word(decl_ref)!=gpu->original_vertex_declaration_guest_object ||
+      !gpu->original_vertex_declaration_guest_object) return {};
+  const uint32_t glyphs=word(stack+96u+80u);
+  if (!glyphs || glyphs>65535u/4 || word(engine+32u)!=glyphs*4u) return {};
+  // In USA BeginVertices, the returned r3 is written to device+13448
+  // and the allocation's dword count to +13456. These are the bytes
+  // written by the original memcpy, observed before the guest commits.
+  const uint32_t payload=word(device+13448u);
+  if (!payload || word(device+13456u)!=glyphs*24u) return {};
+  // Match the three packed XDK declaration entries in order: FLOAT3
+  // position (XYZ1), D3DCOLOR, FLOAT2 texcoord (XY01), all on stream 0.
+  constexpr std::array<uint32_t,9> elements{
+      0,0x2A23B9,0, 12,0x182886,0xA0000, 16,0x2C23A5,0x50000};
+  const uint64_t decl=gpu->original_vertex_declaration_guest_object;
+  if (word(decl+24u)!=3u) return {};
+  std::array<std::byte,36> raw{};
+  if (decl+52u+raw.size()>uint64_t(UINT32_MAX)+1u ||
+      !read(state,uint32_t(decl+52u),raw.data(),raw.size())) return {};
+  for (size_t i=0;i<raw.size();++i)
+    if (std::to_integer<uint8_t>(raw[i])!=
+        uint8_t(elements[i/4]>>(24u-8u*(i%4)))) return {};
+  auto bytes=buffers.Capture(wrapper,payload,glyphs*96u,read,state);
+  if (!bytes) return {};
+  return OriginalInlineGlyphBatch{uint32_t(decl),glyphs*4u,std::move(bytes)};
+}
+
+std::optional<VerticesXdkCall> DecodeOriginalFontVertices(const RawDraw& call) {
+  if (call.kind!=Kind::EndVertices) return DecodeOriginalVerticesXdkCall(call);
+  const auto& batch=call.inline_glyphs;
+  if (call.function!=0x8288D8F8u || call.lr!=0x82676344u || !call.gpr[0] ||
+      !batch || !batch->payload || !batch->declaration ||
+      batch->vertex_count<4 || batch->vertex_count>65535 || batch->vertex_count%4 ||
+      batch->payload->guest_size!=24u*batch->vertex_count ||
+      batch->payload->bytes.size()!=batch->payload->guest_size) return {};
+  return VerticesXdkCall{call.function,call.lr,call.gpr[0],13u,0,batch->vertex_count};
+}
+
 void CompletedFrameMailbox::Publish(Frame frame) {
   if(!frame.sequence)
     throw std::invalid_argument("Original XDK frame sequence missing at native handoff");
@@ -171,12 +234,13 @@ namespace {
 bool DrawKind(CommandKind kind) noexcept {
   return kind==CommandKind::DrawVertices ||
          kind==CommandKind::DrawIndexedVertices ||
-         kind==CommandKind::DrawVerticesUP;
+         kind==CommandKind::DrawVerticesUP || kind==CommandKind::EndVertices;
 }
 std::optional<CommandKind> ConvertDraw(Kind kind) noexcept {
   switch(kind) {
     case Kind::DrawVertices:return CommandKind::DrawVertices;
     case Kind::DrawIndexedVertices:return CommandKind::DrawIndexedVertices;
+    case Kind::EndVertices:return CommandKind::EndVertices;
     case Kind::DrawVerticesUP:return CommandKind::DrawVerticesUP;
   }
   return std::nullopt;
@@ -280,6 +344,7 @@ bool ValidateOriginalCommandTimeline(const Frame& frame) noexcept {
           !DecodeOriginalIndexedXdkCall(original)) ||
          (original.kind==Kind::DrawVertices &&
           !DecodeOriginalVerticesXdkCall(original)) ||
+         (original.kind==Kind::EndVertices && !DecodeOriginalFontVertices(original)) ||
          original.kind==Kind::DrawVerticesUP)
         return false;
     } else if(event.function!=KnownUsaCommandAddress(event.kind) ||

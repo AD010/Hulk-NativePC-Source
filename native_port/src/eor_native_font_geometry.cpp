@@ -1,4 +1,5 @@
 #include "eor_native_font_geometry.h"
+#include "eor_original_font_source.h"
 #include <algorithm>
 #include <limits>
 #include <stdexcept>
@@ -20,12 +21,72 @@ void CheckFormat(const model::VerifiedAttributeLayout& l,
   if(!l.components || l.components>4 || l.original_byte_offset>=stride)
     throw std::invalid_argument("Original EFont shader input layout invalid");
 }
+VerifiedFontVertexLayout UsaInlineDeclaration() {
+  VerifiedFontVertexLayout layout;
+  layout.original_stride=24;
+  layout.position={0,3,model::AttributeEncoding::BigFloat32};
+  layout.color=model::VerifiedAttributeLayout{12,4,model::AttributeEncoding::BigArgb8};
+  layout.texcoord={16,2,model::AttributeEncoding::BigFloat32};
+  return layout;
 }
+void DecodeFontAttributes(std::span<const std::byte> bytes,
+                          const VerifiedFontVertexLayout& layout,LiveFontGeometry& output) {
+  model::NativeIndexedMesh temporary;
+  temporary.original_vertex_stride=layout.original_stride;
+  temporary.positions.resize(bytes.size()/layout.original_stride);
+  temporary.original_vertex_stream.assign(bytes.begin(),bytes.end());
+  output.positions=model::DecodeVerifiedAttribute(temporary,layout.position);
+  output.texcoords=model::DecodeVerifiedAttribute(temporary,layout.texcoord);
+  if(layout.color)
+    output.colors=model::DecodeVerifiedAttribute(temporary,*layout.color);
+}
+void AppendQuadIndices(uint32_t vertices,std::vector<uint32_t>& indices) {
+  indices.reserve(vertices/4u*6u);
+  for(uint32_t i=0;i<vertices;i+=4u)
+    indices.insert(indices.end(),{i,i+1,i+2,i,i+2,i+3});
+}
+}
+LiveFontGeometry DecodeUsaInlineGlyphPayload(std::span<const std::byte> bytes) {
+  if(bytes.empty() || bytes.size()%96u || bytes.size()/24u>65535)
+    throw std::invalid_argument("Incomplete USA Font_Main quad payload");
+  LiveFontGeometry output;
+  DecodeFontAttributes(bytes,UsaInlineDeclaration(),output);
+  AppendQuadIndices(static_cast<uint32_t>(bytes.size()/24u),output.triangle_indices);
+  return output;
+}
+
+std::optional<VerifiedFontVertexLayout> ResolveUsaInlineFontLayout(const xdk::RawDraw& call) {
+  const auto& batch=call.inline_glyphs;
+  const auto& pass=call.observed_live_eor_effect_pass;
+  const auto& parent=call.original_engine_shader_method;
+  const auto& device=call.observed_vs_matrices;
+  // Font_Main's original PS samples register 0. The archive key and live
+  // texture object must have been matched by this Draw's material setter.
+  if(call.kind!=xdk::Kind::EndVertices || !xdk::DecodeOriginalFontVertices(call) ||
+     !pass || pass->effect_hash!=kOriginalFontMainEffectHash ||
+     pass->pass_index!=kOriginalFontMainPassIndex || !parent || !device ||
+     !parent->original_pass_vs_ps_xdk_binding_verified ||
+     !parent->original_pass_sampler_slots_verified ||
+     parent->original_pass_sampler_slot_mask!=1u ||
+     !parent->original_pass_live_texture_objects_present ||
+     batch->declaration!=device->original_vertex_declaration_guest_object ||
+     !call.original_pixel_texture_keys[0] || !device->original_texture_guest_objects[0])
+    return {};
+  auto layout=UsaInlineDeclaration();
+  layout.original_vertex_declaration_guest=batch->declaration;
+  layout.original_font_atlas_hash=call.original_pixel_texture_keys[0];
+  layout.original_vertex_declaration_layout_verified=true;
+  layout.original_font_sampler_owner_verified=true;
+  return layout;
+}
+
 LiveFontGeometry DecodeOriginalLiveFontDraw(
     const xdk::RawDraw& call,const VerifiedFontVertexLayout& layout,
     uint64_t frame,uint32_t ordinal) {
   constexpr uint32_t kFontMethod=0x8266A0C0u;
   constexpr uint32_t kFontVtable=0x8206ED6Cu;
+  const auto inline_draw=call.kind==xdk::Kind::EndVertices;
+  const auto& buffer=inline_draw && call.inline_glyphs ? call.inline_glyphs->payload : call.source_vb0;
   if(!frame || ordinal==UINT32_MAX ||
      !layout.original_vertex_declaration_layout_verified ||
      !layout.original_font_sampler_owner_verified ||
@@ -35,11 +96,11 @@ LiveFontGeometry DecodeOriginalLiveFontDraw(
      layout.original_stride<12 || layout.original_stride>192 ||
      (layout.original_stride%4)!=0 ||
      !call.original_engine_shader_method || !call.observed_vs_matrices ||
-     !call.observed_live_eor_effect_pass || !call.source_vb0)
+     !call.observed_live_eor_effect_pass || !buffer)
     throw std::invalid_argument("Missing original live EFontShader provenance");
   const auto& parent=*call.original_engine_shader_method;
   const auto& state=*call.observed_vs_matrices;
-  const auto& vb=*call.source_vb0;
+  const auto& vb=*buffer;
   const uint16_t slot=uint16_t(1u)<<layout.original_pixel_texture_slot;
   if(parent.original_shader_method_guest!=kFontMethod ||
      parent.original_shader_vtable_guest!=kFontVtable ||
@@ -54,13 +115,33 @@ LiveFontGeometry DecodeOriginalLiveFontDraw(
          layout.original_vertex_declaration_guest ||
      state.original_vs_guest_object!=parent.original_pass_vs_xdk_guest_object ||
      state.original_ps_guest_object!=parent.original_pass_ps_xdk_guest_object ||
-     state.original_vertex_buffer_guest_objects[0]!=vb.guest_object ||
+     (!inline_draw && state.original_vertex_buffer_guest_objects[0]!=vb.guest_object) ||
+     (inline_draw && (!call.inline_glyphs || call.inline_glyphs->declaration!=
+          layout.original_vertex_declaration_guest || layout.original_stride!=24u)) ||
      !state.original_texture_guest_objects[layout.original_pixel_texture_slot] ||
      call.original_pixel_texture_keys[layout.original_pixel_texture_slot]!=
          layout.original_font_atlas_hash ||
      !vb.guest_object || !vb.guest_address ||
      vb.bytes.empty() || vb.guest_size!=vb.bytes.size())
     throw std::invalid_argument("Original EFont vertex/shader/atlas source disagrees");
+  if(inline_draw) {
+    const auto captured=ResolveUsaInlineFontLayout(call);
+    if(!captured || captured->original_font_atlas_hash!=layout.original_font_atlas_hash ||
+       layout.position!=captured->position || layout.texcoord!=captured->texcoord ||
+       layout.color!=captured->color || layout.original_pixel_texture_slot ||
+       layout.original_index_element_bytes ||
+       layout.original_index_encoding_verified)
+      throw std::invalid_argument("Inline EFont vertex declaration/material mismatch");
+    auto output=DecodeUsaInlineGlyphPayload(vb.bytes);
+    output.original_frame_sequence=frame;
+    output.original_draw_ordinal=ordinal;
+    output.original_shader_instance_guest=parent.original_shader_instance_guest;
+    output.original_guest_vertex_declaration=captured->original_vertex_declaration_guest;
+    output.original_font_atlas_hash=captured->original_font_atlas_hash;
+    output.original_effect_hash=call.observed_live_eor_effect_pass->effect_hash;
+    output.original_pass_index=call.observed_live_eor_effect_pass->pass_index;
+    return output;
+  }
   CheckFormat(layout.position,layout.original_stride);
   CheckFormat(layout.texcoord,layout.original_stride);
   if(layout.position.components<2)
@@ -142,13 +223,6 @@ LiveFontGeometry DecodeOriginalLiveFontDraw(
        vb.bytes.size()/layout.original_stride ||
      indices.size()<3 || indices.size()>262143u || indices.size()%3u)
     throw std::invalid_argument("Original EFont source VB window invalid");
-  model::NativeIndexedMesh temporary;
-  temporary.original_vertex_stride=layout.original_stride;
-  temporary.positions.resize(number_of_vertices);
-  const size_t from=size_t(first_vertex)*layout.original_stride;
-  const size_t bytes=size_t(number_of_vertices)*layout.original_stride;
-  temporary.original_vertex_stream.assign(
-      vb.bytes.begin()+from,vb.bytes.begin()+from+bytes);
   LiveFontGeometry output;
   output.original_frame_sequence=frame;
   output.original_draw_ordinal=ordinal;
@@ -157,10 +231,9 @@ LiveFontGeometry DecodeOriginalLiveFontDraw(
   output.original_font_atlas_hash=layout.original_font_atlas_hash;
   output.original_effect_hash=call.observed_live_eor_effect_pass->effect_hash;
   output.original_pass_index=call.observed_live_eor_effect_pass->pass_index;
-  output.positions=model::DecodeVerifiedAttribute(temporary,layout.position);
-  output.texcoords=model::DecodeVerifiedAttribute(temporary,layout.texcoord);
-  if(layout.color)
-    output.colors=model::DecodeVerifiedAttribute(temporary,*layout.color);
+  const size_t from=size_t(first_vertex)*layout.original_stride;
+  const size_t length=size_t(number_of_vertices)*layout.original_stride;
+  DecodeFontAttributes(std::span(vb.bytes).subspan(from,length),layout,output);
   output.triangle_indices=std::move(indices);
   return output;
 }

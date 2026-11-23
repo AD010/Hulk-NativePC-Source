@@ -718,7 +718,9 @@ aot::BoundIndexedDraw DiligentEorDirectBackend::StageVerifiedOriginalFontDraw(
   for(size_t i=0;i<input.size();++i) {
     const uint32_t components=i==0 ? layout.position.components :
         i==1 ? layout.texcoord.components : layout.color->components;
-    if(input[i].BufferSlot!=i || input[i].NumComponents!=components ||
+    constexpr uint32_t font_input_locations[]={0u,4u,8u}; // position, UV0, color
+    if(input[i].InputIndex!=font_input_locations[i] ||
+       input[i].BufferSlot!=i || input[i].NumComponents!=components ||
        input[i].ValueType!=Diligent::VT_FLOAT32 ||
        (input[i].RelativeOffset!=0 &&
         input[i].RelativeOffset!=Diligent::LAYOUT_ELEMENT_AUTO_OFFSET) ||
@@ -791,7 +793,7 @@ aot::BoundIndexedDraw DiligentEorDirectBackend::StageVerifiedOriginalFontDraw(
   result.original_surface_ordinal=surface_ordinal;
   result.original_mesh_header_offset=SIZE_MAX;
   result.source_nonindexed_linearization_verified=
-      bool(xdk::DecodeOriginalVerticesXdkCall(call));
+      bool(xdk::DecodeOriginalFontVertices(call));
   result.original_dynamic_font_draw=true;
   for(const auto& image:owner->original_textures)
     result.original_samplers.push_back(image.identity);

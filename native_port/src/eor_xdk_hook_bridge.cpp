@@ -713,7 +713,7 @@ void CapturePpcDraw(Kind kind, uint32_t guest, const PPCContext& ctx,
   // at +1920; capture the 3D World/ViewProj/Previous/Sky registers before
   // the original Draw executes. Do not infer original EoR model identity,
   // camera owner, or SPIR-V UBO layout from these register values.
-  if(kind==Kind::DrawIndexedVertices || kind==Kind::DrawVertices) {
+  if(kind==Kind::DrawIndexedVertices || kind==Kind::DrawVertices || kind==Kind::EndVertices) {
     draw.observed_vs_matrices=CaptureUsaVsMatrices(
         ctx.r3.u32,ReadGuest,guest_base);
     if(draw.observed_vs_matrices) {
@@ -878,17 +878,22 @@ void CapturePpcDraw(Kind kind, uint32_t guest, const PPCContext& ctx,
       // streams. Prioritize the mandatory vertex/index pair BEFORE optional
       // stale bound slots: otherwise an unused slot 15 can exhaust the budget
       // and turn a valid real DrawIndexed into a missing source IB.
-      const auto vb0=state.original_vertex_buffer_guest_objects[0];
-      if(vb0)
-        draw.source_vertex_streams[0]=SourceGpuBuffer(vb0,guest_base);
-      draw.source_vb0=draw.source_vertex_streams[0];
-      if(kind==Kind::DrawIndexedVertices)
-        draw.source_ib=SourceGpuBuffer(
-            state.original_index_buffer_guest_object,guest_base);
-      for(size_t slot=1;slot<draw.source_vertex_streams.size();++slot) {
-        const auto object=state.original_vertex_buffer_guest_objects[slot];
-        if(object)
-          draw.source_vertex_streams[slot]=SourceGpuBuffer(object,guest_base);
+      if(kind==Kind::EndVertices) {
+        draw.inline_glyphs=CaptureUsaInlineGlyphs(
+            draw,ctx.r31.u32,ctx.r1.u32,ReadGuest,guest_base,g_original_buffers);
+      } else {
+        const auto vb0=state.original_vertex_buffer_guest_objects[0];
+        if(vb0)
+          draw.source_vertex_streams[0]=SourceGpuBuffer(vb0,guest_base);
+        draw.source_vb0=draw.source_vertex_streams[0];
+        if(kind==Kind::DrawIndexedVertices)
+          draw.source_ib=SourceGpuBuffer(
+              state.original_index_buffer_guest_object,guest_base);
+        for(size_t slot=1;slot<draw.source_vertex_streams.size();++slot) {
+          const auto object=state.original_vertex_buffer_guest_objects[slot];
+          if(object)
+            draw.source_vertex_streams[slot]=SourceGpuBuffer(object,guest_base);
+        }
       }
     } catch (const std::bad_alloc&) {
       draw.source_vb0.reset();
@@ -1005,6 +1010,7 @@ void EndPpcHook(native_x_renderer::Call kind) {
           ++original_live_xdk_texture_slot_present;
       }
       switch (call.kind) {
+      case Kind::EndVertices:
       case Kind::DrawVertices: ++verts; break;
       case Kind::DrawIndexedVertices: ++indexed; break;
       case Kind::DrawVerticesUP: ++up; break;
@@ -1559,7 +1565,8 @@ PreparedEorMixedFrame PrepareOriginalMixedDraws(
       // XDK declaration pointer. Allow its original ABI verifier to resolve
       // the CURRENT live declaration on the worker; never infer offsets
       // from a shader class name, atlas dimensions or stale guest object.
-      const auto live_layout=font.resolve_verified_live_vertex_layout ?
+      const auto live_layout=call.kind==Kind::EndVertices ?
+          ui::ResolveUsaInlineFontLayout(call) : font.resolve_verified_live_vertex_layout ?
           font.resolve_verified_live_vertex_layout(call) :
           std::optional<ui::VerifiedFontVertexLayout>{font.source_vertex_layout};
       if(!live_layout)continue;

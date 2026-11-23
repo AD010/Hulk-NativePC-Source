@@ -15,6 +15,7 @@ uint32_t ComponentBytes(AttributeEncoding e) {
     case AttributeEncoding::BigUNorm16:
     case AttributeEncoding::BigSNorm16:
     case AttributeEncoding::BigUInt16:return 2;
+    case AttributeEncoding::BigArgb8:
     case AttributeEncoding::UNorm8:
     case AttributeEncoding::SNorm8:
     case AttributeEncoding::UInt8:return 1;
@@ -48,6 +49,7 @@ float Convert(const std::byte* p, AttributeEncoding e) {
       const int32_t signedValue=(raw&0x8000)?raw-0x10000:raw;
       return std::max(-1.f,float(signedValue)/32767.f);
     }
+    case AttributeEncoding::BigArgb8:
     case AttributeEncoding::UNorm8:return float(std::to_integer<uint8_t>(*p))/255.f;
     case AttributeEncoding::SNorm8: {
       const int32_t raw=int32_t(std::to_integer<uint8_t>(*p));
@@ -66,6 +68,7 @@ std::vector<HostAttribute> DecodeVerifiedAttribute(
   const uint32_t bytes=ComponentBytes(layout.encoding);
   if(stride<12 || stride>192 || stride%4 ||
      !layout.components || layout.components>4 ||
+     (layout.encoding==AttributeEncoding::BigArgb8 && layout.components!=4) ||
      layout.original_byte_offset>stride ||
      uint32_t(layout.components)*bytes>stride-layout.original_byte_offset ||
      mesh.positions.size()>SIZE_MAX/stride ||
@@ -77,7 +80,10 @@ std::vector<HostAttribute> DecodeVerifiedAttribute(
     HostAttribute value{};
     const std::byte* p=mesh.original_vertex_stream.data()+i*stride+layout.original_byte_offset;
     for(uint32_t c=0;c<layout.components;++c) {
-      const float v=Convert(p+c*bytes,layout.encoding);
+      // A big-endian D3DCOLOR word is A,R,G,B in memory. The XDK
+      // declaration fetch presents R,G,B,A to the shader.
+      const uint32_t component=layout.encoding==AttributeEncoding::BigArgb8 ? (c+1u)%4u : c;
+      const float v=Convert(p+component*bytes,layout.encoding);
       if(!std::isfinite(v))
         throw std::invalid_argument("Nonfinite original EoR vertex attribute");
       value[c]=v;

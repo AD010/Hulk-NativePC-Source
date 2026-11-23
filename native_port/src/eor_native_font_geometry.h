@@ -32,6 +32,7 @@ struct VerifiedFontVertexLayout {
   bool original_index_big_endian=true;
   bool original_index_encoding_verified=false;
 };
+std::optional<VerifiedFontVertexLayout> ResolveUsaInlineFontLayout(const xdk::RawDraw& call);
 struct LiveFontGeometry {
   uint64_t original_frame_sequence=0;
   uint32_t original_draw_ordinal=UINT32_MAX;
@@ -47,6 +48,9 @@ struct LiveFontGeometry {
   std::vector<model::HostAttribute> colors;
   std::vector<uint32_t> triangle_indices;
 };
+// Decode the geometry bytes of USA Font_Main. This overload by itself does
+// not attribute the glyphs to a live material, frame, or UI page.
+LiveFontGeometry DecodeUsaInlineGlyphPayload(std::span<const std::byte> payload);
 // Decode exactly the live source XDK vertex/index window; a glyph triangle
 // fan is lowered to a host-native triangle list without rasterizing text on
 // the CPU. Missing shader, atlas, layout, guest bytes or duplicate sampler

@@ -88,6 +88,7 @@ SOURCE_EOR_RENDER_ITEM_METHODS = {
     "8266B8B8",
     "8266C8D0",
 }
+SOURCE_INLINE_END = {"8288D8F8"}
 SOURCE_EOR_VM_METHODS = {"8264C798"}  # original registered state_r global
 # 0x825F8A50 is original Decal item-material setter, independently verified
 # from PPC bl 0x82642CB0 and its native shader context ABI.
@@ -95,7 +96,7 @@ SOURCE_EOR_MATERIAL_METHODS = {"825F8A50"}
 # True original 92-byte per-pass EoR dual-stage source resolver.
 SOURCE_EOR_PASS_METHODS = {"825F84C0"}
 if len(sys.argv) == 5 and (set(mandatory) &
-                            (SOURCE_EOR_SHADER_METHODS |
+                            (SOURCE_INLINE_END | SOURCE_EOR_SHADER_METHODS |
                              SOURCE_EOR_VM_METHODS | SOURCE_EOR_MATERIAL_METHODS |
                              SOURCE_EOR_PASS_METHODS |
                              SOURCE_EOR_RENDER_ITEM_METHODS)):
@@ -207,8 +208,17 @@ h += r"""
         __imp__sub_##addr(ctx,base); \
     }
 """
+h += r"""
+#define HULK_EOR_INLINE_END_HOOK(addr) \
+    REX_EXTERN(__imp__sub_##addr); \
+    REX_HOOK_RAW(sub_##addr) { \
+        ::hulk::eor::xdk::CapturePpcDraw(::hulk::eor::xdk::Kind::EndVertices, 0x##addr, ctx, base); \
+        __imp__sub_##addr(ctx,base); \
+    }
+"""
 Path(sys.argv[3]).parent.mkdir(parents=True,exist_ok=True)
 generated = h + '\n'.join(
+    'HULK_EOR_INLINE_END_HOOK('+addr+')' if addr in SOURCE_INLINE_END else
     'HULK_EOR_VM_STATE_TRACE_HOOK('+addr+')'
     if addr in SOURCE_EOR_VM_METHODS
     else ('HULK_EOR_RENDER_ITEM_TRACE_HOOK('+addr+')'

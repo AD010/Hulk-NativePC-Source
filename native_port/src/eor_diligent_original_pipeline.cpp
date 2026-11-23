@@ -55,9 +55,20 @@ OriginalVulkanPipeline CreateOriginalVulkanPipeline(
   // XDK always clips against the source viewport. MapOriginalRasterWindow
   // additionally intersects the source scissor only when the game enables it.
   ci.GraphicsPipeline.RasterizerDesc.ScissorEnable=true;
+  // Font attributes are uploaded in separate arrays of float4. An
+  // automatic stride for FLOAT3/FLOAT2 would advance by 12/8 bytes on
+  // Vulkan, fetching part of the preceding glyph vertex on every step.
+  auto layout=pass.exact_host_input_layout;
+  if(pass.original_dynamic_font_vertex_layout_verified) {
+    for(auto& element:layout) {
+      if(element.Stride!=Diligent::LAYOUT_ELEMENT_AUTO_STRIDE && element.Stride!=16)
+        throw std::invalid_argument("EFont upload requires a float4 stride");
+      element.Stride=16;
+    }
+  }
   ci.GraphicsPipeline.InputLayout.NumElements=
       static_cast<Diligent::Uint32>(pass.exact_host_input_layout.size());
-  ci.GraphicsPipeline.InputLayout.LayoutElements=pass.exact_host_input_layout.data();
+  ci.GraphicsPipeline.InputLayout.LayoutElements=layout.data();
   OriginalVulkanPipeline out{};
   device->CreateGraphicsPipelineState(ci,&out.pipeline);
   if(!out.pipeline)

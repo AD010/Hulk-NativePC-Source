@@ -18,6 +18,13 @@ bool MatchesOriginalXdkDraw(
     return !host.source_nonindexed_linearization_verified &&
            indexed->guest_device==draw.guest_vs_matrices->original_guest_device &&
            indexed->index_count==draw.index_count;
+  if(source.kind==xdk::Kind::EndVertices) {
+    const auto glyphs=xdk::DecodeOriginalFontVertices(source);
+    return glyphs && host.original_dynamic_font_draw &&
+           host.source_nonindexed_linearization_verified &&
+           glyphs->guest_device==draw.guest_vs_matrices->original_guest_device &&
+           glyphs->vertex_count/4u*6u==draw.index_count;
+  }
   const auto vertices=xdk::DecodeOriginalVerticesXdkCall(source);
   const auto indices=vertices ?
       xdk::VerifiedTriangleListCount(vertices->primitive,vertices->vertex_count) :

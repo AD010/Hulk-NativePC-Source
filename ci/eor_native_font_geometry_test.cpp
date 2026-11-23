@@ -3,6 +3,7 @@
 // authenticated EFontShader and atlas, and native float4/index32 uploads.
 #include "../native_port/src/eor_native_font_geometry.h"
 #include <cassert>
+#include <cstring>
 #include <bit>
 #include <cstddef>
 #include <cstdint>
@@ -150,6 +151,53 @@ int main() {
   wrong=call;
   wrong.original_engine_shader_method->original_pass_vs_ps_xdk_binding_verified=false;
   Rejected([&]{(void)ui::DecodeOriginalLiveFontDraw(wrong,layout,22,0);});
+  // Original font emits BeginVertices/EndVertices with a transient stream.
+  // Keep slot 0 bound to an unrelated VB to catch accidental reuse.
+  auto in=call;
+  in.kind=xdk::Kind::EndVertices; in.function=0x8288D8F8; in.lr=0x82676344;
+  in.source_vb0.reset(); in.source_ib.reset();
+  constexpr uint32_t dev=0x100,wrapper=0x4000,sp=0x5000,instance=0x6000,
+                     decl=0x6300,allocation=0x7000;
+  in.gpr[0]=dev;
+  in.original_engine_shader_method->original_shader_instance_guest=instance;
+  in.observed_vs_matrices->original_guest_device=dev;
+  in.observed_vs_matrices->original_vertex_declaration_guest_object=decl;
+  in.observed_live_eor_effect_pass=aot::OriginalEffectPass{0xe601e566u,0};
+  std::vector<std::byte> mem(0x8000);
+  const auto write=[&](uint32_t addr,uint32_t value) {
+    for(unsigned i=0;i<4;++i)mem.at(addr+i)=std::byte(value>>(24-8*i));
+  };
+  write(sp,sp+96);write(sp+88,0x8266A0B8);write(sp+176,2);
+  write(wrapper,dev);write(wrapper+12,instance+200);
+  write(wrapper+28,13);write(wrapper+32,8);write(wrapper+36,24);
+  write(instance+200,decl);write(decl+24,3);
+  constexpr uint32_t elements[]={0,0x2A23B9,0,12,0x182886,0xA0000,16,0x2C23A5,0x50000};
+  for(unsigned i=0;i<9;++i)write(decl+52+4*i,elements[i]);
+  write(dev+13448,allocation);write(dev+13456,48);
+  write(allocation+12,0xff804020u);
+  auto read=[](void* source,uint32_t addr,std::byte* dest,size_t n) noexcept {
+    auto& data=*static_cast<std::vector<std::byte>*>(source);
+    if(uint64_t(addr)+n>data.size())return false;
+    std::memcpy(dest,data.data()+addr,n);return true;
+  };
+  xdk::OriginalGuestBufferSnapshots snapshots;
+  auto capture=[&]{return xdk::CaptureUsaInlineGlyphs(in,wrapper,sp,read,&mem,snapshots);};
+  in.inline_glyphs=capture();
+  assert(in.inline_glyphs && in.inline_glyphs->vertex_count==8);
+  auto source_layout=ui::ResolveUsaInlineFontLayout(in);
+  assert(source_layout && source_layout->original_stride==24);
+  auto glyphs=ui::DecodeOriginalLiveFontDraw(in,*source_layout,22,3);
+  assert(glyphs.triangle_indices==std::vector<uint32_t>({0,1,2,0,2,3,4,5,6,4,6,7}));
+  assert(glyphs.colors[0]==model::HostAttribute({128/255.f,64/255.f,32/255.f,1.f}));
+  write(decl+68,0);assert(!capture());write(decl+68,0x182886);
+  write(sp+88,0);assert(!capture());write(sp+88,0x8266A0B8);
+  write(dev+13456,47);assert(!capture());write(dev+13456,48);
+  write(allocation+12,0xff0000ff);auto next=capture();
+  assert(next && next->payload!=in.inline_glyphs->payload);
+  in.inline_glyphs.reset();assert(!ui::ResolveUsaInlineFontLayout(in));
+  xdk::FrameCapture collector;collector.Record(in);
+  collector.RecordCommand({xdk::CommandKind::Present,0x82880778});
+  assert(!xdk::ValidateOriginalCommandTimeline(collector.Finish()));
   auto bad_layout=layout;bad_layout.original_font_sampler_owner_verified=false;
   Rejected([&]{(void)ui::DecodeOriginalLiveFontDraw(call,bad_layout,22,0);});
 }

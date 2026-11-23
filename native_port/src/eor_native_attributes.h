@@ -9,12 +9,13 @@
 namespace hulk::eor::model {
 enum class AttributeEncoding : uint8_t {
   BigFloat32, BigFloat16, BigUNorm16, BigSNorm16,
-  UNorm8, SNorm8, UInt8, BigUInt16
+  UNorm8, SNorm8, UInt8, BigUInt16, BigArgb8
 };
 struct VerifiedAttributeLayout {
   uint32_t original_byte_offset=0;
   uint8_t components=0;
   AttributeEncoding encoding=AttributeEncoding::BigFloat32;
+  bool operator==(const VerifiedAttributeLayout&) const = default;
 };
 using HostAttribute = std::array<float,4>;
 // Each output vector index corresponds to the decoded model vertex index.
