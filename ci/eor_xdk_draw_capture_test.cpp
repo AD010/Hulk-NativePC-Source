@@ -471,6 +471,7 @@ int main() {
   W(guest,device+6016+255*16,std::bit_cast<uint32_t>(99.0f));
   OriginalShaderRegisters complete;
   assert(CaptureUsaAllShaderRegisters(device,ReadFake,&guest,complete));
+  assert(complete.complete_float_banks);
   const uint32_t fetch0=device+1152,fetch15=fetch0+15*24;
   for(uint32_t i=0;i<16*6;++i)W(guest,fetch0+i*4,0);
   W(guest,fetch0,2);W(guest,fetch0+4,0xabcd006);

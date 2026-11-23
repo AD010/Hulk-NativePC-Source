@@ -42,16 +42,17 @@ std::vector<float> PackOriginalXdkFloatConstants(
     throw std::logic_error("Incomplete original shader float4 packing");
   return packed;
 }
-std::vector<float> ExpandVerifiedOriginalPackedViewProjection(
+std::vector<float> ExpandVerifiedOriginalViewProjection(
     std::span<const float> source,
     const VerifiedOriginalFloatLayout& layout,
     uint32_t c0,double guest_aspect,uint32_t width,uint32_t height,
-    const camera::SourceCameraProof& camera_proof) {
+    const camera::SourceCameraProof& camera_proof,FloatRegisterOrder order) {
+  const bool direct=order==FloatRegisterOrder::Original;
+  const size_t registers=direct ? xdk::OriginalShaderRegisters::kRegisterCount : layout.translated_ubo_float4_count;
   if(layout.stage!=Stage::Vertex ||
      !layout.original_ucode_register_map_verified ||
-     !layout.translated_spirv_float_buffer_layout_verified ||
-     c0>252 || source.size()!=
-        size_t(layout.translated_ubo_float4_count)*4)
+     (!direct && !layout.translated_spirv_float_buffer_layout_verified) ||
+     c0>252 || source.size()!=registers*4)
     throw std::invalid_argument(
         "Original EoR VS ViewProj compacted register layout unverified");
   std::array<size_t,4> offsets{};
@@ -61,13 +62,14 @@ std::vector<float> ExpandVerifiedOriginalPackedViewProjection(
     const uint64_t bit=uint64_t(1)<<(reg%64);
     if(!(layout.original_register_bitmap[reg/64]&bit))
       throw std::invalid_argument("Original ViewProj source register absent");
-    size_t compact=0;
-    for(uint32_t group=0;group<reg/64;++group)
-      compact+=std::popcount(layout.original_register_bitmap[group]);
-    compact+=std::popcount(layout.original_register_bitmap[reg/64]&(bit-1));
-    if(compact>=layout.translated_ubo_float4_count)
-      throw std::invalid_argument("Source shader packed VS index invalid");
-    offsets[row]=compact*4;
+    size_t index=reg;
+    if(!direct) {
+      index=std::popcount(layout.original_register_bitmap[reg/64]&(bit-1));
+      for(uint32_t group=0;group<reg/64;++group)
+        index+=std::popcount(layout.original_register_bitmap[group]);
+    }
+    if(index>=registers)throw std::invalid_argument("Source shader VS register index invalid");
+    offsets[row]=index*4;
     for(uint32_t col=0;col<4;++col)
       original[row*4+col]=source[offsets[row]+col];
   }

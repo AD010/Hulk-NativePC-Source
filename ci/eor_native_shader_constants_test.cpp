@@ -96,6 +96,10 @@ int main() {
          std::abs(expanded[8+1]-11.7f)<1e-5f &&
          expanded[4]==11.f &&
          expanded[24]==255.f);
+  const auto direct=aot::ExpandVerifiedOriginalViewProjection(captured.vertex,wide,11,
+      16.0/9.0,2560,1600,proof,aot::FloatRegisterOrder::Original);
+  assert(direct.size()==1024 && direct[7*4]==captured.vertex[7*4] &&
+         direct[255*4]==captured.vertex[255*4] && std::abs(direct[11*4+1]-10.8f)<1e-5f);
   // 21:9 and 32:9 must widen horizontal view, NOT crop vertically.
   const auto wider=aot::ExpandVerifiedOriginalPackedViewProjection(
       wide_values,wide,11,16.0/9.0,3440,1440,proof);

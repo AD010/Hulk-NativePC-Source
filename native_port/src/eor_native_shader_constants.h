@@ -34,10 +34,18 @@ std::vector<float> PackOriginalXdkFloatConstants(
 // shader constant stream. Requires proved original main-perspective camera,
 // shader matrix-vector convention and the original source register bitmap.
 // All other (UI/shadow/sky/reflection) Draws retain original constants.
-std::vector<float> ExpandVerifiedOriginalPackedViewProjection(
+enum class FloatRegisterOrder { Packed, Original };
+std::vector<float> ExpandVerifiedOriginalViewProjection(
+    std::span<const float> vertex_constants,const VerifiedOriginalFloatLayout& layout,
+    uint32_t first_register,double guest_aspect,uint32_t target_width,uint32_t target_height,
+    const camera::SourceCameraProof& source_camera,FloatRegisterOrder order);
+inline std::vector<float> ExpandVerifiedOriginalPackedViewProjection(
     std::span<const float> original_packed_vs,
     const VerifiedOriginalFloatLayout& source_shader_layout,
     uint32_t original_view_projection_c0,
     double guest_aspect,uint32_t target_width,uint32_t target_height,
-    const camera::SourceCameraProof& source_camera);
+    const camera::SourceCameraProof& source_camera) {
+  return ExpandVerifiedOriginalViewProjection(original_packed_vs,source_shader_layout,
+      original_view_projection_c0,guest_aspect,target_width,target_height,source_camera,FloatRegisterOrder::Packed);
+}
 } // namespace hulk::eor::aot

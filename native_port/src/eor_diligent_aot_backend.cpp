@@ -272,6 +272,7 @@ struct DiligentEorDirectBackend::State {
   std::map<DrawKey,ui::UploadedLiveFontGeometry> font_uploads;
   struct PackedConstants {
     std::vector<float> vertex,pixel;
+    FloatRegisterAbi vs_abi=FloatRegisterAbi::External,ps_abi=FloatRegisterAbi::External;
     native::HostRasterWindow raster{};
     Diligent::RefCntAutoPtr<Diligent::IShaderResourceBinding> draw_bindings;
   };
@@ -895,13 +896,10 @@ bool DiligentEorDirectBackend::PreflightOriginalScene(
     if(!d.source_frame || !d.guest_vs_matrices ||
        !MatchesVerifiedOriginalXdkMainDrawTargets(
            *d.guest_vs_matrices,s.format.original_screen) ||
-       !d.guest_shader_constants ||
-       !selected->pipeline.original_vs_float_layout ||
-       !selected->pipeline.original_ps_float_layout)
+       !d.guest_shader_constants)
       return false;
-    // Pack both stages BEFORE rendering. The shader's own verified register
-    // bitmap determines the exact compacted XeFloatConstants vec4 stream;
-    // never use a stale uniform buffer or a guessed float count.
+    // The native shader's reflected block selects direct c0..255 addressing
+    // or the source translator's verified packed layout for each stage.
     try {
       State::PackedConstants packed;
       native::Rect viewport_area{0,0,s.frame.world.width,s.frame.world.height};
@@ -918,24 +916,36 @@ bool DiligentEorDirectBackend::PreflightOriginalScene(
           *d.guest_vs_matrices->raster,s.frame.original_guest,viewport_area);
       if(!raster)return false;
       packed.raster=*raster;
-      packed.vertex=aot::PackOriginalXdkFloatConstants(
-          *d.guest_shader_constants,
-          *selected->pipeline.original_vs_float_layout,
-          aot::Stage::Vertex,item.vertex_source_sha256);
-      packed.pixel=aot::PackOriginalXdkFloatConstants(
-          *d.guest_shader_constants,
-          *selected->pipeline.original_ps_float_layout,
-          aot::Stage::Pixel,item.pixel_source_sha256);
+      const auto& registers=*d.guest_shader_constants;
+      const auto& pass=selected->pipeline;
+      auto prepare=[&](aot::Stage stage,const aot::Digest& source,
+                       const std::optional<aot::VerifiedOriginalFloatLayout>& layout,
+                       std::vector<float>& values) {
+        const auto abi=s.shaders.GetFloatRegisterAbi(s.bank,source,stage);
+        if(abi==FloatRegisterAbi::External) {
+          if(!layout)throw std::invalid_argument("Missing original shader register layout");
+          values=aot::PackOriginalXdkFloatConstants(registers,*layout,stage,source);
+        } else if(abi==FloatRegisterAbi::Direct256 && !registers.complete_float_banks) {
+          throw std::invalid_argument("Missing complete original XDK float register shadow");
+        }
+        return abi;
+      };
+      packed.vs_abi=prepare(aot::Stage::Vertex,item.vertex_source_sha256,
+                            pass.original_vs_float_layout,packed.vertex);
+      packed.ps_abi=prepare(aot::Stage::Pixel,item.pixel_source_sha256,
+                            pass.original_ps_float_layout,packed.pixel);
       if(s.frame.widescreen_camera &&
-         selected->pipeline.original_view_space==
-             VerifiedOriginalViewSpace::MainPerspective &&
-         selected->pipeline.source_main_view) {
-        const auto& camera=*selected->pipeline.source_main_view;
-        packed.vertex=aot::ExpandVerifiedOriginalPackedViewProjection(
-            packed.vertex,*selected->pipeline.original_vs_float_layout,
-            camera.original_view_projection_first_register,
-            camera.original_guest_aspect,
-            s.frame.world.width,s.frame.world.height,camera.source_proof);
+         pass.original_view_space==VerifiedOriginalViewSpace::MainPerspective && pass.source_main_view) {
+        const auto& view=*pass.source_main_view;
+        if(packed.vs_abi==FloatRegisterAbi::Unused || !pass.original_vs_float_layout ||
+           pass.original_vs_float_layout->original_shader_sha256!=item.vertex_source_sha256)return false;
+        const bool direct=packed.vs_abi==FloatRegisterAbi::Direct256;
+        const std::span<const float> original=direct ? std::span<const float>(registers.vertex)
+                                                     : std::span<const float>(packed.vertex);
+        packed.vertex=aot::ExpandVerifiedOriginalViewProjection(original,*pass.original_vs_float_layout,
+            view.original_view_projection_first_register,view.original_guest_aspect,
+            s.frame.world.width,s.frame.world.height,view.source_proof,
+            direct ? aot::FloatRegisterOrder::Original : aot::FloatRegisterOrder::Packed);
       }
       if(!prepared_constants.emplace(State::DrawKey{d.source_frame,
                         d.source_ordinal},std::move(packed)).second)
@@ -1252,17 +1262,25 @@ bool DiligentEorDirectBackend::DrawIndexed(const native::IndexedDraw& draw) {
     if(packed==s.packed_constants.end())return false;
     auto* resources=is_font ? resident.font_bindings.RawPtr() :
         packed->second.draw_bindings ? packed->second.draw_bindings.RawPtr() : s.active.bindings.RawPtr();
-    if(!resources || !matrices || !draw.guest_shader_constants ||
-       !s.bind_constants(resources,s.vertex,s.pixel,
-                         draw,*matrices,*draw.guest_shader_constants,
-                         packed->second.vertex,packed->second.pixel)) {
-      // Never permit a later draw to reuse constants from an earlier draw
-      // after a partially failed host constant-buffer update.
+    if(!resources || !matrices || !draw.guest_shader_constants)return false;
+    const auto& regs=*draw.guest_shader_constants;
+    const auto& constants=packed->second;
+    // The scalar Hulk AOT ABI retains c0..c255, including holes and
+    // relatively indexed registers. Legacy translators can use compact UBOs.
+    const std::span<const float> vs=constants.vs_abi==FloatRegisterAbi::Direct256 && constants.vertex.empty()
+        ? std::span<const float>(regs.vertex) : std::span<const float>(constants.vertex);
+    const std::span<const float> ps=constants.ps_abi==FloatRegisterAbi::Direct256
+        ? std::span<const float>(regs.pixel) : std::span<const float>(constants.pixel);
+    if(!s.bind_constants(resources,s.vertex,s.pixel,draw,*matrices,regs,vs,ps)) {
       s.constants_ready=false;
       s.program_ready=false;
       s.textures_ready=false;
       return false;
     }
+    if(constants.vs_abi==FloatRegisterAbi::Direct256)
+      s.shaders.BindDirectFloatRegisters(s.context,resources,aot::Stage::Vertex,vs);
+    if(constants.ps_abi==FloatRegisterAbi::Direct256)
+      s.shaders.BindDirectFloatRegisters(s.context,resources,aot::Stage::Pixel,ps);
     const auto& raster=packed->second.raster;
     const auto& clip=raster.scissor;
     const Diligent::Viewport original_viewport{

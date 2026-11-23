@@ -96,6 +96,84 @@ static RefCntAutoPtr<IBuffer> BufferOf(IRenderDevice* device, BIND_FLAGS flags, 
   return buffer;
 }
 
+// USA FillRect pass 2 forwards clip-space position and outputs PS c21.
+// Draw twice on one command list to check addressing and descriptor lifetime.
+static void VerifyFillRectRegisters(IRenderDevice* device,IDeviceContext* context,
+    eor::gpu::DiligentAotShaderModules& modules,const eor::aot::ShaderBank& bank,
+    const eor::aot::EffectCatalog& effects) {
+  using eor::aot::Stage;
+  using eor::gpu::FloatRegisterAbi;
+  eor::gpu::VerifiedOriginalGraphicsPass pass;
+  pass.original_effect_hash=0x1edd5adf;
+  pass.original_pass_index=2;
+  pass.original_vertex_shader_sha256={
+      0xf8,0x84,0x51,0x83,0x86,0xe3,0x64,0xce,0x02,0xf3,0x02,0x86,0x76,0xcc,0xde,0xd8,
+      0xce,0x4d,0xa0,0x8b,0x49,0xba,0x31,0x74,0x60,0x3c,0x1c,0x57,0xaa,0x81,0x88,0x4e};
+  pass.original_pixel_shader_sha256={
+      0xfb,0xdf,0x6c,0x11,0x54,0x9d,0x17,0x82,0xb1,0x2b,0x72,0xef,0x03,0x64,0xdd,0x74,
+      0xc0,0x2c,0x42,0x43,0x6b,0xd6,0x52,0x55,0x08,0x7f,0x6e,0xb3,0x51,0xf0,0x9e,0x81};
+  pass.material_pass_verified=pass.original_render_state_verified=pass.original_host_vertex_layout_verified=true;
+  pass.exact_host_input_layout={{0,0,4,VT_FLOAT32,False}};
+  auto& gpu=pass.exact_render_state;
+  gpu.NumRenderTargets=1;
+  gpu.RTVFormats[0]=TEX_FORMAT_RGBA8_UNORM;
+  gpu.DSVFormat=TEX_FORMAT_D32_FLOAT;
+  gpu.DepthStencilDesc.DepthEnable=False;
+  gpu.RasterizerDesc.ScissorEnable=True;
+  gpu.RasterizerDesc.CullMode=CULL_MODE_NONE;
+  gpu.PrimitiveTopology=PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+  if(modules.GetFloatRegisterAbi(bank,pass.original_vertex_shader_sha256,Stage::Vertex)!=FloatRegisterAbi::Unused ||
+     modules.GetFloatRegisterAbi(bank,pass.original_pixel_shader_sha256,Stage::Pixel)!=FloatRegisterAbi::Direct256)
+    throw std::runtime_error("Original FillRect register ABI mismatch");
+  auto pso=eor::gpu::CreateOriginalVulkanPipeline(device,modules,bank,effects,pass);
+  TextureDesc desc{};
+  desc.Type=RESOURCE_DIM_TEX_2D;
+  desc.Width=64;desc.Height=32;
+  desc.Format=gpu.RTVFormats[0];
+  desc.BindFlags=BIND_RENDER_TARGET;
+  RefCntAutoPtr<ITexture> color,depth;
+  device->CreateTexture(desc,nullptr,&color);
+  desc.Format=gpu.DSVFormat;desc.BindFlags=BIND_DEPTH_STENCIL;
+  device->CreateTexture(desc,nullptr,&depth);
+  if(!color || !depth)throw std::runtime_error("Register test attachments unavailable");
+  ITextureView* rtv=color->GetDefaultView(TEXTURE_VIEW_RENDER_TARGET);
+  context->SetRenderTargets(1,&rtv,depth->GetDefaultView(TEXTURE_VIEW_DEPTH_STENCIL),
+                            RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+  const float bg[]={0,0,1,1};
+  context->ClearRenderTarget(rtv,bg,RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+  context->SetPipelineState(pso.pipeline);
+  const std::array<float,12> triangle{-1,-1,0,1,3,-1,0,1,-1,3,0,1};
+  auto vertex=BufferOf(device,BIND_VERTEX_BUFFER,triangle);
+  auto index=BufferOf(device,BIND_INDEX_BUFFER,std::array<uint32_t,3>{0,1,2});
+  IBuffer* stream=vertex;
+  Uint64 offset=0;
+  context->SetVertexBuffers(0,1,&stream,&offset,RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+  context->SetIndexBuffer(index,0,RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+  auto shared=BufferOf(device,BIND_UNIFORM_BUFFER,std::array<uint32_t,8>{});
+  for(auto stage:{SHADER_TYPE_VERTEX,SHADER_TYPE_PIXEL})
+    pso.bindings->GetVariableByName(stage,"HulkSharedConstants")->Set(shared);
+  for(int half=0;half<2;++half) {
+    Rect scissor{half*32,0,(half+1)*32,32};
+    context->SetScissorRects(1,&scissor,64,32);
+    std::array<float,1024> registers{};
+    registers[21*4+half]=1;
+    registers[21*4+3]=1;
+    modules.BindDirectFloatRegisters(context,pso.bindings,Stage::Pixel,registers);
+    context->CommitShaderResources(pso.bindings,RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+    context->DrawIndexed({3,VT_UINT32,DRAW_FLAG_VERIFY_ALL});
+  }
+  context->SetRenderTargets(0,nullptr,nullptr,RESOURCE_STATE_TRANSITION_MODE_NONE);
+  const auto pixels=ReadPixels(device,context,color);
+  for(size_t i=0;i<pixels.size();i+=4) {
+    const bool left=(i/4)%64<32;
+    const std::array<std::byte,4> expected{std::byte(left?255:0),std::byte(left?0:255),
+                                           std::byte{0},std::byte{255}};
+    if(!std::equal(expected.begin(),expected.end(),pixels.begin()+i))
+      throw std::runtime_error("Original FillRect PS c21 lost its draw-specific value");
+  }
+  std::cout<<"Original FillRect PS c21 matched both draws and all 2048 pixels\n";
+}
+
 // This fixture exercises the original font shaders on a controlled quad.
 // Game-generated glyph positions, UI events and presentation are separate.
 static void VerifyFontDraw(IRenderDevice* device, IDeviceContext* context,
@@ -113,6 +191,7 @@ static void VerifyFontDraw(IRenderDevice* device, IDeviceContext* context,
                        eor::ui::kOriginalFontMainPassIndex,vs,ps))
     throw std::runtime_error("USA Font_Main source pair missing");
   eor::gpu::DiligentAotShaderModules shaders(device);
+  if(!captured_path && bank.HasFullArchiveCoverage())VerifyFillRectRegisters(device,context,shaders,bank,effects);
   eor::gpu::VerifiedOriginalGraphicsPass pass;
   pass.original_effect_hash=eor::ui::kOriginalFontMainEffectHash;
   pass.original_pass_index=eor::ui::kOriginalFontMainPassIndex;

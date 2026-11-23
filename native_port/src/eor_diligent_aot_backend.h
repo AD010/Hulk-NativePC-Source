@@ -81,7 +81,9 @@ class DiligentEorDirectBackend final : public aot::ShaderBindingBackend {
   // It is NOT itself proof of a 16:10 projection hook or camera ownership.
   // The verified register values are passed as a typed payload; the caller
   // must supply the exact original SPIR-V UBO variable/packing semantics.
-  // A per-pass callback cannot supply the right matrix for repeated models.
+  // Stage spans follow the active ABI. With a reflected Hulk float4[256]
+  // block the backend uploads that span itself. The callback still binds
+  // the source-proven shared state (including booleans and alpha testing).
   using BindConstants = std::function<bool(
       Diligent::IShaderResourceBinding*,
       const aot::ReflectedShader&,const aot::ReflectedShader&,

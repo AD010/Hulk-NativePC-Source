@@ -9,9 +9,12 @@
 namespace Diligent {
 struct IRenderDevice;
 struct IShader;
+struct IDeviceContext;
+struct IShaderResourceBinding;
 }
 
 namespace hulk::eor::gpu {
+enum class FloatRegisterAbi { External, Unused, Direct256 };
 class DiligentAotShaderModules final {
  public:
   // Caller owns the Vulkan render thread; this cache keeps its own device ref.
@@ -26,6 +29,13 @@ class DiligentAotShaderModules final {
   Diligent::IShader* GetOrCreate(const aot::ShaderBank& bank,
                                 const aot::Digest& original_source_sha256,
                                 aot::Stage stage);
+  FloatRegisterAbi GetFloatRegisterAbi(const aot::ShaderBank& bank,
+      const aot::Digest& digest,aot::Stage stage);
+  // Immediately before CommitShaderResources, rename the stage's dynamic
+  // uniform allocation. Earlier draws retain their previous GPU contents.
+  void BindDirectFloatRegisters(Diligent::IDeviceContext* context,
+      Diligent::IShaderResourceBinding* resources,aot::Stage stage,
+      std::span<const float> registers);
   std::size_t ModuleCount() const noexcept;
   void Clear() noexcept; // only after GPU completion fence
  private:

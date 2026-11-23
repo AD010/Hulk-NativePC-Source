@@ -120,6 +120,7 @@ struct OriginalShaderRegisters {
   std::array<uint64_t,4> finite_vertex{},finite_pixel{};
   std::array<std::array<uint32_t,6>,16> pixel_fetch{};
   uint16_t valid_pixel_fetch=0;
+  bool complete_float_banks=false;
 };
 inline void CaptureUsaPixelFetches(uint32_t device,ReadGuestBytes read,void* state,
                                   OriginalShaderRegisters& registers) noexcept {
@@ -181,6 +182,7 @@ inline bool CaptureUsaAllShaderRegisters(
     if(vs_finite)candidate.finite_vertex[i/64]|=uint64_t(1)<<(i%64);
     if(ps_finite)candidate.finite_pixel[i/64]|=uint64_t(1)<<(i%64);
   }
+  candidate.complete_float_banks=true;
   destination=std::move(candidate);
   return true;
 }
