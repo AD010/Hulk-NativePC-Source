@@ -251,25 +251,43 @@ bool InstallCameraFarPlaneHook() {
 bool InstallCameraFarPlaneHook() { return false; }
 #endif
 
+// A hook already present in an unfamiliar vtable must never be accepted
+// merely because another vtable supplied a global original function.
+std::mutex vtableHookMutex;
+std::unordered_map<void**,void*> ownedVtableSlots;
 template<typename Fn> bool ReplaceVtable(void* object,size_t index,Fn hook,Fn& original) {
   if(!object)return false;
   auto** table=*reinterpret_cast<void***>(object);
   if(!table)return false;
   auto* slot=&table[index];
+  std::lock_guard<std::mutex> lock(vtableHookMutex);
+  const auto current=*slot;
+  const auto owned=ownedVtableSlots.find(slot);
+  if(current==reinterpret_cast<void*>(hook)) {
+    // Only our recorded installation on THIS exact slot is safe to reuse.
+    return owned!=ownedVtableSlots.end() && original &&
+           owned->second==reinterpret_cast<void*>(original);
+  }
+  // Never overwrite a foreign implementation with a different original.
+  // In particular, DXVK and native D3D9 may use distinct COM vtables.
+  if(owned!=ownedVtableSlots.end() ||
+     (original && current!=reinterpret_cast<void*>(original)))
+    return false;
   DWORD protect=0;
   if(!VirtualProtect(slot,sizeof(void*),PAGE_EXECUTE_READWRITE,&protect))return false;
-  const auto current=*slot;
-  // A slot already pointing at our hook is usable only if its trampoline
-  // was recorded. Otherwise forwarding would recurse or fail at runtime.
-  // Do not claim installation succeeded for an orphaned hook.
-  bool success=(current!=reinterpret_cast<void*>(hook) || original!=nullptr);
-  if(current!=reinterpret_cast<void*>(hook)) {
-    if(!original) original=reinterpret_cast<Fn>(current);
-    if(current!=reinterpret_cast<void*>(original))success=false;
-    else InterlockedExchangePointer(reinterpret_cast<PVOID volatile*>(slot),
-                                    reinterpret_cast<PVOID>(hook));
+  const auto observed=*slot;
+  bool success=false;
+  if(observed==current) {
+    InterlockedExchangePointer(reinterpret_cast<PVOID volatile*>(slot),
+                               reinterpret_cast<PVOID>(hook));
+    success=(*slot==reinterpret_cast<void*>(hook));
+    if(success) {
+      if(!original)original=reinterpret_cast<Fn>(current);
+      ownedVtableSlots.emplace(slot,reinterpret_cast<void*>(original));
+    }
   }
-  DWORD unused=0;VirtualProtect(slot,sizeof(void*),protect,&unused);
+  DWORD unused=0;
+  VirtualProtect(slot,sizeof(void*),protect,&unused);
   return success;
 }
 uint32_t U32(const uint8_t* p) {
