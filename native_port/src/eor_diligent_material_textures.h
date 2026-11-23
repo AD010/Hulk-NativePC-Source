@@ -4,6 +4,7 @@
 // Submit/CommitShaderResources/DrawIndexed ordering.
 #include "eor_diligent_xenos_textures.h"
 #include "eor_verified_sampler_bindings.h"
+#include <array>
 #include <span>
 #include <memory>
 namespace Diligent { struct IShaderResourceBinding; }
@@ -18,6 +19,11 @@ struct OriginalDiligentSampler {
   // The caller proves this by current, exact shader-variable reflection.
   OriginalTextureViewKind required_view=OriginalTextureViewKind::Native2D;
 };
+// For the authenticated USA Font_Main pixel shader: its single normalized
+// TFETCH s0 inherits the min/mag/mip and anisotropy fields and has zero bias.
+void BindUsaFontMainAtlas(Diligent::IRenderDevice* device,
+    Diligent::IShaderResourceBinding* bindings,const UploadedEorTexture& atlas,
+    const std::array<uint32_t,6>& captured_fetch);
 // Resolve all shader variables before mutating the binding. Never invent
 // variable names, register numbers, or bind a fallback/magenta texture.
 // An empty list is valid only when the calling shader uses no textures;

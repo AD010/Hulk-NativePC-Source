@@ -176,6 +176,21 @@ std::optional<OriginalInlineGlyphBatch> CaptureUsaInlineGlyphs(
   return OriginalInlineGlyphBatch{uint32_t(decl),glyphs*4u,std::move(bytes)};
 }
 
+std::optional<std::array<uint32_t,6>> CaptureUsaFontFetch(
+    uint32_t device,ReadGuestBytes read,void* state) {
+  // USA EoR 82675EA0 writes clamp bits in device+(slot+48)*24;
+  // 82675E00 writes the mip filter in word 3 of that same descriptor.
+  constexpr uint32_t offset=48u*24u;
+  std::array<std::byte,24> bytes{};
+  if(!device || !read || uint64_t(device)+offset+bytes.size()>uint64_t(UINT32_MAX)+1 ||
+     !read(state,device+offset,bytes.data(),bytes.size()))return {};
+  std::array<uint32_t,6> words{};
+  for(size_t i=0;i<bytes.size();++i)
+    words[i/4]=(words[i/4]<<8)|std::to_integer<uint8_t>(bytes[i]);
+  if((words[0]&3u)!=2u || !(words[1]>>12))return {};
+  return words;
+}
+
 std::optional<VerticesXdkCall> DecodeOriginalFontVertices(const RawDraw& call) {
   if (call.kind!=Kind::EndVertices) return DecodeOriginalVerticesXdkCall(call);
   const auto& batch=call.inline_glyphs;

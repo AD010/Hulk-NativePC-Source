@@ -840,6 +840,10 @@ void CapturePpcDraw(Kind kind, uint32_t guest, const PPCContext& ctx,
           draw.original_pixel_texture_keys[slot]=current[slot];
     }
   }
+  if(draw.original_pixel_texture_keys[0] && draw.original_engine_shader_method &&
+     draw.original_engine_shader_method->original_shader_method_guest==0x8266A0C0u &&
+     draw.original_engine_shader_method->original_shader_method_vtable_verified)
+    draw.original_font_fetch=CaptureUsaFontFetch(ctx.r3.u32,ReadGuest,guest_base);
   // Keep buffer revisions and their Draw in the same Present epoch.
   std::lock_guard lock(g_mutex);
   // Read both objects from this Draw's device shadow. UI, intro and world

@@ -37,7 +37,8 @@ if(HULK_DILIGENT_CORE)
         ../src/eor_original_texture_streams.cpp ../src/eor_xenos_texture_mips.cpp
         ../src/eor_verified_sampler_bindings.cpp ../src/eor_diligent_texture_residency.cpp
         ../src/eor_diligent_xenos_textures.cpp ../src/eor_diligent_spirv_shaders.cpp
-        ../src/eor_diligent_original_pipeline.cpp ../src/eor_spirv_bank.cpp ../src/eor_native_font_geometry.cpp
+        ../src/eor_diligent_original_pipeline.cpp ../src/eor_diligent_material_textures.cpp
+        ../src/eor_spirv_bank.cpp ../src/eor_native_font_geometry.cpp
         ../src/eor_native_attributes.cpp ../src/eor_xdk_draw_capture.cpp)
     target_compile_features(hulk_original_ui_vulkan_test PRIVATE cxx_std_23)
     target_include_directories(hulk_original_ui_vulkan_test PRIVATE ../src)
@@ -53,6 +54,11 @@ if(HULK_DILIGENT_CORE)
                 add_test(NAME original_captured_glyphs_vulkan COMMAND hulk_original_ui_vulkan_test
                     "${HULK_USA_INDEX}" "${HULK_USA_TEXTURES}" "${HULK_USA_SPIRV}"
                     "${HULK_USA_EFFECTS}" "${HULK_USA_FONT_GLYPHS}")
+                if(HULK_USA_FONT_FETCH)
+                    add_test(NAME original_captured_glyph_sampler_vulkan COMMAND hulk_original_ui_vulkan_test
+                        "${HULK_USA_INDEX}" "${HULK_USA_TEXTURES}" "${HULK_USA_SPIRV}"
+                        "${HULK_USA_EFFECTS}" "${HULK_USA_FONT_GLYPHS}" "${HULK_USA_FONT_FETCH}")
+                endif()
             endif()
         endif()
     endif()

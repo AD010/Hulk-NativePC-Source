@@ -180,6 +180,13 @@ int main() {
     if(uint64_t(addr)+n>data.size())return false;
     std::memcpy(dest,data.data()+addr,n);return true;
   };
+  assert(!xdk::CaptureUsaFontFetch(dev,read,&mem));
+  write(dev+1152,2);write(dev+1156,0x32100006);write(dev+1164,0x00550c14);
+  const auto fetch=xdk::CaptureUsaFontFetch(dev,read,&mem);
+  assert(fetch && (*fetch)[1]==0x32100006 && (*fetch)[3]==0x00550c14);
+  write(dev+1164,0x00100c14);
+  assert((*fetch)[3]!=(*xdk::CaptureUsaFontFetch(dev,read,&mem))[3]);
+  assert(!xdk::CaptureUsaFontFetch(UINT32_MAX,read,&mem));
   xdk::OriginalGuestBufferSnapshots snapshots;
   auto capture=[&]{return xdk::CaptureUsaInlineGlyphs(in,wrapper,sp,read,&mem,snapshots);};
   in.inline_glyphs=capture();

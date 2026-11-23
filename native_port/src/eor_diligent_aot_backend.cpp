@@ -742,12 +742,25 @@ aot::BoundIndexedDraw DiligentEorDirectBackend::StageVerifiedOriginalFontDraw(
        image.uploaded && image.uploaded->SRV())
       ++atlases;
   }
-  if(atlases!=1u || owner->original_textures.size()!=1u)
+  if(atlases!=1u || owner->original_textures.size()!=1u || !call.original_font_fetch ||
+     owner->original_textures[0].identity.original_fetch_register!=0 ||
+     owner->original_textures[0].identity.exact_shader_variable_name!="HulkTexture2D_s0")
     throw std::invalid_argument("Original EFont pixel atlas does not belong to live material");
   const State::DrawKey draw_key{frame,ordinal};
   if(s.font_uploads.contains(draw_key))
     throw std::invalid_argument("Original EFont frame/ordinal already uploaded");
   // All source identity checks above precede the FIRST Vulkan allocation.
+  auto pipeline=s.pipeline_cache.find(material);
+  if(pipeline==s.pipeline_cache.end()) {
+    auto pso=CreateOriginalVulkanPipeline(s.device,s.shaders,s.bank,s.effects,pass);
+    pipeline=s.pipeline_cache.emplace(material,std::move(pso)).first;
+  }
+  // Distinct glyph batches can share an atlas while changing its sampling
+  // mode. Keep the descriptor with this draw until its GPU fence completes.
+  Diligent::RefCntAutoPtr<Diligent::IShaderResourceBinding> font_bindings;
+  pipeline->second.pipeline->CreateShaderResourceBinding(&font_bindings,true);
+  BindUsaFontMainAtlas(s.device,font_bindings,*owner->original_textures[0].uploaded,
+                       *call.original_font_fetch);
   auto gpu=ui::UploadOriginalLiveFontDraw(cpu,s.meshes);
   const auto handle=gpu.position_handle;
   NativeEorDrawBuffers buffers{};
@@ -764,6 +777,7 @@ aot::BoundIndexedDraw DiligentEorDirectBackend::StageVerifiedOriginalFontDraw(
   buffers.original_font_frame=frame;
   buffers.original_font_draw_ordinal=ordinal;
   buffers.original_font_atlas_hash=cpu.original_font_atlas_hash;
+  buffers.font_bindings=std::move(font_bindings);
   auto [storage,added]=s.font_uploads.emplace(draw_key,std::move(gpu));
   if(!added)throw std::logic_error("Duplicate EFont source GPU generation");
   try {
@@ -947,7 +961,7 @@ bool DiligentEorDirectBackend::PreflightOriginalScene(
          mesh->second.original_mesh_header_offset!=SIZE_MAX ||
          mesh->second.original_font_frame!=d.source_frame ||
          mesh->second.original_font_draw_ordinal!=d.source_ordinal ||
-         !mesh->second.original_font_atlas_hash)
+         !mesh->second.original_font_atlas_hash || !mesh->second.font_bindings)
         return false;
     } else if(item.original_mesh_header_offset==SIZE_MAX ||
               mesh->second.original_mesh_header_offset!=
@@ -1202,9 +1216,10 @@ bool DiligentEorDirectBackend::DrawIndexed(const native::IndexedDraw& draw) {
     const auto matrices=aot::ExtractOriginalDrawVsMatrices(s.vertex,draw);
     const auto packed=s.packed_constants.find({
         draw.source_frame,draw.source_ordinal});
-    if(!matrices || !draw.guest_shader_constants ||
+    auto* resources=is_font ? resident.font_bindings.RawPtr() : s.active.bindings.RawPtr();
+    if(!resources || !matrices || !draw.guest_shader_constants ||
        packed==s.packed_constants.end() ||
-       !s.bind_constants(s.active.bindings.RawPtr(),s.vertex,s.pixel,
+       !s.bind_constants(resources,s.vertex,s.pixel,
                          draw,*matrices,*draw.guest_shader_constants,
                          packed->second.vertex,packed->second.pixel)) {
       // Never permit a later draw to reuse constants from an earlier draw
@@ -1225,7 +1240,7 @@ bool DiligentEorDirectBackend::DrawIndexed(const native::IndexedDraw& draw) {
     s.context->SetScissorRects(1,&original_scissor,
                               s.frame.world.width,s.frame.world.height);
     s.context->SetPipelineState(s.active.pipeline.RawPtr());
-    s.context->CommitShaderResources(s.active.bindings.RawPtr(),
+    s.context->CommitShaderResources(resources,
         Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
     s.context->SetVertexBuffers(0,binding_count,
         buffers.data(),offsets.data(),

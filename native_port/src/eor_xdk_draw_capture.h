@@ -477,6 +477,8 @@ struct RawDraw {
   std::optional<aot::OriginalEffectPass> observed_live_eor_effect_pass;
   std::array<uint32_t,16> original_pixel_texture_keys{};
   std::optional<OriginalInlineGlyphBatch> inline_glyphs;
+  // Pixel fetch constant s0, copied at the same Font_Main Draw as its atlas.
+  std::optional<std::array<uint32_t,6>> original_font_fetch;
 };
 // Original USA Decal direct XDK call is at guest 0x8265B538.
 // An engine render-item->geometry witness, if present, must match the
@@ -636,6 +638,8 @@ std::optional<VerticesXdkCall> DecodeOriginalVerticesXdkCall(const RawDraw& call
 std::optional<OriginalInlineGlyphBatch> CaptureUsaInlineGlyphs(
     const RawDraw& call,uint32_t wrapper,uint32_t wrapper_sp,
     ReadGuestBytes reader,void* state,OriginalGuestBufferSnapshots& buffers);
+std::optional<std::array<uint32_t,6>> CaptureUsaFontFetch(
+    uint32_t device, ReadGuestBytes read,void* state);
 std::optional<VerticesXdkCall> DecodeOriginalFontVertices(const RawDraw& call);
 // Original USA frontend DrawVertices prim=6 (D3DPT_TRIANGLEFAN) emits two
 // triangles for a four-vertex quad; Vulkan's native DrawIndexed uses lists.

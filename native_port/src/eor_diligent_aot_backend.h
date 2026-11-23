@@ -66,6 +66,7 @@ struct NativeEorDrawBuffers {
   uint64_t original_font_frame=0;
   uint32_t original_font_draw_ordinal=UINT32_MAX;
   uint32_t original_font_atlas_hash=0;
+  Diligent::RefCntAutoPtr<Diligent::IShaderResourceBinding> font_bindings;
 };
 // Build real immutable host XYZ/index buffer table from original uploaded
 // Xbox360 models. Other shader input slots must be independently decoded.

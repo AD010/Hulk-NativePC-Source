@@ -1,6 +1,7 @@
 // Offscreen Vulkan integration. Supply the original USA INDEX.IND and TEXTURES.ARC.
 #include "eor_diligent_texture_residency.h"
 #include "eor_diligent_original_pipeline.h"
+#include "eor_diligent_material_textures.h"
 #include "eor_effect_catalog.h"
 #include "eor_original_font_source.h"
 #include "eor_native_font_geometry.h"
@@ -24,8 +25,7 @@
 using namespace Diligent;
 namespace eor = hulk::eor;
 
-static void CheckPixels(IRenderDevice* device, IDeviceContext* context, ITexture* image,
-                        const auto& mip) {
+static std::vector<std::byte> ReadPixels(IRenderDevice* device, IDeviceContext* context, ITexture* image) {
   auto desc=image->GetDesc();
   desc.Name="Original USA atlas readback";
   desc.Usage=USAGE_STAGING;
@@ -38,26 +38,26 @@ static void CheckPixels(IRenderDevice* device, IDeviceContext* context, ITexture
                           staging,RESOURCE_STATE_TRANSITION_MODE_TRANSITION};
   context->CopyTexture(copy);
   context->WaitForIdle();
+  const size_t pitch=size_t(desc.Width)*4;
+  std::vector<std::byte> pixels(pitch*desc.Height);
   MappedTextureSubresource mapped{};
   context->MapTextureSubresource(staging,0,0,MAP_READ,MAP_FLAG_DO_NOT_WAIT,nullptr,mapped);
   if (!mapped.pData) throw std::runtime_error("Vulkan atlas readback failed");
-  bool matches=mip.row_pitch_bytes==size_t(desc.Width)*4 && mapped.Stride>=mip.row_pitch_bytes &&
-               mip.blocks.size()==size_t(desc.Height)*mip.row_pitch_bytes;
-  size_t differing=0;
-  if(matches) for(Uint32 y=0;y<desc.Height;++y) {
-    const auto* actual=static_cast<const std::byte*>(mapped.pData)+y*mapped.Stride;
-    const auto* expected=mip.blocks.data()+size_t(y)*mip.row_pitch_bytes;
-    if(std::memcmp(actual,expected,mip.row_pitch_bytes)==0)continue;
-    for(Uint32 i=0;i<mip.row_pitch_bytes;++i) if(actual[i]!=expected[i]) {
-      if(differing<8) std::cerr<<"readback ("<<i/4<<","<<y<<") channel "<<i%4
-          <<" got "<<std::to_integer<unsigned>(actual[i])<<" expected "
-          <<std::to_integer<unsigned>(expected[i])<<"\n";
-      ++differing;
-    }
+  if(mapped.Stride>=pitch) {
+    for(Uint32 y=0;y<desc.Height;++y)
+      std::memcpy(pixels.data()+size_t(y)*pitch,
+                  static_cast<const std::byte*>(mapped.pData)+y*mapped.Stride,pitch);
   }
-  matches = matches && differing==0;
   context->UnmapTextureSubresource(staging,0,0);
-  if (!matches) throw std::runtime_error("Vulkan readback differs from decoded atlas");
+  if(mapped.Stride<pitch)throw std::runtime_error("Invalid Vulkan readback row stride");
+  return pixels;
+}
+
+static void CheckPixels(IRenderDevice* device, IDeviceContext* context, ITexture* image,
+                        const auto& mip) {
+  if(mip.row_pitch_bytes!=size_t(image->GetDesc().Width)*4 ||
+     ReadPixels(device,context,image)!=mip.blocks)
+    throw std::runtime_error("Vulkan readback differs from expected pixels");
 }
 
 static void VerifyAtlas(IRenderDevice* device, IDeviceContext* context,
@@ -101,7 +101,8 @@ static RefCntAutoPtr<IBuffer> BufferOf(IRenderDevice* device, BIND_FLAGS flags, 
 static void VerifyFontDraw(IRenderDevice* device, IDeviceContext* context,
                            const eor::textures::OriginalXboxTextureAssets& assets,
                            eor::gpu::DiligentOriginalTextureResidency& residency,
-                           const char* bank_path,const char* effects_path,const char* captured_path) {
+                           const char* bank_path,const char* effects_path,const char* captured_path,
+                           const char* fetch_path) {
   eor::aot::EffectCatalog effects;
   effects.Load(effects_path);
   eor::aot::ShaderBank bank;
@@ -140,8 +141,9 @@ static void VerifyFontDraw(IRenderDevice* device, IDeviceContext* context,
   const auto atlas_width=desc.Width, atlas_height=desc.Height;
   if(captured_path) {
     // Replay normalized game positions on the original USA 720p framebuffer.
-    desc.Width=1280;
-    desc.Height=720;
+    const Uint32 scale=fetch_path ? 2u : 1u; // At 2x, sampling between atlas texels is observable.
+    desc.Width=1280*scale;
+    desc.Height=720*scale;
   }
   desc.Name="Font raster output";
   desc.BindFlags=BIND_RENDER_TARGET;
@@ -202,20 +204,23 @@ static void VerifyFontDraw(IRenderDevice* device, IDeviceContext* context,
   RefCntAutoPtr<ITexture> depth;
   device->CreateTexture(depth_desc,nullptr,&depth);
   if(!depth) throw std::runtime_error("Font depth attachment unavailable");
-  context->SetRenderTargets(1,&rtv,depth->GetDefaultView(TEXTURE_VIEW_DEPTH_STENCIL),
-                            RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
-  Rect clip{0,0,static_cast<Int32>(desc.Width),static_cast<Int32>(desc.Height)};
-  context->SetScissorRects(1,&clip,desc.Width,desc.Height);
-  const float clear[]={1,0,1,1};
-  context->ClearRenderTarget(rtv,clear,RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
-  context->SetPipelineState(pipeline);
-  Uint64 offsets[3]{};
-  IBuffer* streams[]={xyz,uv,rgba};
-  context->SetVertexBuffers(0,3,streams,offsets,RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
-  context->SetIndexBuffer(ib,0,RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
-  context->CommitShaderResources(binding,RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
-  context->DrawIndexed({static_cast<Uint32>(indices.size()),VT_UINT32,DRAW_FLAG_VERIFY_ALL});
-  context->SetRenderTargets(0,nullptr,nullptr,RESOURCE_STATE_TRANSITION_MODE_NONE);
+  auto render=[&](IShaderResourceBinding* descriptors) {
+    context->SetRenderTargets(1,&rtv,depth->GetDefaultView(TEXTURE_VIEW_DEPTH_STENCIL),
+                              RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+    Rect clip{0,0,static_cast<Int32>(desc.Width),static_cast<Int32>(desc.Height)};
+    context->SetScissorRects(1,&clip,desc.Width,desc.Height);
+    const float clear[]={1,0,1,1};
+    context->ClearRenderTarget(rtv,clear,RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+    context->SetPipelineState(pipeline);
+    Uint64 offsets[3]{};
+    IBuffer* streams[]={xyz,uv,rgba};
+    context->SetVertexBuffers(0,3,streams,offsets,RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+    context->SetIndexBuffer(ib,0,RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+    context->CommitShaderResources(descriptors,RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+    context->DrawIndexed({static_cast<Uint32>(indices.size()),VT_UINT32,DRAW_FLAG_VERIFY_ALL});
+    context->SetRenderTargets(0,nullptr,nullptr,RESOURCE_STATE_TRANSITION_MODE_NONE);
+  };
+  render(binding);
   auto source=assets.LoadHash(0xdad1dd22);
   const auto& gpu=*source->verified_gpu_mips;
   const auto texels=eor::textures::PrepareExplicitOriginalMips(
@@ -267,6 +272,48 @@ static void VerifyFontDraw(IRenderDevice* device, IDeviceContext* context,
     CheckPixels(device,context,target,reference);
     std::cout<<vertices.size()/4<<" captured glyphs, "<<shaded<<" fragments, "
              <<visible<<" with nonzero alpha; full target matched\n";
+    if(fetch_path) {
+      std::ifstream stream(fetch_path,std::ios::binary|std::ios::ate);
+      if(stream.tellg()!=24)throw std::runtime_error("Expected a single original XDK fetch constant");
+      std::array<uint32_t,6> words{};
+      stream.seekg(0);
+      for(auto& word:words)for(unsigned i=0;i<4;++i) {
+        char byte;
+        if(!stream.get(byte))throw std::runtime_error("Truncated XDK fetch constant");
+        word=(word<<8)|static_cast<unsigned char>(byte);
+      }
+      // Independent oracle for this saved slot 0. Keep the exact CPU point
+      // check above and compare the second full render byte-for-byte.
+      auto glyph_binding=[&]() {
+        RefCntAutoPtr<IShaderResourceBinding> out;
+        pipeline->CreateShaderResourceBinding(&out,true);
+        if(!out)throw std::runtime_error("Glyph SRB unavailable");
+        for(auto stage:{SHADER_TYPE_VERTEX,SHADER_TYPE_PIXEL})
+          out->GetVariableByName(stage,"HulkSharedConstants")->Set(shared);
+        return out;
+      };
+      auto captured=glyph_binding();
+      eor::gpu::BindUsaFontMainAtlas(device,captured,*atlas,words);
+      render(captured);
+      const auto sampled=ReadPixels(device,context,target);
+      auto oracle=glyph_binding();
+      SamplerDesc linear{};
+      linear.MinFilter=linear.MagFilter=FILTER_TYPE_LINEAR;
+      linear.MipFilter=FILTER_TYPE_POINT;
+      linear.AddressU=linear.AddressV=TEXTURE_ADDRESS_WRAP;
+      linear.AddressW=TEXTURE_ADDRESS_CLAMP;
+      linear.MinLOD=linear.MaxLOD=0;
+      RefCntAutoPtr<ISampler> expected;
+      device->CreateSampler(linear,&expected);
+      if(!expected)throw std::runtime_error("Reference sampler unavailable");
+      oracle->GetVariableByName(SHADER_TYPE_PIXEL,"HulkTexture2D_s0")->Set(atlas->SRV());
+      oracle->GetVariableByName(SHADER_TYPE_PIXEL,"HulkSampler_s0")->Set(expected);
+      render(oracle);
+      auto observed=ReadPixels(device,context,target);
+      if(observed!=sampled)throw std::runtime_error("Captured sampler differs from linear reference");
+      if(observed==reference.blocks)throw std::runtime_error("Sampling fixture did not distinguish linear from point");
+      std::cout<<"Captured XDK linear font sampler matched all "<<desc.Width*desc.Height<<" pixels\n";
+    }
     return;
   }
   CheckPixels(device,context,target,texels.mips.front());
@@ -275,7 +322,7 @@ static void VerifyFontDraw(IRenderDevice* device, IDeviceContext* context,
 
 int main(int argc,char** argv) {
   try {
-    if (argc!=3 && argc!=5 && argc!=6) throw std::invalid_argument("Expected USA INDEX.IND and TEXTURES.ARC paths");
+    if (argc!=3 && argc!=5 && argc!=6 && argc!=7) throw std::invalid_argument("Expected USA INDEX.IND and TEXTURES.ARC paths");
     const auto assets=eor::textures::OriginalXboxTextureAssets::OpenPinnedUsa(argv[1],argv[2]);
     auto* factory=LoadAndGetEngineFactoryVk();
     if (!factory) throw std::runtime_error("Diligent Vulkan factory unavailable");
@@ -288,7 +335,7 @@ int main(int argc,char** argv) {
     eor::gpu::DiligentOriginalTextureResidency residency(device,assets);
     VerifyAtlas(device,context,assets,residency,0x995ad5dc);
     VerifyAtlas(device,context,assets,residency,0xdad1dd22);
-    if(argc>=5) VerifyFontDraw(device,context,assets,residency,argv[3],argv[4],argc==6 ? argv[5] : nullptr);
+    if(argc>=5) VerifyFontDraw(device,context,assets,residency,argv[3],argv[4],argc>=6 ? argv[5] : nullptr,argc==7 ? argv[6] : nullptr);
   } catch (const std::exception& error) {
     std::cerr<<error.what()<<'\n';
     return 1;
