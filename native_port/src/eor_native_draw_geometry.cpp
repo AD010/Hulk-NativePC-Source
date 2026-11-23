@@ -878,9 +878,9 @@ std::vector<VerifiedDrawSource> ResolveCapturedResourceDraws(
       // their bytes are stronger evidence than a reusable shader/material
       // witness. Do not silently discard a negative exact source match and
       // send a wrong model to Vulkan merely because one witness remains.
-      if(indexed && !exact)
+      if((indexed || call.captured_vertex_bindings) && !exact)
         throw std::invalid_argument(
-            "Original indexed Xbox vertex/index bytes disprove EoR mesh ownership");
+            "Captured Xbox geometry does not identify the original EoR mesh");
     }
     exact_mesh_at_draw.push_back(exact);
     std::optional<VerifiedXdkDrawSubmission> unique;
@@ -1024,7 +1024,21 @@ std::vector<VerifiedDrawSource> ResolveCapturedResourceDraws(
              (at_draw || !candidate.original_linear_index_stream_verified))
             continue;
           auto mapped=*link;
-          if(!same_xdk_index_window) {
+          if(!at_draw && candidate.original_linear_index_stream_verified &&
+             call.captured_vertex_bindings && exact) {
+            // A dynamic buffer can move the same source mesh between Draws
+            // while the object, material and even the XDK arguments stay the
+            // same. Translate against the currently captured memory windows.
+            const int64_t base=int64_t(indexed->base_vertex)-exact->guest_first_vertex;
+            if(!link->guest_to_native_index_stream_verified ||
+               !link->original_triangle_list_verified || !link->original_material_at_draw_verified ||
+               indexed->first_index<exact->guest_first_index || base<INT32_MIN || base>INT32_MAX)
+              continue;
+            mapped.native_draw.first_index=indexed->first_index-exact->guest_first_index;
+            mapped.native_draw.host_base_vertex=static_cast<int32_t>(base);
+            mapped.native_draw.index_count=indexed->index_count;
+            mapped.original_guest_call=*indexed;
+          } else if(!same_xdk_index_window) {
             if(!link->guest_to_native_index_stream_verified ||
                !link->original_triangle_list_verified ||
                !link->original_material_at_draw_verified)
@@ -1052,6 +1066,8 @@ std::vector<VerifiedDrawSource> ResolveCapturedResourceDraws(
       } else if(const auto* link=std::get_if<VerifiedXdkVerticesSubmission>(
                      &candidate.original_source_submission)) {
         const auto& x=link->original_guest_call;
+        if(exact && int64_t(vertices->start_vertex)-exact->guest_first_vertex!=link->host_first_vertex)
+          continue;
         if(x.xdk_function==vertices->xdk_function &&
            x.caller_lr==vertices->caller_lr &&
            x.guest_device==vertices->guest_device &&

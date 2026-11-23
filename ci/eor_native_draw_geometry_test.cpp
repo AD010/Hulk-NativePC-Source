@@ -929,6 +929,41 @@ int main(){
   assert(recoveredOwner.size()==1 &&
          recoveredOwner[0].original_model_hash==0xCAFE &&
          recoveredOwner[0].original_mesh_header_offset==40);
+  // The same bound allocations can contain a different prefix at this Draw.
+  // A catalog-wide linear witness follows the physical windows. A witness
+  // scoped to this very Draw may not contradict them.
+  auto movingFrame=sourceFrame;
+  auto moved=packedDraw;
+  moved.captured_vertex_bindings=true;
+  moved.vertex_bindings[0]=xdk::UsaVertexStreamBinding{
+      sharedVb->guest_object,sharedVb->guest_address,sharedVb->guest_size,0,sharedVb->guest_size,stride};
+  moved.index_binding=xdk::UsaIndexBufferBinding{
+      sharedIb->guest_object,sharedIb->guest_address,sharedIb->guest_size,2,1};
+  movingFrame.calls[0]=moved;
+  auto linearOwner=trueOwner;linearOwner.original_linear_index_stream_verified=true;
+  const auto current=native::ResolveCapturedResourceDraws(movingFrame,std::vector{linearOwner},models);
+  assert(current.size()==1 && !current[0].first_index && !current[0].host_base_vertex);
+  auto& scoped=std::get<native::VerifiedXdkIndexedSubmission>(linearOwner.original_source_submission);
+  scoped.original_guest_call=*xdk::DecodeOriginalIndexedXdkCall(moved);
+  scoped.native_draw.first_index=1;scoped.native_draw.host_base_vertex=1;
+  scoped.native_draw.original_frame_sequence=movingFrame.sequence;scoped.native_draw.original_call_ordinal=0;
+  Reject([&]{(void)native::ResolveCapturedResourceDraws(movingFrame,std::vector{linearOwner},models);});
+  // A nonindexed mesh with two valid triangles must select the one addressed
+  // by the live VB window even when the other also passes linearization.
+  auto plainFrame=movingFrame;
+  auto& plainDraw=plainFrame.calls[0];
+  plainDraw.kind=plain.kind;plainDraw.function=plain.function;plainDraw.lr=plain.lr;
+  plainDraw.gpr=plain.gpr;plainDraw.gpr[2]=4; // one prefixed vertex, local vertex 3
+  plainDraw.source_ib.reset();plainDraw.index_binding.reset();
+  auto plainOwner=trueOwner;
+  auto plainLink=nonindexed;
+  plainLink.original_guest_call=*xdk::DecodeOriginalVerticesXdkCall(plainDraw);
+  plainOwner.original_source_submission=plainLink;
+  auto actualTriangle=native::ResolveCapturedResourceDraws(plainFrame,std::vector{plainOwner},models);
+  assert(actualTriangle[0].first_index==3);
+  plainLink.host_first_vertex=0;plainLink.native_draw.first_index=0;
+  plainOwner.original_source_submission=plainLink;
+  Reject([&]{(void)native::ResolveCapturedResourceDraws(plainFrame,std::vector{plainOwner},models);});
   // Two independent material witnesses may use the SAME authentic XDK
   // shader objects and model mesh but DIFFERENT original ShaderEffects
   // passes. The recovered live VS/PS -> HEORMAT2 pass eliminates the
