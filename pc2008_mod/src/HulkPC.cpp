@@ -23,6 +23,7 @@ namespace {
 using Create9 = IDirect3D9* (WINAPI*)(UINT);
 using CreateDeviceFn = HRESULT (STDMETHODCALLTYPE*)(IDirect3D9*,UINT,D3DDEVTYPE,HWND,DWORD,D3DPRESENT_PARAMETERS*,IDirect3DDevice9**);
 using ReleaseDeviceFn = ULONG (STDMETHODCALLTYPE*)(IDirect3DDevice9*);
+using ReleaseVSFn = ULONG (STDMETHODCALLTYPE*)(IDirect3DVertexShader9*);
 using PresentFn = HRESULT (STDMETHODCALLTYPE*)(IDirect3DDevice9*,const RECT*,const RECT*,HWND,const RGNDATA*);
 using ResetFn = HRESULT (STDMETHODCALLTYPE*)(IDirect3DDevice9*,D3DPRESENT_PARAMETERS*);
 using CreateVSFn = HRESULT (STDMETHODCALLTYPE*)(IDirect3DDevice9*,const DWORD*,IDirect3DVertexShader9**);
@@ -35,6 +36,7 @@ Create9 realCreate9{};
 CreateDeviceFn realCreateDevice{};
 PresentFn realPresent{};
 ReleaseDeviceFn realReleaseDevice{};
+ReleaseVSFn realReleaseVS{};
 ResetFn realReset{};
 CreateVSFn realCreateVS{};
 CreatePSFn realCreatePS{};
@@ -311,6 +313,7 @@ ShaderInfo ReadCtab(IDirect3DVertexShader9* shader) {
 HRESULT STDMETHODCALLTYPE OnCreateDevice(IDirect3D9*,UINT,D3DDEVTYPE,HWND,
                                          DWORD,D3DPRESENT_PARAMETERS*,IDirect3DDevice9**);
 ULONG STDMETHODCALLTYPE OnReleaseDevice(IDirect3DDevice9*);
+ULONG STDMETHODCALLTYPE OnReleaseVS(IDirect3DVertexShader9*);
 HRESULT STDMETHODCALLTYPE OnPresent(IDirect3DDevice9*,const RECT*,const RECT*,HWND,const RGNDATA*);
 HRESULT STDMETHODCALLTYPE OnReset(IDirect3DDevice9*,D3DPRESENT_PARAMETERS*);
 HRESULT STDMETHODCALLTYPE OnCreateVS(IDirect3DDevice9*,const DWORD*,IDirect3DVertexShader9**);
@@ -599,6 +602,18 @@ HRESULT STDMETHODCALLTYPE OnPresent(IDirect3DDevice9* dev,const RECT* a,
   // caller to switch back to the device's regular presentation window.
   return realPresent(dev,a,b,c,d);
 }
+ULONG STDMETHODCALLTYPE OnReleaseVS(IDirect3DVertexShader9* shader) {
+  if(!realReleaseVS)return 1;
+  // The final COM Release destroys the shader. Never dereference it after
+  // forwarding; use the address only to retire its cached CTAB reflection.
+  const ULONG remaining=realReleaseVS(shader);
+  if(remaining==0) {
+    std::lock_guard lock(shaderMutex);
+    shaderMap.erase(shader);
+    if(activeVS==shader)activeVS=nullptr;
+  }
+  return remaining;
+}
 HRESULT STDMETHODCALLTYPE OnCreateVS(IDirect3DDevice9* dev,const DWORD* data,
                                      IDirect3DVertexShader9** output) {
   if(!realCreateVS)return D3DERR_INVALIDCALL;
@@ -606,7 +621,16 @@ HRESULT STDMETHODCALLTYPE OnCreateVS(IDirect3DDevice9* dev,const DWORD* data,
   if(SUCCEEDED(hr) && output && *output) {
     ShaderInfo reflection{};
     try {reflection=ReadCtab(*output);}catch(...){}
-    {std::lock_guard lock(shaderMutex);shaderMap[*output]=reflection;}
+    // Vertex shaders are COM objects. Remove their reflection when the last
+    // reference goes away; otherwise an address reused for another object
+    // can inherit stale camera metadata. Never overwrite a foreign hook.
+    const bool releaseHooked=ReplaceVtable(*output,2,&OnReleaseVS,realReleaseVS);
+    if(releaseHooked) {
+      std::lock_guard lock(shaderMutex);
+      shaderMap[*output]=reflection;
+    } else {
+      Log("[D3D9] VS Release hook unavailable; skipping unsafe CTAB cache\r\n");
+    }
     ++vsCount;
     if(reflection.hasView)++viewProjCount;
   }
