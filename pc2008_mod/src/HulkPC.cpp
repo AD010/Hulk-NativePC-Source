@@ -819,7 +819,7 @@ HRESULT STDMETHODCALLTYPE OnSetTexture(IDirect3DDevice9* dev,DWORD stage,
     // record while leaving the previously enhanced MIN filter in place.
     // Therefore MIN restoration on unbind must not depend on that record.
     // Do not force a filter when AF is disabled or no LINEAR request exists.
-    if(!texture && anisotropy && linear && !restoreMaximum) {
+    if(!texture && anisotropy && linear) {
       const HRESULT minHr=realSampler(dev,stage,D3DSAMP_MINFILTER,D3DTEXF_LINEAR);
       if(FAILED(minHr))
         Log("[D3D9] AF MIN restore on unbind failed stage=%lu hr=0x%08lX\r\n",
