@@ -64,6 +64,7 @@ class DiligentSceneTargets {
   bool Prepare(const native::FrameGeometry& frame,
                VerifiedSceneFormat verified);
   bool SetDepthBound(bool bind);
+  bool DepthBound() const noexcept;
   bool BeginScene(); // does not clear: the real EoR Clear/Depth ABI owns it
   // Execute original XDK ClearF on independently OWNED native RT0/depth.
   // The caller must already prove these host views own the original guest

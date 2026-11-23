@@ -162,6 +162,9 @@ bool DiligentSceneTargets::BeginScene() {
     return true;
   } catch (...) {AbortScene();return false;}
 }
+bool DiligentSceneTargets::DepthBound() const noexcept {
+  return state_->bound && state_->depth_bound;
+}
 bool DiligentSceneTargets::SetDepthBound(bool bind) {
   if(!state_ || !state_->bound || (bind && !state_->depth))return false;
   if(state_->depth_bound==bind)return true;

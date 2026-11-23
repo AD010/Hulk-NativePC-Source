@@ -21,6 +21,13 @@
 
 namespace hulk::eor::gpu {
 namespace {
+using MaterialKey=std::tuple<uint32_t,uint32_t,uint32_t,uint32_t,bool>;
+MaterialKey PassKey(uint32_t model,uint32_t surface,const VerifiedOriginalGraphicsPass& pass) {
+  return {model,surface,pass.original_effect_hash,pass.original_pass_index,pass.original_depth_unbound};
+}
+MaterialKey PassKey(const NativeEorPassResources& owner) {
+  return PassKey(owner.original_model_hash,owner.original_surface_ordinal,owner.pipeline);
+}
 bool Same(native::Size a,native::Size b) {
   return a.width==b.width && a.height==b.height;
 }
@@ -129,7 +136,7 @@ std::vector<NativeEorPassResources> AcquireVerifiedNativeMaterialPasses(
     DiligentOriginalTextureResidency& residency) {
   if(verified.empty())
     throw std::invalid_argument("No original source-proven EoR material passes");
-  std::set<std::tuple<uint32_t,uint32_t,uint32_t,uint32_t>> keys;
+  std::set<MaterialKey> keys;
   // Validate every material/pass owner BEFORE the first original GPU image
   // allocation; never replace a missing Texture with a synthetic SRV.
   for(const auto& p:verified) {
@@ -138,8 +145,7 @@ std::vector<NativeEorPassResources> AcquireVerifiedNativeMaterialPasses(
        !pass.original_effect_hash || pass.original_pass_index==UINT32_MAX ||
        !pass.material_pass_verified || !pass.original_render_state_verified ||
        !pass.original_host_vertex_layout_verified ||
-       !keys.emplace(p.original_model_hash,p.original_surface_ordinal,
-                     pass.original_effect_hash,pass.original_pass_index).second)
+       !keys.insert(PassKey(p.original_model_hash,p.original_surface_ordinal,pass)).second)
       throw std::invalid_argument("Ambiguous or unverified original EoR material pass");
     std::vector<VerifiedEorSampler> identifiers;
     identifiers.reserve(p.original_images.size());
@@ -209,7 +215,6 @@ std::vector<NativeEorDrawBuffers> PositionOnlyDrawBuffersFromOriginalModels(
   return result;
 }
 struct DiligentEorDirectBackend::State {
-  using MaterialKey=std::tuple<uint32_t,uint32_t,uint32_t,uint32_t>;
   State(Diligent::IRenderDevice* d,Diligent::IDeviceContext* c,
         DiligentSceneTargets& sc,DiligentMeshUploadBackend& ms,
         DiligentAotShaderModules& shaders,const aot::ShaderBank& bank,
@@ -225,10 +230,7 @@ struct DiligentEorDirectBackend::State {
     // asset load, not O(draws * all-materials) on every game frame.
     // Pointers remain stable: the resident pass vector is never reallocated.
     for(const auto& original:passes) {
-      const MaterialKey key{original.original_model_hash,
-          original.original_surface_ordinal,
-          original.pipeline.original_effect_hash,
-          original.pipeline.original_pass_index};
+      const auto key=PassKey(original);
       if(!material_lookup.emplace(key,&original).second)
         throw std::invalid_argument("Duplicate native EoR surface/material pass");
     }
@@ -423,7 +425,7 @@ DiligentEorDirectBackend::DiligentEorDirectBackend(
                         pass.original_vertex_shader_sha256,
                         pass.original_pixel_shader_sha256))
       throw std::invalid_argument("Native EoR shader/pass provenance mismatched");
-    // State::material_lookup already rejects duplicate four-part owners
+    // State::material_lookup already rejects duplicate material and attachment variants
     // in O(log N) per pass, before any Vulkan pipeline is allocated.
   }
   for(const auto& [position,resident]:state_->draw_buffers) {
@@ -636,10 +638,7 @@ std::size_t DiligentEorDirectBackend::PrewarmResidentOriginalPipelines(
   for(const auto& owner:s.passes) {
     if(warmed>=max_new || attempted>=attempt_budget)break;
     if(!resident_models.contains(owner.original_model_hash))continue;
-    const State::MaterialKey key{
-        owner.original_model_hash,owner.original_surface_ordinal,
-        owner.pipeline.original_effect_hash,
-        owner.pipeline.original_pass_index};
+    const auto key=PassKey(owner);
     if(s.pipeline_cache.contains(key) &&
        s.material_bindings.contains(key))continue;
     ++attempted;
@@ -701,9 +700,9 @@ aot::BoundIndexedDraw DiligentEorDirectBackend::StageVerifiedOriginalFontDraw(
   // This is actual transient EFontShader vertex/index data emitted by the
   // game, with an independently verified source XDK declaration and atlas.
   auto cpu=ui::DecodeOriginalLiveFontDraw(call,layout,frame,ordinal);
-  const State::MaterialKey material{
+  const MaterialKey material{
       original_font_resource_hash,surface_ordinal,
-      cpu.original_effect_hash,cpu.original_pass_index};
+      cpu.original_effect_hash,cpu.original_pass_index,!live.original_depth_guest_object};
   const auto found=s.material_lookup.find(material);
   if(found==s.material_lookup.end())
     throw std::invalid_argument("Original EFont archive material/pass not resident");
@@ -864,7 +863,7 @@ bool DiligentEorDirectBackend::PreflightOriginalScene(
   s.packed_constants.clear();
   if(draws.empty())return false;
   std::map<State::DrawKey,State::PackedConstants> prepared_constants;
-  std::set<State::MaterialKey> needed_materials;
+  std::set<MaterialKey> needed_materials;
   std::set<std::pair<uint64_t,uint32_t>> captured_calls;
   uint64_t captured_frame=0;
   uint32_t next_original_ordinal=0;
@@ -894,9 +893,10 @@ bool DiligentEorDirectBackend::PreflightOriginalScene(
        item.original_surface_ordinal==UINT32_MAX || !item.effect_hash ||
        item.pass_index==UINT32_MAX)
       return false;
-    const auto owner=s.material_lookup.find(
-        {item.original_model_hash,item.original_surface_ordinal,
-         item.effect_hash,item.pass_index});
+    if(!d.guest_vs_matrices)return false;
+    const MaterialKey key{item.original_model_hash,item.original_surface_ordinal,
+                          item.effect_hash,item.pass_index,!d.guest_vs_matrices->original_depth_guest_object};
+    const auto owner=s.material_lookup.find(key);
     const NativeEorPassResources* selected=
         owner==s.material_lookup.end()?nullptr:owner->second;
     if(!selected ||
@@ -907,7 +907,7 @@ bool DiligentEorDirectBackend::PreflightOriginalScene(
     // The exact per-Draw XDK device shadow is independent of the
     // interleaved command log. Reject unknown/changed RT0 or depth owners
     // BEFORE pipeline compilation, color clears or the first Vulkan Draw.
-    if(!d.source_frame || !d.guest_vs_matrices ||
+    if(!d.source_frame ||
        !MatchesVerifiedOriginalXdkMainDrawTargets(
            *d.guest_vs_matrices,s.format.original_screen,!selected->pipeline.original_depth_unbound) ||
        !d.guest_shader_constants)
@@ -1005,9 +1005,7 @@ bool DiligentEorDirectBackend::PreflightOriginalScene(
                                     d.index_count,d.base_vertex,
                                     mesh->second.vertex_count))
       return false;
-    needed_materials.emplace(item.original_model_hash,
-                             item.original_surface_ordinal,
-                             item.effect_hash,item.pass_index);
+    needed_materials.insert(key);
   }
   // Pass two: compile/link only the ORIGINAL shader techniques that this
   // frame will execute. A PSO failure occurs before BeginScene and never
@@ -1045,8 +1043,8 @@ bool DiligentEorDirectBackend::PreflightOriginalScene(
     }
     for(const auto& item:draws) {
       if(item.original_dynamic_font_draw || !item.draw.source_frame)continue;
-      const State::MaterialKey key{item.original_model_hash,item.original_surface_ordinal,
-                                   item.effect_hash,item.pass_index};
+      const MaterialKey key{item.original_model_hash,item.original_surface_ordinal,
+                            item.effect_hash,item.pass_index,!item.draw.guest_vs_matrices->original_depth_guest_object};
       const auto& textures=s.material_lookup.at(key)->original_textures;
       const bool scalar=std::any_of(textures.begin(),textures.end(),[](const auto& texture) {
         return aot::DecodeFixedAotImageSlot(texture.identity.exact_shader_variable_name).has_value();
@@ -1121,7 +1119,7 @@ bool DiligentEorDirectBackend::BindOriginalSurface(uint32_t model,uint32_t ordin
   if(!s.scene_open || s.finished || !model || ordinal==UINT32_MAX)return false;
   // A source model may own many effects, but the first keyed pass is
   // sufficient to prove that THIS exact model/surface is resident.
-  const auto item=s.material_lookup.lower_bound({model,ordinal,0u,0u});
+  const auto item=s.material_lookup.lower_bound({model,ordinal,0u,0u,false});
   if(item==s.material_lookup.end() ||
      std::get<0>(item->first)!=model ||
      std::get<1>(item->first)!=ordinal)return false;
@@ -1136,7 +1134,7 @@ bool DiligentEorDirectBackend::BindOriginalEffect(uint32_t effect,uint32_t pass)
   s.selected=nullptr;s.active={};
   s.constants_ready=s.program_ready=s.textures_ready=false;
   const auto item=s.material_lookup.find(
-      {s.requested_model,s.requested_surface,effect,pass});
+      {s.requested_model,s.requested_surface,effect,pass,!s.scene.DepthBound()});
   if(item==s.material_lookup.end())return false;
   s.selected=item->second;
   return true;
@@ -1169,16 +1167,8 @@ bool DiligentEorDirectBackend::BindVerifiedProgramPair(
     return false;
   // This path executes in an open render pass: it must NOT compile a new
   // PSO or allocate a mutable SRB. Both were already source-preflighted.
-  const auto pipeline=s.pipeline_cache.find({
-      s.selected->original_model_hash,
-      s.selected->original_surface_ordinal,
-      s.selected->pipeline.original_effect_hash,
-      s.selected->pipeline.original_pass_index});
-  const auto binding=s.material_bindings.find({
-      s.selected->original_model_hash,
-      s.selected->original_surface_ordinal,
-      s.selected->pipeline.original_effect_hash,
-      s.selected->pipeline.original_pass_index});
+  const auto pipeline=s.pipeline_cache.find(PassKey(*s.selected));
+  const auto binding=s.material_bindings.find(PassKey(*s.selected));
   if(pipeline==s.pipeline_cache.end() ||
      binding==s.material_bindings.end() ||
      !pipeline->second.pipeline || !binding->second) {
@@ -1203,11 +1193,7 @@ bool DiligentEorDirectBackend::BindOriginalSamplers(
   // All original GPU image variables and mip SRVs were actually bound
   // during PreflightOriginalScene. No Diligent Set() or GPU allocations
   // are allowed on the live Draw path.
-  const auto found=s.material_bindings.find({
-      s.selected->original_model_hash,
-      s.selected->original_surface_ordinal,
-      s.selected->pipeline.original_effect_hash,
-      s.selected->pipeline.original_pass_index});
+  const auto found=s.material_bindings.find(PassKey(*s.selected));
   if(found==s.material_bindings.end() ||
      found->second.RawPtr()!=s.active.bindings.RawPtr())
     return false;

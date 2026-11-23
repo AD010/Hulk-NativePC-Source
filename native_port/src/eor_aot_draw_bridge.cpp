@@ -14,6 +14,17 @@ bool MatchesOriginalXdkDraw(
     const xdk::RawDraw& source,const BoundIndexedDraw& host) noexcept {
   const auto& draw=host.draw;
   if(!draw.guest_vs_matrices)return false;
+  if(source.observed_vs_matrices) {
+    const auto& recorded=*source.observed_vs_matrices;
+    const auto& bound=*draw.guest_vs_matrices;
+    if(recorded.original_guest_device!=bound.original_guest_device ||
+       recorded.original_rt0_guest_object!=bound.original_rt0_guest_object ||
+       recorded.original_depth_guest_object!=bound.original_depth_guest_object ||
+       recorded.original_vertex_declaration_guest_object!=bound.original_vertex_declaration_guest_object ||
+       recorded.original_vs_guest_object!=bound.original_vs_guest_object ||
+       recorded.original_ps_guest_object!=bound.original_ps_guest_object)
+      return false;
+  }
   if(const auto indexed=xdk::DecodeOriginalIndexedXdkCall(source))
     return !host.source_nonindexed_linearization_verified &&
            indexed->guest_device==draw.guest_vs_matrices->original_guest_device &&

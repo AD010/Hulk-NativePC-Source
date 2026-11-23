@@ -277,7 +277,7 @@ static void VerifyMaterialReplay(IRenderDevice* device,IDeviceContext* context,
     pixels=ReadPixels(device,context,image->GetTexture()); ++composites; return true;
   };
   gpu::DiligentEorDirectBackend backend(device,context,scene,meshes,shaders,bank,effects,frame,format,
-      {{model,0,pass,{}},{model,1,overlay,{}}},{buffers},constants,output);
+      {{model,0,pass,{}},{model,1,overlay,{}},{model,0,overlay,{}}},{buffers},constants,output);
 
   xdk::FrameCapture capture;
   using Kind=xdk::CommandKind;
@@ -330,6 +330,20 @@ static void VerifyMaterialReplay(IRenderDevice* device,IDeviceContext* context,
     if(!std::equal(expected.begin(),expected.end(),pixels.begin()+i))
       throw std::runtime_error("Two-surface replay changed the expected pixel colors");
   }
+  const auto separate_surfaces=pixels;
+  draws[1].original_surface_ordinal=0;
+  auto wrong_depth=draws;
+  wrong_depth[1].draw.guest_vs_matrices->original_depth_guest_object=screen.guest_depth;
+  bool rejected=false, scene_started=false;
+  try {
+    eor::aot::ReplayAotScene(frame,wrong_depth,bank,effects,reflection,backend,&timeline,&scene_started);
+  } catch(const std::invalid_argument&) { rejected=true; }
+  if(!rejected || scene_started || composites!=1)
+    throw std::runtime_error("Accepted a registered depth variant from a different XDK draw");
+  eor::aot::ReplayAotScene(frame,draws,bank,effects,reflection,backend,&timeline);
+  if(composites!=2 || pixels!=separate_surfaces)
+    throw std::runtime_error("Depth switch changed output when both draws shared one surface and effect");
+  std::cout<<"Depth-bound and color-only draws shared the same material, all 64000 pixels matched\n";
   std::cout<<"Direct EoR backend replayed two fixture surfaces with original FillRect shaders, "
              "64000 pixels matched in one offscreen composite\n";
 }
