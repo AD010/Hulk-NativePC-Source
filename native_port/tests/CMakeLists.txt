@@ -38,12 +38,19 @@ if(HULK_DILIGENT_CORE)
         ../src/eor_verified_sampler_bindings.cpp ../src/eor_diligent_texture_residency.cpp
         ../src/eor_diligent_xenos_textures.cpp ../src/eor_diligent_spirv_shaders.cpp
         ../src/eor_diligent_original_pipeline.cpp ../src/eor_diligent_material_textures.cpp
-        ../src/eor_diligent_scene_targets.cpp ../src/eor_spirv_bank.cpp ../src/eor_native_font_geometry.cpp
+        ../src/eor_diligent_scene_targets.cpp ../src/eor_diligent_aot_backend.cpp
+        ../src/eor_diligent_mesh_buffers.cpp ../src/eor_native_mesh_upload.cpp
+        ../src/eor_native_shader_constants.cpp ../src/eor_spirv_texture_bindings.cpp
+        ../src/eor_native_frame.cpp ../src/eor_aot_draw_bridge.cpp ../src/eor_spirv_bank.cpp ../src/eor_native_font_geometry.cpp
         ../src/eor_native_attributes.cpp ../src/eor_xdk_draw_capture.cpp)
     target_compile_features(hulk_original_ui_vulkan_test PRIVATE cxx_std_23)
     target_include_directories(hulk_original_ui_vulkan_test PRIVATE ../src)
     target_link_libraries(hulk_original_ui_vulkan_test PRIVATE
         Diligent-GraphicsEngineVk-static Diligent-GraphicsEngineVkInterface Diligent-Common)
+    if(HULK_USA_SPIRV AND HULK_USA_EFFECTS AND HULK_USA_REFLECTION)
+        add_test(NAME original_material_replay_vulkan COMMAND hulk_original_ui_vulkan_test
+            --material-replay "${HULK_USA_SPIRV}" "${HULK_USA_EFFECTS}" "${HULK_USA_REFLECTION}")
+    endif()
     if(HULK_USA_INDEX AND HULK_USA_TEXTURES)
         add_test(NAME original_ui_vulkan COMMAND hulk_original_ui_vulkan_test
             "${HULK_USA_INDEX}" "${HULK_USA_TEXTURES}")

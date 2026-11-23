@@ -1,7 +1,7 @@
 // Offscreen Vulkan integration. Supply the original USA INDEX.IND and TEXTURES.ARC.
 #include "eor_diligent_texture_residency.h"
 #include "eor_diligent_original_pipeline.h"
-#include "eor_diligent_scene_targets.h"
+#include "eor_diligent_aot_backend.h"
 #include "eor_diligent_material_textures.h"
 #include "eor_effect_catalog.h"
 #include "eor_original_font_source.h"
@@ -97,13 +97,7 @@ static RefCntAutoPtr<IBuffer> BufferOf(IRenderDevice* device, BIND_FLAGS flags, 
   return buffer;
 }
 
-// USA FillRect pass 2 forwards clip-space position and outputs PS c21.
-// Draw twice on one command list to check addressing and descriptor lifetime.
-static void VerifyFillRectRegisters(IRenderDevice* device,IDeviceContext* context,
-    eor::gpu::DiligentAotShaderModules& modules,const eor::aot::ShaderBank& bank,
-    const eor::aot::EffectCatalog& effects) {
-  using eor::aot::Stage;
-  using eor::gpu::FloatRegisterAbi;
+static eor::gpu::VerifiedOriginalGraphicsPass FillRectPass() {
   eor::gpu::VerifiedOriginalGraphicsPass pass;
   pass.original_effect_hash=0x1edd5adf;
   pass.original_pass_index=2;
@@ -123,6 +117,18 @@ static void VerifyFillRectRegisters(IRenderDevice* device,IDeviceContext* contex
   gpu.RasterizerDesc.ScissorEnable=True;
   gpu.RasterizerDesc.CullMode=CULL_MODE_NONE;
   gpu.PrimitiveTopology=PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+  return pass;
+}
+
+// USA FillRect pass 2 forwards clip-space position and outputs PS c21.
+// Draw twice on one command list to check addressing and descriptor lifetime.
+static void VerifyFillRectRegisters(IRenderDevice* device,IDeviceContext* context,
+    eor::gpu::DiligentAotShaderModules& modules,const eor::aot::ShaderBank& bank,
+    const eor::aot::EffectCatalog& effects) {
+  using eor::aot::Stage;
+  using eor::gpu::FloatRegisterAbi;
+  auto pass=FillRectPass();
+  const auto& gpu=pass.exact_render_state;
   if(modules.GetFloatRegisterAbi(bank,pass.original_vertex_shader_sha256,Stage::Vertex)!=FloatRegisterAbi::Unused ||
      modules.GetFloatRegisterAbi(bank,pass.original_pixel_shader_sha256,Stage::Pixel)!=FloatRegisterAbi::Direct256)
     throw std::runtime_error("Original FillRect register ABI mismatch");
@@ -228,6 +234,104 @@ static void VerifyFillRectRegisters(IRenderDevice* device,IDeviceContext* contex
     throw std::runtime_error("Color-only rendering differs from the original two draws");
   std::cout<<"Original FillRect preserved 2048 pixels through DSV detach/reattach and color-only rendering\n";
   std::cout<<"Original FillRect PS c21 matched both draws and all 2048 pixels\n";
+}
+
+// Original FillRect programs and reflection, controlled XDK commands and mesh.
+// Drive the production material lookup, scene preflight, DrawIndexed and Resolve.
+static void VerifyMaterialReplay(IRenderDevice* device,IDeviceContext* context,
+    const char* bank_path,const char* effects_path,const char* reflection_path) {
+  namespace gpu=eor::gpu;
+  namespace xdk=eor::xdk;
+  eor::aot::ShaderBank bank; bank.Load(bank_path);
+  eor::aot::EffectCatalog effects; effects.Load(effects_path);
+  eor::aot::ReflectionBank reflection; reflection.Load(reflection_path);
+  gpu::DiligentAotShaderModules shaders(device);
+  gpu::DiligentSceneTargets scene(device,context);
+  gpu::DiligentMeshUploadBackend meshes(device);
+  constexpr uint32_t width=320,height=200;
+  const eor::native::Size size{width,height};
+  eor::native::FrameGeometry frame{size,size,{0,0,width,height},1,false,true,size};
+  gpu::VerifiedSceneFormat format{gpu::NativeColorFormat::Rgba8,gpu::NativeDepthFormat::D32Float,
+      true,true,{1,2,3,4,true,true,false}};
+  const auto& screen=format.original_screen;
+  const std::array<eor::model::NativePosition,3> triangle{{{-1,-1,0},{3,-1,0},{-1,3,0}}};
+  const auto pos=meshes.UploadPositions(triangle);
+  const auto ib=meshes.UploadIndices(std::array<uint32_t,3>{0,1,2});
+  constexpr uint32_t model=1; // Fixture owner, never an archive model identity.
+  gpu::NativeEorDrawBuffers buffers{pos,ib,3,3,{pos},model,0};
+  auto pass=FillRectPass();
+  pass.exact_host_input_layout={{0,0,3,VT_FLOAT32,False}};
+  auto overlay=pass;
+  overlay.original_depth_unbound=true;
+  overlay.exact_render_state.DSVFormat=TEX_FORMAT_UNKNOWN;
+  overlay.exact_render_state.DepthStencilDesc.DepthWriteEnable=False;
+  auto shared=BufferOf(device,BIND_UNIFORM_BUFFER,std::array<uint32_t,8>{});
+  auto constants=[&](IShaderResourceBinding* binding,const auto&...) {
+    for(auto stage:{SHADER_TYPE_VERTEX,SHADER_TYPE_PIXEL})
+      binding->GetVariableByName(stage,"HulkSharedConstants")->Set(shared);
+    return true;
+  };
+  unsigned composites=0;
+  std::vector<std::byte> pixels;
+  auto output=[&](ITextureView* image,eor::native::Rect,eor::native::Size) {
+    pixels=ReadPixels(device,context,image->GetTexture()); ++composites; return true;
+  };
+  gpu::DiligentEorDirectBackend backend(device,context,scene,meshes,shaders,bank,effects,frame,format,
+      {{model,0,pass,{}},{model,1,overlay,{}}},{buffers},constants,output);
+
+  xdk::FrameCapture capture;
+  using Kind=xdk::CommandKind;
+  xdk::RawCommand clear{Kind::ClearF,0x82888c40,0,{screen.guest_device,1}};
+  clear.captured_clear=xdk::OriginalXdkClearF{};
+  clear.captured_clear->flags=1;
+  clear.captured_clear->has_color=true;
+  clear.captured_clear->color={0,0,1,1};
+  capture.RecordCommand(clear);
+  std::array<eor::aot::BoundIndexedDraw,2> draws{};
+  for(uint32_t i=0;i<draws.size();++i) {
+    if(i)capture.RecordCommand({Kind::SetDepthStencilSurface,0x8287f628,0,{screen.guest_device,0}});
+    xdk::RawDraw call;
+    call.kind=xdk::Kind::DrawIndexedVertices;
+    call.function=0x8288e318; call.lr=0x8265b53c; call.gpr={screen.guest_device,4,0,0,3};
+    xdk::OriginalVsMatrices live;
+    live.original_guest_device=screen.guest_device;
+    live.original_rt0_guest_object=screen.guest_rt0;
+    live.original_depth_guest_object=i ? 0 : screen.guest_depth;
+    live.original_vertex_declaration_guest_object=5;
+    live.original_vs_guest_object=6; live.original_ps_guest_object=7;
+    const int left=int(i)*int(width/2);
+    live.raster=xdk::OriginalRasterWindow{0,0,width,height,0,1,true,
+        {left,0,left+int(width/2),int(height)}};
+    auto regs=std::make_shared<xdk::OriginalShaderRegisters>();
+    regs->complete_float_banks=true;
+    regs->pixel[21*4+i]=regs->pixel[21*4+3]=1;
+    call.observed_vs_matrices=live; call.observed_shader_constants=regs;
+    auto& item=draws[i];
+    item.original_model_hash=model; item.original_mesh_header_offset=0; item.original_surface_ordinal=i;
+    item.effect_hash=pass.original_effect_hash; item.pass_index=pass.original_pass_index;
+    item.vertex_source_sha256=pass.original_vertex_shader_sha256;
+    item.pixel_source_sha256=pass.original_pixel_shader_sha256;
+    item.draw={pos,ib,6,7,3,0,0,capture.NextFrameSequence(),capture.NextDrawOrdinal(),live,regs};
+    capture.Record(call);
+  }
+  capture.RecordCommand({Kind::Resolve,0x828897f8,0,{screen.guest_device,0,0,screen.guest_front_buffer}});
+  capture.RecordCommand({Kind::Present,0x82880778,0,{screen.guest_device,screen.guest_front_buffer}});
+  const auto timeline=capture.Finish();
+  auto wrong=draws;
+  wrong.back().original_surface_ordinal=2;
+  if(backend.PreflightOriginalScene(wrong))
+    throw std::runtime_error("Material replay accepted an unregistered surface");
+  eor::aot::ReplayAotScene(frame,draws,bank,effects,reflection,backend,&timeline);
+  if(composites!=1 || pixels.size()!=width*height*4)
+    throw std::runtime_error("Expected one complete offscreen composite");
+  for(size_t i=0;i<pixels.size();i+=4) {
+    const bool left=(i/4)%width<width/2;
+    const std::array expected{std::byte(left?255:0),std::byte(left?0:255),std::byte{0},std::byte{255}};
+    if(!std::equal(expected.begin(),expected.end(),pixels.begin()+i))
+      throw std::runtime_error("Two-surface replay changed the expected pixel colors");
+  }
+  std::cout<<"Direct EoR backend replayed two fixture surfaces with original FillRect shaders, "
+             "64000 pixels matched in one offscreen composite\n";
 }
 
 // This fixture exercises the original font shaders on a controlled quad.
@@ -465,7 +569,6 @@ static void VerifyFontDraw(IRenderDevice* device, IDeviceContext* context,
 int main(int argc,char** argv) {
   try {
     if (argc!=3 && argc!=5 && argc!=6 && argc!=7) throw std::invalid_argument("Expected USA INDEX.IND and TEXTURES.ARC paths");
-    const auto assets=eor::textures::OriginalXboxTextureAssets::OpenPinnedUsa(argv[1],argv[2]);
     auto* factory=LoadAndGetEngineFactoryVk();
     if (!factory) throw std::runtime_error("Diligent Vulkan factory unavailable");
     EngineVkCreateInfo ci{};
@@ -474,6 +577,11 @@ int main(int argc,char** argv) {
     factory->CreateDeviceAndContextsVk(ci,&device,&context);
     if (!device || !context) throw std::runtime_error("Vulkan device unavailable");
     std::cout<<device->GetAdapterInfo().Description<<'\n';
+    if(argc==5 && std::strcmp(argv[1],"--material-replay")==0) {
+      VerifyMaterialReplay(device,context,argv[2],argv[3],argv[4]);
+      return 0;
+    }
+    const auto assets=eor::textures::OriginalXboxTextureAssets::OpenPinnedUsa(argv[1],argv[2]);
     eor::gpu::DiligentOriginalTextureResidency residency(device,assets);
     VerifyAtlas(device,context,assets,residency,0x995ad5dc);
     VerifyAtlas(device,context,assets,residency,0xdad1dd22);

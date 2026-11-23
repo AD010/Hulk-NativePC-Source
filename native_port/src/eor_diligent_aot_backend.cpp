@@ -214,12 +214,12 @@ struct DiligentEorDirectBackend::State {
         DiligentSceneTargets& sc,DiligentMeshUploadBackend& ms,
         DiligentAotShaderModules& shaders,const aot::ShaderBank& bank,
         const aot::EffectCatalog& effects,native::FrameGeometry f,
-        VerifiedSceneFormat formats,std::vector<NativeEorPassResources> passes,
+        VerifiedSceneFormat formats,std::vector<NativeEorPassResources> source_passes,
         std::vector<NativeEorDrawBuffers> buffers,BindConstants bind,
         CompositeOutput present)
       :device(d),context(c),scene(sc),meshes(ms),shaders(shaders),
        bank(bank),effects(effects),frame(f),format(formats),
-       passes(std::move(passes)),bind_constants(std::move(bind)),
+       passes(std::move(source_passes)),bind_constants(std::move(bind)),
        composite(std::move(present)) {
     // Pre-index exact source model/surface/effect/pass ownership ONCE at
     // asset load, not O(draws * all-materials) on every game frame.
@@ -690,8 +690,6 @@ aot::BoundIndexedDraw DiligentEorDirectBackend::StageVerifiedOriginalFontDraw(
     throw std::invalid_argument("Original EFont draw has no complete live source");
   auto& s=*state_;
   const auto& live=*call.observed_vs_matrices;
-  if(!MatchesVerifiedOriginalXdkMainDrawTargets(live,s.format.original_screen))
-    throw std::invalid_argument("Original EFont render target is not native scene");
   const auto original_vs=aot::ResolveOriginalLiveXdkShaderSource(
       shader_identity,*call.observed_live_vertex_shader_header,
       live.original_vs_guest_object,aot::Stage::Vertex,frame,ordinal);
@@ -711,6 +709,8 @@ aot::BoundIndexedDraw DiligentEorDirectBackend::StageVerifiedOriginalFontDraw(
     throw std::invalid_argument("Original EFont archive material/pass not resident");
   const auto* owner=found->second;
   const auto& pass=owner->pipeline;
+  if(!MatchesVerifiedOriginalXdkMainDrawTargets(live,s.format.original_screen,!pass.original_depth_unbound))
+    throw std::invalid_argument("Original EFont render target does not match its material pass");
   // Font_Main VS+PS were recovered from the original USA ShaderEffects
   // source and their exact 508/328-byte Xenos ShaderContainers. Match BOTH
   // SHA-256 identities from the CURRENT live guest XDK objects before a
