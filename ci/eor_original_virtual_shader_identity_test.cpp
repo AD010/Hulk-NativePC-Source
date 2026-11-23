@@ -192,6 +192,46 @@ int main() {
   assert(!capture(bound_vs,Stage::Vertex));
   guest[bound_ps+40+4]=1; // oversized or truncated virtual part
   assert(!capture(bound_ps,Stage::Pixel));
+  // Two TFETCH instructions reached through the same EXEC clause: slot 0
+  // inherits the shadow, slot 3 explicitly requests point filtering.
+  std::vector<uint8_t> program(96);
+  auto put=[](auto& data,size_t offset,uint32_t value) {
+    for(unsigned i=0;i<4;++i)data[offset+i]=uint8_t(value>>(24-8*i));
+  };
+  put(program,0,0x102a1100);put(program,4,60);put(program,8,36);
+  put(program,24,36);put(program,40,36);
+  put(program,60,1|(2u<<12)|(5u<<16));put(program,64,2u<<12);
+  put(program,72,1);put(program,76,(63u<<12)|(7u<<18));
+  put(program,84,1|(3u<<20));put(program,88,7u<<18);
+  const auto source=SourceSha256(program);
+  const auto policy=ReadOriginalPixelSamplerControls(program,source);
+  assert(policy && policy->source==source && policy->sampled_slots==9 && policy->point_slots==8);
+  assert(!ReadOriginalPixelSamplerControls(program,expected_pixel));
+  auto bad=program;
+  put(bad,84,1); // Two incompatible filters for the same slot.
+  assert(!ReadOriginalPixelSamplerControls(bad,SourceSha256(bad)));
+  put(bad,40,48); // EXEC payload outside the container.
+  assert(!ReadOriginalPixelSamplerControls(bad,SourceSha256(bad)));
+  constexpr uint32_t code_address=0x3000;
+  put(guest,bound_ps+24,code_address);
+  std::copy(program.begin()+60,program.end(),guest.begin()+code_address);
+  auto witness=*ps_at_draw;
+  witness.exact_original_guest_virtual_header.assign(program.begin(),program.begin()+60);
+  OriginalPixelSamplerCache cache;
+  auto sampling=[&] {
+    return CaptureOriginalPixelSamplerControls(witness,source,read_guest,&guest,cache);
+  };
+  assert(sampling() && sampling()->point_slots==8 && cache.size()==1);
+  guest[code_address+32]^=1;
+  assert(!sampling()); // Same virtual header and pointer with rewritten physical bytes.
+  guest[code_address+32]^=1;
+  witness.exact_original_guest_virtual_header[20]^=1;
+  assert(!sampling());
+  witness.exact_original_guest_virtual_header[20]^=1;
+  put(guest,bound_ps+24,UINT32_MAX-8);
+  assert(!sampling());
+  put(guest,bound_ps+24,code_address);
+  assert(sampling());
   auto original=blob;
   blob[0]='X';Write(p,blob);
   Reject([&] {bank.Load(p);}); assert(bank.size()==2);

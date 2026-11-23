@@ -49,6 +49,9 @@ std::atomic<uint64_t> g_eor_ready_backbuffers{0};
 std::atomic<uint64_t> g_eor_gpu_failures{0};
 OriginalEorSourceCoverage g_original_source_coverage; // guarded by g_mutex
 FrameCapture g_collector;
+// Only full-source-hash-verified pixel policies are retained across draw
+// calls. Failed guest reads must be retried when streaming finishes.
+aot::OriginalPixelSamplerCache g_pixel_sampling;
 XdkCallsiteEvidence g_callsite_evidence;
 CompletedFrameMailbox g_frames_for_native;
 std::shared_ptr<const VerifiedWorkerEorFrame> g_verified_worker_frame;
@@ -752,8 +755,11 @@ void CapturePpcDraw(Kind kind, uint32_t guest, const PPCContext& ctx,
       try {
         auto constants=std::make_shared<OriginalShaderRegisters>();
         if(CaptureUsaAllShaderRegisters(ctx.r3.u32,ReadGuest,
-                                        guest_base,*constants))
+                                        guest_base,*constants)) {
+          if(REXCVAR_GET(hulk_eor_vulkan_replay))
+            CaptureUsaPixelFetches(ctx.r3.u32,ReadGuest,guest_base,*constants);
           draw.observed_shader_constants=std::move(constants);
+        }
       } catch (const std::bad_alloc&) {
         // Never crash game logic on a diagnostic snapshot allocation.
       }
@@ -861,6 +867,17 @@ void CapturePpcDraw(Kind kind, uint32_t guest, const PPCContext& ctx,
     draw.observed_live_pixel_shader_header = aot::ObserveOriginalBoundXdkShader(
         sources, live.original_ps_guest_object, aot::Stage::Pixel,
         ReadGuest, guest_base, frame, ordinal);
+    if(auto& pixel=draw.observed_live_pixel_shader_header;
+       pixel && REXCVAR_GET(hulk_eor_vulkan_replay) && draw.observed_shader_constants &&
+       draw.observed_shader_constants->valid_pixel_fetch) {
+      try {
+        if(const auto sha=sources.FindOriginalSource(pixel->exact_original_guest_virtual_header,
+                                                     aot::Stage::Pixel)) {
+          pixel->pixel_sampling=aot::CaptureOriginalPixelSamplerControls(
+              *pixel,*sha,ReadGuest,guest_base,g_pixel_sampling);
+        }
+      } catch(const std::bad_alloc&) { /* Missing source policy rejects only direct replay. */ }
+    }
     if (draw.observed_live_vertex_shader_header &&
         draw.observed_live_pixel_shader_header && g_original_effect_capture_catalog)
       draw.observed_live_eor_effect_pass = aot::ResolveOriginalLiveEorEffectPass(
@@ -1116,6 +1133,7 @@ bool InstallOriginalShaderCaptureIndex(
 void ClearOriginalShaderCaptureIndex() noexcept {
   std::lock_guard lock(g_mutex);
   g_original_effect_capture_catalog.reset();
+  g_pixel_sampling.clear();
   g_original_shader_capture_index.reset();
   g_worker_catalog_factory_last_attempt=0;
   // Any old catalogue attached to that original shader generation must
@@ -1230,8 +1248,10 @@ void ClearVerifiedSourceShaderPack() noexcept {
   g_worker_catalog_factory_last_attempt=0;
   const auto old=g_offline_shader_pack;
   g_offline_shader_pack.reset();
-  if(old && g_original_shader_capture_index==old->virtual_ids)
+  if(old && g_original_shader_capture_index==old->virtual_ids) {
+    g_pixel_sampling.clear();
     g_original_shader_capture_index.reset();
+  }
   if(old && g_original_effect_capture_catalog==old->effects)
     g_original_effect_capture_catalog.reset();
 }

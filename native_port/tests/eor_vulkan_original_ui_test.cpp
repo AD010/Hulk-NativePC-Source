@@ -312,6 +312,13 @@ static void VerifyFontDraw(IRenderDevice* device, IDeviceContext* context,
       auto observed=ReadPixels(device,context,target);
       if(observed!=sampled)throw std::runtime_error("Captured sampler differs from linear reference");
       if(observed==reference.blocks)throw std::runtime_error("Sampling fixture did not distinguish linear from point");
+      // Exercise the world material path's instruction override against the
+      // same real descriptor. The actual Font_Main program above inherits it.
+      auto overridden=glyph_binding();
+      eor::gpu::BindOriginalPixelImage2D(device,overridden,*atlas,0,words,true);
+      render(overridden);
+      CheckPixels(device,context,target,reference);
+      std::cout<<"Instruction point override matched the full point reference\n";
       std::cout<<"Captured XDK linear font sampler matched all "<<desc.Width*desc.Height<<" pixels\n";
     }
     return;

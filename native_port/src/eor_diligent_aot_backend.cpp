@@ -273,6 +273,7 @@ struct DiligentEorDirectBackend::State {
   struct PackedConstants {
     std::vector<float> vertex,pixel;
     native::HostRasterWindow raster{};
+    Diligent::RefCntAutoPtr<Diligent::IShaderResourceBinding> draw_bindings;
   };
   std::map<DrawKey,PackedConstants> packed_constants;
   bool frame_preflight_ready=false;
@@ -1018,6 +1019,36 @@ bool DiligentEorDirectBackend::PreflightOriginalScene(
                                        original->original_textures);
       s.material_bindings.emplace(key,std::move(binding));
     }
+    for(const auto& item:draws) {
+      if(item.original_dynamic_font_draw || !item.draw.source_frame)continue;
+      const State::MaterialKey key{item.original_model_hash,item.original_surface_ordinal,
+                                   item.effect_hash,item.pass_index};
+      const auto& textures=s.material_lookup.at(key)->original_textures;
+      const bool scalar=std::any_of(textures.begin(),textures.end(),[](const auto& texture) {
+        return aot::DecodeFixedAotImageSlot(texture.identity.exact_shader_variable_name).has_value();
+      });
+      if(!scalar)continue;
+      if(!item.original_pixel_sampling || item.original_pixel_sampling->source!=item.pixel_source_sha256)
+        return false;
+      const auto& controls=*item.original_pixel_sampling;
+      const auto& captured=*item.draw.guest_shader_constants;
+      auto& binding=prepared_constants.at({item.draw.source_frame,item.draw.source_ordinal}).draw_bindings;
+      s.pipeline_cache.at(key).pipeline->CreateShaderResourceBinding(&binding,true);
+      uint16_t bound=0;
+      for(const auto& texture:textures) {
+        const auto& id=texture.identity;
+        const auto image=aot::DecodeFixedAotImageSlot(id.exact_shader_variable_name);
+        if(id.stage!=OriginalSamplerStage::Pixel || !image || image->dimension!=1 ||
+           image->slot!=id.original_fetch_register)return false;
+        const auto bit=static_cast<uint16_t>(1u<<image->slot);
+        if(!(controls.sampled_slots&bit) || !(captured.valid_pixel_fetch&bit) || (bound&bit))
+          return false;
+        BindOriginalPixelImage2D(s.device,binding,*texture.uploaded,image->slot,
+                                 captured.pixel_fetch[image->slot],(controls.point_slots&bit)!=0);
+        bound|=bit;
+      }
+      if(bound!=controls.sampled_slots)return false;
+    }
   } catch (...) {return false;}
   s.packed_constants=std::move(prepared_constants);
   s.frame_preflight_ready=true;
@@ -1218,9 +1249,10 @@ bool DiligentEorDirectBackend::DrawIndexed(const native::IndexedDraw& draw) {
     const auto matrices=aot::ExtractOriginalDrawVsMatrices(s.vertex,draw);
     const auto packed=s.packed_constants.find({
         draw.source_frame,draw.source_ordinal});
-    auto* resources=is_font ? resident.font_bindings.RawPtr() : s.active.bindings.RawPtr();
+    if(packed==s.packed_constants.end())return false;
+    auto* resources=is_font ? resident.font_bindings.RawPtr() :
+        packed->second.draw_bindings ? packed->second.draw_bindings.RawPtr() : s.active.bindings.RawPtr();
     if(!resources || !matrices || !draw.guest_shader_constants ||
-       packed==s.packed_constants.end() ||
        !s.bind_constants(resources,s.vertex,s.pixel,
                          draw,*matrices,*draw.guest_shader_constants,
                          packed->second.vertex,packed->second.pixel)) {

@@ -2,6 +2,7 @@
 // Vulkan shader-module/PSO creation is owned by the final host renderer, not
 // by this source-only contract. No guest shader data is generated here.
 #pragma once
+#include "eor_original_virtual_shader_identity.h"
 #include "eor_native_frame.h"
 #include "eor_spirv_bank.h"
 #include "eor_effect_catalog.h"
@@ -34,6 +35,7 @@ struct BoundIndexedDraw {
   // THIS real Draw and its original font resource/atlas. No invented
   // MODELS.ARC mesh offset may be required for this variant.
   bool original_dynamic_font_draw = false;
+  std::optional<OriginalPixelSamplerControls> original_pixel_sampling{};
 };
 // Real original guest VS register values at the exact source Draw.
 // These are NOT automatically a Vulkan UBO or a 16:10 camera update:

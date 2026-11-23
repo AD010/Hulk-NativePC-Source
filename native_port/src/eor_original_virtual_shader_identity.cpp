@@ -1,4 +1,5 @@
 #include "eor_original_virtual_shader_identity.h"
+#include <algorithm>
 #include <array>
 #include <fstream>
 #include <stdexcept>
@@ -195,6 +196,93 @@ ObserveOriginalBoundXdkShader(
     // A guest read, allocation or checksum error is never gameplay-fatal.
     return std::nullopt;
   }
+}
+
+std::optional<OriginalPixelSamplerControls> ReadOriginalPixelSamplerControls(
+    std::span<const uint8_t> container,const Digest& expected_source) {
+  if(container.size()<60 || container.size()>(2u<<20) ||
+     Be32(container.data())!=0x102a1100u || SourceSha256(container)!=expected_source)
+    return {};
+  const auto virtual_size=Be32(container.data()+4),physical_size=Be32(container.data()+8);
+  const auto desc=Be32(container.data()+24);
+  if(uint64_t(virtual_size)+physical_size!=container.size() || desc<36 ||
+     uint64_t(desc)+24>virtual_size)return {};
+  const auto offset=Be32(container.data()+desc),bytes=Be32(container.data()+desc+4);
+  if(!bytes || bytes%12 || offset%4 || uint64_t(offset)+bytes>physical_size)return {};
+  const auto* code=container.data()+virtual_size+offset;
+  const uint32_t count=bytes/12;
+  uint32_t cf_end=count;
+  OriginalPixelSamplerControls controls{expected_source};
+  for(uint32_t i=0;i<cf_end;++i) {
+    const auto a=Be32(code+i*12),b=Be32(code+i*12+4),c=Be32(code+i*12+8);
+    const uint32_t words[]={a,(b>>16)|(c<<16)},ops[]={(b>>12)&15u,c>>28};
+    for(unsigned half=0;half<2;++half) {
+      const auto op=ops[half],cf=words[half];
+      if(!((op>=1 && op<=6) || op==13 || op==14))continue;
+      const auto addr=cf&4095u,length=(cf>>12)&7u;
+      if(addr<=i || addr>count || length>6 || length>count-addr)return {};
+      cf_end=std::min(cf_end,addr);
+      for(uint32_t j=0;j<length;++j) {
+        if(!(cf&(1u<<(16+2*j))))continue; // ALU instructions share this storage.
+        const auto* inst=code+12*(addr+j);
+        const auto f0=Be32(inst),f1=Be32(inst+4),f2=Be32(inst+8);
+        const auto opcode=f0&31u;
+        if(opcode==19 || opcode==25 || opcode==26)continue; // weights, set gradients
+        if(opcode!=1 || (f0>>20&31u)>=16 || (f0&(1u<<25)) ||
+           (f1>>18&7u)!=7 || (f1>>21&7u)!=0 || (f2>>2&127u)!=0)return {};
+        const auto filters=(f1>>12)&63u;
+        if(filters!=0u && filters!=63u)return {};
+        const auto mask=static_cast<uint16_t>(1u<<(f0>>20&15u));
+        const bool point=filters==0;
+        if((controls.sampled_slots&mask) && bool(controls.point_slots&mask)!=point)
+          return {}; // Same sampler object cannot implement two different policies.
+        controls.sampled_slots|=mask;
+        if(point)controls.point_slots|=mask;
+      }
+    }
+  }
+  if(cf_end==count)return {};
+  return controls;
+}
+
+std::optional<OriginalPixelSamplerControls> CaptureOriginalPixelSamplerControls(
+    const OriginalLiveXdkShaderHeaderWitness& witness,const Digest& source,
+    ReadOriginalGuestShaderBytes read,void* state,OriginalPixelSamplerCache& cache) {
+  const auto& header=witness.exact_original_guest_virtual_header;
+  const uint32_t object=witness.original_xdk_shader_guest_object;
+  if(!read || !witness.original_object_to_header_abi_verified || header.size()<36 ||
+     header.size()>(1u<<20) || !object || UsaShaderHeaderAddress(object,Stage::Pixel)!=
+        witness.original_virtual_header_guest_address)return {};
+  const auto size=Be32(header.data()+8);
+  std::array<uint8_t,4> address{};
+  // USA 82876EA0 copies the virtual part from object+40 and the physical
+  // portion from the pointer at object+24 (82876EE8), with no address mask.
+  if(!size || size>(1u<<20) || !read(state,object+24u,
+        reinterpret_cast<std::byte*>(address.data()),address.size()))return {};
+  const auto gpu_address=Be32(address.data());
+  if(!gpu_address || uint64_t(gpu_address)+size>(uint64_t{1}<<32))return {};
+  // The guest may recycle or rewrite either allocation between draws.
+  // Reuse decoded controls only while both source segments remain identical.
+  if(const auto known=cache.find(source);known!=cache.end()) {
+    const auto& saved=known->second.container;
+    if(saved.size()!=header.size()+size ||
+       !std::equal(header.begin(),header.end(),saved.begin()))return {};
+    std::array<uint8_t,1024> chunk;
+    for(uint32_t offset=0;offset<size;) {
+      const auto n=std::min<uint32_t>(size-offset,chunk.size());
+      if(!read(state,gpu_address+offset,reinterpret_cast<std::byte*>(chunk.data()),n) ||
+         !std::equal(chunk.begin(),chunk.begin()+n,saved.begin()+header.size()+offset))return {};
+      offset+=n;
+    }
+    return known->second.controls;
+  }
+  auto bytes=header;
+  bytes.resize(header.size()+size);
+  if(!read(state,gpu_address,reinterpret_cast<std::byte*>(bytes.data()+header.size()),size))
+    return {};
+  const auto controls=ReadOriginalPixelSamplerControls(bytes,source);
+  if(controls)cache.emplace(source,VerifiedPixelSamplerProgram{*controls,std::move(bytes)});
+  return controls;
 }
 
 std::optional<Digest> ResolveOriginalLiveXdkShaderSource(

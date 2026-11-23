@@ -24,6 +24,11 @@ struct OriginalDiligentSampler {
 void BindUsaFontMainAtlas(Diligent::IRenderDevice* device,
     Diligent::IShaderResourceBinding* bindings,const UploadedEorTexture& atlas,
     const std::array<uint32_t,6>& captured_fetch);
+// Native scalar pixel image and separate sampler. The caller supplies the
+// shader's authenticated instruction override and the matching live sN fetch.
+void BindOriginalPixelImage2D(Diligent::IRenderDevice* device,
+    Diligent::IShaderResourceBinding* bindings,const UploadedEorTexture& texture,
+    uint32_t slot,const std::array<uint32_t,6>& fetch,bool force_point);
 // Resolve all shader variables before mutating the binding. Never invent
 // variable names, register numbers, or bind a fallback/magenta texture.
 // An empty list is valid only when the calling shader uses no textures;

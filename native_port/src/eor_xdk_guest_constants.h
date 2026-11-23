@@ -118,7 +118,29 @@ struct OriginalShaderRegisters {
   std::array<float,kRegisterCount*4> vertex{};
   std::array<float,kRegisterCount*4> pixel{};
   std::array<uint64_t,4> finite_vertex{},finite_pixel{};
+  std::array<std::array<uint32_t,6>,16> pixel_fetch{};
+  uint16_t valid_pixel_fetch=0;
 };
+inline void CaptureUsaPixelFetches(uint32_t device,ReadGuestBytes read,void* state,
+                                  OriginalShaderRegisters& registers) noexcept {
+  registers.valid_pixel_fetch=0;
+  constexpr uint32_t start=48u*24u; // USA 82675EA0 and 82675E00, s0..s15
+  std::array<std::byte,16*24> bytes{};
+  if(!device || !read || uint64_t(device)+start+bytes.size()>(uint64_t{1}<<32) ||
+     !read(state,device+start,bytes.data(),bytes.size()))return;
+  for(unsigned slot=0;slot<16;++slot) {
+    auto& fetch=registers.pixel_fetch[slot];
+    for(unsigned i=0;i<6;++i) {
+      const auto* p=bytes.data()+slot*24+i*4;
+      fetch[i]=uint32_t(std::to_integer<uint8_t>(p[0]))<<24 |
+               uint32_t(std::to_integer<uint8_t>(p[1]))<<16 |
+               uint32_t(std::to_integer<uint8_t>(p[2]))<<8 |
+               uint32_t(std::to_integer<uint8_t>(p[3]));
+    }
+    if((fetch[0]&3u)==2u && ((fetch[1]|fetch[5])>>12&0x1ffffu))
+      registers.valid_pixel_fetch|=static_cast<uint16_t>(1u<<slot);
+  }
+}
 inline bool CaptureUsaAllShaderRegisters(
     uint32_t guest_device,ReadGuestBytes reader,void* reader_state,
     OriginalShaderRegisters& destination) noexcept {

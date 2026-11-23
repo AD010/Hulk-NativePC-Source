@@ -398,6 +398,8 @@ std::vector<aot::BoundIndexedDraw> BindVerifiedGeometryDraws(
     item.effect_hash = src.original_effect_hash;
     item.pass_index = src.original_pass_index;
     item.original_samplers = src.original_sampler_slots;
+    if(src.original_live_pixel_shader_header)
+      item.original_pixel_sampling=src.original_live_pixel_shader_header->pixel_sampling;
     item.original_model_hash = src.original_model_hash;
     item.original_surface_ordinal = src.original_surface_ordinal;
     // Preserve the authenticated source mesh even when other surfaces

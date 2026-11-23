@@ -53,6 +53,19 @@ class OriginalVirtualShaderIdentity {
 // and the exact guest header bytes are captured from that pointer.
 // The object address alone, a ShaderEffects class name, or a pass index
 // cannot establish the microcode digest.
+struct OriginalPixelSamplerControls {
+  Digest source{};
+  uint16_t sampled_slots=0, point_slots=0;
+};
+// Decode the filter controls in executable CF EXEC fetches only. A whole
+// source SHA match is required before any override can affect native draws.
+std::optional<OriginalPixelSamplerControls> ReadOriginalPixelSamplerControls(
+    std::span<const uint8_t> container,const Digest& expected_source);
+struct VerifiedPixelSamplerProgram {
+  OriginalPixelSamplerControls controls;
+  std::vector<uint8_t> container;
+};
+using OriginalPixelSamplerCache=std::map<Digest,VerifiedPixelSamplerProgram>;
 struct OriginalLiveXdkShaderHeaderWitness {
   uint32_t original_xdk_shader_guest_object=0;
   uint32_t original_virtual_header_guest_address=0;
@@ -62,6 +75,7 @@ struct OriginalLiveXdkShaderHeaderWitness {
   // A shader object address may be reused after memory/device changes.
   uint64_t original_frame_sequence=0;
   uint32_t original_call_ordinal=UINT32_MAX;
+  std::optional<OriginalPixelSamplerControls> pixel_sampling{};
 };
 // Read the inline ShaderContainer of the current USA XDK shader object and
 // establish archive ownership from the SHA-256 of the complete virtual bytes.
@@ -74,6 +88,9 @@ ObserveOriginalBoundXdkShader(
     Stage stage,
     ReadOriginalGuestShaderBytes reader,void* original_guest_base,
     uint64_t exact_frame_sequence,uint32_t exact_call_ordinal) noexcept;
+std::optional<OriginalPixelSamplerControls> CaptureOriginalPixelSamplerControls(
+    const OriginalLiveXdkShaderHeaderWitness& witness,const Digest& original_source,
+    ReadOriginalGuestShaderBytes read,void* state,OriginalPixelSamplerCache& cache);
 // Decode the actual source digest from an original, byte-exact live
 // ShaderContainer header, only if object/header pointer ABI and the
 // exact original XDK Present ordinal are independently authenticated.

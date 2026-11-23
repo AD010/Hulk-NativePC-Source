@@ -471,6 +471,16 @@ int main() {
   W(guest,device+6016+255*16,std::bit_cast<uint32_t>(99.0f));
   OriginalShaderRegisters complete;
   assert(CaptureUsaAllShaderRegisters(device,ReadFake,&guest,complete));
+  const uint32_t fetch0=device+1152,fetch15=fetch0+15*24;
+  for(uint32_t i=0;i<16*6;++i)W(guest,fetch0+i*4,0);
+  W(guest,fetch0,2);W(guest,fetch0+4,0xabcd006);
+  W(guest,fetch15,2);W(guest,fetch15+20,0x451000); // Mip-only binding.
+  W(guest,fetch0+24,2);W(guest,fetch0+28,0xe0000006); // Empty physical page after mask.
+  CaptureUsaPixelFetches(device,ReadFake,&guest,complete);
+  assert(complete.valid_pixel_fetch==0x8001);
+  assert(complete.pixel_fetch[0][1]==0xabcd006 && complete.pixel_fetch[15][5]==0x451000);
+  CaptureUsaPixelFetches(UINT32_MAX,ReadFake,&guest,complete);
+  assert(!complete.valid_pixel_fetch);
   auto last_vs=ReadOriginalShaderFloat4(
       complete,OriginalShaderStage::Vertex,255);
   auto first_ps=ReadOriginalShaderFloat4(
