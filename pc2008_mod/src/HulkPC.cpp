@@ -50,6 +50,8 @@ struct DeviceSamplerState {
   bool minLinearRequested[16]{};
   bool afMaximumOverridden[16]{};
   DWORD afOriginalMaximum[16]{};
+  // Presentation HWND belongs to the device, never to the last CreateDevice.
+  HWND presentationWindow = nullptr;
 };
 std::unordered_map<IDirect3DDevice9*,DeviceSamplerState> samplerStates;
 struct ShaderInfo {
@@ -76,7 +78,7 @@ uint32_t width = 0, height = 0, anisotropy = 0, maxAnisotropy = 1;
 double sourceAspect = 4.0 / 3.0;
 // D3D9's hFocusWindow can differ from the actual device presentation window.
 // Track the effective hDeviceWindow for accurate client/backbuffer diagnostics.
-std::atomic<HWND> presentationWindow{nullptr};
+// Stored alongside per-device sampler state under mipMutex.
 // Optional native-PC engine camera far-clip experiment. The game's separate
 // LOD distances and shadow cascades are NOT changed by this setting.
 volatile float cameraFarPlaneScale = 1.0f;
@@ -406,12 +408,12 @@ HRESULT STDMETHODCALLTYPE OnCreateDevice(IDirect3D9* api,UINT adapter,
   if(SUCCEEDED(hr) && *result) {
     // A successful fallback may have changed hDeviceWindow. Record the
     // effective presentation HWND, not the application's focus HWND.
-    presentationWindow.store(pp->hDeviceWindow ? pp->hDeviceWindow : window,
-                             std::memory_order_release);
     // A new device starts with fresh sampler state. Never replay requests
     // recorded for a previous device after a CreateDevice/recreate cycle.
     {std::lock_guard lock(mipMutex);
-     samplerStates[*result]=DeviceSamplerState{};}
+     auto& state=samplerStates[*result];
+     state=DeviceSamplerState{};
+     state.presentationWindow=pp->hDeviceWindow ? pp->hDeviceWindow : window;}
     // Do not erase shader reflections belonging to other live D3D9 devices.
     // CreateVertexShader replaces a reflection entry when an address is reused,
     // and Reset does not destroy managed shader objects. Clearing the global
@@ -515,10 +517,11 @@ HRESULT STDMETHODCALLTYPE OnReset(IDirect3DDevice9* dev,D3DPRESENT_PARAMETERS* p
       if(SUCCEEDED(dev->GetCreationParameters(&creation)))
         effectiveWindow=creation.hFocusWindow;
     }
-    presentationWindow.store(effectiveWindow,std::memory_order_release);
     {std::lock_guard lock(shaderMutex);activeVS=nullptr;}
     {std::lock_guard lock(mipMutex);
-     samplerStates[dev]=DeviceSamplerState{};}
+     auto& state=samplerStates[dev];
+     state=DeviceSamplerState{};
+     state.presentationWindow=effectiveWindow;}
   }
   if(pp)Log("[D3D9] Reset %ux%u windowed=%u hr=0x%08lX\r\n",
             pp->BackBufferWidth,pp->BackBufferHeight,
@@ -564,8 +567,13 @@ HRESULT STDMETHODCALLTYPE OnPresent(IDirect3DDevice9* dev,const RECT* a,
       // call, even when it differs from both CreateDevice's hDeviceWindow and
       // the focus HWND (common in window wrappers and DXVK setups).
       // An invalid override must not replace the last known good window.
-      HWND clientWindow=(c && IsWindow(c)) ? c :
-                        presentationWindow.load(std::memory_order_acquire);
+      HWND regularWindow=nullptr;
+      {
+        std::lock_guard lock(mipMutex);
+        const auto it=samplerStates.find(dev);
+        if(it!=samplerStates.end())regularWindow=it->second.presentationWindow;
+      }
+      HWND clientWindow=(c && IsWindow(c)) ? c : regularWindow;
       if(!clientWindow || !IsWindow(clientWindow)) {
         D3DDEVICE_CREATION_PARAMETERS creation{};
         clientWindow=nullptr;
