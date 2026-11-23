@@ -751,6 +751,19 @@ HRESULT STDMETHODCALLTYPE OnSetTexture(IDirect3DDevice9* dev,DWORD stage,
      restoreMaximum=afMaximumOverridden[stage];
      originalMaximum=afOriginalMaximum[stage];
     }
+    // MIP restoration is independent of AF MAX restoration. Do it first:
+    // even if the driver rejects MAXANISOTROPY rollback and we return early,
+    // an unbound sampler must not retain the ASI's forced LINEAR mip filter.
+    // The engine requested POINT mip filtering before the ASI upgraded it to
+    // LINEAR. Retire that upgrade when the texture is unbound, just as the
+    // anisotropic MIN override is retired above. Keep the recorded request
+    // so a later supported texture can receive trilinear filtering again.
+    if(!texture && forceTrilinearMip && point) {
+      const HRESULT mipHr=realSampler(dev,stage,D3DSAMP_MIPFILTER,D3DTEXF_POINT);
+      if(FAILED(mipHr))
+        Log("[D3D9] MIP POINT restore on unbind failed stage=%lu hr=0x%08lX\r\n",
+            (unsigned long)stage,(unsigned long)(unsigned int)mipHr);
+    }
     // Restore the game's MAXANISOTROPY before evaluating the new texture.
     // A failed restore must not silently discard our rollback record or
     // apply a second AF override over the still-modified sampler.
@@ -784,16 +797,6 @@ HRESULT STDMETHODCALLTYPE OnSetTexture(IDirect3DDevice9* dev,DWORD stage,
           Log("[D3D9] AF MIN restore on unbind failed stage=%lu hr=0x%08lX\r\n",
               (unsigned long)stage,(unsigned long)(unsigned int)minHr);
       }
-    }
-    // The engine requested POINT mip filtering before the ASI upgraded it to
-    // LINEAR. Retire that upgrade when the texture is unbound, just as the
-    // anisotropic MIN override is retired above. Keep the recorded request
-    // so a later supported texture can receive trilinear filtering again.
-    if(!texture && forceTrilinearMip && point) {
-      const HRESULT mipHr=realSampler(dev,stage,D3DSAMP_MIPFILTER,D3DTEXF_POINT);
-      if(FAILED(mipHr))
-        Log("[D3D9] MIP POINT restore on unbind failed stage=%lu hr=0x%08lX\r\n",
-            (unsigned long)stage,(unsigned long)(unsigned int)mipHr);
     }
     // Reapply after binding: capability checks depend on the bound texture.
     // This also restores the game's LINEAR min filter when the next texture
