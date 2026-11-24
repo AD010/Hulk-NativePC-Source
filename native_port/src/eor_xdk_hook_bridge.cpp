@@ -1435,7 +1435,8 @@ bool InstallVerifiedWorkerEorOwnerCatalogInternal(
     const OfflineShaderPack* pack,
     const std::shared_ptr<const VerifiedWorkerEorOwnerCatalog>* expected_previous) {
   if(!catalog || !catalog->device || !catalog->gpu ||
-     (!catalog->resident_lookup && !catalog->verified_candidates.empty()) ||
+     (!catalog->resident_lookup && !catalog->source_models &&
+      !catalog->verified_candidates.empty()) ||
      (catalog->verified_candidates.empty() &&
       catalog->verified_font_materials.empty()) ||
      (!catalog->verified_font_materials.empty() &&
@@ -1957,7 +1958,20 @@ native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(
         // The archive reader validates the pinned USA index SHA and models
         // BEFORE starting async I/O. Only model hashes carried by the
         // source-verified owner witnesses will be queued for GPU upload.
-        if(!verified->source_models && verified->direct_gpu) {
+        if(verified && !verified->source_models && verified->direct_gpu) {
+          // Retain authenticated streamed model buffers when the factory
+          // refreshes the source material catalogue on the SAME GPU device.
+          if(owner_catalog && owner_catalog->source_models &&
+             owner_catalog->direct_gpu==verified->direct_gpu &&
+             owner_catalog->source_models->UsesGpuBackend(
+                 verified->direct_gpu->OriginalModelUploader())) {
+            auto completed=std::make_shared<VerifiedWorkerEorOwnerCatalog>(
+                *verified);
+            completed->source_models=owner_catalog->source_models;
+            verified=std::move(completed);
+          }
+        }
+        if(verified && !verified->source_models && verified->direct_gpu) {
           std::filesystem::path game_root;
           {
             std::lock_guard lock(g_mutex);
