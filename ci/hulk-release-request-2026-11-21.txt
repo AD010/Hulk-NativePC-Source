@@ -42,3 +42,5 @@ Retry 15: use the exact one-shot marker accepted by ci/test_native_x_d140_dispat
 2026-11-24: repair five native preflight blockers, two MSVC narrowing warnings and stale synthetic original vertex declarations; preserve validation.
 
 2026-11-24: fix invalid apostrophe in native EoR asset-root parameter declaration and definition; report safe public compiler error locations; retry Windows Release after build 168.
+
+2026-11-24: requested Release test of portable AOT pack, static shader analysis, model read-ahead, immutable frame claim and automatic EoR startup.
