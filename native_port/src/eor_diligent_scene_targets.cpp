@@ -35,7 +35,7 @@ struct DiligentSceneTargets::State {
   std::map<uint32_t,Diligent::RefCntAutoPtr<Diligent::ITexture>> colors,depths,intermediates;
   std::set<uint32_t> completed_intermediates;
   uint32_t active_color=0,active_depth=0;
-  native::Size physical{};
+  native::Size physical{},original{};
   VerifiedSceneFormat formats{};
   uint32_t samples=0;
   bool prepared=false, bound=false, depth_bound=false, ready=false;
@@ -62,7 +62,7 @@ void DiligentSceneTargets::Reset() noexcept {
   state_->resolved.Release();state_->depth.Release();state_->color.Release();
   state_->colors.clear();state_->depths.clear();state_->intermediates.clear();
   state_->active_color=state_->active_depth=0;
-  state_->physical={};state_->formats={};state_->samples=0;
+  state_->physical={};state_->original={};state_->formats={};state_->samples=0;
 }
 bool DiligentSceneTargets::Prepare(const native::FrameGeometry& frame,
                                   VerifiedSceneFormat verified) {
@@ -96,7 +96,7 @@ bool DiligentSceneTargets::Prepare(const native::FrameGeometry& frame,
      uint64_t(frame.composite.left)+frame.world.width>frame.backbuffer.width ||
      uint64_t(frame.composite.top)+frame.world.height>frame.backbuffer.height)
     return false;
-  if(Same(state_->physical,frame.world) && state_->samples==frame.samples &&
+  if(Same(state_->physical,frame.world) && Same(state_->original,frame.original_guest) && state_->samples==frame.samples &&
      state_->formats.color==verified.color && state_->formats.depth==verified.depth &&
      state_->color && (state_->depth || verified.depth==NativeDepthFormat::None ||
                       graph.active()) && state_->resolved &&
@@ -130,7 +130,12 @@ bool DiligentSceneTargets::Prepare(const native::FrameGeometry& frame,
   desc.BindFlags=frame.samples==1 ?
      Diligent::BIND_FLAGS(Diligent::BIND_RENDER_TARGET|Diligent::BIND_SHADER_RESOURCE) :
      Diligent::BIND_RENDER_TARGET;
+  auto set_extent=[&](uint32_t id) {
+    const auto size=graph.HostExtent(id,frame);
+    desc.Width=size.width;desc.Height=size.height;
+  };
   try {
+    if(graph.active() && !Same(graph.HostExtent(graph.final_color,frame),frame.world))return false;
     state_->device->CreateTexture(desc,nullptr,&new_color);
     if(!new_color || !new_color->GetDefaultView(Diligent::TEXTURE_VIEW_RENDER_TARGET))return false;
     if(graph.active()) {
@@ -139,6 +144,7 @@ bool DiligentSceneTargets::Prepare(const native::FrameGeometry& frame,
         if(guest==graph.final_color)continue;
         Diligent::RefCntAutoPtr<Diligent::ITexture> color;
         desc.Name="EoR independent sequential host color";
+        set_extent(guest);
         state_->device->CreateTexture(desc,nullptr,&color);
         if(!color || !color->GetDefaultView(Diligent::TEXTURE_VIEW_RENDER_TARGET))return false;
         if(!new_colors.emplace(guest,std::move(color)).second)return false;
@@ -146,6 +152,10 @@ bool DiligentSceneTargets::Prepare(const native::FrameGeometry& frame,
     }
     if(verified.depth!=NativeDepthFormat::None) {
       desc.Name="EoR verified host depth";
+      if(graph.active()) {
+        if(graph.depths.empty())return false;
+        set_extent(graph.depths.front());
+      }
       desc.Format=Depth(verified.depth);
       desc.BindFlags=Diligent::BIND_DEPTH_STENCIL;
       state_->device->CreateTexture(desc,nullptr,&new_depth);
@@ -156,6 +166,7 @@ bool DiligentSceneTargets::Prepare(const native::FrameGeometry& frame,
         for(size_t i=1;i<graph.depths.size();++i) {
           Diligent::RefCntAutoPtr<Diligent::ITexture> depth;
           desc.Name="EoR independent sequential host depth";
+          set_extent(graph.depths[i]);
           state_->device->CreateTexture(desc,nullptr,&depth);
           if(!depth || !depth->GetDefaultView(Diligent::TEXTURE_VIEW_DEPTH_STENCIL))return false;
           if(!new_depths.emplace(graph.depths[i],std::move(depth)).second)return false;
@@ -164,6 +175,7 @@ bool DiligentSceneTargets::Prepare(const native::FrameGeometry& frame,
     }
     if(frame.samples!=1) {
       desc.Name="EoR resolved host scene color";
+      desc.Width=frame.world.width;desc.Height=frame.world.height;
       desc.SampleCount=1;desc.Format=Color(verified.color);
       desc.BindFlags=Diligent::BIND_FLAGS(Diligent::BIND_RENDER_TARGET|Diligent::BIND_SHADER_RESOURCE);
       state_->device->CreateTexture(desc,nullptr,&new_resolved);
@@ -177,6 +189,7 @@ bool DiligentSceneTargets::Prepare(const native::FrameGeometry& frame,
       desc.SampleCount=1;desc.Format=Color(verified.color);
       desc.BindFlags=Diligent::BIND_SHADER_RESOURCE;
       for(uint32_t guest:graph.resolves) {
+        set_extent(guest);
         Diligent::RefCntAutoPtr<Diligent::ITexture> target;
         state_->device->CreateTexture(desc,nullptr,&target);
         if(!target || !target->GetDefaultView(Diligent::TEXTURE_VIEW_SHADER_RESOURCE) ||
@@ -197,7 +210,7 @@ bool DiligentSceneTargets::Prepare(const native::FrameGeometry& frame,
     if(graph.first_depth)state_->depth=state_->depths.at(graph.first_depth);
     else state_->depth.Release();
   }
-  state_->physical=frame.world;
+  state_->physical=frame.world;state_->original=frame.original_guest;
   state_->formats=verified;
   state_->samples=frame.samples;
   state_->prepared=true;
@@ -219,14 +232,15 @@ bool DiligentSceneTargets::BeginScene() {
     // Diligent's viewport constructor takes (left,top,width,height).
     // Passing just physical width/height must never be interpreted as a
     // top-left coordinate and lose the real screen-sized Vulkan viewport.
+    const auto extent=ActiveHostExtent();
     const Diligent::Viewport viewport{
         0.f,0.f,
-        static_cast<float>(state_->physical.width),
-        static_cast<float>(state_->physical.height),
+        static_cast<float>(extent.width),
+        static_cast<float>(extent.height),
         0.f,1.f};
-    state_->context->SetViewports(1,&viewport,state_->physical.width,state_->physical.height);
-    const Diligent::Rect clip{0,0,int(state_->physical.width),int(state_->physical.height)};
-    state_->context->SetScissorRects(1,&clip,state_->physical.width,state_->physical.height);
+    state_->context->SetViewports(1,&viewport,extent.width,extent.height);
+    const Diligent::Rect clip{0,0,int(extent.width),int(extent.height)};
+    state_->context->SetScissorRects(1,&clip,extent.width,extent.height);
     return true;
   } catch (...) {AbortScene();return false;}
 }
@@ -245,35 +259,52 @@ bool DiligentSceneTargets::SetDepthBound(bool bind) {
     return true;
   } catch (...) {AbortScene();return false;}
 }
+native::Size DiligentSceneTargets::ActiveHostExtent() const noexcept {
+  if(!state_ || !state_->color)return {};
+  const auto& desc=state_->color->GetDesc();
+  return {desc.Width,desc.Height};
+}
+native::Size DiligentSceneTargets::ActiveSourceExtent(native::Size fallback) const noexcept {
+  return state_ ? state_->formats.original_graph.SourceExtent(state_->active_color,fallback) : fallback;
+}
+bool DiligentSceneTargets::BindOriginalAttachments() {
+  using namespace Diligent;
+  if(!state_->color || (state_->depth_bound && !state_->depth))return false;
+  auto* rtv=state_->color->GetDefaultView(TEXTURE_VIEW_RENDER_TARGET);
+  auto* dsv=state_->depth_bound ? state_->depth->GetDefaultView(TEXTURE_VIEW_DEPTH_STENCIL) : nullptr;
+  if(!rtv || (state_->depth_bound && !dsv))return false;
+  try {
+    // XDK changes RT and depth independently. Defer Vulkan framebuffer
+    // binding during the intermediate mismatched pair. Whole-frame source
+    // preflight prohibits a Clear/Draw/Resolve that uses that pair.
+    if(state_->depth_bound) {
+      const auto& a=state_->color->GetDesc();
+      const auto& b=state_->depth->GetDesc();
+      if(a.Width!=b.Width || a.Height!=b.Height || a.SampleCount!=b.SampleCount) {
+        state_->context->SetRenderTargets(0,nullptr,nullptr,RESOURCE_STATE_TRANSITION_MODE_NONE);
+        return true;
+      }
+    }
+    state_->context->SetRenderTargets(1,&rtv,dsv,RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+    return true;
+  } catch (...) {AbortScene();return false;}
+}
 bool DiligentSceneTargets::SetOriginalColorTarget(uint32_t guest) {
   if(!state_ || !state_->bound || !state_->formats.original_graph.active())return false;
   const auto it=state_->colors.find(guest);
   if(it==state_->colors.end())return false;
   if(guest==state_->active_color)return true;
-  auto* rtv=it->second->GetDefaultView(Diligent::TEXTURE_VIEW_RENDER_TARGET);
-  auto* dsv=state_->depth_bound && state_->depth ?
-      state_->depth->GetDefaultView(Diligent::TEXTURE_VIEW_DEPTH_STENCIL) : nullptr;
-  if(!rtv || (state_->depth_bound && !dsv))return false;
-  try {
-    state_->context->SetRenderTargets(1,&rtv,dsv,Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
-    state_->color=it->second;state_->active_color=guest;
-    return true;
-  } catch (...) {AbortScene();return false;}
+  state_->color=it->second;state_->active_color=guest;
+  return BindOriginalAttachments();
 }
 bool DiligentSceneTargets::SetOriginalDepthTarget(uint32_t guest) {
   if(!state_ || !state_->bound || !state_->formats.original_graph.active())return false;
   if(guest==state_->active_depth)return true;
   const auto it=state_->depths.find(guest);
   if(guest && it==state_->depths.end())return false;
-  auto* rtv=state_->color->GetDefaultView(Diligent::TEXTURE_VIEW_RENDER_TARGET);
-  auto* dsv=guest ? it->second->GetDefaultView(Diligent::TEXTURE_VIEW_DEPTH_STENCIL) : nullptr;
-  if(!rtv || (guest && !dsv))return false;
-  try {
-    state_->context->SetRenderTargets(1,&rtv,dsv,Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
-    if(guest)state_->depth=it->second;else state_->depth.Release();
-    state_->active_depth=guest;state_->depth_bound=guest!=0;
-    return true;
-  } catch (...) {AbortScene();return false;}
+  if(guest)state_->depth=it->second;else state_->depth.Release();
+  state_->active_depth=guest;state_->depth_bound=guest!=0;
+  return BindOriginalAttachments();
 }
 bool DiligentSceneTargets::ResolveOriginalIntermediate(uint32_t guest) {
   using namespace Diligent;
@@ -281,6 +312,10 @@ bool DiligentSceneTargets::ResolveOriginalIntermediate(uint32_t guest) {
      !state_->formats.original_graph.active())return false;
   const auto it=state_->intermediates.find(guest);
   if(it==state_->intermediates.end() || !it->second)return false;
+  const auto& src=state_->color->GetDesc();const auto& dst=it->second->GetDesc();
+  if(src.Width!=dst.Width || src.Height!=dst.Height || src.Format!=dst.Format || dst.SampleCount!=1)return false;
+  if(state_->depth_bound && (!state_->depth || state_->depth->GetDesc().Width!=src.Width ||
+      state_->depth->GetDesc().Height!=src.Height))return false;
   auto* rtv=state_->color->GetDefaultView(TEXTURE_VIEW_RENDER_TARGET);
   auto* dsv=state_->depth_bound && state_->depth ?
       state_->depth->GetDefaultView(TEXTURE_VIEW_DEPTH_STENCIL) : nullptr;
@@ -316,10 +351,14 @@ Diligent::ITextureView* DiligentSceneTargets::IntermediateColorSRV(uint32_t gues
 }
 bool DiligentSceneTargets::ClearVerifiedOriginalXdk(
     const xdk::OriginalXdkClearF& source,native::Size guest) {
+  if(state_)guest=ActiveSourceExtent(guest);
   if(!state_ || !state_->prepared || !state_->bound ||
      !state_->color || ((source.flags&0x30u) && !state_->depth_bound) ||
      !xdk::IsOriginalFullTargetClear(source,guest.width,guest.height))
     return false;
+  if(state_->depth_bound && (!state_->depth ||
+      state_->depth->GetDesc().Width!=state_->color->GetDesc().Width ||
+      state_->depth->GetDesc().Height!=state_->color->GetDesc().Height))return false;
   if((source.flags&0x0eu)!=0)
     return false; // native EoR scene owns RT0 only, never guest RT1..RT3
   if((source.flags&0x20u) &&

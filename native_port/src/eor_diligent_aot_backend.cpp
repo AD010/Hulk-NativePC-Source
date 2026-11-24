@@ -685,9 +685,12 @@ bool DiligentEorDirectBackend::CanReplayOriginalXdkCommand(
       // ignore and then present as a fully reproduced source frame.
       return cmd.captured_clear &&
           (cmd.captured_clear->flags & 0x0eu)==0 &&
-          xdk::IsOriginalFullTargetClear(
-              *cmd.captured_clear,s.frame.original_guest.width,
-              s.frame.original_guest.height) &&
+          (s.format.original_graph.active() ?
+            std::any_of(s.format.original_graph.colors.begin(),s.format.original_graph.colors.end(),
+              [&](uint32_t id){const auto size=s.format.original_graph.SourceExtent(id,s.frame.original_guest);
+                return xdk::IsOriginalFullTargetClear(*cmd.captured_clear,size.width,size.height);}) :
+            xdk::IsOriginalFullTargetClear(*cmd.captured_clear,s.frame.original_guest.width,
+                                                          s.frame.original_guest.height)) &&
           (!(cmd.captured_clear->flags&0x30u) || s.format.depth!=NativeDepthFormat::None) &&
           ((cmd.captured_clear->flags & 0x20u)==0 ||
            s.format.depth==NativeDepthFormat::D24S8);
@@ -1134,7 +1137,11 @@ bool DiligentEorDirectBackend::PreflightOriginalScene(
     // or the source translator's verified packed layout for each stage.
     try {
       State::PackedConstants packed;
-      native::Rect viewport_area{0,0,s.frame.world.width,s.frame.world.height};
+      const auto target=d.guest_vs_matrices->original_rt0_guest_object;
+      const auto source_extent=s.format.original_graph.SourceExtent(target,s.frame.original_guest);
+      const auto host_extent=s.format.original_graph.active() ?
+          s.format.original_graph.HostExtent(target,s.frame) : s.frame.world;
+      native::Rect viewport_area{0,0,host_extent.width,host_extent.height};
       if(s.frame.widescreen_camera &&
          selected->pipeline.original_view_space==VerifiedOriginalViewSpace::OriginalAspectHud) {
         const auto fitted=display::FitOriginalPicture(
@@ -1145,7 +1152,7 @@ bool DiligentEorDirectBackend::PreflightOriginalScene(
       }
       if(!d.guest_vs_matrices->raster)return false;
       const auto raster=native::MapOriginalRasterWindow(
-          *d.guest_vs_matrices->raster,s.frame.original_guest,viewport_area);
+          *d.guest_vs_matrices->raster,source_extent,viewport_area);
       if(!raster)return false;
       packed.raster=*raster;
       const auto& registers=*d.guest_shader_constants;
@@ -1367,7 +1374,9 @@ bool DiligentEorDirectBackend::PreflightOriginalScene(
              item.draw.guest_vs_matrices->original_texture_guest_objects[image->slot]!=id.original_resolved_guest_object)
             return false;
           PrepareOriginalResolvedPixelSampler(s.device,binding,image->slot,captured.pixel_fetch[image->slot],
-              (controls.point_slots&bit)!=0,s.frame.original_guest.width,s.frame.original_guest.height,
+              (controls.point_slots&bit)!=0,
+              s.format.original_graph.SourceExtent(id.original_resolved_guest_object,s.frame.original_guest).width,
+              s.format.original_graph.SourceExtent(id.original_resolved_guest_object,s.frame.original_guest).height,
               s.format.color==NativeColorFormat::Rgba16Float);
         } else {
           if(!texture.uploaded)return false;
@@ -1602,10 +1611,10 @@ bool DiligentEorDirectBackend::DrawIndexed(const native::IndexedDraw& draw) {
         raster.x,raster.y,raster.width,raster.height,raster.min_depth,raster.max_depth};
     const Diligent::Rect original_scissor{
         int(clip.left),int(clip.top),int(clip.left+clip.width),int(clip.top+clip.height)};
-    s.context->SetViewports(1,&original_viewport,
-                           s.frame.world.width,s.frame.world.height);
-    s.context->SetScissorRects(1,&original_scissor,
-                              s.frame.world.width,s.frame.world.height);
+    const auto extent=s.scene.ActiveHostExtent();
+    if(!extent.width || !extent.height)return false;
+    s.context->SetViewports(1,&original_viewport,extent.width,extent.height);
+    s.context->SetScissorRects(1,&original_scissor,extent.width,extent.height);
     // A variant was built and bound before BeginScene from this exact
     // original frame/ordinal; never bind its SRB with the base PSO.
     s.context->SetPipelineState(constants.variant_pipeline ?

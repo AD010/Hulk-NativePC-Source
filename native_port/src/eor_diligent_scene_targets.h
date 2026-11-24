@@ -256,6 +256,7 @@ inline std::optional<OriginalSourceTargetFormat> PlanOriginalNativeTargets(
         if(final_resolved || !cmd.captured_clear || !active_color ||
            !graph.extents.contains(active_color))return {};
         const auto extent=graph.extents.at(active_color);
+        if(active_depth && *active_depth && graph.extents.at(*active_depth)!=extent)return {};
         if(!xdk::IsOriginalFullTargetClear(*cmd.captured_clear,extent.width,extent.height) ||
            ((cmd.captured_clear->flags&0x30u) &&
              (!active_depth || !*active_depth || !graph.extents.contains(*active_depth) ||
@@ -277,6 +278,7 @@ inline std::optional<OriginalSourceTargetFormat> PlanOriginalNativeTargets(
            cmd.gpr[1] || cmd.gpr[2] || cmd.gpr[4] || cmd.gpr[5] || cmd.gpr[6] ||
            colors.contains(dest) || depths.contains(dest))return {};
         const auto extent=graph.extents.at(active_color);
+        if(active_depth && *active_depth && graph.extents.at(*active_depth)!=extent)return {};
         if(!register_extent(dest,extent))return {};
         if(dest==front) {
           if(extent.width!=width || extent.height!=height)return {};
