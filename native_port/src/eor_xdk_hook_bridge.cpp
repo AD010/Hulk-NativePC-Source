@@ -1187,10 +1187,22 @@ bool InstallVerifiedSourceShaderPackFromDirectory(
     // loading it first permanently masked newly compiled original VS/PS.
     shaders->Load(std::filesystem::is_regular_file(generated) ?
                   generated : alias);
-    effects->Load(directory/"HEORMAT2.bin");
-    reflection->Load(directory/"HEORREF1.bin");
-    samplers->Load(directory/"HEORSMP1.bin");
-    virtual_ids->Load(directory/"HEORVRT1.bin");
+    // NativePC's original guest loader already accepts the historical
+    // private hulk_* filenames and source HEOR* aliases. The Vulkan
+    // worker must honor the SAME private generation, or the game
+    // authenticates original VS/PS at the PPC hook while the GPU side
+    // silently rejects their matching source material catalog.
+    const auto source_file=[&](const char* generated_name,
+                               const char* source_alias) {
+      const auto preferred=directory/generated_name;
+      return std::filesystem::is_regular_file(preferred) ?
+          preferred : directory/source_alias;
+    };
+    effects->Load(source_file("hulk_effect_ledger.bin","HEORMAT2.bin"));
+    reflection->Load(source_file("hulk_shader_reflection.bin","HEORREF1.bin"));
+    samplers->Load(source_file("hulk_sampler_bank.bin","HEORSMP1.bin"));
+    virtual_ids->Load(source_file(
+        "hulk_shader_virtual_fingerprints.bin","HEORVRT1.bin"));
     // The source-identity ledgers must cover the complete original USA
     // ShaderEffects archive, but HEORSPV1 may contain only the original
     // VS/PS programs actually compiled so far. Each real frame still
