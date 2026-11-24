@@ -69,6 +69,7 @@ struct VerifiedOriginalGraphicsPass {
   // The scalar AOT PS contains the original alpha-kill lowering. The
   // caller must bind the current reference and enable flag per Draw.
   bool original_scalar_alpha_test_verified=false;
+  uint16_t original_xbox_cube_gamma_mask=0;
 };
 struct OriginalVulkanPipeline {
   Diligent::RefCntAutoPtr<Diligent::IPipelineState> pipeline;

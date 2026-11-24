@@ -28,7 +28,7 @@ class DiligentAotShaderModules final {
   // Failure never creates fallback, magenta or placeholder shaders.
   Diligent::IShader* GetOrCreate(const aot::ShaderBank& bank,
                                 const aot::Digest& original_source_sha256,
-                                aot::Stage stage);
+                                aot::Stage stage,uint16_t xbox_cube_gamma_mask=0);
   FloatRegisterAbi GetFloatRegisterAbi(const aot::ShaderBank& bank,
       const aot::Digest& digest,aot::Stage stage);
   // Immediately before CommitShaderResources, rename the stage's dynamic

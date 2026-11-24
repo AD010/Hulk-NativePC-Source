@@ -29,7 +29,7 @@ void BindUsaFontMainAtlas(Diligent::IRenderDevice* device,
 }
 void BindOriginalPixelImage2D(Diligent::IRenderDevice* device,
     Diligent::IShaderResourceBinding* bindings,const UploadedEorTexture& texture,
-    uint32_t slot,const std::array<uint32_t,6>& fetch,bool force_point) {
+    uint32_t slot,const std::array<uint32_t,6>& fetch,bool force_point,bool xbox_gamma_lowered) {
   using namespace Diligent;
   if(!device || !bindings || slot>=16 || !texture.host_texture || !texture.SRV() ||
      (texture.view_kind!=OriginalTextureViewKind::Native2D &&
@@ -47,11 +47,8 @@ void BindOriginalPixelImage2D(Diligent::IRenderDevice* device,
       (format==18 && image.Format==TEX_FORMAT_BC1_UNORM && (sampling&0x7ffffu)==0xd10u) ||
       (format==20 && image.Format==TEX_FORMAT_BC3_UNORM && (sampling&0x7ffffu)==0xd10u) ||
       (format==29 && image.Format==TEX_FORMAT_RGBA16_FLOAT && (sampling&0x7ffffu)==0xd11u);
-  const bool compatible_signs=cube ? ((fetch[0]&1023u)==2u || (fetch[0]&1023u)==254u) :
-                                   (fetch[0]&1023u)==2u;
-  // A cube descriptor may mark all channels gamma (0xfe). Do not silently
-  // accept gamma as linear here; use only the linear original fetches.
-  if(!compatible || !compatible_signs || (fetch[0]&1023u)!=2u ||
+  const bool compatible_signs=(fetch[0]&1023u)==(xbox_gamma_lowered?254u:2u);
+  if(!compatible || !compatible_signs || (xbox_gamma_lowered && !cube) ||
      (fetch[1]&(1u<<10)) ||
      (one_dimensional ?
         ((fetch[5]>>9&3u)!=0u || (shape>>24) ||

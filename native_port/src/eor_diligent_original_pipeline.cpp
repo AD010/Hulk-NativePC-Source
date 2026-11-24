@@ -254,7 +254,7 @@ OriginalVulkanPipeline CreateOriginalVulkanPipeline(
        a.ValueType==Diligent::VT_UNDEFINED)
       throw std::invalid_argument("Original EoR host vertex semantic invalid");
   auto* vertex=shaders.GetOrCreate(bank,pass.original_vertex_shader_sha256,aot::Stage::Vertex);
-  auto* pixel=shaders.GetOrCreate(bank,pass.original_pixel_shader_sha256,aot::Stage::Pixel);
+  auto* pixel=shaders.GetOrCreate(bank,pass.original_pixel_shader_sha256,aot::Stage::Pixel,pass.original_xbox_cube_gamma_mask);
   if(!vertex || !pixel)
     throw std::logic_error("Original EoR Vulkan shader module missing");
   Diligent::GraphicsPipelineStateCreateInfo ci{};

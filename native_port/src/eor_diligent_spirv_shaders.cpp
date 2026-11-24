@@ -1,4 +1,6 @@
 #include "eor_diligent_spirv_shaders.h"
+#include "eor_spirv_cube_gamma.h"
+#include <tuple>
 #include "RenderDevice.h"
 #include "DeviceContext.h"
 #include "ShaderResourceBinding.h"
@@ -57,7 +59,7 @@ struct DiligentAotShaderModules::State {
   explicit State(Diligent::IRenderDevice* p) : device{p} {}
   Diligent::RefCntAutoPtr<Diligent::IRenderDevice> device;
   struct Module { Diligent::RefCntAutoPtr<Diligent::IShader> shader; FloatRegisterAbi floats; };
-  std::map<std::pair<aot::Digest,aot::Stage>,Module> modules;
+  std::map<std::tuple<aot::Digest,aot::Stage,uint16_t>,Module> modules;
   Diligent::RefCntAutoPtr<Diligent::IBuffer> vertex_floats,pixel_floats;
 };
 DiligentAotShaderModules::DiligentAotShaderModules(Diligent::IRenderDevice* device)
@@ -67,10 +69,11 @@ DiligentAotShaderModules::DiligentAotShaderModules(Diligent::IRenderDevice* devi
 }
 DiligentAotShaderModules::~DiligentAotShaderModules() noexcept = default;
 Diligent::IShader* DiligentAotShaderModules::GetOrCreate(
-    const aot::ShaderBank& bank, const aot::Digest& digest, aot::Stage stage) {
+    const aot::ShaderBank& bank, const aot::Digest& digest, aot::Stage stage,uint16_t xbox_cube_gamma_mask) {
   if(stage!=aot::Stage::Vertex && stage!=aot::Stage::Pixel)
     throw std::invalid_argument("Unsupported original EoR Vulkan shader stage");
-  const auto key=std::make_pair(digest,stage);
+  if(xbox_cube_gamma_mask && stage!=aot::Stage::Pixel)throw std::invalid_argument("Cube gamma requires a pixel program");
+  const auto key=std::make_tuple(digest,stage,xbox_cube_gamma_mask);
   auto existing=state_->modules.find(key);
   if(existing!=state_->modules.end())return existing->second.shader.RawPtr();
   // A real native frame needs exactly its source-proven VS/PS, not all
@@ -92,8 +95,10 @@ Diligent::IShader* DiligentAotShaderModules::GetOrCreate(
   desc.Desc.UseCombinedTextureSamplers=false;
   desc.EntryPoint="main";
   desc.LoadConstantBufferReflection=true;
-  desc.ByteCode=binary->spirv.data();
-  desc.ByteCodeSize=binary->spirv.size()*sizeof(uint32_t);
+  auto lowered=xbox_cube_gamma_mask ? aot::LowerOriginalCubeGamma(binary->spirv,xbox_cube_gamma_mask) : std::vector<uint32_t>{};
+  const auto& code=xbox_cube_gamma_mask ? lowered : binary->spirv;
+  desc.ByteCode=code.data();
+  desc.ByteCodeSize=code.size()*sizeof(uint32_t);
   Diligent::RefCntAutoPtr<Diligent::IShader> shader;
   state_->device->CreateShader(desc,&shader);
   if(!shader)
@@ -117,7 +122,7 @@ Diligent::IShader* DiligentAotShaderModules::GetOrCreate(
 FloatRegisterAbi DiligentAotShaderModules::GetFloatRegisterAbi(
     const aot::ShaderBank& bank,const aot::Digest& digest,aot::Stage stage) {
   GetOrCreate(bank,digest,stage);
-  return state_->modules.at({digest,stage}).floats;
+  return state_->modules.at({digest,stage,0}).floats;
 }
 void DiligentAotShaderModules::BindDirectFloatRegisters(Diligent::IDeviceContext* context,
     Diligent::IShaderResourceBinding* resources,aot::Stage stage,std::span<const float> registers) {

@@ -257,7 +257,8 @@ inline std::vector<VerifiedNativeMaterialImage> OriginalScalarImages(
       throw std::invalid_argument("Original scalar CTAB slot missing");
     // The existing scalar sampler binder accepts unsigned linear
     // formats only. Do not silently convert signed/gamma fetches.
-    if((captured.pixel_fetch[slot->slot][0]&1023u)!=2u)
+    const auto signs=captured.pixel_fetch[slot->slot][0]&1023u;
+    if(signs!=2u && !(signs==254u && slot->dimension==3u))
       throw std::invalid_argument("Unsupported original scalar color space");
     const auto guest=call.observed_vs_matrices->original_texture_guest_objects[slot->slot];
     if(scene.original_graph.HasResolve(guest)) {
@@ -408,6 +409,12 @@ inline ProducedWorldMaterial ProduceOriginalWorldMaterial(
   out.material.original_surface_ordinal=*surface;
   out.material.original_images=OriginalScalarImages(call,*vs,*ps,bank,samplers,
       owner->original_resource_hash,*surface,method.original_pass_sampler_slot_mask,residency,format);
+  for(const auto& image:out.material.original_images) {
+    const auto slot=image.original_binding.original_fetch_register;
+    if(image.shader_reflected_view==OriginalTextureViewKind::NativeCube &&
+       (call.observed_shader_constants->pixel_fetch[slot][0]&1023u)==254u)
+      pass.original_xbox_cube_gamma_mask|=uint16_t(1u<<slot);
+  }
   pass.material_pass_verified=true;
   auto& d=out.draw;
   d.original_model_hash=owner->original_resource_hash;

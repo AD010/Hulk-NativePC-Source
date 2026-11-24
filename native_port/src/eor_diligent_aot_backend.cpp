@@ -546,6 +546,7 @@ std::size_t DiligentEorDirectBackend::AdoptVerifiedOriginalMaterialPasses(
            pass.pipeline.original_vertex_shader_sha256 ||
        old.pipeline.original_pixel_shader_sha256!=
            pass.pipeline.original_pixel_shader_sha256 ||
+       old.pipeline.original_xbox_cube_gamma_mask!=pass.pipeline.original_xbox_cube_gamma_mask ||
        old.original_textures.size()!=pass.original_textures.size() ||
        old.pipeline.exact_host_input_layout.size()!=pass.pipeline.exact_host_input_layout.size() ||
        old.pipeline.original_view_space!=pass.pipeline.original_view_space ||
@@ -1371,7 +1372,8 @@ bool DiligentEorDirectBackend::PreflightOriginalScene(
         } else {
           if(!texture.uploaded)return false;
           BindOriginalPixelImage2D(s.device,binding,*texture.uploaded,image->slot,
-                                   captured.pixel_fetch[image->slot],(controls.point_slots&bit)!=0);
+                                   captured.pixel_fetch[image->slot],(controls.point_slots&bit)!=0,
+                                   (s.material_lookup.at(key)->pipeline.original_xbox_cube_gamma_mask&bit)!=0);
         }
         bound|=bit;
       }
