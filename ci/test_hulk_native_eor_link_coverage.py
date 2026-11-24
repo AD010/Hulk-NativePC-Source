@@ -216,6 +216,9 @@ class NativeEorLinkCoverage(unittest.TestCase):
                         capture.index("CaptureUsaVsMatrices("))
         self.assertIn("ObserveBoundShaderIdentity(draw,bindings->vertex,bindings->pixel",capture)
         self.assertIn("g_frame_shader_complete.load(std::memory_order_relaxed)",capture)
+        self.assertIn("const bool diagnostic_mesh=!replay",capture)
+        self.assertIn("if(replay && !g_frame_shader_complete.load",capture)
+        self.assertNotIn("capture_heavy=!replay",capture)
         self.assertIn("g_frame_shader_complete=true;",hook.split("void EndPpcHook(",1)[1])
 
     def test_built_in_eor_claims_before_archive_and_target_work(self):

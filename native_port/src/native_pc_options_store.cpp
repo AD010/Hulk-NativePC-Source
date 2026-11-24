@@ -9,6 +9,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <iterator>
+#include <mutex>
 #include <sstream>
 #include <span>
 #include <string>
@@ -85,6 +86,9 @@ bool IsAssignment(std::string_view line, std::string_view key) {
 }
 
 using Setting = std::pair<std::string_view, std::string_view>;
+std::mutex g_config_write_mutex;
+std::mutex g_live_path_mutex;
+std::filesystem::path g_live_config_path;
 
 // Atomic one-file update of 1-2 whitelisted settings. Used for both
 // single controls and a paired window resolution to avoid half-saved
@@ -93,6 +97,10 @@ bool SaveSettings(const std::filesystem::path& config_file,
                   std::span<const Setting> updates) {
   if (config_file.empty() || updates.empty() || updates.size() > 2)
     return false;
+  // The original guest UI can save from the game thread while the host
+  // menu writes from the window thread. Serialize the entire read/edit/
+  // atomic replace, not just the final rename of the common temp file.
+  std::lock_guard lock(g_config_write_mutex);
   std::error_code ec;
   if (!std::filesystem::is_regular_file(config_file, ec) || ec ||
       std::filesystem::file_size(config_file, ec) > (2u << 20) || ec)
@@ -198,6 +206,29 @@ bool SaveWindowSize(const std::filesystem::path& config_file,
   } catch (...) {
     return false;
   }
+}
+
+void SetLiveConfigPath(const std::filesystem::path& path) noexcept {
+  try {
+    std::lock_guard lock(g_live_path_mutex);
+    g_live_config_path=path;
+  } catch (...) {}
+}
+bool SaveOriginalLookInversion(std::optional<bool> yaw,
+                               std::optional<bool> pitch) noexcept {
+  try {
+    if(!yaw && !pitch)return true;
+    std::filesystem::path path;
+    {
+      std::lock_guard lock(g_live_path_mutex);
+      path=g_live_config_path;
+    }
+    std::array<Setting,2> updates{};
+    size_t count=0;
+    if(yaw)updates[count++]={"hulk_mouse_invert_x",*yaw?"true":"false"};
+    if(pitch)updates[count++]={"hulk_mouse_invert_y",*pitch?"true":"false"};
+    return SaveSettings(path,std::span<const Setting>(updates.data(),count));
+  } catch (...) {return false;}
 }
 
 }  // namespace hulk::options

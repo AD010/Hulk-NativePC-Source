@@ -4,6 +4,7 @@
 // Otherwise, the original right-stick fallback remains for playability.
 #include "native_input_map.h"
 #include "native_pc_bindings.h"
+#include "native_pc_options_store.h"
 #include "native_camera_direct.h"
 #include "pc_menu.h"
 #include <rex/cvar.h>
@@ -272,6 +273,18 @@ bool NativeInputApply(uint32_t user, bool real_pad_connected, uint8_t* state, ui
       if(desired==*original || camera::WriteGameLookInversion(guest_base,*original,desired)) {
         if(pc.yaw!=desired.yaw)REXCVAR_SET(hulk_mouse_invert_x,desired.yaw);
         if(pc.pitch!=desired.pitch)REXCVAR_SET(hulk_mouse_invert_y,desired.pitch);
+        // A change in the two source-pinned USA option bytes is the
+        // original game's real menu action, not an ImGui substitute.
+        // Persist just the axes changed by the guest, including false.
+        // Initial load and host-only changes must not rewrite the file.
+        if(previous_inversion) {
+          const auto yaw=original->yaw!=previous_inversion->yaw ?
+              std::optional<bool>{desired.yaw}:std::nullopt;
+          const auto pitch=original->pitch!=previous_inversion->pitch ?
+              std::optional<bool>{desired.pitch}:std::nullopt;
+          if((yaw || pitch) && !options::SaveOriginalLookInversion(yaw,pitch))
+            REXLOG_WARN("[HULK/INPUT] Original camera option applied; PC TOML save failed");
+        }
         previous_inversion=desired;
         original_inversion_bound=true;
       } else {

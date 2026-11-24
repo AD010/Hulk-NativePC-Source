@@ -241,6 +241,17 @@ int main() {
          "Below-720p NativeX must not create sub-1x guest draw targets");
   Expect(!hulk::display::FitOriginalPicture(0, 720).valid,
          "Zero-resolution framebuffer must fail closed");
+  Write(config, "hulk_mouse_invert_x = true\nhulk_mouse_invert_y = true\nvsync = false\n");
+  hulk::options::SetLiveConfigPath(config);
+  Expect(hulk::options::SaveOriginalLookInversion(false,std::nullopt),
+         "Original EoR yaw disabled option was not persisted");
+  Expect(Read(config)=="hulk_mouse_invert_x = false\nhulk_mouse_invert_y = true\nvsync = false\n",
+         "Original yaw update overwrote independent pitch or unrelated setting");
+  Expect(hulk::options::SaveOriginalLookInversion(true,false),
+         "Original EoR both-axis settings transaction failed");
+  Expect(Read(config)=="hulk_mouse_invert_x = true\nhulk_mouse_invert_y = false\nvsync = false\n",
+         "Original EoR both-axis settings did not survive transaction");
+  hulk::options::SetLiveConfigPath({});
   Write(config, "vsync = true\nvsync = false\n");
   Expect(!Save(config, "vsync", "true"), "Duplicate TOML keys must be refused");
   Expect(Read(config) == "vsync = true\nvsync = false\n",

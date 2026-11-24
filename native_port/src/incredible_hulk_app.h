@@ -19,6 +19,7 @@
 #include "eor_original_shader_samplers.h"
 #include "eor_original_virtual_shader_identity.h"
 #include "native_pc_save_path.h"
+#include "native_pc_options_store.h"
 #include "native_pc_save_format.h"
 #include "native_gpu_autodiag.h"
 #include "pc_menu.h"
@@ -63,6 +64,7 @@ class IncredibleHulkApp : public rex::ReXApp {
     auto paths = defaults;
     // Use the actual resolved config path, not a guessed executable folder.
     native_pc_config_ = paths.config_path;
+    hulk::options::SetLiveConfigPath(native_pc_config_);
     // HULK/PCMENU-CONFIG-LATE: F10 may already exist when this callback
     // runs. The dialog now holds a live reference to this resolved path.
     std::error_code config_error;

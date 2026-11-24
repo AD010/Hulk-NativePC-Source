@@ -4,6 +4,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <optional>
 #include <string_view>
 
 namespace hulk::options {
@@ -18,5 +19,11 @@ bool Save(const std::filesystem::path& config_file,
 // never modify the guest 1280x720 video mode or its Xenos XDK pitches.
 bool SaveWindowSize(const std::filesystem::path& config_file,
                     uint32_t width, uint32_t height) noexcept;
+
+// The original EoR options menu and the host settings share one resolved
+// configuration. Persist only the axes the game actually changed.
+void SetLiveConfigPath(const std::filesystem::path& path) noexcept;
+bool SaveOriginalLookInversion(std::optional<bool> yaw,
+                               std::optional<bool> pitch) noexcept;
 
 }  // namespace hulk::options
