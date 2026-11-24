@@ -20,6 +20,7 @@ ResidentLodSet::ResidentLodSet(std::vector<LodTier> tiers, LodPolicy policy)
   for (size_t i = 0; i < tiers_.size(); ++i) {
     const auto& tier = tiers_[i];
     if (!tier.original_model_hash ||
+        std::isnan(tier.maximum_distance) ||
         tier.maximum_distance <= previous ||
         ((i + 1 == tiers_.size()) != std::isinf(tier.maximum_distance)) ||
         (std::isinf(tier.maximum_distance) && tier.maximum_distance < 0))

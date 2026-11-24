@@ -51,6 +51,8 @@ int main(){
  Reject([&]{(void)ResidentLodSet({{1,20},{2,10},{3,std::numeric_limits<double>::infinity()}});});
  Reject([&]{(void)ResidentLodSet({{1,20},{1,std::numeric_limits<double>::infinity()}});});
  Reject([&]{(void)ResidentLodSet({{1,100}});});
+ Reject([&]{(void)ResidentLodSet({{1,std::numeric_limits<double>::quiet_NaN()},{2,std::numeric_limits<double>::infinity()}});});
+ Reject([&]{(void)ResidentLodSet({{1,100},{2,std::numeric_limits<double>::quiet_NaN()},{3,std::numeric_limits<double>::infinity()}});});
  Reject([&]{(void)ResidentLodSet({{1,std::numeric_limits<double>::infinity()}},LodPolicy{0.5,0.1,0.25});});
  Reject([&]{world.SetResident(999,true);});
  Reject([&]{world.Update(-1);});

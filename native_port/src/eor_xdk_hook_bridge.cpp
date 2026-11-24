@@ -790,8 +790,16 @@ void CapturePpcDraw(Kind kind, uint32_t guest, const PPCContext& ctx,
     // Present may have advanced on a different PPC thread. Recheck
     // under the same lock that resets and owns the collector.
     if(!g_frame_shader_complete.load(std::memory_order_relaxed)) {
-      if(const auto bindings=CaptureUsaShaderObjects(ctx.r3.u32,ReadGuest,guest_base))
-        ObserveBoundShaderIdentity(draw,bindings->vertex,bindings->pixel,guest_base);
+      // A rejected frame cannot reach the independent presenter. Only
+      // an incomplete AOT corpus still benefits from shader demand
+      // discovery here. With the entire bank resident, avoid repeated
+      // guest-memory reads/hashes of thousands of unusable Draws.
+      const bool needs_demand=!g_offline_shader_pack ||
+          !g_offline_shader_pack->shaders ||
+          !g_offline_shader_pack->shaders->HasFullArchiveCoverage();
+      if(needs_demand)
+        if(const auto bindings=CaptureUsaShaderObjects(ctx.r3.u32,ReadGuest,guest_base))
+          ObserveBoundShaderIdentity(draw,bindings->vertex,bindings->pixel,guest_base);
       ++g_frame_heavy_capture_skipped;
       g_collector.Record(std::move(draw));
       return;
@@ -2014,6 +2022,12 @@ struct AutomaticEorOwner {
     std::map<uint32_t,std::shared_ptr<const model::UploadedOriginalModel>> models;
     std::set<size_t> runtime_required;
     std::set<uint32_t> requested;
+    // Multiple city draws can sample the same immutable archive texture
+    // set. Cache the intersection for this frame only. This is strictly
+    // a prefetch hint: geometry, shader and material still require their
+    // own exact per-Draw evidence in ProduceOriginalWorldMaterial.
+    using TextureSetKey=std::pair<uint16_t,std::array<uint32_t,16>>;
+    std::map<TextureSetKey,std::vector<world::OriginalSurfaceCandidate>> frame_candidates;
     // Discover only source-proven texture candidates. Request ALL unique
     // original archive owners for the sampled texture set (bounded).
     // A unique match among an incomplete subset is not archive proof.
@@ -2032,8 +2046,12 @@ struct AutomaticEorOwner {
             mask&=static_cast<uint16_t>(~(1u<<slot));
       if(!mask || (mask&~parent->original_pass_sampler_slot_mask))
         {runtime_required.insert(ordinal);continue;}
-      const auto surfaces=candidates->FindLiveSurfaceCandidates(
-          call.original_pixel_texture_keys,mask,0,96);
+      auto keys=call.original_pixel_texture_keys;
+      for(uint32_t slot=0;slot<16;++slot)
+        if(!(mask&(1u<<slot)))keys[slot]=0;
+      auto [entry,inserted]=frame_candidates.try_emplace(TextureSetKey{mask,keys});
+      if(inserted)entry->second=candidates->FindLiveSurfaceCandidates(keys,mask,0,96);
+      const auto& surfaces=entry->second;
       if(surfaces.empty()){runtime_required.insert(ordinal);continue;}
       for(const auto& surface:surfaces) {
         const auto hash=surface.original_model_hash;
