@@ -161,10 +161,14 @@ class NativeEorLinkCoverage(unittest.TestCase):
         constructor = backend.split("DiligentEorDirectBackend::DiligentEorDirectBackend(", 1)[1]
         constructor = constructor.split("DiligentEorDirectBackend::~DiligentEorDirectBackend(", 1)[0]
         self.assertNotIn("(used_slots & (1u << v.BufferSlot))", constructor)
-        self.assertIn("!HasVerifiedHostAttributeLayout(pass.exact_host_input_layout)", constructor)
+        validator = backend.split("static void ValidateSourceOriginalMaterialPass(", 1)[1]
+        validator = validator.split("DiligentEorDirectBackend::DiligentEorDirectBackend(", 1)[0]
+        self.assertIn("ValidateSourceOriginalMaterialPass(owner,bank,effects,frame,formats)", constructor)
+        self.assertIn("else if(!HasVerifiedHostAttributeLayout(pass.exact_host_input_layout))", validator)
+        self.assertIn("!SourceRuntimeSlotMask(pass.exact_host_input_layout,symbolic)", validator)
         preflight = backend.split("bool DiligentEorDirectBackend::PreflightOriginalScene(", 1)[1]
         preflight = preflight.split("bool DiligentEorDirectBackend::BeginScene(", 1)[0]
-        self.assertRegex(preflight, r"if\(!\(is_font \?\s*SourceFontSlotMask\([^)]+\) :\s*SourceVertexSlotMask\([^)]+\)\) \|\|")
+        self.assertRegex(preflight, r"if\(!\(is_font \?\s*SourceFontSlotMask\([^)]+\)\s*:\s*runtime \?\s*SourceRuntimeSlotMask\([^)]+\)\s*:\s*SourceVertexSlotMask\([^)]+\)\) \|\|\s*!s\.meshes\.IndexWindowInRange\(")
         self.assertNotIn("mesh->second.host_vertex_slots.size()!=", preflight)
 
 
@@ -180,11 +184,26 @@ class NativeEorLinkCoverage(unittest.TestCase):
         self.assertIn("slot == 0 && (attribute.components != 3 || offset != 0)", validator)
         preflight = backend.split("bool DiligentEorDirectBackend::PreflightOriginalScene(", 1)[1]
         preflight = preflight.split("bool DiligentEorDirectBackend::BeginScene(", 1)[0]
-        self.assertRegex(preflight, r"if\(!\(is_font \?\s*SourceFontSlotMask\([^)]+\) :\s*SourceVertexSlotMask\([^)]+\)\) \|\|")
+        self.assertRegex(preflight, r"if\(!\(is_font \?\s*SourceFontSlotMask\([^)]+\)\s*:\s*runtime \?\s*SourceRuntimeSlotMask\([^)]+\)\s*:\s*SourceVertexSlotMask\([^)]+\)\) \|\|\s*!s\.meshes\.IndexWindowInRange\(")
         draw = backend.split("bool DiligentEorDirectBackend::DrawIndexed(", 1)[1]
         self.assertIn("SourceVertexSlotMask(layout,slots)", draw)
         uploaded = (ROOT / "ci/eor_native_mesh_upload_test.cpp").read_text()
         self.assertIn("ValidateHostVertexLayout(", uploaded)
+
+    def test_runtime_uint_vertex_storage_matches_upload_preflight_and_draw(self):
+        backend = (ROOT / "native_port/src/eor_diligent_aot_backend.cpp").read_text()
+        mask = backend.split("uint32_t SourceRuntimeSlotMask(", 1)[1].split("\n}", 1)[0]
+        self.assertIn("e.ValueType==Diligent::VT_UINT32", mask)
+        self.assertIn("e.InputIndex==1u || e.InputIndex==2u || e.InputIndex==9u", mask)
+        self.assertIn("if(e.ValueType==Diligent::VT_UINT32) {", backend)
+        self.assertIn("UploadDecodedIntegerAttributes(cpu.integer_attributes[i])", backend)
+        preflight = backend.split("bool DiligentEorDirectBackend::PreflightOriginalScene(", 1)[1].split("bool DiligentEorDirectBackend::BeginScene(", 1)[0]
+        self.assertIn("integer_skin=element.ValueType==Diligent::VT_UINT32", preflight)
+        self.assertIn("runtime ? (integer_skin?4u:3u)", preflight)
+        self.assertLess(preflight.index("integer_skin=element.ValueType"), preflight.index("CreateOriginalVulkanPipeline("))
+        draw = backend.split("bool DiligentEorDirectBackend::DrawIndexed(", 1)[1].split("bool DiligentEorDirectBackend::ResolveScene(", 1)[0]
+        self.assertIn("return e.BufferSlot==i && e.ValueType==Diligent::VT_UINT32;", draw)
+        self.assertIn("runtime?(integer_skin?4u:3u)", draw)
 
     def test_live_draw_vertex_slot_count_cannot_overrun_host_arrays(self):
         backend = (ROOT / "native_port" / "src" /
@@ -503,7 +522,9 @@ class NativeEorLinkCoverage(unittest.TestCase):
         upload = (ROOT / "native_port" / "src" /
                   "eor_native_mesh_upload.cpp").read_text(encoding="utf-8")
         self.assertIn("mesh.decoded_attribute_buffers", native)
-        self.assertIn("DecodeVerifiedAttribute(meshes[i],layouts[i][j])", upload)
+        self.assertIn("const auto& layout=layouts[i][j];", upload)
+        self.assertIn("DecodeVerifiedAttribute(meshes[i],layout)", upload)
+        self.assertIn("backend.UploadDecodedIntegerAttributes(indices)", upload)
         self.assertIn("backend.UploadDecodedAttributes(decoded[mesh_id][i])", upload)
 
     def test_shader_constant_packer_is_both_linked_and_tested(self):

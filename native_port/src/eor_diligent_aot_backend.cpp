@@ -1162,7 +1162,7 @@ aot::BoundIndexedDraw DiligentEorDirectBackend::StageOriginalRuntimeDraw(
        e.ValueType!=p.ValueType || e.NumComponents!=p.NumComponents ||
        e.Stride!=p.Stride || e.RelativeOffset!=p.RelativeOffset ||
        e.BufferSlot!=i)throw std::invalid_argument("Transient vertex layout changed");
-    if(e.InputIndex==9u && e.ValueType==Diligent::VT_UINT32) {
+    if(e.ValueType==Diligent::VT_UINT32) {
       if(cpu.integer_attributes[i].size()!=cpu.vertex_count || !cpu.attributes[i].empty())
         throw std::invalid_argument("Transient integer input incomplete");
       buffers.host_vertex_slots[i]=add(s.meshes.UploadDecodedIntegerAttributes(cpu.integer_attributes[i]));
@@ -1461,7 +1461,7 @@ bool DiligentEorDirectBackend::PreflightOriginalScene(
     // Check typed slot storage before the first GPU clear, not only at Draw.
     for(const auto& element:selected->pipeline.exact_host_input_layout) {
       const auto slot=element.BufferSlot;
-      const bool integer_skin=element.InputIndex==9u && element.ValueType==Diligent::VT_UINT32;
+      const bool integer_skin=element.ValueType==Diligent::VT_UINT32;
       const uint32_t kind=is_font ? 3u : runtime ? (integer_skin?4u:3u) : slot==0u ? 0u : integer_skin ? 4u : 3u;
       if(slot>=mesh->second.host_vertex_slots.size() ||
          s.meshes.KindOf(mesh->second.host_vertex_slots[slot])!=kind)return false;
@@ -1761,7 +1761,7 @@ bool DiligentEorDirectBackend::DrawIndexed(const native::IndexedDraw& draw) {
   for(uint32_t i=0;i<binding_count;++i) {
     if(!(used_slots & (1u << i)))continue;
     const bool integer_skin=std::any_of(layout.begin(),layout.end(),[&](const auto& e){
-      return e.BufferSlot==i && e.InputIndex==9u && e.ValueType==Diligent::VT_UINT32;
+      return e.BufferSlot==i && e.ValueType==Diligent::VT_UINT32;
     });
     if(s.meshes.KindOf(slots[i])!=(is_font?3u:runtime?(integer_skin?4u:3u):(i==0?0u:integer_skin?4u:3u)))
       return false;
