@@ -105,7 +105,7 @@ bool HasVerifiedHostAttributeLayout(
              // patterns of the same native float4 bytes (asfloat path).
              item.ValueType==Diligent::VT_FLOAT32 ||
                (item.ValueType==Diligent::VT_UINT32 && item.BufferSlot>0 &&
-                (item.InputIndex==1u || item.InputIndex==2u) &&
+                (item.InputIndex==1u || item.InputIndex==2u || item.InputIndex==9u) &&
                 item.NumComponents==4u),
              item.Frequency==Diligent::INPUT_ELEMENT_FREQUENCY_PER_VERTEX};
   }
@@ -500,7 +500,8 @@ DiligentEorDirectBackend::DiligentEorDirectBackend(
        uint64_t(resident.index_count)>ib->GetDesc().Size/sizeof(uint32_t))
       throw std::invalid_argument("EoR mesh residency exceeds GPU buffer allocation");
     for(size_t i=1;i<slots.size();++i) {
-      if(!slots[i] || state_->meshes.KindOf(slots[i])!=3)
+      if(!slots[i] || (state_->meshes.KindOf(slots[i])!=3 &&
+                       state_->meshes.KindOf(slots[i])!=4))
         throw std::invalid_argument("Raw Xbox BE vertex bytes cannot bind to host Vulkan");
       const auto* attributes=state_->meshes.FindBuffer(slots[i]);
       if(!attributes ||
@@ -616,7 +617,7 @@ std::size_t DiligentEorDirectBackend::AdoptVerifiedResidentWorldMeshes(
     for(size_t slot=1;slot<draw.host_vertex_slots.size();++slot) {
       const auto handle=draw.host_vertex_slots[slot];
       auto* buffer=s.meshes.FindBuffer(handle);
-      if(!buffer || s.meshes.KindOf(handle)!=3u ||
+      if(!buffer || (s.meshes.KindOf(handle)!=3u && s.meshes.KindOf(handle)!=4u) ||
          buffer->GetDesc().Size <
              uint64_t(draw.vertex_count)*sizeof(model::HostAttribute))
         throw std::invalid_argument("Original EoR decoded GPU attribute missing");
@@ -1216,6 +1217,14 @@ bool DiligentEorDirectBackend::PreflightOriginalScene(
                                     d.index_count,d.base_vertex,
                                     mesh->second.vertex_count))
       return false;
+    // Check typed slot storage before the first GPU clear, not only at Draw.
+    for(const auto& element:selected->pipeline.exact_host_input_layout) {
+      const auto slot=element.BufferSlot;
+      const bool integer_skin=element.InputIndex==9u && element.ValueType==Diligent::VT_UINT32;
+      const uint32_t kind=is_font ? 3u : slot==0u ? 0u : integer_skin ? 4u : 3u;
+      if(slot>=mesh->second.host_vertex_slots.size() ||
+         s.meshes.KindOf(mesh->second.host_vertex_slots[slot])!=kind)return false;
+    }
     needed_materials.insert(key);
   }
   // Pass two: compile/link only the ORIGINAL shader techniques that this
@@ -1482,7 +1491,10 @@ bool DiligentEorDirectBackend::DrawIndexed(const native::IndexedDraw& draw) {
   std::array<Diligent::Uint64,16> offsets{};
   for(uint32_t i=0;i<binding_count;++i) {
     if(!(used_slots & (1u << i)))continue;
-    if(s.meshes.KindOf(slots[i])!=(is_font?3u:(i==0?0u:3u)))
+    const bool integer_skin=std::any_of(layout.begin(),layout.end(),[&](const auto& e){
+      return e.BufferSlot==i && e.InputIndex==9u && e.ValueType==Diligent::VT_UINT32;
+    });
+    if(s.meshes.KindOf(slots[i])!=(is_font?3u:(i==0?0u:integer_skin?4u:3u)))
       return false;
     buffers[i]=s.meshes.FindBuffer(slots[i]);
     if(!buffers[i])return false;

@@ -20,11 +20,13 @@ class DiligentMeshUploadBackend final : public model::NativeMeshUploadBackend {
   // Upload EoR attributes AFTER source-proven BE decoding. The raw Xbox
   // interleaved vertex stream above is never directly a host vertex layout.
   uint64_t UploadDecodedAttributes(std::span<const model::HostAttribute> values) override;
+  uint64_t UploadDecodedIntegerAttributes(
+      std::span<const std::array<uint32_t,4>>) override;
   void ReleaseBuffer(uint64_t handle) noexcept override;
   // Raw, borrowed pointer: valid only until ReleaseBuffer or destruction.
   Diligent::IBuffer* FindBuffer(uint64_t handle) const noexcept;
   // 0: decoded XYZ, 1: RAW big-endian Xbox (never bind), 2: native index32,
-  // 3: decoded float4 attributes; UINT32_MAX: missing/stale handle.
+  // 3: decoded float4 attributes, 4: decoded uint4 indices; UINT32_MAX: missing/stale handle.
   uint32_t KindOf(uint64_t handle) const noexcept;
   // Highest source index in this immutable GPU index buffer; UINT32_MAX
   // denotes a missing/non-index buffer, not an available vertex index.

@@ -35,6 +35,9 @@ class NativeMeshUploadBackend {
   virtual uint64_t UploadIndices(std::span<const uint32_t>)=0;
   // Fail closed unless this backend can upload host-native decoded slots.
   virtual uint64_t UploadDecodedAttributes(std::span<const HostAttribute>) {return 0;}
+  // Blend indices are integers in the scalar VS ABI, not float bit patterns.
+  virtual uint64_t UploadDecodedIntegerAttributes(
+      std::span<const std::array<uint32_t,4>>) {return 0;}
   virtual void ReleaseBuffer(uint64_t) noexcept=0;
 };
 class UploadedNativeMeshBatch {

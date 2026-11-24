@@ -163,8 +163,12 @@ inline std::vector<Diligent::LayoutElement> OriginalScalarMeshLayout(
              guest->original_packed_type!=0x2a23b9u)
             throw std::invalid_argument("Unsupported original position ABI");
         } else if(input.uint_bits) {
-          if(!normal || format!=0x1a2186u || input.components!=4u)
-            throw std::invalid_argument("Original integer/skin attribute needs native uint conversion");
+          const bool blend_indices=usage==2u && index==0u && type==0x11u &&
+              format==0x1a2286u && end-offset==4u;
+          if(input.components!=4u && (normal || blend_indices))
+            throw std::invalid_argument("Invalid scalar uint4 vertex input");
+          if(!(normal && format==0x1a2186u) && !blend_indices)
+            throw std::invalid_argument("Original integer vertex attribute type mismatch");
         } else if(!((usage==5u && type==0x2eu && format==0x1a2360u) ||
                     (usage==10u && type==0x10u && guest->original_packed_type==0x182886u) ||
                     (usage==1u && type==0x10u && format==0x1a2086u))) {

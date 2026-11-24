@@ -64,6 +64,7 @@ UploadedNativeMeshBatch UploadNativeIndexedMeshes(
     throw std::invalid_argument("Original attribute layouts do not match mesh count");
   // Validate and decode the ENTIRE original model batch before GPU allocation.
   std::vector<std::vector<std::vector<HostAttribute>>> decoded(meshes.size());
+  std::vector<std::vector<bool>> integer_slots(meshes.size());
   for(size_t i=0;i<meshes.size();++i) {
     CheckMesh(meshes[i]);
     if(layouts.empty())continue;
@@ -75,7 +76,21 @@ UploadedNativeMeshBatch UploadNativeIndexedMeshes(
            layouts[i][j].components==layouts[i][k].components &&
            layouts[i][j].encoding==layouts[i][k].encoding)
           throw std::invalid_argument("Duplicate original attribute declaration");
-      decoded[i].push_back(DecodeVerifiedAttribute(meshes[i],layouts[i][j]));
+      const auto& layout=layouts[i][j];
+      bool integer=false;
+      uint32_t offset=0;
+      for(const auto& entry:meshes[i].original_attribute_declarations) {
+        const auto type=std::to_integer<uint32_t>(entry[0]);
+        const auto usage=std::to_integer<uint32_t>(entry[1]);
+        const auto end=std::to_integer<uint32_t>(entry[3]);
+        if(offset==layout.original_byte_offset && type==0x11u && usage==2u &&
+           std::to_integer<uint32_t>(entry[2])==0u && end==offset+4u &&
+           layout.components==4u && layout.encoding==AttributeEncoding::UInt8)
+          integer=true;
+        offset=end;
+      }
+      integer_slots[i].push_back(integer);
+      decoded[i].push_back(DecodeVerifiedAttribute(meshes[i],layout));
     }
   }
   UploadedNativeMeshBatch batch;
@@ -108,9 +123,22 @@ UploadedNativeMeshBatch UploadNativeIndexedMeshes(
     receive(backend.UploadPositions(m.positions),o.position_buffer);
     receive(backend.UploadOriginalVertexStream(m.original_vertex_stream),o.original_vertex_stream_buffer);
     receive(backend.UploadIndices(m.triangle_list_indices),o.index_buffer);
-    for(size_t i=0;i<decoded[mesh_id].size();++i)
-      receive(backend.UploadDecodedAttributes(decoded[mesh_id][i]),
-              o.decoded_attribute_buffers[i]);
+    for(size_t i=0;i<decoded[mesh_id].size();++i) {
+      if(integer_slots[mesh_id][i]) {
+        std::vector<std::array<uint32_t,4>> indices;
+        indices.reserve(decoded[mesh_id][i].size());
+        for(const auto& v:decoded[mesh_id][i]) {
+          std::array<uint32_t,4> value{};
+          for(size_t j=0;j<4;++j)value[j]=static_cast<uint32_t>(v[j]);
+          indices.push_back(value);
+        }
+        receive(backend.UploadDecodedIntegerAttributes(indices),
+                o.decoded_attribute_buffers[i]);
+      } else {
+        receive(backend.UploadDecodedAttributes(decoded[mesh_id][i]),
+                o.decoded_attribute_buffers[i]);
+      }
+    }
   }
   return batch;
 }

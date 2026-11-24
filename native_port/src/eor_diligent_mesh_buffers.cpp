@@ -39,13 +39,14 @@ DiligentMeshUploadBackend::DiligentMeshUploadBackend(Diligent::IRenderDevice* de
 }
 DiligentMeshUploadBackend::~DiligentMeshUploadBackend() noexcept = default;
 uint64_t DiligentMeshUploadBackend::Create(const void* bytes, uint64_t length, uint32_t kind) {
-  if (!bytes || !length || length > kMaxUploadBytes || kind>3u ||
+  if (!bytes || !length || length > kMaxUploadBytes || kind>4u ||
       state_->next_handle == std::numeric_limits<uint64_t>::max()) return 0;
   Diligent::BufferDesc description;
   description.Name = kind == 0 ? "EoR decoded XYZ" :
                      kind == 1 ? "EoR original BE attribute stream" :
                      kind == 2 ? "EoR native index32" :
-                                 "EoR decoded native float4 attributes";
+                     kind == 3 ? "EoR decoded native float4 attributes" :
+                                 "EoR decoded native uint4 blend indices";
   description.Size = length;
   description.Usage = Diligent::USAGE_IMMUTABLE;
   // The original BE stream is not a verified host vertex layout. It is
@@ -111,6 +112,14 @@ uint64_t DiligentMeshUploadBackend::UploadDecodedAttributes(
     for(float value:vertex)
       if(!std::isfinite(value))return 0;
   return Create(values.data(),values.size_bytes(),3);
+}
+uint64_t DiligentMeshUploadBackend::UploadDecodedIntegerAttributes(
+    std::span<const std::array<uint32_t,4>> values) {
+  if(values.empty() || values.size()>kMaxUploadBytes/sizeof(values[0]))return 0;
+  for(const auto& v:values)
+    for(uint32_t index:v)
+      if(index>255u)return 0;
+  return Create(values.data(),values.size_bytes(),4);
 }
 void DiligentMeshUploadBackend::ReleaseBuffer(uint64_t handle) noexcept {
   state_->live.erase(handle);
