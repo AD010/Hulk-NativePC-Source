@@ -922,6 +922,11 @@ void CapturePpcDraw(Kind kind, uint32_t guest, const PPCContext& ctx,
     draw.original_font_fetch=CaptureUsaFontFetch(ctx.r3.u32,ReadGuest,guest_base);
   // Keep buffer revisions and their Draw in the same Present epoch.
   std::lock_guard lock(g_mutex);
+  // Learn authentic material texture ownership before shader admission.
+  // An otherwise incomplete frame still contains useful exact ERTexture
+  // bindings from the Draws whose material owner was actually observed.
+  for(const auto& witness:draw.original_pixel_texture_owners)
+    if(witness.asset)g_original_texture_owners.Remember(witness,ReadGuest,guest_base);
   // Read both objects from this Draw's device shadow. UI, intro and world
   // Draws can bind shaders outside an observed engine shader-method scope.
   if(draw.observed_vs_matrices &&
@@ -972,9 +977,7 @@ void CapturePpcDraw(Kind kind, uint32_t guest, const PPCContext& ctx,
             for(uint32_t slot=0;slot<16u;++slot) {
               if(!(pixel->pixel_sampling->sampled_slots&(1u<<slot)))continue;
               auto& witness=draw.original_pixel_texture_owners[slot];
-              if(witness.asset && witness.hash==draw.original_pixel_texture_keys[slot])
-                g_original_texture_owners.Remember(witness,ReadGuest,guest_base);
-              else if(!draw.original_pixel_texture_keys[slot])
+              if(!witness.asset && !draw.original_pixel_texture_keys[slot])
                 if(const auto owner=g_original_texture_owners.Find(
                      live.original_texture_guest_objects[slot],ReadGuest,guest_base)) {
                   witness=*owner;

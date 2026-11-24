@@ -341,6 +341,12 @@ jobs:
             & $xdkTest
             if ($LASTEXITCODE -ne 0) { $cppFailures.Add('Original XDK Draw capture regression failed') }
           }
+          $textureOwnerTest = Join-Path $env:RUNNER_TEMP 'hulk-eor-texture-owner-test.exe'
+          & cl.exe /nologo /std:c++20 /EHsc /W4 /WX /utf-8 "/Fe:$textureOwnerTest" ci/eor_original_texture_owner_test.cpp
+          if ($LASTEXITCODE -ne 0) { $cppFailures.Add('Native ERTexture ownership cache failed MSVC compilation') } else {
+            & $textureOwnerTest
+            if ($LASTEXITCODE -ne 0) { $cppFailures.Add('Original ERTexture binding reuse regression failed') }
+          }
           # Verify runtime indexing of real AOT Vulkan modules by SHA-256;
           # no generated copyrighted shader contents in public source tests.
           $bankTest = Join-Path $env:RUNNER_TEMP 'hulk-eor-spv-bank-test.exe'

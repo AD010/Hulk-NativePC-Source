@@ -43,14 +43,15 @@ inline std::optional<OriginalTextureOwner> ReadOriginalTextureOwner(
 class OriginalTextureOwnerCache {
  public:
   void Reset() noexcept {owners_.clear();}
-  void Remember(const OriginalTextureOwner& owner,ReadGuestBytes read,void* user) {
+  void Remember(const OriginalTextureOwner& owner,ReadGuestBytes read,void* user) noexcept {
     if(!owner.asset || !owner.hash || !owner.xdk)return;
     auto current=ReadOriginalTextureOwner(owner.asset,owner.xdk,read,user);
     if(!current || *current!=owner)return;
     auto it=owners_.find(owner.xdk);
     if(it==owners_.end()) {
       if(owners_.size()>=8192u)return;
-      owners_.emplace(owner.xdk,Entry{owner,false});
+      try {owners_.emplace(owner.xdk,Entry{owner,false});}
+      catch(...) {} // optional capture must never terminate gameplay
       return;
     }
     auto& entry=it->second;

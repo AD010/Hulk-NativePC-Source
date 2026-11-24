@@ -1,4 +1,4 @@
-#include "eor_usa_material_textures.h"
+#include "../native_port/src/eor_usa_material_textures.h"
 #include <cassert>
 #include <cstring>
 using namespace hulk::eor::xdk;
