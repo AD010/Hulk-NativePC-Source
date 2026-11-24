@@ -449,13 +449,18 @@ static void VerifyStagedGlyphReplay(IRenderDevice* device,IDeviceContext* contex
     };
     return aot::ObserveOriginalBoundXdkShader(identities,object,stage,read,&memory,sequence,ordinal);
   };
-  gpu::VerifiedSceneFormat format{gpu::NativeColorFormat::Rgba8,gpu::NativeDepthFormat::D32Float,
+  gpu::VerifiedSceneFormat format{gpu::NativeColorFormat::Rgba8,gpu::NativeDepthFormat::D24S8,
       true,true,{1,2,3,4,true,true,false}};
   const auto& screen=format.original_screen;
   eor::native::FrameGeometry frame{size,size,{0,0,size.width,size.height},1,false,true,{1280,720}};
   pass.original_view_space=gpu::VerifiedOriginalViewSpace::OriginalAspectHud;
   pass.original_view_space_verified=pass.original_hud_clip_coordinates_verified=true;
   pass.exact_render_state.RTVFormats[0]=TEX_FORMAT_RGBA8_UNORM;
+  pass.exact_render_state.DSVFormat=TEX_FORMAT_D24_UNORM_S8_UINT;
+  const auto fixed=FixtureFixedState(screen.guest_device);
+  const auto state=gpu::DeriveOriginalXdkGraphicsPipelineState(fixed,pass.exact_render_state);
+  if(!state)throw std::runtime_error("Font fixture XDK state is unsupported");
+  pass.exact_render_state=*state;
   constexpr uint32_t fixture_owner=1,atlas_hash=0xdad1dd22;
   gpu::VerifiedEorSampler sampler{fixture_owner,0,pass.original_effect_hash,pass.original_pass_index,
       atlas_hash,0,gpu::OriginalSamplerStage::Pixel,"HulkTexture2D_s0",true,true,true};
@@ -505,7 +510,7 @@ static void VerifyStagedGlyphReplay(IRenderDevice* device,IDeviceContext* contex
   parent.original_pass_ps_xdk_guest_object=live.original_ps_guest_object;
   call.original_engine_shader_method=parent;
   auto regs=std::make_shared<xdk::OriginalShaderRegisters>();
-  regs->complete_float_banks=true;call.observed_shader_constants=regs;
+  regs->complete_float_banks=true;regs->fixed_graphics_state=fixed;call.observed_shader_constants=regs;
   auto vb=std::make_shared<xdk::OriginalGuestBufferBytes>();
   vb->guest_address=vb->guest_object=0x500;vb->guest_size=static_cast<uint32_t>(glyphs.size());vb->bytes=glyphs;
   call.inline_glyphs=xdk::OriginalInlineGlyphBatch{live.original_vertex_declaration_guest_object,vb->guest_size/24,vb};
