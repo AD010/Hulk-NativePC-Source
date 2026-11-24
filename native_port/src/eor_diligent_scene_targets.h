@@ -7,6 +7,9 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <vector>
+#include <algorithm>
+#include <set>
 namespace Diligent {
 struct IRenderDevice;
 struct IDeviceContext;
@@ -46,12 +49,32 @@ inline bool MatchesVerifiedOriginalXdkMainDrawTargets(
          observed.original_vs_guest_object &&
          observed.original_ps_guest_object;
 }
+// Each original XDK surface object owns a distinct native image. Sequential
+// passes share the host extent and format only if every real Draw and Clear
+// proves that contract. Intermediate Resolve destinations are separate
+// images, never aliases of the currently bound color attachment.
+struct OriginalNativeTargetGraph {
+  std::vector<uint32_t> colors,depths,resolves;
+  uint32_t first_color=0,first_depth=0,final_color=0,front_buffer=0;
+  bool operator==(const OriginalNativeTargetGraph&) const=default;
+  bool active() const noexcept {return !colors.empty();}
+  bool HasColor(uint32_t id) const noexcept {
+    return std::binary_search(colors.begin(),colors.end(),id);
+  }
+  bool HasDepth(uint32_t id) const noexcept {
+    return !id || std::binary_search(depths.begin(),depths.end(),id);
+  }
+  bool HasResolve(uint32_t id) const noexcept {
+    return std::binary_search(resolves.begin(),resolves.end(),id);
+  }
+};
 struct VerifiedSceneFormat {
   NativeColorFormat color = NativeColorFormat::Unknown;
   NativeDepthFormat depth = NativeDepthFormat::Unknown;
   bool original_color_format_verified = false;
   bool original_depth_format_verified = false;
   VerifiedOriginalXdkScreen original_screen;
+  OriginalNativeTargetGraph original_graph;
 };
 // Read genuine RB_COLOR0_INFO (0x2001), RB_DEPTH_INFO (0x2002) and
 // RB_SURFACE_INFO (0x2000) from the SAME original game XDK Draw.
@@ -104,6 +127,142 @@ ResolveOriginalXdkSurfaceFormats(
   // original_tiling_has_no_host_aliases_verified.
   return result;
 }
+// Build the actual ordered same-extent target graph from XDK command and
+// per-Draw device state. No PM4 packet, EDRAM tile or guessed resource hash.
+// Different extents/formats, depth resolves and partial resolves still
+// require independent source descriptor evidence.
+inline std::optional<OriginalSourceTargetFormat> PlanOriginalNativeTargets(
+    const xdk::Frame& source,uint32_t width,uint32_t height) {
+  if(!width || !height || !xdk::ValidateOriginalCommandTimeline(source))return {};
+  OriginalSourceTargetFormat output{};
+  auto& graph=output.format.original_graph;
+  auto& screen=output.format.original_screen;
+  std::set<uint32_t> colors,depths,full_view,resolve_destinations;
+  for(const auto& draw:source.calls) {
+    if(!draw.observed_vs_matrices || !draw.observed_shader_constants ||
+       !draw.observed_shader_constants->fixed_graphics_state)return {};
+    const auto& state=*draw.observed_vs_matrices;
+    const auto& fixed=*draw.observed_shader_constants->fixed_graphics_state;
+    const auto format=ResolveOriginalXdkSurfaceFormats(state,fixed);
+    const auto mask=fixed.ReadOriginalXenosRegister(0x2104u);
+    const auto surface=fixed.ReadOriginalXenosRegister(0x2000u);
+    if(!format || !mask || (*mask&~15u) || !surface ||
+       (*surface&0x3fffu)<width || !state.raster ||
+       !native::MapOriginalRasterWindow(*state.raster,{width,height},{0,0,width,height}))
+      return {};
+    if(!output.samples) {
+      output.samples=format->samples;output.format.color=format->format.color;
+      output.format.depth=NativeDepthFormat::None;
+      screen.guest_device=state.original_guest_device;
+      graph.first_color=state.original_rt0_guest_object;
+      graph.first_depth=state.original_depth_guest_object;
+    }
+    if(output.samples!=format->samples || output.format.color!=format->format.color ||
+       screen.guest_device!=state.original_guest_device)return {};
+    colors.insert(state.original_rt0_guest_object);
+    const auto& view=*state.raster;
+    if(view.x==0 && view.y==0 && view.width==width && view.height==height)
+      full_view.insert(state.original_rt0_guest_object);
+    if(state.original_depth_guest_object) {
+      if(format->format.depth!=NativeDepthFormat::D24S8)return {};
+      depths.insert(state.original_depth_guest_object);
+      output.format.depth=NativeDepthFormat::D24S8;
+    }
+  }
+  if(!output.samples || colors.empty() || colors!=full_view ||
+     colors.size()>16 || depths.size()>16)return {};
+  const auto front=source.commands.back().gpr[1];
+  if(!front || colors.contains(front) || depths.contains(front))return {};
+  uint32_t active_color=graph.first_color;
+  std::optional<uint32_t> active_depth=graph.first_depth;
+  // Do not infer a binding backwards across an explicit earlier rebind.
+  for(const auto& cmd:source.commands) {
+    if(cmd.draw_ordinal!=UINT32_MAX)break;
+    if(cmd.kind==xdk::CommandKind::SetRenderTarget)active_color=0;
+    if(cmd.kind==xdk::CommandKind::SetDepthStencilSurface)active_depth.reset();
+  }
+  std::set<uint32_t> initialized_color,initialized_depth,initialized_stencil,drawn;
+  bool final_resolved=false;
+  for(const auto& cmd:source.commands) {
+    if(cmd.gpr[0]!=screen.guest_device)return {};
+    if(cmd.draw_ordinal!=UINT32_MAX) {
+      const auto& draw=source.calls[cmd.draw_ordinal];
+      const auto& gpu=*draw.observed_vs_matrices;
+      if(final_resolved || !active_color || !active_depth ||
+         active_color!=gpu.original_rt0_guest_object ||
+         *active_depth!=gpu.original_depth_guest_object ||
+         !initialized_color.contains(active_color))return {};
+      const auto control=draw.observed_shader_constants->fixed_graphics_state->
+          ReadOriginalXenosRegister(0x2200u);
+      if(!control ||
+         ((*control&2u) && !initialized_depth.contains(*active_depth)) ||
+         ((*control&1u) && !initialized_stencil.contains(*active_depth)))return {};
+      drawn.insert(active_color);
+      continue;
+    }
+    switch(cmd.kind) {
+      case xdk::CommandKind::SetRenderTarget:
+        if(final_resolved || cmd.gpr[1]!=0 || !colors.contains(cmd.gpr[2]))return {};
+        active_color=cmd.gpr[2];break;
+      case xdk::CommandKind::SetDepthStencilSurface:
+        if(final_resolved || (cmd.gpr[1] && !depths.contains(cmd.gpr[1])))return {};
+        active_depth=cmd.gpr[1];break;
+      case xdk::CommandKind::ClearF:
+        if(final_resolved || !cmd.captured_clear ||
+           !xdk::IsOriginalFullTargetClear(*cmd.captured_clear,width,height))return {};
+        if(cmd.captured_clear->flags&1u) {
+          if(!active_color)return {};
+          initialized_color.insert(active_color);
+        }
+        if(cmd.captured_clear->flags&0x30u) {
+          if(!active_depth || !*active_depth)return {};
+          if(cmd.captured_clear->flags&0x10u)initialized_depth.insert(*active_depth);
+          if(cmd.captured_clear->flags&0x20u)initialized_stencil.insert(*active_depth);
+        }
+        break;
+      case xdk::CommandKind::Resolve: {
+        const auto dest=cmd.gpr[3];
+        if(final_resolved || !drawn.contains(active_color) || !dest ||
+           cmd.gpr[1] || cmd.gpr[2] || cmd.gpr[4] || cmd.gpr[5] || cmd.gpr[6] ||
+           colors.contains(dest) || depths.contains(dest))return {};
+        if(dest==front) {
+          graph.final_color=active_color;graph.front_buffer=dest;final_resolved=true;
+        } else resolve_destinations.insert(dest);
+        break;
+      }
+      case xdk::CommandKind::Present:
+        if(!final_resolved || cmd.gpr[1]!=front)return {};
+        break;
+      default:return {};
+    }
+  }
+  if(!final_resolved || resolve_destinations.size()>16)return {};
+  graph.colors.assign(colors.begin(),colors.end());
+  graph.depths.assign(depths.begin(),depths.end());
+  graph.resolves.assign(resolve_destinations.begin(),resolve_destinations.end());
+  screen.guest_rt0=graph.final_color;
+  screen.guest_depth=depths.empty()?0u:*depths.begin();
+  screen.guest_front_buffer=graph.front_buffer;
+  screen.exact_guest_to_native_targets_verified=true;
+  screen.final_resolve_to_front_buffer_verified=true;
+  output.format.original_color_format_verified=true;
+  output.format.original_depth_format_verified=true;
+  return output;
+}
+inline bool MatchesVerifiedOriginalXdkDrawTargets(
+    const xdk::OriginalVsMatrices& observed,const VerifiedSceneFormat& format,
+    bool depth_bound) noexcept {
+  const auto& graph=format.original_graph;
+  if(!graph.active())return MatchesVerifiedOriginalXdkMainDrawTargets(
+      observed,format.original_screen,depth_bound);
+  return format.original_screen.exact_guest_to_native_targets_verified &&
+         observed.original_guest_device==format.original_screen.guest_device &&
+         graph.HasColor(observed.original_rt0_guest_object) &&
+         graph.HasDepth(observed.original_depth_guest_object) &&
+         bool(observed.original_depth_guest_object)==depth_bound &&
+         observed.original_vertex_declaration_guest_object &&
+         observed.original_vs_guest_object && observed.original_ps_guest_object;
+}
 class DiligentSceneTargets {
  public:
   DiligentSceneTargets(Diligent::IRenderDevice* device,
@@ -116,6 +275,10 @@ class DiligentSceneTargets {
   bool Prepare(const native::FrameGeometry& frame,
                VerifiedSceneFormat verified);
   bool SetDepthBound(bool bind);
+  bool SetOriginalColorTarget(uint32_t guest);
+  bool SetOriginalDepthTarget(uint32_t guest);
+  bool ResolveOriginalIntermediate(uint32_t guest_destination);
+  Diligent::ITextureView* IntermediateColorSRV(uint32_t guest_destination) const noexcept;
   bool DepthBound() const noexcept;
   bool BeginScene(); // does not clear: the real EoR Clear/Depth ABI owns it
   // Execute original XDK ClearF on independently OWNED native RT0/depth.
