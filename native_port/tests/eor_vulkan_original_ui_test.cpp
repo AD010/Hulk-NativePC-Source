@@ -247,13 +247,14 @@ static void VerifySequentialTargets(IRenderDevice* device,IDeviceContext* contex
       gpu::NativeDepthFormat::None,true,true,{1,3,0,5,true,true,false}};
   auto& graph=format.original_graph;
   graph.colors={2,3};graph.resolves={4};
+  graph.extents={{2,{w/2,h/2}},{3,{w,h}},{4,{w/2,h/2}}};
   graph.first_color=2;graph.final_color=3;graph.front_buffer=5;
   gpu::DiligentSceneTargets scene(device,context);
   eor::xdk::OriginalXdkClearF clear{};
   clear.flags=1;clear.has_color=true;clear.color={1,0,0,1};
   if(!scene.Prepare(frame,format) || !scene.BeginScene() ||
      scene.IntermediateColorSRV(4) ||
-     !scene.ClearVerifiedOriginalXdk(clear,size) ||
+     !scene.ClearVerifiedOriginalXdk(clear,{w/2,h/2}) ||
      scene.ResolveOriginalIntermediate(99) ||
      !scene.ResolveOriginalIntermediate(4) ||
      !scene.IntermediateColorSRV(4) ||
@@ -264,14 +265,16 @@ static void VerifySequentialTargets(IRenderDevice* device,IDeviceContext* contex
     throw std::runtime_error("Sequential native target final resolve failed");
   const auto first=ReadPixels(device,context,scene.IntermediateColorSRV(4)->GetTexture());
   const auto final=ReadPixels(device,context,scene.ResolvedColorSRV()->GetTexture());
-  if(first.size()!=w*h*4 || final.size()!=first.size())
+  if(first.size()!=(w/2)*(h/2)*4 || final.size()!=w*h*4)
     throw std::runtime_error("Sequential target readback size mismatch");
   const std::array red{std::byte{255},std::byte{0},std::byte{0},std::byte{255}};
   const std::array blue{std::byte{0},std::byte{0},std::byte{255},std::byte{255}};
   for(size_t i=0;i<first.size();i+=4)
-    if(!std::equal(red.begin(),red.end(),first.begin()+i) ||
-       !std::equal(blue.begin(),blue.end(),final.begin()+i))
-      throw std::runtime_error("Intermediate or final target contents aliased");
+    if(!std::equal(red.begin(),red.end(),first.begin()+i))
+      throw std::runtime_error("Intermediate target contents changed");
+  for(size_t i=0;i<final.size();i+=4)
+    if(!std::equal(blue.begin(),blue.end(),final.begin()+i))
+      throw std::runtime_error("Final target contents changed");
   if(!scene.Prepare(frame,format) || !scene.BeginScene() || scene.IntermediateColorSRV(4))
     throw std::runtime_error("Stale intermediate target survived into the next frame");
   scene.AbortScene();

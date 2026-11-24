@@ -378,7 +378,7 @@ static void ValidateSourceOriginalMaterialPass(
       // be stretched to the host window just because the output is ultrawide.
       if(!pass.original_view_space_verified ||
          pass.original_view_space==VerifiedOriginalViewSpace::Unknown ||
-         pass.original_view_space==VerifiedOriginalViewSpace::Offscreen ||
+         (pass.original_view_space==VerifiedOriginalViewSpace::Offscreen && !formats.original_graph.active()) ||
          (pass.original_view_space==VerifiedOriginalViewSpace::MainPerspective &&
           !pass.source_main_view) ||
          (pass.original_view_space==VerifiedOriginalViewSpace::OriginalAspectHud &&
@@ -1273,12 +1273,16 @@ bool DiligentEorDirectBackend::PreflightOriginalScene(
       const auto source_extent=s.format.original_graph.SourceExtent(target,s.frame.original_guest);
       const auto host_extent=s.format.original_graph.active() ?
           s.format.original_graph.HostExtent(target,s.frame) : s.frame.world;
+      const bool original_offscreen=source_extent.width!=s.frame.original_guest.width ||
+                                    source_extent.height!=s.frame.original_guest.height;
+      if(selected->pipeline.original_view_space==VerifiedOriginalViewSpace::Offscreen &&
+         (!original_offscreen || source_extent.width!=host_extent.width || source_extent.height!=host_extent.height))
+        return false;
       native::Rect viewport_area{0,0,host_extent.width,host_extent.height};
       if(s.frame.widescreen_camera &&
          selected->pipeline.original_view_space==VerifiedOriginalViewSpace::OriginalAspectHud) {
         const auto fitted=display::FitOriginalPicture(
-            s.frame.world.width,s.frame.world.height,
-            s.frame.original_guest.width,s.frame.original_guest.height);
+            host_extent.width,host_extent.height,source_extent.width,source_extent.height);
         if(!fitted.valid)return false;
         viewport_area={fitted.x,fitted.y,fitted.width,fitted.height};
       }

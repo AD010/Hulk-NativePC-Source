@@ -1670,9 +1670,8 @@ std::optional<AutomaticSceneContract> OriginalTargetContract(
   if(aspect_change && (!pack.shaders || !pack.reflection || !pack.effects || !pack.virtual_ids))return {};
   // All known source images have a single output. A distinct source RT is
   // never aliased to the main scene just because it is the same extent.
-  // Until offscreen projection ownership is available, use only the
-  // proven main-screen aspect for multi-target offscreen passes.
-  if(aspect_change && result.format.original_graph.colors.size()>1)return {};
+  // Non-screen-sized targets retain their exact original extent and
+  // projection; screen-sized targets still require a proven view ABI.
   for(size_t ordinal=0;ordinal<frame.calls.size();++ordinal) {
     const auto& draw=frame.calls[ordinal];
     const auto& state=*draw.observed_vs_matrices;
@@ -1691,7 +1690,8 @@ std::optional<AutomaticSceneContract> OriginalTargetContract(
         const auto font=draw.kind==Kind::EndVertices ? ui::ResolveUsaInlineFontLayout(draw) :
                                                       ui::ResolveUsaBufferedFontLayout(draw);
         if(!font)return {};
-      } else {
+      } else if(!state.original_color_extent ||
+                (state.original_color_extent->width==1280u && state.original_color_extent->height==720u)) {
         const auto* shader=pack.shaders->Find(*vs,aot::Stage::Vertex);
         const auto* reflection=pack.reflection->Find(*vs,aot::Stage::Vertex);
         if(!shader || !reflection ||
@@ -1949,6 +1949,12 @@ struct AutomaticEorOwner {
         }
         auto project=[&](gpu::VerifiedOriginalGraphicsPass& pipeline,const aot::Digest& digest) {
           if(!contract.output.widescreen_camera)return;
+          const auto& extent=call.observed_vs_matrices->original_color_extent;
+          if(extent && (extent->width!=1280u || extent->height!=720u)) {
+            pipeline.original_view_space=gpu::VerifiedOriginalViewSpace::Offscreen;
+            pipeline.original_view_space_verified=true;
+            return;
+          }
           const auto* vertex=pack.shaders->Find(digest,aot::Stage::Vertex);
           const auto* reflected=pack.reflection->Find(digest,aot::Stage::Vertex);
           const auto projection=vertex && reflected && call.observed_shader_constants ?
