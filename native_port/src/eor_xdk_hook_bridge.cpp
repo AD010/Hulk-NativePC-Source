@@ -971,8 +971,15 @@ void CapturePpcCommand(CommandKind kind,uint32_t guest,
   if(kind==CommandKind::ClearF)
     event.captured_clear=CaptureOriginalXdkClearF(
         event.gpr,ctx.f1.f64,ReadGuest,guest_base);
-  if(kind==CommandKind::Resolve)
+  if(kind==CommandKind::Resolve) {
     event.captured_resolve=CaptureOriginalColorResolveRegion(event.gpr,ReadGuest,guest_base);
+    if(event.captured_resolve && (event.gpr[2] || event.gpr[4])) {
+      if(const auto state=CaptureUsaVsMatrices(event.gpr[0],ReadGuest,guest_base)) {
+        event.captured_resolve_raster=state->raster;
+        event.captured_resolve_color_owner=state->original_rt0_guest_object;
+      }
+    }
+  }
   std::lock_guard lock(g_mutex);
   g_collector.RecordCommand(event);
 }

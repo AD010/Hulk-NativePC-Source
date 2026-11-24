@@ -87,6 +87,8 @@ struct RawCommand {
   uint32_t draw_ordinal=UINT32_MAX; // populated only for Draw commands
   std::optional<OriginalXdkClearF> captured_clear;
   std::optional<OriginalResolveRegion> captured_resolve;
+  std::optional<OriginalRasterWindow> captured_resolve_raster;
+  uint32_t captured_resolve_color_owner=0;
 };
 std::optional<OriginalResolveRegion> CaptureOriginalColorResolveRegion(
     const std::array<uint32_t,8>& gpr,ReadGuestBytes read,void* state) noexcept;

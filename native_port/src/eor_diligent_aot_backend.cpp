@@ -759,6 +759,20 @@ bool DiligentEorDirectBackend::CanReplayOriginalXdkTimeline(
        plan->format.original_graph!=state_->format.original_graph ||
        plan->format.original_screen.guest_device!=state_->format.original_screen.guest_device)
       return false;
+    // Physical copy mappings must also be proven before any GPU Draw.
+    const auto& graph=plan->format.original_graph;
+    uint32_t active=graph.first_color;
+    for(const auto& cmd:source.commands) {
+      if(cmd.kind==xdk::CommandKind::SetRenderTarget)active=cmd.gpr[2];
+      if(cmd.kind!=xdk::CommandKind::Resolve)continue;
+      const auto a=graph.SourceExtent(active,state_->frame.original_guest);
+      const auto d=graph.SourceExtent(cmd.gpr[3],state_->frame.original_guest);
+      const auto ha=graph.HostExtent(active,state_->frame);
+      const auto hd=graph.HostExtent(cmd.gpr[3],state_->frame);
+      const auto region=xdk::DecodeOriginalColorResolveRegion(cmd,a.width,a.height);
+      if(!region || !xdk::MapOriginalResolveRegion(*region,a.width,a.height,d.width,d.height,
+                                  ha.width,ha.height,hd.width,hd.height))return false;
+    }
     return true;
   }
   // This native EoR backend owns ONE verified main RT0/depth and ONE final

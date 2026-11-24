@@ -302,6 +302,10 @@ inline std::optional<OriginalSourceTargetFormat> PlanOriginalNativeTargets(
         // Do not claim equivalence for unaligned/clipped copies. A partial
         // update needs a previously initialized destination in THIS frame.
         if(!full) {
+          if(cmd.captured_resolve_color_owner!=active_color || !cmd.captured_resolve_raster)return {};
+          const auto& raster=*cmd.captured_resolve_raster;
+          if(raster.scissor_enabled || raster.x!=0 || raster.y!=0 ||
+             raster.width!=float(extent.width) || raster.height!=float(extent.height))return {};
           if(dest==front || !completed_resolves.contains(dest) ||
              graph.sample_counts.at(active_color)!=1u ||
              !graph.extents.contains(dest) || graph.extents.at(dest)!=extent ||
