@@ -12,6 +12,7 @@
 
 #include "assets_locator.h"
 #include "eor_spirv_bank.h"
+#include "eor_source_pack_paths.h"
 #include "eor_xdk_hook_bridge.h"
 #include "eor_effect_catalog.h"
 #include "eor_shader_reflection.h"
@@ -30,7 +31,8 @@ namespace hulk {
 void InstallCrashReport();  // crash_report.cpp
 #if defined(HULK_NATIVE_X_LINKED)
 bool NativeXInitialize(rex::system::IGraphicsSystem* graphics, rex::ui::Window* window,
-                       const std::filesystem::path& cache);
+                       const std::filesystem::path& cache,
+                       const std::filesystem::path& source_root);
 #endif
 }  // namespace hulk
 
@@ -126,7 +128,11 @@ class IncredibleHulkApp : public rex::ReXApp {
     // Existing private converters accept --private-output; the paths below
     // are the local cache destinations, never files published in source.
     if (runtime()) {
-      const auto offline = runtime()->cache_root() / "eor_offline";
+      const auto offline = hulk::eor::source::ResolvePackRoot(
+          runtime()->cache_root(),native_pc_config_.parent_path());
+      eor_source_pack_root_=offline;
+      REXLOG_INFO("[HULK/EOR-SOURCE-PACK] selected={} complete_files={}",
+                  offline.string(),hulk::eor::source::HasCompletePack(offline));
       // Accept both the established private runtime filenames and the
       // exact HEOR* filenames in the owner's archived metadata ZIP.
       // The file parsers verify binary magic, count and unique SHA IDs.
@@ -282,7 +288,7 @@ class IncredibleHulkApp : public rex::ReXApp {
           try {
             auto effects=std::make_shared<hulk::eor::aot::EffectCatalog>();
             effects->Load(original_effects);
-            if(effects->EffectCount()!=233u ||
+            if(effects->PairCount()!=2597u ||
                effects->ShaderCount()!=eor_virtual_ids_->size())
               throw std::invalid_argument(
                   "USA ShaderEffects source-only original pass corpus incomplete");
@@ -317,7 +323,8 @@ class IncredibleHulkApp : public rex::ReXApp {
                   "at Vulkan worker handoff");
     const bool vulkan_active = hulk::NativeXInitialize(
         runtime() ? runtime()->graphics_system() : nullptr,
-        window(), runtime() ? runtime()->cache_root() : std::filesystem::path{});
+        window(), runtime() ? runtime()->cache_root() : std::filesystem::path{},
+        eor_source_pack_root_);
     if (!vulkan_active) {
       if (const char* strict = std::getenv("HULK_REQUIRE_NATIVE_GPU");
           strict && strict[0] == '1') {
@@ -380,5 +387,6 @@ class IncredibleHulkApp : public rex::ReXApp {
   std::shared_ptr<hulk::eor::aot::OriginalVirtualShaderIdentity> eor_virtual_ids_;
   std::filesystem::path native_pc_config_;
   std::filesystem::path eor_original_game_root_;
+  std::filesystem::path eor_source_pack_root_;
   std::unique_ptr<rex::ui::ImGuiDialog> pc_menu_;
 };

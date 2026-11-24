@@ -1,6 +1,7 @@
 
 #include "native_x_hulk_profile.h"
 #include "eor_xdk_hook_bridge.h"
+#include "eor_source_pack_paths.h"
 
 #include <native_x_renderer/native_x_renderer.h>
 #include <rex/logging.h>
@@ -87,7 +88,8 @@ bool ValidateProfile(const nx::GameProfile& profile) {
 bool NativeXInitialize(
     rex::system::IGraphicsSystem* graphics,
     rex::ui::Window* window,
-    const std::filesystem::path& cache) {
+    const std::filesystem::path& cache,
+    const std::filesystem::path& source_root) {
 
   if (g_initialized)
     return native_x_renderer::Renders();
@@ -320,20 +322,11 @@ bool NativeXInitialize(
     // VRT catalog under eor_offline. Reuse THAT SAME private directory by
     // default: writing HEORREQ1 to eor_source while the compiler/metadata
     // lived under eor_offline silently stranded genuine game Draw requests.
-    std::filesystem::path original_source_root=cache/"eor_offline";
-    const auto source_mirror=cache/"eor_source";
-    const auto has_private_originals=[&](const std::filesystem::path& dir) {
-      std::error_code ignored;
-      return std::filesystem::is_regular_file(dir/"HEORVRT1.bin",ignored) ||
-             std::filesystem::is_regular_file(
-                 dir/"hulk_shader_virtual_fingerprints.bin",ignored);
-    };
-    if(!has_private_originals(original_source_root) &&
-       has_private_originals(source_mirror))
-      original_source_root=source_mirror;
-    if(const char* custom=std::getenv("HULK_EOR_SOURCE_BANK_DIR");
-       custom && *custom)
-      original_source_root=std::filesystem::path(custom);
+    const auto original_source_root=source_root.empty() ?
+        hulk::eor::source::ResolvePackRoot(cache,{}) : source_root;
+    REXLOG_INFO("[HULK/EOR-WORKER] runtime source root={} complete_files={}",
+                original_source_root.string(),
+                hulk::eor::source::HasCompletePack(original_source_root));
     // This PRIVATE original model/surface candidate index is loaded on
     // the same Vulkan worker. It only shortlists streamed models; it is
     // never used to synthesize EoR material/PSO ownership.

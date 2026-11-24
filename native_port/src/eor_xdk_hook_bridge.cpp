@@ -1158,7 +1158,7 @@ bool InstallOriginalShaderCaptureIndex(
   // a partial/truncated private identity index must not label guest memory.
   if(!original || original->size()!=5194u ||
      (original_effects &&
-      (original_effects->EffectCount()!=233u ||
+      (original_effects->PairCount()!=2597u ||
        original_effects->ShaderCount()!=original->size())))
     return false;
   std::lock_guard lock(g_mutex);
@@ -1236,10 +1236,19 @@ bool InstallVerifiedSourceShaderPackFromDirectory(
        shaders->expected()!=reflection->size() ||
        shaders->expected()!=samplers->ShaderCount() ||
        shaders->expected()!=virtual_ids->size())
-      return false;
-    return InstallVerifiedSourceShaderPack(
+      {
+        REXLOG_WARN("[HULK/EOR-SOURCE-PACK] incompatible counts compiled={} expected={} effects={} pairs={} reflection={} samplers={} virtual={}",
+                    shaders->size(),shaders->expected(),effects->EffectCount(),effects->PairCount(),reflection->size(),samplers->ShaderCount(),virtual_ids->size());
+        return false;
+      }
+    const bool installed=InstallVerifiedSourceShaderPack(
         std::move(shaders),std::move(effects),std::move(reflection),
         std::move(samplers),std::move(virtual_ids));
+    if(!installed)REXLOG_WARN("[HULK/EOR-SOURCE-PACK] live source generation mismatch");
+    return installed;
+  } catch (const std::exception& e) {
+    REXLOG_WARN("[HULK/EOR-SOURCE-PACK] loader rejected source bank: {}",e.what());
+    return false;
   } catch (...) {
     // Missing files, incomplete AOT compiler outputs, corrupt SPIR-V or
     // archive digest mismatches NEVER replace the current verified bank.

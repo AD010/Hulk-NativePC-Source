@@ -205,6 +205,21 @@ class NativeEorLinkCoverage(unittest.TestCase):
         self.assertIn("return e.BufferSlot==i && e.ValueType==Diligent::VT_UINT32;", draw)
         self.assertIn("runtime?(integer_skin?4u:3u)", draw)
 
+    def test_portable_eor_pack_root_shared_between_app_and_worker(self):
+        header = (ROOT / "native_port/src/eor_source_pack_paths.h").read_text()
+        app = (ROOT / "native_port/src/incredible_hulk_app.h").read_text()
+        worker = (ROOT / "native_port/src/native_x_renderer_hulk.cpp").read_text()
+        bridge = (ROOT / "native_port/src/eor_xdk_hook_bridge.cpp").read_text()
+        self.assertIn('HULK_EOR_SOURCE_BANK_DIR', header)
+        self.assertIn('config_dir/"eor_offline"', header)
+        self.assertLess(header.index("if(HasCompletePack(root))"), header.index('if(!root.empty() && HasEither'))
+        self.assertIn("eor_source_pack_root_=offline;", app)
+        self.assertIn("eor_source_pack_root_);", app)
+        self.assertIn("source_root.empty() ?", worker)
+        self.assertIn("PairCount()!=2597u", app)
+        self.assertIn("PairCount()!=2597u", bridge)
+        self.assertIn("loader rejected source bank", bridge)
+
     def test_live_draw_vertex_slot_count_cannot_overrun_host_arrays(self):
         backend = (ROOT / "native_port" / "src" /
                    "eor_diligent_aot_backend.cpp").read_text(encoding="utf-8")
