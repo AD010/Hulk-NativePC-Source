@@ -31,6 +31,7 @@ struct OriginalTexture {
   std::optional<OriginalLfxtMipPlan> original_mip_plan;
   // Concrete source-proven Xenos format, byte starts and full mip layouts.
   std::optional<VerifiedOriginalXboxGpuMipChain> verified_gpu_mips;
+  std::optional<VerifiedOriginalXboxCube> verified_cube;
 };
 struct CandidateSlot {
   uint32_t offset_from_surface_data = 0;

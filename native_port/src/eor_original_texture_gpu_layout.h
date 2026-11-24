@@ -4,6 +4,7 @@
 // Textures.ARC/LFXT and TexStreams.ARC records, not guessed from name.
 #include "eor_original_texture_streams.h"
 #include "eor_xenos_texture_mips.h"
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -15,6 +16,14 @@ struct VerifiedOriginalXboxGpuMipChain {
   XenosTextureFormat format=XenosTextureFormat::Unknown;
   std::vector<SourceMipLayout> layouts; // largest -> smallest; real file offsets
 };
+// The original USA cube records carry six face allocations and one level.
+struct VerifiedOriginalXboxCube {
+  XenosTextureFormat format=XenosTextureFormat::Unknown;
+  std::array<SourceMipLayout,6> faces{};
+};
+std::optional<VerifiedOriginalXboxCube> DecodeOriginalStandaloneCube(
+    std::span<const std::byte> lfxt,uint32_t original_hash,
+    const OriginalLfxtInlineSection& section);
 // A standalone LFXT record contains its only GPU level in Textures.ARC.
 std::optional<std::pair<OriginalLfxtMipPlan,VerifiedOriginalXboxGpuMipChain>>
 DecodeOriginalStandaloneMip(std::span<const std::byte> lfxt, uint32_t original_hash,

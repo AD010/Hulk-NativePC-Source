@@ -48,6 +48,48 @@ uint32_t PaddedBlocks(uint32_t texels, uint32_t block) {
   return static_cast<uint32_t>((count+31u)&~uint64_t(31));
 }
 } // namespace
+std::optional<VerifiedOriginalXboxCube> DecodeOriginalStandaloneCube(
+    std::span<const std::byte> lfxt,uint32_t original_hash,
+    const OriginalLfxtInlineSection& section) {
+  // All ten source USA environment records are BC3, one mip, six faces.
+  // Validate the authentic header AND descriptor before exposing pixels.
+  const auto verified=FindOriginalLfxtInlineSection(lfxt,original_hash);
+  if(!verified || verified->inline_data_offset!=section.inline_data_offset ||
+     verified->inline_data_bytes!=section.inline_data_bytes ||
+     section.inline_data_bytes<=kDescriptorBytes)return {};
+  const auto end=std::find(lfxt.begin()+4,lfxt.end(),std::byte{0});
+  const size_t base=static_cast<size_t>(end-lfxt.begin())+1;
+  if(verified->outer_length_field_offset!=base+22 ||
+     lfxt[base+21]!=std::byte{0} || BE32(lfxt,base+13)!=1)return {};
+  const auto data=lfxt.last(kDescriptorBytes);
+  if(BE32(data,0)!=3 || BE32(data,4)!=1 ||
+     BE32(data,8)!=0 || BE32(data,12)!=0 || BE32(data,16)!=0 ||
+     BE32(data,20)!=0xffff0000u || BE32(data,24)!=0xffff0000u ||
+     BE32(data,32)!=20u || BE32(data,40)!=0xd10u ||
+     BE32(data,44)!=0 || BE32(data,48)!=0xe00u)return {};
+  const uint32_t shape=BE32(data,36),word0=BE32(data,28);
+  const uint32_t width=(shape&8191u)+1u,height=((shape>>13)&8191u)+1u;
+  if((shape>>26)!=5u || width!=height || width<32 || width>256 ||
+     (width&(width-1)) || (word0&3u)!=2u || !(word0>>31) ||
+     (BE32(lfxt,base+1)&0xffffu)!=width ||
+     (BE32(lfxt,base+5)&0xffffu)!=height)return {};
+  const uint32_t pitch=PaddedBlocks(width,4),rows=PaddedBlocks(height,4);
+  const uint64_t face_bytes=uint64_t(pitch)*rows*16u;
+  const uint64_t payload=section.inline_data_bytes-kDescriptorBytes;
+  if(!face_bytes || ((word0>>22)&511u)*32u!=pitch*4u ||
+     face_bytes*6u!=payload || BE32(lfxt,base+17)!=payload ||
+     section.inline_data_offset+payload!=lfxt.size()-kDescriptorBytes)return {};
+  VerifiedOriginalXboxCube cube;
+  cube.format=XenosTextureFormat::BC3;
+  for(size_t face=0;face<cube.faces.size();++face) {
+    auto& level=cube.faces[face];
+    level.width=width;level.height=height;
+    level.source_offset=section.inline_data_offset+face*face_bytes;
+    level.storage_pitch_blocks=pitch;level.storage_height_blocks=rows;
+    level.tiling=XenosTileMode::Tiled2D;level.endian=XenosDataEndian::NoSwap;
+  }
+  return cube;
+}
 std::optional<std::pair<OriginalLfxtMipPlan,VerifiedOriginalXboxGpuMipChain>>
 DecodeOriginalStandaloneMip(std::span<const std::byte> lfxt, uint32_t original_hash,
                             const OriginalLfxtInlineSection& section) {

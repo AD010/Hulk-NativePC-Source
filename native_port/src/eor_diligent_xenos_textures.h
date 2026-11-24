@@ -17,7 +17,7 @@ enum class OriginalTextureColorSpace : uint8_t {
 // translates 1D/2D Xenos fetches as array images, even for a single layer.
 // This is an explicit PSO/fetch-proven choice, not guessed from texture size.
 enum class OriginalTextureViewKind : uint8_t {
-  Native2D=0, NativeX2DArray=1, Native1D=2
+  Native2D=0, NativeX2DArray=1, Native1D=2, NativeCube=3
 };
 struct UploadedEorTexture {
   uint32_t original_texture_hash=0;

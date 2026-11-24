@@ -3,6 +3,7 @@
 #include "RenderDevice.h"
 #include "Texture.h"
 #include "TextureView.h"
+#include <array>
 #include <limits>
 #include <stdexcept>
 #include <vector>
@@ -203,7 +204,48 @@ UploadedEorTexture UploadVerifiedOriginalTexture(
     const textures::OriginalTexture& original,
     OriginalTextureColorSpace color_space,
     OriginalTextureViewKind view_kind) {
-  if(!original.verified_gpu_mips)
+  if(view_kind==OriginalTextureViewKind::NativeCube) {
+    using namespace Diligent;
+    if(!host || !original.pinned_usa_index || !original.hash ||
+       original.source_record.hash!=original.hash || !original.verified_cube ||
+       !original.original_inline_section || original.original_stream ||
+       color_space!=OriginalTextureColorSpace::Linear)
+      throw std::invalid_argument("Missing original USA cube owner");
+    const auto& cube=*original.verified_cube;
+    const auto proof=textures::DecodeOriginalStandaloneCube(original.original_bytes,
+        original.hash,*original.original_inline_section);
+    if(!proof || proof->format!=cube.format)
+      throw std::invalid_argument("Original cube source descriptor changed");
+    std::array<textures::PreparedHostImage,6> faces;
+    std::array<TextureSubResData,6> subresources{};
+    // XDK cube face array order: +X,-X,+Y,-Y,+Z,-Z, as in native D3D/Vulkan.
+    for(size_t face=0;face<6;++face) {
+      const auto& level=proof->faces[face];
+      if(level.source_offset!=cube.faces[face].source_offset ||
+         level.width!=cube.faces[face].width || level.height!=cube.faces[face].height)
+        throw std::invalid_argument("Original cube face identity changed");
+      faces[face]=textures::PrepareExplicitOriginalMips(cube.format,
+          std::span<const textures::SourceMipLayout>(&level,1),original.original_bytes,{});
+      const auto& mip=faces[face].mips.front();
+      subresources[face].pData=mip.blocks.data();
+      subresources[face].Stride=mip.row_pitch_bytes;
+    }
+    TextureDesc desc{};
+    desc.Name="Original EoR verified environment cube";
+    desc.Type=RESOURCE_DIM_TEX_CUBE;
+    desc.Width=proof->faces[0].width;desc.Height=desc.Width;
+    desc.ArraySize=6;desc.MipLevels=1;desc.SampleCount=1;
+    desc.Format=Convert(cube.format,color_space);
+    desc.Usage=USAGE_IMMUTABLE;desc.BindFlags=BIND_SHADER_RESOURCE;
+    TextureData data{subresources.data(),6};
+    UploadedEorTexture out;
+    out.original_texture_hash=original.hash;out.original_mip_levels=1;out.view_kind=view_kind;
+    host->CreateTexture(desc,&data,&out.host_texture);
+    if(!out.host_texture || !out.SRV())
+      throw std::runtime_error("Native Vulkan cube allocation failed");
+    return out;
+  }
+  if(!original.verified_gpu_mips || original.verified_cube)
     throw std::invalid_argument("No authentic original Xbox GPU texture layout");
   return UploadExplicitOriginalTexture(host,original,
       original.verified_gpu_mips->format,color_space,

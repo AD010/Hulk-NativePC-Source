@@ -33,9 +33,11 @@ void BindOriginalPixelImage2D(Diligent::IRenderDevice* device,
   using namespace Diligent;
   if(!device || !bindings || slot>=16 || !texture.host_texture || !texture.SRV() ||
      (texture.view_kind!=OriginalTextureViewKind::Native2D &&
-      texture.view_kind!=OriginalTextureViewKind::Native1D))
+      texture.view_kind!=OriginalTextureViewKind::Native1D &&
+      texture.view_kind!=OriginalTextureViewKind::NativeCube))
     throw std::invalid_argument("Missing original scalar pixel shader image");
   const bool one_dimensional=texture.view_kind==OriginalTextureViewKind::Native1D;
+  const bool cube=texture.view_kind==OriginalTextureViewKind::NativeCube;
   const auto& image=texture.host_texture->GetDesc();
   const auto shape=fetch[2], sampling=fetch[3], format=fetch[1]&63u;
   // These four layouts are decoded by the USA LFXT asset loader. Validate
@@ -45,13 +47,19 @@ void BindOriginalPixelImage2D(Diligent::IRenderDevice* device,
       (format==18 && image.Format==TEX_FORMAT_BC1_UNORM && (sampling&0x7ffffu)==0xd10u) ||
       (format==20 && image.Format==TEX_FORMAT_BC3_UNORM && (sampling&0x7ffffu)==0xd10u) ||
       (format==29 && image.Format==TEX_FORMAT_RGBA16_FLOAT && (sampling&0x7ffffu)==0xd11u);
-  if(!compatible || (fetch[0]&1023u)!=2u ||
+  const bool compatible_signs=cube ? ((fetch[0]&1023u)==2u || (fetch[0]&1023u)==254u) :
+                                   (fetch[0]&1023u)==2u;
+  // A cube descriptor may mark all channels gamma (0xfe). Do not silently
+  // accept gamma as linear here; use only the linear original fetches.
+  if(!compatible || !compatible_signs || (fetch[0]&1023u)!=2u ||
      (fetch[1]&(1u<<10)) ||
      (one_dimensional ?
         ((fetch[5]>>9&3u)!=0u || (shape>>24) ||
          (shape&0xffffffu)+1u!=image.Width || image.Height!=1u) :
-        ((fetch[5]>>9&3u)!=1u || (shape>>26) ||
+        ((fetch[5]>>9&3u)!=(cube?3u:1u) ||
+         (shape>>26)!=(cube?5u:0u) ||
          (shape&8191u)+1u!=image.Width || ((shape>>13)&8191u)+1u!=image.Height)) ||
+     (cube && (image.ArraySize!=6u || image.Width!=image.Height)) ||
      texture.original_mip_levels!=image.MipLevels || !image.MipLevels || (sampling>>28))
     throw std::invalid_argument("Original pixel fetch constant and resident image disagree");
   auto address=[](uint32_t v) {
@@ -69,7 +77,7 @@ void BindOriginalPixelImage2D(Diligent::IRenderDevice* device,
   SamplerDesc desc{};
   desc.AddressU=address(fetch[0]>>10&7u);
   desc.AddressV=one_dimensional ? TEXTURE_ADDRESS_CLAMP : address(fetch[0]>>13&7u);
-  desc.AddressW=TEXTURE_ADDRESS_CLAMP; // 2D TFETCH has no W coordinate.
+  desc.AddressW=cube ? address(fetch[0]>>16&7u) : TEXTURE_ADDRESS_CLAMP;
   desc.MagFilter=force_point ? FILTER_TYPE_POINT : filter(sampling>>19&3u);
   desc.MinFilter=force_point ? FILTER_TYPE_POINT : filter(sampling>>21&3u);
   const auto mip=force_point ? 0u : (sampling>>23&3u);
@@ -104,7 +112,7 @@ void BindOriginalPixelImage2D(Diligent::IRenderDevice* device,
     desc.MinFilter=desc.MagFilter=desc.MipFilter=FILTER_TYPE_ANISOTROPIC;
   }
   const auto suffix=std::to_string(slot);
-  auto* resource=bindings->GetVariableByName(SHADER_TYPE_PIXEL,((one_dimensional?"HulkTexture1D_s":"HulkTexture2D_s")+suffix).c_str());
+  auto* resource=bindings->GetVariableByName(SHADER_TYPE_PIXEL,((cube?"HulkTextureCube_s":one_dimensional?"HulkTexture1D_s":"HulkTexture2D_s")+suffix).c_str());
   auto* sampler=bindings->GetVariableByName(SHADER_TYPE_PIXEL,("HulkSampler_s"+suffix).c_str());
   if(!resource || !sampler)
     throw std::invalid_argument("Original pixel image or sampler descriptor missing");

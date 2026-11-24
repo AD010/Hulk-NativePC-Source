@@ -35,7 +35,8 @@ std::shared_ptr<const UploadedEorTexture> DiligentOriginalTextureResidency::Acqu
   if(!hash || space==OriginalTextureColorSpace::Unknown ||
      (view!=OriginalTextureViewKind::Native2D &&
       view!=OriginalTextureViewKind::NativeX2DArray &&
-      view!=OriginalTextureViewKind::Native1D))
+      view!=OriginalTextureViewKind::Native1D &&
+      view!=OriginalTextureViewKind::NativeCube))
     throw std::invalid_argument("Original EoR material color space/image dimension not proven");
   const State::Key key{hash,space,view};
   std::lock_guard lock(state_->residency_mutex);
@@ -45,9 +46,9 @@ std::shared_ptr<const UploadedEorTexture> DiligentOriginalTextureResidency::Acqu
   // inline extent, real TexStreams mip sizes and source/format layout.
   auto original=state_->assets.LoadHash(hash);
   if(!original || !original->pinned_usa_index ||
-     !original->verified_gpu_mips ||
-     !original->original_mip_plan ||
-     !original->original_mip_plan->absolute_source_offsets_proven)
+     (view==OriginalTextureViewKind::NativeCube ? !original->verified_cube :
+       (!original->verified_gpu_mips || !original->original_mip_plan ||
+        !original->original_mip_plan->absolute_source_offsets_proven)))
     throw std::invalid_argument("Original USA EoR texture lacks complete source-proven mip chain");
   auto image=UploadVerifiedOriginalTexture(state_->device.RawPtr(),
                                            *original,space,view);

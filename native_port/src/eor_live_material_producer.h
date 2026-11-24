@@ -242,7 +242,7 @@ inline std::vector<VerifiedNativeMaterialImage> OriginalScalarImages(
   std::vector<VerifiedNativeMaterialImage> out;
   for(const auto& image:aot::InspectSpirvImageResources(p->spirv,aot::Stage::Pixel)) {
     const auto slot=aot::DecodeFixedAotImageSlot(image.exact_variable_name);
-    if(!slot || slot->slot>=16u || slot->dimension>1u || image.spirv_dim!=slot->dimension ||
+    if(!slot || slot->slot>=16u || slot->dimension==2u || slot->dimension>3u || image.spirv_dim!=slot->dimension ||
        image.image_arrayed || image.image_multisampled)
       throw std::invalid_argument("Unsupported original scalar image dimension");
     const auto bit=static_cast<uint16_t>(1u<<slot->slot);
@@ -261,7 +261,8 @@ inline std::vector<VerifiedNativeMaterialImage> OriginalScalarImages(
     if((captured.pixel_fetch[slot->slot][0]&1023u)!=2u)
       throw std::invalid_argument("Unsupported original scalar color space");
     const auto hash=call.original_pixel_texture_keys[slot->slot];
-    const auto view=slot->dimension==0u ? OriginalTextureViewKind::Native1D :
+    const auto view=slot->dimension==3u ? OriginalTextureViewKind::NativeCube :
+                   slot->dimension==0u ? OriginalTextureViewKind::Native1D :
                                          OriginalTextureViewKind::Native2D;
     auto uploaded=residency.Acquire(hash,OriginalTextureColorSpace::Linear,view);
     if(!uploaded || uploaded->original_texture_hash!=hash || !uploaded->SRV())
