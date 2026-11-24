@@ -667,9 +667,12 @@ bool DiligentEorDirectBackend::CanReplayOriginalXdkCommand(
     return false;
   switch(cmd.kind) {
     case xdk::CommandKind::SetRenderTarget:
-      return cmd.gpr[1]==0 && cmd.gpr[2]==original.guest_rt0;
+      return cmd.gpr[1]==0 && (s.format.original_graph.active() ?
+          s.format.original_graph.HasColor(cmd.gpr[2]) : cmd.gpr[2]==original.guest_rt0);
     case xdk::CommandKind::SetDepthStencilSurface:
-      return !cmd.gpr[1] || cmd.gpr[1]==original.guest_depth;
+      return s.format.original_graph.active() ?
+          s.format.original_graph.HasDepth(cmd.gpr[1]) :
+          (!cmd.gpr[1] || cmd.gpr[1]==original.guest_depth);
     case xdk::CommandKind::ClearF:
       // This native render pass owns RT0 and one depth target only.
       // Xbox ClearF can address RT1..RT3, which we must not silently
@@ -683,6 +686,9 @@ bool DiligentEorDirectBackend::CanReplayOriginalXdkCommand(
           ((cmd.captured_clear->flags & 0x20u)==0 ||
            s.format.depth==NativeDepthFormat::D24S8);
     case xdk::CommandKind::Resolve:
+      if(s.format.original_graph.active())
+        return !cmd.gpr[1] && !cmd.gpr[2] && !cmd.gpr[4] && !cmd.gpr[5] && !cmd.gpr[6] &&
+           (cmd.gpr[3]==original.guest_front_buffer || s.format.original_graph.HasResolve(cmd.gpr[3]));
       return original.final_resolve_to_front_buffer_verified &&
              (cmd.gpr[1]&7u)==0 &&
              (cmd.gpr[1]&0x300u)==0 &&
@@ -700,6 +706,16 @@ bool DiligentEorDirectBackend::CanReplayOriginalXdkCommand(
 bool DiligentEorDirectBackend::CanReplayOriginalXdkTimeline(
     const xdk::Frame& source) const {
   if(!state_ || !xdk::ValidateOriginalCommandTimeline(source))return false;
+  if(state_->format.original_graph.active()) {
+    const auto plan=PlanOriginalNativeTargets(source,state_->frame.original_guest.width,
+        state_->frame.original_guest.height);
+    if(!plan || plan->samples!=state_->frame.samples ||
+       plan->format.color!=state_->format.color || plan->format.depth!=state_->format.depth ||
+       plan->format.original_graph!=state_->format.original_graph ||
+       plan->format.original_screen.guest_device!=state_->format.original_screen.guest_device)
+      return false;
+    return true;
+  }
   // This native EoR backend owns ONE verified main RT0/depth and ONE final
   // resolve. Other original passes (shadows, MRT, chained post-processing)
   // require distinct native target mappings; rejecting them is safer than
@@ -789,8 +805,11 @@ bool DiligentEorDirectBackend::ReplayOriginalXdkCommand(
   s.source_timeline_active=true;
   switch(cmd.kind) {
     case xdk::CommandKind::SetDepthStencilSurface:
-      return s.scene.SetDepthBound(cmd.gpr[1]!=0);
+      return s.format.original_graph.active() ? s.scene.SetOriginalDepthTarget(cmd.gpr[1]) :
+                                                s.scene.SetDepthBound(cmd.gpr[1]!=0);
     case xdk::CommandKind::SetRenderTarget:
+      if(s.format.original_graph.active())return s.scene.SetOriginalColorTarget(cmd.gpr[2]);
+      return true;
     case xdk::CommandKind::BeginTiling:
     case xdk::CommandKind::EndTiling:
       // Host scene is already bound. The exact source target identity and
@@ -805,6 +824,8 @@ bool DiligentEorDirectBackend::ReplayOriginalXdkCommand(
       // DrawIndexed; physical MSAA resolve is performed by ResolveScene()
       // immediately after the final source Draw, not against guest EDRAM.
       if(s.source_resolve_recorded)return false;
+      if(s.format.original_graph.active() && cmd.gpr[3]!=s.format.original_screen.guest_front_buffer)
+        return s.scene.ResolveOriginalIntermediate(cmd.gpr[3]);
       s.source_resolve_recorded=true;
       return true;
     default:return false;
@@ -898,7 +919,7 @@ aot::BoundIndexedDraw DiligentEorDirectBackend::StageVerifiedOriginalFontDraw(
     throw std::invalid_argument("Original EFont archive material/pass not resident");
   const auto* owner=found->second;
   const auto& pass=owner->pipeline;
-  if(!MatchesVerifiedOriginalXdkMainDrawTargets(live,s.format.original_screen,!pass.original_depth_unbound))
+  if(!MatchesVerifiedOriginalXdkDrawTargets(live,s.format,!pass.original_depth_unbound))
     throw std::invalid_argument("Original EFont render target does not match its material pass");
   // Font_Main VS+PS were recovered from the original USA ShaderEffects
   // source and their exact 508/328-byte Xenos ShaderContainers. Match BOTH
@@ -1099,8 +1120,8 @@ bool DiligentEorDirectBackend::PreflightOriginalScene(
     // interleaved command log. Reject unknown/changed RT0 or depth owners
     // BEFORE pipeline compilation, color clears or the first Vulkan Draw.
     if(!d.source_frame ||
-       !MatchesVerifiedOriginalXdkMainDrawTargets(
-           *d.guest_vs_matrices,s.format.original_screen,!selected->pipeline.original_depth_unbound) ||
+       !MatchesVerifiedOriginalXdkDrawTargets(
+           *d.guest_vs_matrices,s.format,!selected->pipeline.original_depth_unbound) ||
        !d.guest_shader_constants)
       return false;
     // The native shader's reflected block selects direct c0..255 addressing
@@ -1355,7 +1376,9 @@ bool DiligentEorDirectBackend::BeginScene(native::Size world,uint32_t samples) {
   // Consume the provenance gate before touching any Vulkan render targets.
   s.frame_preflight_ready=false;
   if(!s.scene.Prepare(s.frame,s.format) || !s.scene.BeginScene())return false;
-  if(!s.scene.SetDepthBound(s.first_draw_depth_bound)) {s.scene.AbortScene();return false;}
+  if(!s.format.original_graph.active() && !s.scene.SetDepthBound(s.first_draw_depth_bound)) {
+    s.scene.AbortScene();return false;
+  }
   s.scene_open=true;s.finished=false;s.selected=nullptr;
   s.source_timeline_active=false;
   s.source_resolve_recorded=false;

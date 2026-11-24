@@ -1660,21 +1660,22 @@ struct AutomaticSceneContract {
   native::FrameGeometry output;
   gpu::VerifiedSceneFormat format;
 };
-std::optional<AutomaticSceneContract> OriginalSingleTargetContract(
+std::optional<AutomaticSceneContract> OriginalTargetContract(
     const Frame& frame,native::Size backbuffer,const OfflineShaderPack& pack) {
-  if(!ValidateOriginalCommandTimeline(frame))return {};
+  const auto target=gpu::PlanOriginalNativeTargets(frame,1280,720);
+  if(!target)return {};
+  AutomaticSceneContract result{};
+  result.format=target->format;
   const bool aspect_change=uint64_t(backbuffer.width)*720u!=uint64_t(backbuffer.height)*1280u;
   if(aspect_change && (!pack.shaders || !pack.reflection || !pack.effects || !pack.virtual_ids))return {};
-  AutomaticSceneContract result{};
-  uint32_t depth_object=0;
-  bool full_source_viewport=false;
-  uint32_t samples=0;
+  // All known source images have a single output. A distinct source RT is
+  // never aliased to the main scene just because it is the same extent.
+  // Until offscreen projection ownership is available, use only the
+  // proven main-screen aspect for multi-target offscreen passes.
+  if(aspect_change && result.format.original_graph.colors.size()>1)return {};
   for(size_t ordinal=0;ordinal<frame.calls.size();++ordinal) {
     const auto& draw=frame.calls[ordinal];
-    if(!draw.observed_vs_matrices || !draw.observed_shader_constants ||
-       !draw.observed_shader_constants->fixed_graphics_state)return {};
     const auto& state=*draw.observed_vs_matrices;
-    const auto& fixed=*draw.observed_shader_constants->fixed_graphics_state;
     if(aspect_change) {
       if(!draw.observed_live_vertex_shader_header || !draw.observed_live_pixel_shader_header ||
          !draw.observed_live_eor_effect_pass)return {};
@@ -1697,105 +1698,12 @@ std::optional<AutomaticSceneContract> OriginalSingleTargetContract(
            !aot::IdentifyLiveScalarProjection(*shader,*reflection,*draw.observed_shader_constants,1280.0/720.0))return {};
       }
     }
-    const auto original=gpu::ResolveOriginalXdkSurfaceFormats(state,fixed);
-    if(!original || original->format.color!=gpu::NativeColorFormat::Rgba8 ||
-       !state.raster)return {};
-    const auto color_mask=fixed.ReadOriginalXenosRegister(0x2104u);
-    const auto surface=fixed.ReadOriginalXenosRegister(0x2000u);
-    // Single output, native linear RGBA8. The source pitch must cover
-    // the known USA 1280-wide main output; no 256x256 shadow-map alias.
-    if(!color_mask || (*color_mask&~15u) || !surface ||
-       (*surface&0x3fffu)<1280u)return {};
-    const auto& view=*state.raster;
-    full_source_viewport|=view.x==0 && view.y==0 &&
-                          view.width==1280 && view.height==720;
-    if(!native::MapOriginalRasterWindow(view,{1280,720},{0,0,1280,720}))return {};
-    if(!samples) {
-      samples=original->samples;
-      result.format=original->format;
-    }
-    if(samples!=original->samples ||
-       result.format.original_screen.guest_device!=state.original_guest_device ||
-       result.format.original_screen.guest_rt0!=state.original_rt0_guest_object)
-      return {};
-    if(state.original_depth_guest_object) {
-      if(original->format.depth!=gpu::NativeDepthFormat::D24S8 ||
-         (depth_object && depth_object!=state.original_depth_guest_object))return {};
-      depth_object=state.original_depth_guest_object;
-    }
   }
-  if(!full_source_viewport || !samples)return {};
-  auto& screen=result.format.original_screen;
-  screen.guest_depth=depth_object;
-  result.format.depth=depth_object ? gpu::NativeDepthFormat::D24S8 : gpu::NativeDepthFormat::None;
-  result.format.original_depth_format_verified=true;
-  bool cleared=false,depth_initialized=false,stencil_initialized=false,resolved=false,drew=false;
-  bool bound_rt=true;
-  uint32_t bound_depth=frame.calls.front().observed_vs_matrices->original_depth_guest_object;
-  // If a binding changes before the first Draw, the initial state may
-  // not be inferred backwards across an earlier Clear.
-  for(const auto& command:frame.commands) {
-    if(command.draw_ordinal!=UINT32_MAX)break;
-    if(command.kind==CommandKind::SetRenderTarget)bound_rt=false;
-    if(command.kind==CommandKind::SetDepthStencilSurface)bound_depth=UINT32_MAX;
-  }
-  for(const auto& command:frame.commands) {
-    if(command.gpr[0]!=screen.guest_device)return {};
-    if(command.draw_ordinal!=UINT32_MAX) {
-      const auto& draw=frame.calls[command.draw_ordinal];
-      const auto& state=*draw.observed_vs_matrices;
-      if(!bound_rt || !cleared || resolved ||
-         bound_depth!=state.original_depth_guest_object)return {};
-      const auto control=draw.observed_shader_constants->fixed_graphics_state->
-          ReadOriginalXenosRegister(0x2200u);
-      if(!control || ((*control&2u) && (!bound_depth || !depth_initialized)) ||
-         ((*control&1u) && (!bound_depth || !stencil_initialized)))return {};
-      drew=true;continue;
-    }
-    switch(command.kind) {
-      case CommandKind::SetRenderTarget:
-        if(resolved || command.gpr[1]!=0u || command.gpr[2]!=screen.guest_rt0)return {};
-        bound_rt=true;break;
-      case CommandKind::SetDepthStencilSurface:
-        if(resolved || (command.gpr[1] && command.gpr[1]!=depth_object))return {};
-        bound_depth=command.gpr[1];break;
-      case CommandKind::ClearF:
-        if(resolved || !command.captured_clear ||
-           !IsOriginalFullTargetClear(*command.captured_clear,1280,720))return {};
-        if(command.captured_clear->flags&1u) {
-          if(!bound_rt)return {};
-          cleared=true;
-        }
-        if(command.captured_clear->flags&0x30u) {
-          if(!bound_depth || bound_depth==UINT32_MAX)return {};
-          if(command.captured_clear->flags&0x10u)depth_initialized=true;
-          if(command.captured_clear->flags&0x20u)stencil_initialized=true;
-        }
-        break;
-      case CommandKind::Resolve:
-        if(!drew || resolved || !bound_rt || !command.gpr[3] ||
-           command.gpr[1] || command.gpr[2] || command.gpr[4] ||
-           command.gpr[5] || command.gpr[6])return {};
-        screen.guest_front_buffer=command.gpr[3];resolved=true;break;
-      case CommandKind::Present:
-        if(!resolved || command.gpr[1]!=screen.guest_front_buffer)return {};
-        break;
-      default:return {};
-    }
-  }
-  if(!cleared || !drew || !resolved || !screen.guest_front_buffer)return {};
-  screen.exact_guest_to_native_targets_verified=true;
-  screen.final_resolve_to_front_buffer_verified=true;
-  // No tiling commands were accepted, so there are no tile aliases in this
-  // specific frame. Do not authorize BeginTiling/EndTiling on future frames.
-  screen.original_tiling_has_no_host_aliases_verified=false;
   native::FrameSetup setup;
   setup.backbuffer=backbuffer;setup.original_guest={1280,720};
   setup.engine_draw_hook_verified=true;
   setup.offline_shader_cache_verified=true;
-  setup.samples=samples;
-  // Every source Draw has authenticated either a live perspective matrix
-  // or the exact original Font_Main clip-space HUD before allowing expansion.
+  setup.samples=target->samples;
   setup.projection_hook_verified=aspect_change;
   result.output=native::PlanFrame(setup);
   if(!result.output.direct_engine_path_ready)return {};
@@ -1810,7 +1718,8 @@ bool SameAutomaticScene(const AutomaticSceneContract& a,
          a.output.samples==b.output.samples &&
          a.format.color==b.format.color && a.format.depth==b.format.depth &&
          x.guest_device==y.guest_device && x.guest_rt0==y.guest_rt0 &&
-         x.guest_depth==y.guest_depth && x.guest_front_buffer==y.guest_front_buffer;
+         x.guest_depth==y.guest_depth && x.guest_front_buffer==y.guest_front_buffer &&
+         a.format.original_graph==b.format.original_graph;
 }
 struct AutomaticArchivePaths {
   std::filesystem::path index,models,textures,streams;
@@ -2069,7 +1978,7 @@ std::shared_ptr<const VerifiedWorkerEorOwnerCatalog> BuildAutomaticOriginalOwner
   const native::Size backbuffer{swap.Width,swap.Height};
   if(previous && previous->device==&host && previous->accepts_live_source &&
      previous->accepts_live_source(*source,backbuffer))return previous;
-  const auto contract=OriginalSingleTargetContract(*source,backbuffer,pack);
+  const auto contract=OriginalTargetContract(*source,backbuffer,pack);
   if(!contract)return {};
   const auto paths=FindAutomaticArchives(root);
   if(!paths)return {};
@@ -2086,7 +1995,7 @@ std::shared_ptr<const VerifiedWorkerEorOwnerCatalog> BuildAutomaticOriginalOwner
     return owned->Prepare(frame,retained);
   };
   catalog->accepts_live_source=[owned](const Frame& frame,native::Size size) {
-    const auto live=OriginalSingleTargetContract(frame,size,owned->pack);
+    const auto live=OriginalTargetContract(frame,size,owned->pack);
     return live && SameAutomaticScene(owned->contract,*live);
   };
   return catalog;
