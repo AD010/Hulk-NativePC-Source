@@ -239,6 +239,13 @@ struct VerifiedWorkerEorOwnerCatalog {
   // its own source-proven texture residency. No guessed material records.
   std::function<void(gpu::DiligentEorDirectBackend&,const Frame&)>
       publish_original_material_passes;
+  // Built-in live producer uses the actual immutable current frame after
+  // model I/O and before GPU replay. It returns every ordered Draw and
+  // retains the real archive GPU model owners until the completion fence.
+  std::function<std::vector<aot::BoundIndexedDraw>(
+      const Frame&,std::vector<std::shared_ptr<const model::UploadedOriginalModel>>&)>
+      prepare_live_original_draws;
+  std::function<bool(const Frame&,native::Size)> accepts_live_source;
 };
 bool InstallVerifiedWorkerEorOwnerCatalog(
     std::shared_ptr<const VerifiedWorkerEorOwnerCatalog> catalog);
