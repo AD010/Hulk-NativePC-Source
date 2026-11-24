@@ -1703,7 +1703,7 @@ std::optional<AutomaticSceneContract> OriginalSingleTargetContract(
   screen.guest_depth=depth_object;
   result.format.depth=depth_object ? gpu::NativeDepthFormat::D24S8 : gpu::NativeDepthFormat::None;
   result.format.original_depth_format_verified=true;
-  bool cleared=false,depth_initialized=false,resolved=false,drew=false;
+  bool cleared=false,depth_initialized=false,stencil_initialized=false,resolved=false,drew=false;
   bool bound_rt=true;
   uint32_t bound_depth=frame.calls.front().observed_vs_matrices->original_depth_guest_object;
   // If a binding changes before the first Draw, the initial state may
@@ -1722,7 +1722,8 @@ std::optional<AutomaticSceneContract> OriginalSingleTargetContract(
          bound_depth!=state.original_depth_guest_object)return {};
       const auto control=draw.observed_shader_constants->fixed_graphics_state->
           ReadOriginalXenosRegister(0x2200u);
-      if(!control || ((*control&3u) && (!bound_depth || !depth_initialized)))return {};
+      if(!control || ((*control&2u) && (!bound_depth || !depth_initialized)) ||
+         ((*control&1u) && (!bound_depth || !stencil_initialized)))return {};
       drew=true;continue;
     }
     switch(command.kind) {
@@ -1742,6 +1743,7 @@ std::optional<AutomaticSceneContract> OriginalSingleTargetContract(
         if(command.captured_clear->flags&0x30u) {
           if(!bound_depth || bound_depth==UINT32_MAX)return {};
           if(command.captured_clear->flags&0x10u)depth_initialized=true;
+          if(command.captured_clear->flags&0x20u)stencil_initialized=true;
         }
         break;
       case CommandKind::Resolve:
@@ -1846,10 +1848,10 @@ struct AutomaticEorOwner {
     Diligent::BufferDesc desc{};
     desc.Name="Hulk scalar host ABI constants";
     desc.BindFlags=Diligent::BIND_UNIFORM_BUFFER;
-    desc.Usage=Diligent::USAGE_IMMUTABLE;
+    desc.Usage=Diligent::USAGE_DYNAMIC;
+    desc.CPUAccessFlags=Diligent::CPU_ACCESS_WRITE;
     desc.Size=sizeof(native_values);
-    Diligent::BufferData data{native_values.data(),sizeof(native_values)};
-    host.device()->CreateBuffer(desc,&data,&shared_constants);
+    host.device()->CreateBuffer(desc,nullptr,&shared_constants);
     if(!shared_constants)throw std::runtime_error("Scalar Vulkan shared UBO unavailable");
     source_models=std::make_shared<world::NativeWorldStream>(
         std::make_unique<world::ArchiveModelSource>(paths.index,paths.models),
@@ -1866,11 +1868,21 @@ struct AutomaticEorOwner {
       } catch(const std::exception&) {}
     }
     if(!cached)candidates->LoadFromOriginalXboxArchive(paths.index,paths.models);
-    auto bind=[this](Diligent::IShaderResourceBinding* binding,
+    auto bind=[this,context=host.context()](Diligent::IShaderResourceBinding* binding,
         const aot::ReflectedShader&,const aot::ReflectedShader&,
         const native::IndexedDraw&,const aot::OriginalDrawVsMatrices&,
-        const xdk::OriginalShaderRegisters&,std::span<const float>,std::span<const float>) {
-      if(!binding || !shared_constants)return false;
+        const xdk::OriginalShaderRegisters& registers,std::span<const float>,std::span<const float>) {
+      if(!binding || !shared_constants || !context || !registers.fixed_graphics_state)return false;
+      const auto alpha=gpu::ResolveOriginalScalarAlpha(*registers.fixed_graphics_state);
+      if(!alpha)return false;
+      std::array<uint32_t,8> shared{};
+      shared[4]=std::bit_cast<uint32_t>(alpha->threshold);
+      shared[5]=alpha->flags;
+      void* mapped=nullptr;
+      context->MapBuffer(shared_constants,Diligent::MAP_WRITE,Diligent::MAP_FLAG_DISCARD,mapped);
+      if(!mapped)return false;
+      std::memcpy(mapped,shared.data(),sizeof(shared));
+      context->UnmapBuffer(shared_constants,Diligent::MAP_WRITE);
       for(auto stage:{Diligent::SHADER_TYPE_VERTEX,Diligent::SHADER_TYPE_PIXEL})
         if(auto* var=binding->GetVariableByName(stage,"HulkSharedConstants"))
           if(var->Get()!=shared_constants.RawPtr())
@@ -1966,6 +1978,12 @@ struct AutomaticEorOwner {
                                       {4,1,layout->texcoord.components,VT_FLOAT32,False},
                                       {8,2,layout->color->components,VT_FLOAT32,False}};
         for(auto& element:pass.exact_host_input_layout)element.Stride=16u;
+        const auto pixel_interface=gpu::live::InspectScalarInterface(*p);
+        pass.original_scalar_alpha_test_verified=pixel_interface.has_kill &&
+            (pixel_interface.shared_members&24u)==24u;
+        const auto alpha=gpu::ResolveOriginalScalarAlpha(*call.observed_shader_constants->fixed_graphics_state);
+        if(!alpha || (alpha->flags && !pass.original_scalar_alpha_test_verified))
+          throw std::invalid_argument("Original Font_Main alpha test unsupported");
         pass.original_dynamic_font_vertex_layout_verified=true;
         pass.original_host_vertex_layout_verified=true;
         pass.original_view_space=gpu::VerifiedOriginalViewSpace::OriginalAspectHud;

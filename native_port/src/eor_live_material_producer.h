@@ -25,6 +25,7 @@ struct ScalarInterface {
   std::vector<ScalarInput> inputs;
   uint32_t shared_members=0;
   bool supported=true;
+  bool has_kill=false;
 };
 // Reflect the actual scalar SPIR-V interface, not a guessed layout based on
 // the ShaderEffects name. A shared member 0 is a source boolean register;
@@ -44,6 +45,7 @@ inline ScalarInterface InspectScalarInterface(const aot::Blob& shader) {
     const auto n=words[i]>>16,op=words[i]&65535u;
     if(!n || n>words.size()-i)throw std::invalid_argument("Malformed scalar SPIR-V");
     const auto* w=words.data()+i;
+    if(op==252u)out.has_kill=true;
     if(op==5u && n>=3u) {
       std::string value;
       bool terminated=false;
@@ -340,6 +342,12 @@ inline ProducedWorldMaterial ProduceOriginalIndexedMaterial(
   pass=OriginalScalarPass(call,*vs,*ps,format);
   pass.exact_host_input_layout=OriginalScalarMeshLayout(call,*mesh,vertex_interface);
   pass.original_host_vertex_layout_verified=true;
+  const auto pixel_interface=InspectScalarInterface(*pixel);
+  pass.original_scalar_alpha_test_verified=pixel_interface.has_kill &&
+      (pixel_interface.shared_members&24u)==24u;
+  const auto alpha=ResolveOriginalScalarAlpha(*call.observed_shader_constants->fixed_graphics_state);
+  if(!alpha || (alpha->flags && !pass.original_scalar_alpha_test_verified))
+    throw std::invalid_argument("Original scalar alpha-test shader unsupported");
   out.material.original_model_hash=owner->original_resource_hash;
   out.material.original_surface_ordinal=*surface;
   out.material.original_images=OriginalScalarImages(call,*vs,*ps,bank,samplers,

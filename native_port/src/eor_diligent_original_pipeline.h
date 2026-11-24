@@ -63,6 +63,9 @@ struct VerifiedOriginalGraphicsPass {
   // The original pass has no depth/stencil attachment. Unknown DSV format
   // alone is insufficient, as it can also indicate missing format evidence.
   bool original_depth_unbound=false;
+  // The scalar AOT PS contains the original alpha-kill lowering. The
+  // caller must bind the current reference and enable flag per Draw.
+  bool original_scalar_alpha_test_verified=false;
 };
 struct OriginalVulkanPipeline {
   Diligent::RefCntAutoPtr<Diligent::IPipelineState> pipeline;
@@ -79,6 +82,22 @@ struct OriginalVulkanPipeline {
 std::optional<Diligent::GraphicsPipelineDesc> DeriveOriginalXdkGraphicsPipelineState(
     const xdk::OriginalXdkFixedGraphicsState& source,
     const Diligent::GraphicsPipelineDesc& source_proven_attachments) noexcept;
+// The compiled scalar PS uses clip(alpha-reference), equivalent to
+// GREATER_EQUAL (and ALWAYS with the flag disabled). Other comparisons
+// require additional original shader lowering, not threshold guesses.
+struct OriginalScalarAlphaState {float threshold=0;uint32_t flags=0;};
+inline std::optional<OriginalScalarAlphaState> ResolveOriginalScalarAlpha(
+    const xdk::OriginalXdkFixedGraphicsState& state) noexcept {
+  const auto control=state.ReadOriginalXenosRegister(0x2202u);
+  if(!control || (*control&16u))return {};
+  if(!(*control&8u) || (*control&7u)==7u)return OriginalScalarAlphaState{};
+  if((*control&7u)!=6u)return {};
+  const auto reference=state.ReadOriginalXenosRegister(0x210eu);
+  if(!reference)return {};
+  const auto threshold=std::bit_cast<float>(*reference);
+  if(!std::isfinite(threshold))return {};
+  return OriginalScalarAlphaState{threshold,2u};
+}
 bool MatchesOriginalXdkGraphicsState(
     const VerifiedOriginalGraphicsPass& original,
     const xdk::OriginalXdkFixedGraphicsState& source) noexcept;

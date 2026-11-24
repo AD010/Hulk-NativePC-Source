@@ -106,7 +106,7 @@ std::optional<Diligent::GraphicsPipelineDesc> DeriveOriginalXdkGraphicsPipelineS
   const uint32_t polygon_mode=(*raster>>3)&3u;
   const uint32_t polygon_front=(*raster>>5)&7u;
   const uint32_t polygon_back=(*raster>>8)&7u;
-  if((*color&0x18u) || (*clip&0x3fu) ||
+  if(!ResolveOriginalScalarAlpha(source) || (*clip&0x3fu) ||
      ((*raster&3u)==3u) ||
      polygon_mode==3u ||
      (polygon_mode==1u && (polygon_front!=2u || polygon_back!=2u)) ||
@@ -177,7 +177,8 @@ bool MatchesOriginalXdkGraphicsState(
      !source.original_guest_device)return false;
   const auto derived=DeriveOriginalXdkGraphicsPipelineState(
       source,original.exact_render_state);
-  if(!derived)return false;
+  const auto alpha=ResolveOriginalScalarAlpha(source);
+  if(!derived || !alpha || (alpha->flags && !original.original_scalar_alpha_test_verified))return false;
   const auto& expected=original.exact_render_state;
   const auto& state=*derived;
   if(expected.SmplDesc.Count!=state.SmplDesc.Count ||
