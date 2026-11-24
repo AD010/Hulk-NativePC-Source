@@ -316,7 +316,22 @@ bool NativeXInitialize(
     // authenticated USA metadata banks. A metadata-only archive is not
     // an executable shader library. Never claim native graphics readiness
     // until the complete digest-matched source pack is installed.
-    std::filesystem::path original_source_root=cache/"eor_source";
+    // The app already installs its authenticated original HEORMAT/REF/SMP/
+    // VRT catalog under eor_offline. Reuse THAT SAME private directory by
+    // default: writing HEORREQ1 to eor_source while the compiler/metadata
+    // lived under eor_offline silently stranded genuine game Draw requests.
+    std::filesystem::path original_source_root=cache/"eor_offline";
+    std::error_code original_error;
+    const auto source_mirror=cache/"eor_source";
+    const auto has_private_originals=[&](const std::filesystem::path& dir) {
+      std::error_code ignored;
+      return std::filesystem::is_regular_file(dir/"HEORVRT1.bin",ignored) ||
+             std::filesystem::is_regular_file(
+                 dir/"hulk_shader_virtual_fingerprints.bin",ignored);
+    };
+    if(!has_private_originals(original_source_root) &&
+       has_private_originals(source_mirror))
+      original_source_root=source_mirror;
     if(const char* custom=std::getenv("HULK_EOR_SOURCE_BANK_DIR");
        custom && *custom)
       original_source_root=std::filesystem::path(custom);

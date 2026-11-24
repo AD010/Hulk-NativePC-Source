@@ -1182,8 +1182,11 @@ bool InstallVerifiedSourceShaderPackFromDirectory(
     // filename as well as the explicit HEORSPV1.bin install alias.
     const auto alias=directory/"HEORSPV1.bin";
     const auto generated=directory/"hulk_shader_bank.bin";
-    shaders->Load(std::filesystem::is_regular_file(alias) ?
-                  alias : generated);
+    // Prefer the compiler's atomically replaced cumulative bank. The
+    // explicit HEORSPV1 alias can still exist from an OLDER partial run;
+    // loading it first permanently masked newly compiled original VS/PS.
+    shaders->Load(std::filesystem::is_regular_file(generated) ?
+                  generated : alias);
     effects->Load(directory/"HEORMAT2.bin");
     reflection->Load(directory/"HEORREF1.bin");
     samplers->Load(directory/"HEORSMP1.bin");
