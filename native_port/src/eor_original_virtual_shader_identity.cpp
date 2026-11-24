@@ -5,6 +5,7 @@
 #include <stdexcept>
 #include <vector>
 #include <set>
+#include <cstring>
 
 namespace hulk::eor::aot {
 namespace {
@@ -86,6 +87,38 @@ Digest SourceSha256(std::span<const uint8_t> bytes) noexcept {
   return out;
 }
 
+namespace {
+// Cache only the mathematical digest of byte-identical data. Never cache
+// a guest address, stage, bank entry or authorization. Re-read the entire
+// live header on each Draw; a changed byte always goes through SHA-256.
+// Thread-local bounded storage also avoids locking the PPC render thread.
+Digest ExactHeaderDigest(std::span<const uint8_t> bytes) noexcept {
+  constexpr size_t kSlots=512, kMaxCachedBytes=4096;
+  if(bytes.size()>kMaxCachedBytes)return OriginalShaderVirtualSha256(bytes);
+  struct Entry {std::vector<uint8_t> bytes; Digest digest{};};
+  static thread_local std::array<Entry,kSlots> cache;
+  // Fast non-cryptographic slot selection only. The exact byte comparison
+  // below is mandatory, so a collision cannot admit a different program.
+  uint64_t key=0xcbf29ce484222325ull;
+  size_t i=0;
+  for(;bytes.size()-i>=8;i+=8) {
+    uint64_t word=0;std::memcpy(&word,bytes.data()+i,8);
+    key=(key^word)*0x100000001b3ull;
+  }
+  for(;i<bytes.size();++i)key=(key^bytes[i])*0x100000001b3ull;
+  auto& entry=cache[static_cast<size_t>((key^(key>>32))&(kSlots-1))];
+  if(entry.bytes.size()==bytes.size() &&
+     std::equal(bytes.begin(),bytes.end(),entry.bytes.begin()))
+    return entry.digest;
+  const auto digest=OriginalShaderVirtualSha256(bytes);
+  try {
+    entry.bytes.assign(bytes.begin(),bytes.end());
+    entry.digest=digest;
+  } catch (...) {entry.bytes.clear();}
+  return digest;
+}
+} // namespace
+
 void OriginalVirtualShaderIdentity::Load(
     const std::filesystem::path& private_bank) {
   std::ifstream file(private_bank,std::ios::binary|std::ios::ate);
@@ -138,7 +171,7 @@ std::optional<Digest> OriginalVirtualShaderIdentity::FindOriginalSource(
      Be32(exact_header.data()+4)!=exact_header.size() ||
      Be32(exact_header.data()+8)==0u)
     return std::nullopt;
-  const auto virtual_sha=OriginalShaderVirtualSha256(exact_header);
+  const auto virtual_sha=ExactHeaderDigest(exact_header);
   const auto it=original_.find(virtual_sha);
   if(it==original_.end() || it->second.stage!=expected_stage ||
      it->second.virtual_bytes!=exact_header.size())

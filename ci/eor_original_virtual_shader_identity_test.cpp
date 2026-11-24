@@ -88,6 +88,18 @@ int main() {
   assert(pixel && (*pixel)[0]==0x22u);
   assert(!bank.FindOriginalSource(vs,Stage::Pixel));
   assert(!bank.FindOriginalSource(ps,Stage::Vertex));
+  // Repeated Draws can reuse the digest, but a new bank must still resolve
+  // the same exact bytes against its own authenticated mapping.
+  for(unsigned repeat=0;repeat<1024;++repeat) {
+    assert(bank.FindOriginalSource(vs,Stage::Vertex)==vertex);
+    assert(bank.FindOriginalSource(ps,Stage::Pixel)==pixel);
+    const auto other=divergent.FindOriginalSource(vs,Stage::Vertex);
+    const auto other_ps=divergent.FindOriginalSource(ps,Stage::Pixel);
+    assert(other && other_ps && (*other!=*vertex || *other_ps!=*pixel));
+    auto edited=ps;
+    edited[30]=static_cast<uint8_t>(repeat%255u+1u);
+    assert(!bank.FindOriginalSource(edited,Stage::Pixel));
+  }
   auto corrupt=vs;
   corrupt[34]=0x55;
   assert(!bank.FindOriginalSource(corrupt,Stage::Vertex));
