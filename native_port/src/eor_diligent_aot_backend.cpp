@@ -26,11 +26,11 @@ using MaterialKey=std::tuple<uint32_t,uint32_t,uint32_t,uint32_t,bool>;
 // Exact fixed-function variants of a single verified material. The source
 // register tuple includes every input of DeriveOriginalXdkGraphicsPipelineState;
 // it is intentionally not a lossy hash or the guest shader-object address.
-using PipelineVariantKey=std::pair<MaterialKey,std::array<uint32_t,9>>;
+using PipelineVariantKey=std::pair<MaterialKey,std::array<uint32_t,11>>;
 std::optional<PipelineVariantKey> OriginalPipelineVariantKey(
     const MaterialKey& material,const xdk::OriginalXdkFixedGraphicsState& source) {
-  constexpr std::array<uint32_t,9> registers{
-      0x2000u,0x2001u,0x2002u,0x2104u,0x2200u,0x2201u,0x2202u,0x2204u,0x2205u};
+  constexpr std::array<uint32_t,11> registers{
+      0x2000u,0x2001u,0x2002u,0x2104u,0x210cu,0x210du,0x2200u,0x2201u,0x2202u,0x2204u,0x2205u};
   PipelineVariantKey key{};
   key.first=material;
   for(size_t i=0;i<registers.size();++i) {
@@ -1534,6 +1534,14 @@ bool DiligentEorDirectBackend::DrawIndexed(const native::IndexedDraw& draw) {
     // original frame/ordinal; never bind its SRB with the base PSO.
     s.context->SetPipelineState(constants.variant_pipeline ?
         constants.variant_pipeline.RawPtr() : s.active.pipeline.RawPtr());
+    if(regs.fixed_graphics_state) {
+      const auto depth=regs.fixed_graphics_state->ReadOriginalXenosRegister(0x2200u);
+      if(depth && (*depth&1u)) {
+        const auto reference=regs.fixed_graphics_state->ReadOriginalXenosRegister(0x210du);
+        if(!reference)return false;
+        s.context->SetStencilRef(*reference&255u);
+      }
+    }
     s.context->CommitShaderResources(resources,
         Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
     s.context->SetVertexBuffers(0,binding_count,
