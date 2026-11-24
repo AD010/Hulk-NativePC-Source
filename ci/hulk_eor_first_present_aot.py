@@ -63,11 +63,14 @@ def prepare_original_bank(source_zip:Path,private_bank:Path,public_repo:Path):
     return bank
 
 
-def _observed_original_passes(path:Path) -> set[tuple[int,int]]:
+def _observed_original_passes(path:Path,max_passes:int=0) -> tuple[tuple[int,int],...]:
     """Read ONLY live XDK ShaderContainer-backed effect:pass identities."""
     if not path.is_file() or path.stat().st_size>4*1024*1024:
         raise ValueError("Original private observed-pass demand file missing or oversized")
+    if max_passes<0 or max_passes>16384:
+        raise ValueError("Invalid maximum original shader pass count")
     observed=set()
+    ordered=[]
     for line in path.read_text(encoding="ascii").splitlines():
         if not line.strip():continue
         pieces=line.strip().split(":")
@@ -82,14 +85,18 @@ def _observed_original_passes(path:Path) -> set[tuple[int,int]]:
         key=(u32(pieces[0]),u32(pieces[1]))
         if not key[0] or key[1]>16384:
             raise ValueError("Unverified live original ShaderEffects demand")
-        observed.add(key)
-    if not observed:raise ValueError("No live original ShaderEffects VS/PS demand")
-    return observed
+        if key not in observed:
+            observed.add(key)
+            ordered.append(key)
+            if max_passes and len(ordered)>=max_passes:
+                break
+    if not ordered:raise ValueError("No live original ShaderEffects VS/PS demand")
+    return tuple(ordered)
 
 
-def compile_and_install(source_zip:Path,work:Path,install:Path,public_repo:Path,
-                        hashes:tuple[int,...],xenos:Path,dxc:Path,common:Path,
-                        workers:int=0,passes:tuple[tuple[int,int],...]=()):
+def compile_prepared_bank(original:Path,work:Path,install:Path,public_repo:Path,
+                          hashes:tuple[int,...],xenos:Path,dxc:Path,common:Path,
+                          workers:int=0,passes:tuple[tuple[int,int],...]=()):
     if (not hashes and not passes or
         any(not 0<hash_value<2**32 for hash_value in hashes) or
         any(not 0<effect<2**32 or not 0<=ordinal<=16384
@@ -97,7 +104,7 @@ def compile_and_install(source_zip:Path,work:Path,install:Path,public_repo:Path,
         raise ValueError("Select genuinely OBSERVED ShaderEffects hashes/passes")
     work=_private(work,public_repo)
     install=_private(install,public_repo)
-    original=prepare_original_bank(source_zip,work/"original_source_bank",public_repo)
+    original=_private(original,public_repo)
     effect_bank=original/"HEORMAT2.bin"
     required=(_source_shaders_for_effects(effect_bank,set(hashes))
               if hashes else set())
@@ -142,9 +149,22 @@ def compile_and_install(source_zip:Path,work:Path,install:Path,public_repo:Path,
     }
 
 
+def compile_and_install(source_zip:Path,work:Path,install:Path,public_repo:Path,
+                        hashes:tuple[int,...],xenos:Path,dxc:Path,common:Path,
+                        workers:int=0,passes:tuple[tuple[int,int],...]=()):
+    original=prepare_original_bank(
+        source_zip,_private(work,public_repo)/"original_source_bank",public_repo)
+    return compile_prepared_bank(original,work,install,public_repo,
+                                 hashes,xenos,dxc,common,workers,passes)
+
+
 def main():
     p=argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--source-zip",type=Path,required=True)
+    source=p.add_mutually_exclusive_group(required=True)
+    source.add_argument("--source-zip",type=Path,
+                        help="Original private shader ZIP, extracted once")
+    source.add_argument("--bank",type=Path,
+                        help="ALREADY EXTRACTED 5194-original-Xenos private bank; no re-extraction")
     p.add_argument("--work",type=Path,required=True)
     p.add_argument("--install",type=Path,required=True)
     p.add_argument("--public-repository",type=Path,required=True)
@@ -153,6 +173,9 @@ def main():
                    help="Exact original live Xbox effect:pass (e.g. 0x1234:2)")
     p.add_argument("--observed-passes",type=Path,
                    help="Private HEORREQ1.txt emitted by genuine XDK Draw worker")
+    p.add_argument("--max-observed-passes",type=int,default=0,
+                   help="Process first N live-observed unique ShaderEffects passes in order; "
+                        "0 means all, preserving AOT checkpoints across calls")
     p.add_argument("--xenosrecomp",type=Path,required=True)
     p.add_argument("--dxc",type=Path,required=True)
     p.add_argument("--common",type=Path,required=True)
@@ -164,10 +187,29 @@ def main():
         return (int(raw[0],0),int(raw[1],0))
     selected={parse_pair(item) for item in a.effect_pass}
     if a.observed_passes:
-        selected.update(_observed_original_passes(a.observed_passes))
-    print(json.dumps(compile_and_install(
-        a.source_zip,a.work,a.install,a.public_repository,tuple(a.effect_hash),
-        a.xenosrecomp,a.dxc,a.common,a.workers,tuple(sorted(selected))),indent=2))
+        selected.update(_observed_original_passes(
+            a.observed_passes,a.max_observed_passes))
+    if a.bank:
+        # Private original Xenos shader directory is ALREADY extracted.
+        # Revalidate identities without copying or extracting any source.
+        from hulk_xenos_aot import _entries, _private
+        bank=_private(a.bank,a.public_repository)
+        manifest,all_sources=_entries(bank)
+        if (manifest.get("original_effects")!=233 or
+            len(all_sources)!=5194 or
+            manifest.get("xenos_vertex_shaders")!=2597 or
+            manifest.get("xenos_pixel_shaders")!=2597):
+            raise ValueError("Existing original Xbox ShaderEffects bank is incomplete")
+        result=compile_prepared_bank(
+            bank,a.work,a.install,a.public_repository,
+            tuple(a.effect_hash),a.xenosrecomp,a.dxc,a.common,
+            a.workers,tuple(sorted(selected)))
+    else:
+        result=compile_and_install(
+            a.source_zip,a.work,a.install,a.public_repository,
+            tuple(a.effect_hash),a.xenosrecomp,a.dxc,a.common,
+            a.workers,tuple(sorted(selected)))
+    print(json.dumps(result,indent=2))
 
 
 if __name__=="__main__":
