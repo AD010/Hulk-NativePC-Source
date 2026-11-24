@@ -4,6 +4,12 @@
 #include "eor_xdk_hook_bridge.h"
 #include "eor_usa_material_textures.h"
 #include "eor_diligent_aot_backend.h"
+#include "eor_diligent_host_output.h"
+#include "eor_live_material_producer.h"
+#include "Buffer.h"
+#include "RenderDevice.h"
+#include "DeviceContext.h"
+#include "ShaderResourceVariable.h"
 #include "eor_original_font_source.h"
 #include "eor_native_world_stream.h"
 #include "eor_native_archive_source.h"
@@ -1644,6 +1650,389 @@ struct PreparedEorMixedFrame {
   std::vector<aot::BoundIndexedDraw> ordered;
   std::vector<std::shared_ptr<const model::UploadedOriginalModel>> world;
 };
+// A single-target source frame is the first supported production path.
+// Establish the actual original screen by its current guest target objects,
+// full original clears and one final full-surface Resolve -> Present.
+// Tiled, chained postprocess, MRT, partial resolve and unknown target formats
+// are NOT equivalent to this path and must keep the compatibility presenter.
+struct AutomaticSceneContract {
+  native::FrameGeometry output;
+  gpu::VerifiedSceneFormat format;
+};
+std::optional<AutomaticSceneContract> OriginalSingleTargetContract(
+    const Frame& frame,native::Size backbuffer) {
+  if(!ValidateOriginalCommandTimeline(frame))return {};
+  AutomaticSceneContract result{};
+  uint32_t depth_object=0;
+  bool full_source_viewport=false;
+  uint32_t samples=0;
+  for(const auto& draw:frame.calls) {
+    if(!draw.observed_vs_matrices || !draw.observed_shader_constants ||
+       !draw.observed_shader_constants->fixed_graphics_state)return {};
+    const auto& state=*draw.observed_vs_matrices;
+    const auto& fixed=*draw.observed_shader_constants->fixed_graphics_state;
+    const auto original=gpu::ResolveOriginalXdkSurfaceFormats(state,fixed);
+    if(!original || original->format.color!=gpu::NativeColorFormat::Rgba8 ||
+       !state.raster)return {};
+    const auto color_mask=fixed.ReadOriginalXenosRegister(0x2104u);
+    const auto surface=fixed.ReadOriginalXenosRegister(0x2000u);
+    // Single output, native linear RGBA8. The source pitch must cover
+    // the known USA 1280-wide main output; no 256x256 shadow-map alias.
+    if(!color_mask || (*color_mask&~15u) || !surface ||
+       (*surface&0x3fffu)<1280u)return {};
+    const auto& view=*state.raster;
+    full_source_viewport|=view.x==0 && view.y==0 &&
+                          view.width==1280 && view.height==720;
+    if(!native::MapOriginalRasterWindow(view,{1280,720},{0,0,1280,720}))return {};
+    if(!samples) {
+      samples=original->samples;
+      result.format=original->format;
+    }
+    if(samples!=original->samples ||
+       result.format.original_screen.guest_device!=state.original_guest_device ||
+       result.format.original_screen.guest_rt0!=state.original_rt0_guest_object)
+      return {};
+    if(state.original_depth_guest_object) {
+      if(original->format.depth!=gpu::NativeDepthFormat::D24S8 ||
+         (depth_object && depth_object!=state.original_depth_guest_object))return {};
+      depth_object=state.original_depth_guest_object;
+    }
+  }
+  if(!full_source_viewport || !samples)return {};
+  auto& screen=result.format.original_screen;
+  screen.guest_depth=depth_object;
+  result.format.depth=depth_object ? gpu::NativeDepthFormat::D24S8 : gpu::NativeDepthFormat::None;
+  result.format.original_depth_format_verified=true;
+  bool cleared=false,depth_initialized=false,resolved=false,drew=false;
+  bool bound_rt=true;
+  uint32_t bound_depth=frame.calls.front().observed_vs_matrices->original_depth_guest_object;
+  // If a binding changes before the first Draw, the initial state may
+  // not be inferred backwards across an earlier Clear.
+  for(const auto& command:frame.commands) {
+    if(command.draw_ordinal!=UINT32_MAX)break;
+    if(command.kind==CommandKind::SetRenderTarget)bound_rt=false;
+    if(command.kind==CommandKind::SetDepthStencilSurface)bound_depth=UINT32_MAX;
+  }
+  for(const auto& command:frame.commands) {
+    if(command.gpr[0]!=screen.guest_device)return {};
+    if(command.draw_ordinal!=UINT32_MAX) {
+      const auto& draw=frame.calls[command.draw_ordinal];
+      const auto& state=*draw.observed_vs_matrices;
+      if(!bound_rt || !cleared || resolved ||
+         bound_depth!=state.original_depth_guest_object)return {};
+      const auto control=draw.observed_shader_constants->fixed_graphics_state->
+          ReadOriginalXenosRegister(0x2200u);
+      if(!control || ((*control&3u) && (!bound_depth || !depth_initialized)))return {};
+      drew=true;continue;
+    }
+    switch(command.kind) {
+      case CommandKind::SetRenderTarget:
+        if(resolved || command.gpr[1]!=0u || command.gpr[2]!=screen.guest_rt0)return {};
+        bound_rt=true;break;
+      case CommandKind::SetDepthStencilSurface:
+        if(resolved || (command.gpr[1] && command.gpr[1]!=depth_object))return {};
+        bound_depth=command.gpr[1];break;
+      case CommandKind::ClearF:
+        if(resolved || !command.captured_clear ||
+           !IsOriginalFullTargetClear(*command.captured_clear,1280,720))return {};
+        if(command.captured_clear->flags&1u) {
+          if(!bound_rt)return {};
+          cleared=true;
+        }
+        if(command.captured_clear->flags&0x30u) {
+          if(!bound_depth || bound_depth==UINT32_MAX)return {};
+          if(command.captured_clear->flags&0x10u)depth_initialized=true;
+        }
+        break;
+      case CommandKind::Resolve:
+        if(!drew || resolved || !bound_rt || !command.gpr[3] ||
+           command.gpr[1] || command.gpr[2] || command.gpr[4] ||
+           command.gpr[5] || command.gpr[6])return {};
+        screen.guest_front_buffer=command.gpr[3];resolved=true;break;
+      case CommandKind::Present:
+        if(!resolved || command.gpr[1]!=screen.guest_front_buffer)return {};
+        break;
+      default:return {};
+    }
+  }
+  if(!cleared || !drew || !resolved || !screen.guest_front_buffer)return {};
+  screen.exact_guest_to_native_targets_verified=true;
+  screen.final_resolve_to_front_buffer_verified=true;
+  // No tiling commands were accepted, so there are no tile aliases in this
+  // specific frame. Do not authorize BeginTiling/EndTiling on future frames.
+  screen.original_tiling_has_no_host_aliases_verified=false;
+  native::FrameSetup setup;
+  setup.backbuffer=backbuffer;setup.original_guest={1280,720};
+  setup.engine_draw_hook_verified=true;
+  setup.offline_shader_cache_verified=true;
+  setup.samples=samples;
+  // The USA perspective matrix ABI is not established by this single-RT
+  // contract. PlanFrame deliberately rejects other aspects, never stretch.
+  result.output=native::PlanFrame(setup);
+  if(!result.output.direct_engine_path_ready)return {};
+  return result;
+}
+bool SameAutomaticScene(const AutomaticSceneContract& a,
+                        const AutomaticSceneContract& b) noexcept {
+  const auto& x=a.format.original_screen;
+  const auto& y=b.format.original_screen;
+  return a.output.backbuffer.width==b.output.backbuffer.width &&
+         a.output.backbuffer.height==b.output.backbuffer.height &&
+         a.output.samples==b.output.samples &&
+         a.format.color==b.format.color && a.format.depth==b.format.depth &&
+         x.guest_device==y.guest_device && x.guest_rt0==y.guest_rt0 &&
+         x.guest_depth==y.guest_depth && x.guest_front_buffer==y.guest_front_buffer;
+}
+struct AutomaticArchivePaths {
+  std::filesystem::path index,models,textures,streams;
+};
+std::optional<AutomaticArchivePaths> FindAutomaticArchives(
+    const std::filesystem::path& root) {
+  if(root.empty())return {};
+  const auto base=root/"DATA"/"XENON";
+  for(const auto& index:{base/"INDEX.IND",base/"indexXBOX360.ind",
+       base/"USENGLISH"/"INDEX.IND",base/"UKENGLISH"/"INDEX.IND",
+       root/"INDEX.IND",root/"indexXBOX360.ind",root/"index(1).ind",
+       root/"Data"/"Xenon"/"INDEX.IND"}) {
+    if(!std::filesystem::is_regular_file(index))continue;
+    for(const auto& dir:{index.parent_path(),base,root}) {
+      const auto models=dir/"MODELS.ARC";
+      const auto textures=dir/"TEXTURES.ARC";
+      if(!std::filesystem::is_regular_file(models) ||
+         !std::filesystem::is_regular_file(textures))continue;
+      std::filesystem::path streams;
+      for(const auto& candidate:{dir/"TEXSTREAMS.ARC",dir/"TEXSTREAM.ARC",dir/"TexStreams.arc"})
+        if(std::filesystem::is_regular_file(candidate)){streams=candidate;break;}
+      try {
+        // The texture loader must authenticate the USA global index as
+        // well; the alternative model-only index is not enough for mip I/O.
+        (void)Index::LoadPinnedUsa(index);
+        return AutomaticArchivePaths{index,models,textures,streams};
+      } catch(const std::exception&) {}
+    }
+  }
+  return {};
+}
+struct AutomaticEorOwner {
+  OfflineShaderPack pack;
+  AutomaticSceneContract contract;
+  gpu::DiligentSceneTargets scene;
+  gpu::DiligentMeshUploadBackend meshes;
+  gpu::DiligentAotShaderModules shaders;
+  textures::OriginalXboxTextureAssets assets;
+  gpu::DiligentOriginalTextureResidency textures;
+  gpu::DiligentEorHostOutput host_output;
+  Diligent::RefCntAutoPtr<Diligent::IBuffer> shared_constants;
+  std::shared_ptr<world::NativeWorldStream> source_models;
+  std::shared_ptr<world::OriginalMaterialCandidateIndex> candidates;
+  std::unique_ptr<gpu::DiligentEorDirectBackend> backend;
+
+  AutomaticEorOwner(native_x_renderer::Device& host,OfflineShaderPack source,
+      AutomaticSceneContract source_contract,const AutomaticArchivePaths& paths,
+      const std::filesystem::path& candidate_file)
+      :pack(std::move(source)),contract(source_contract),
+       scene(host.device(),host.context()),meshes(host.device()),shaders(host.device()),
+       assets(textures::OriginalXboxTextureAssets::OpenPinnedUsa(paths.index,paths.textures,paths.streams)),
+       textures(host.device(),assets),host_output(host) {
+    if(!pack.shaders || !pack.effects || !pack.reflection ||
+       !pack.virtual_ids || !pack.samplers || !host_output.Initialize())
+      throw std::invalid_argument("Incomplete live EoR source owner");
+    // The scalar ABI uses normalized, already decoded host attributes,
+    // host clip-space conventions and conventional depth (not Sonic's
+    // packed normals/reverse-Z). InspectScalarInterface rejects shaders
+    // that consume uncaptured original boolean registers; the fixed-state
+    // decoder also rejects original alpha test and alpha-to-mask.
+    std::array<uint32_t,8> native_values{};
+    Diligent::BufferDesc desc{};
+    desc.Name="Hulk scalar host ABI constants";
+    desc.BindFlags=Diligent::BIND_UNIFORM_BUFFER;
+    desc.Usage=Diligent::USAGE_IMMUTABLE;
+    desc.Size=sizeof(native_values);
+    Diligent::BufferData data{native_values.data(),sizeof(native_values)};
+    host.device()->CreateBuffer(desc,&data,&shared_constants);
+    if(!shared_constants)throw std::runtime_error("Scalar Vulkan shared UBO unavailable");
+    source_models=std::make_shared<world::NativeWorldStream>(
+        std::make_unique<world::ArchiveModelSource>(paths.index,paths.models),
+        meshes,std::vector<world::LodTier>{});
+    candidates=std::make_shared<world::OriginalMaterialCandidateIndex>();
+    bool cached=false;
+    if(!candidate_file.empty() && std::filesystem::is_regular_file(candidate_file)) {
+      try {
+        candidates->Load(candidate_file);
+        constexpr std::array<uint8_t,32> pinned{
+          0x46,0xe6,0xc6,0xec,0x9f,0x74,0x28,0xba,0x3a,0x17,0x37,0xab,0x7e,0xba,0xd5,0x64,
+          0xc1,0xb0,0x27,0xb0,0x06,0xc3,0xe3,0x51,0x56,0xd2,0xe0,0x36,0xab,0x8b,0x28,0x20};
+        cached=candidates->OriginalIndexDigest()==pinned && candidates->LinkCount()==41745u;
+      } catch(const std::exception&) {}
+    }
+    if(!cached)candidates->LoadFromOriginalXboxArchive(paths.index,paths.models);
+    auto bind=[this](Diligent::IShaderResourceBinding* binding,
+        const aot::ReflectedShader&,const aot::ReflectedShader&,
+        const native::IndexedDraw&,const aot::OriginalDrawVsMatrices&,
+        const xdk::OriginalShaderRegisters&,std::span<const float>,std::span<const float>) {
+      if(!binding || !shared_constants)return false;
+      for(auto stage:{Diligent::SHADER_TYPE_VERTEX,Diligent::SHADER_TYPE_PIXEL})
+        if(auto* var=binding->GetVariableByName(stage,"HulkSharedConstants"))
+          if(var->Get()!=shared_constants.RawPtr())
+            var->Set(shared_constants.RawPtr(),Diligent::SET_SHADER_RESOURCE_FLAG_ALLOW_OVERWRITE);
+      return true;
+    };
+    backend=std::make_unique<gpu::DiligentEorDirectBackend>(
+        host.device(),host.context(),scene,meshes,shaders,*pack.shaders,*pack.effects,
+        contract.output,contract.format,std::vector<gpu::NativeEorPassResources>{},
+        std::vector<gpu::NativeEorDrawBuffers>{},std::move(bind),
+        gpu::BindNativeEorVulkanBackbuffer(host_output));
+  }
+  std::vector<aot::BoundIndexedDraw> Prepare(const Frame& frame,
+      std::vector<std::shared_ptr<const model::UploadedOriginalModel>>& retained) {
+    std::vector<aot::BoundIndexedDraw> ordered;
+    ordered.reserve(frame.calls.size());
+    // Strong owners remain attached to this source frame until the
+    // existing worker's Vulkan queue completion barrier.
+    std::map<uint32_t,std::shared_ptr<const model::UploadedOriginalModel>> models;
+    bool waiting_for_model=false;
+    std::set<uint32_t> requested;
+    // Discover only source-proven texture candidates. Request ALL unique
+    // original archive owners for the sampled texture set (bounded).
+    // A unique match among an incomplete subset is not archive proof.
+    for(const auto& call:frame.calls) {
+      const auto& parent=call.original_engine_shader_method;
+      if(parent && parent->original_shader_method_guest==0x8266a0c0u)continue;
+      if(!parent || !call.observed_live_pixel_shader_header ||
+         !call.observed_live_pixel_shader_header->pixel_sampling ||
+         !parent->original_pass_sampler_slots_verified)
+        throw std::invalid_argument("Original material source sampler mask unavailable");
+      const auto mask=call.observed_live_pixel_shader_header->pixel_sampling->sampled_slots;
+      if(!mask || (mask&~parent->original_pass_sampler_slot_mask))
+        throw std::invalid_argument("Original material lacks unique indexed texture proof");
+      const auto surfaces=candidates->FindLiveSurfaceCandidates(
+          call.original_pixel_texture_keys,mask,0,96);
+      if(surfaces.empty())throw std::invalid_argument("Original material archive candidates unresolved");
+      for(const auto& surface:surfaces) {
+        const auto hash=surface.original_model_hash;
+        if(models.contains(hash))continue;
+        auto resident=source_models->ResidentShared(hash);
+        if(!resident){waiting_for_model=true;requested.insert(hash);continue;}
+        models.emplace(hash,std::move(resident));
+      }
+    }
+    if(!requested.empty()) {
+      const std::vector<uint32_t> queue(requested.begin(),requested.end());
+      source_models->RequestSourceVerifiedModels(queue);
+    }
+    if(waiting_for_model)throw std::runtime_error("Original source models are streaming");
+    std::vector<const model::UploadedOriginalModel*> borrowed;
+    for(const auto& [_,model]:models) {
+      retained.push_back(model);borrowed.push_back(model.get());
+    }
+    if(!borrowed.empty())backend->AdoptVerifiedResidentWorldMeshes(borrowed);
+    for(size_t i=0;i<frame.calls.size();++i) {
+      const auto& call=frame.calls[i];
+      const auto ordinal=static_cast<uint32_t>(i);
+      const auto& parent=call.original_engine_shader_method;
+      if(parent && parent->original_shader_method_guest==0x8266a0c0u) {
+        auto layout=call.kind==Kind::EndVertices ? ui::ResolveUsaInlineFontLayout(call) :
+                                                  ui::ResolveUsaBufferedFontLayout(call);
+        if(!layout || !layout->color || !call.observed_vs_matrices ||
+           !call.observed_live_vertex_shader_header || !call.observed_live_pixel_shader_header)
+          throw std::invalid_argument("Live original font material unavailable");
+        const auto& live=*call.observed_vs_matrices;
+        const auto vs=aot::ResolveOriginalLiveXdkShaderSource(*pack.virtual_ids,
+             *call.observed_live_vertex_shader_header,live.original_vs_guest_object,
+             aot::Stage::Vertex,frame.sequence,ordinal);
+        const auto ps=aot::ResolveOriginalLiveXdkShaderSource(*pack.virtual_ids,
+             *call.observed_live_pixel_shader_header,live.original_ps_guest_object,
+             aot::Stage::Pixel,frame.sequence,ordinal);
+        if(!vs || !ps || !call.observed_live_eor_effect_pass ||
+           !ui::MatchesOriginalUsaFontMainProgram(call.observed_live_eor_effect_pass->effect_hash,
+              call.observed_live_eor_effect_pass->pass_index,*vs,*ps) ||
+           !pack.effects->HasPair(ui::kOriginalFontMainEffectHash,ui::kOriginalFontMainPassIndex,*vs,*ps))
+          throw std::invalid_argument("Original live Font_Main shader identity unavailable");
+        const auto* v=pack.shaders->Find(*vs,aot::Stage::Vertex);
+        const auto* p=pack.shaders->Find(*ps,aot::Stage::Pixel);
+        if(!v || !p || !gpu::live::InspectScalarInterface(*v).supported ||
+           !gpu::live::InspectScalarInterface(*p).supported)
+          throw std::invalid_argument("Original Font_Main scalar ABI unsupported");
+        // Dynamic EFont has no model/surface archive ordinal. Its actual
+        // atlas texture resource is the material owner; subresource zero
+        // is the only atlas binding, not an invented MODELS.ARC record.
+        const auto atlas=layout->original_font_atlas_hash;
+        gpu::VerifiedNativeMaterialPass material;
+        material.original_model_hash=atlas;material.original_surface_ordinal=0;
+        auto& pass=material.original_pipeline;
+        pass=gpu::live::OriginalScalarPass(call,*vs,*ps,contract.format);
+        using namespace Diligent;
+        pass.exact_host_input_layout={{0,0,layout->position.components,VT_FLOAT32,False},
+                                      {4,1,layout->texcoord.components,VT_FLOAT32,False},
+                                      {8,2,layout->color->components,VT_FLOAT32,False}};
+        for(auto& element:pass.exact_host_input_layout)element.Stride=16u;
+        pass.original_dynamic_font_vertex_layout_verified=true;
+        pass.original_host_vertex_layout_verified=true;
+        pass.original_view_space=gpu::VerifiedOriginalViewSpace::OriginalAspectHud;
+        pass.original_view_space_verified=pass.original_hud_clip_coordinates_verified=true;
+        material.original_images=gpu::live::OriginalScalarImages(call,*vs,*ps,
+            *pack.shaders,*pack.samplers,atlas,0,1u,textures);
+        pass.material_pass_verified=true;
+        backend->AdoptVerifiedOriginalMaterialPasses({&material,1},textures);
+        ordered.push_back(backend->StageVerifiedOriginalFontDraw(
+            call,*layout,frame.sequence,ordinal,atlas,0,*pack.virtual_ids));
+      } else {
+        auto produced=gpu::live::ProduceOriginalIndexedMaterial(call,frame.sequence,ordinal,
+            borrowed,*pack.shaders,*pack.effects,*pack.virtual_ids,*pack.samplers,
+            contract.format,textures);
+        backend->AdoptVerifiedOriginalMaterialPasses({&produced.material,1},textures);
+        auto draw=native::BindVerifiedGeometryDraws({&produced.draw,1},borrowed,*pack.effects);
+        if(draw.size()!=1u)throw std::runtime_error("Original material did not produce exactly one Draw");
+        ordered.push_back(std::move(draw.front()));
+      }
+    }
+    return ordered;
+  }
+};
+std::shared_ptr<const VerifiedWorkerEorOwnerCatalog> BuildAutomaticOriginalOwnerCatalog(
+    native_x_renderer::Device& host) {
+  if(!host.device() || !host.context() || !host.swap_chain())return {};
+  OfflineShaderPack pack;
+  std::filesystem::path root,candidate;
+  std::shared_ptr<const Frame> source;
+  std::shared_ptr<const VerifiedWorkerEorOwnerCatalog> previous;
+  {
+    std::lock_guard lock(g_mutex);
+    if(!g_offline_shader_pack)return {};
+    pack=*g_offline_shader_pack;
+    root=g_original_game_asset_root;
+    candidate=g_original_material_candidate_index;
+    source=g_frames_for_native.Peek();
+    previous=g_worker_owner_catalog;
+  }
+  if(!source || !pack.shaders || !pack.samplers || !pack.virtual_ids)return {};
+  const auto& swap=host.swap_chain()->GetDesc();
+  const native::Size backbuffer{swap.Width,swap.Height};
+  if(previous && previous->device==&host && previous->accepts_live_source &&
+     previous->accepts_live_source(*source,backbuffer))return previous;
+  const auto contract=OriginalSingleTargetContract(*source,backbuffer);
+  if(!contract)return {};
+  const auto paths=FindAutomaticArchives(root);
+  if(!paths)return {};
+  auto owned=std::make_shared<AutomaticEorOwner>(host,std::move(pack),*contract,*paths,candidate);
+  if(!owned->backend->CanReplayOriginalXdkTimeline(*source))return {};
+  auto catalog=std::make_shared<VerifiedWorkerEorOwnerCatalog>();
+  catalog->device=&host;catalog->output=contract->output;
+  catalog->direct_gpu=std::shared_ptr<gpu::DiligentEorDirectBackend>(owned,owned->backend.get());
+  catalog->gpu=catalog->direct_gpu;
+  catalog->source_models=owned->source_models;
+  catalog->source_material_candidates=owned->candidates;
+  catalog->prepare_live_original_draws=[owned](const Frame& frame,
+      std::vector<std::shared_ptr<const model::UploadedOriginalModel>>& retained) {
+    return owned->Prepare(frame,retained);
+  };
+  catalog->accepts_live_source=[owned](const Frame& frame,native::Size size) {
+    const auto live=OriginalSingleTargetContract(frame,size);
+    return live && SameAutomaticScene(owned->contract,*live);
+  };
+  return catalog;
+}
+
 PreparedEorMixedFrame PrepareOriginalMixedDraws(
     const Frame& exact,
     const VerifiedWorkerEorOwnerCatalog& catalog,
@@ -1653,6 +2042,12 @@ PreparedEorMixedFrame PrepareOriginalMixedDraws(
      !catalog.direct_gpu || catalog.gpu.get()!=catalog.direct_gpu.get())
     throw std::invalid_argument("Missing verified mixed EoR Vulkan source owner");
   PreparedEorMixedFrame output;
+  if(catalog.prepare_live_original_draws) {
+    output.ordered=catalog.prepare_live_original_draws(exact,output.world);
+    if(output.ordered.size()!=exact.calls.size())
+      throw std::invalid_argument("Live original producer omitted a source Draw");
+    return output;
+  }
   std::vector<std::optional<aot::BoundIndexedDraw>> slots(exact.calls.size());
   Frame static_frame{};
   static_frame.sequence=exact.sequence;
@@ -2071,6 +2466,15 @@ native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(
     std::lock_guard lock(g_mutex);
     ready=g_verified_worker_frame;
     owner_catalog=g_worker_owner_catalog;
+    // The shipped game installs its source root and shader pack at startup.
+    // Previously the only producer entry was an externally registered
+    // callback, but nothing registered one in the actual game.
+    if(!g_worker_catalog_factory && !g_worker_owner_catalog &&
+       g_offline_shader_pack && !g_original_game_asset_root.empty()) {
+      g_worker_catalog_factory=std::make_shared<const VerifiedWorkerEorCatalogFactory>(
+          &BuildAutomaticOriginalOwnerCatalog);
+      g_worker_catalog_factory_last_attempt=0;
+    }
     has_source_catalog_factory=static_cast<bool>(g_worker_catalog_factory);
     if(ready && ready->owner_catalog &&
        ready->owner_catalog!=owner_catalog)
@@ -2363,9 +2767,11 @@ native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(
                     call.original_pixel_texture_keys,
                     shader->original_pass_sampler_slot_mask,
                     static_cast<size_t>(source_sequence/60u),12);
-        for(const auto& candidate:candidates)
+        for(const auto& candidate:candidates) {
+          if(candidate_hashes.size()>=96)break;
           candidate_hashes.insert(candidate.original_model_hash);
-        if(candidate_hashes.size()>96)break;
+        }
+        if(candidate_hashes.size()>=96)break;
       }
       if(candidate_hashes.size()<=96 && !candidate_hashes.empty()) {
         const std::vector<uint32_t> requests(
@@ -2492,6 +2898,14 @@ native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(
   // empty catalog cannot produce a real scene. A later source factory
   // refresh may supply verified owners after residency and ShaderEffects
   // are ready; until then the existing renderer keeps ownership of Present.
+  if(owner_catalog && owner_catalog->prepare_live_original_draws) {
+    if(!host.swap_chain() || !owner_catalog->accepts_live_source)return Result::kNotReady;
+    const auto& swap=host.swap_chain()->GetDesc();
+    if(!owner_catalog->accepts_live_source(*source_snapshot,{swap.Width,swap.Height}))
+      return Result::kNotReady;
+    return ReplayVerifiedMixedOriginalFrame(host,std::move(owner_catalog),
+        std::move(source_snapshot),source_sequence);
+  }
   if(owner_catalog && owner_catalog->verified_candidates.empty() &&
      owner_catalog->verified_font_materials.empty())
     return Result::kNotReady;
