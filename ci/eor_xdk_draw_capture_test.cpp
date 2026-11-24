@@ -39,7 +39,7 @@ void CheckIndexDmaFormats() {
   W(m,object+24,0x4002);W(m,object+28,6);
   auto interior=ReadUsaIndexBufferBinding(object,ReadFake,&m);
   const auto six=std::span(bytes).first(6);
-  assert(interior && !interior->Read(six,0) && interior->Read(six,1)==0x0405);
+  assert(interior && !interior->Read(six,0) && interior->Read(six,1)==0x0405u);
   W(m,object+24,0x4001);assert(!ReadUsaIndexBufferBinding(object,ReadFake,&m));
   W(m,object+24,0xfffffffc);W(m,object+28,8);assert(!ReadUsaIndexBufferBinding(object,ReadFake,&m));
   W(m,object+24,0x4000);W(m,object+28,7);assert(!ReadUsaIndexBufferBinding(object,ReadFake,&m));

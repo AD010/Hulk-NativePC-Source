@@ -6,6 +6,10 @@ on:
   # The previous push marker remains archived as source history but it
   # must never trigger another build by an unrelated commit.
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'ci/hulk-release-request-2026-11-21.txt'
 permissions:
   contents: write
 concurrency:
@@ -191,6 +195,7 @@ jobs:
           python ci/test_ghidra_hulk_ui_hash_xrefs.py
           if ($LASTEXITCODE -ne 0) { $sourceFailures.Add('ci/test_ghidra_hulk_ui_hash_xrefs.py'); Write-Host '[HULK/PREFLIGHT-FAIL] ci/test_ghidra_hulk_ui_hash_xrefs.py' }
           if ($sourceFailures.Count -gt 0) { throw ('Source preflight failed: ' + ($sourceFailures -join '; ')) }
+          $cppFailures = [System.Collections.Generic.List[string]]::new()
           # Compile the real native C++ asset backend against the Windows
           # toolchain independently of RexGlue, Xenia and guest codegen.
           $nativeTest = Join-Path $env:RUNNER_TEMP 'hulk-eor-asset-test.exe'
@@ -200,9 +205,10 @@ jobs:
                        'native_port/src/eor_font_pack.cpp',
                        'ci/eor_archive_native_test.cpp')
           & cl.exe @cppArgs
-          if ($LASTEXITCODE -ne 0) { throw 'Native C++ EoR asset backend failed MSVC compile' }
-          & $nativeTest
-          if ($LASTEXITCODE -ne 0) { throw 'Native C++ EoR endian/index/CRC/resource regression failed' }
+          if ($LASTEXITCODE -ne 0) { $cppFailures.Add('Native C++ EoR asset backend failed MSVC compile') } else {
+            & $nativeTest
+            if ($LASTEXITCODE -ne 0) { $cppFailures.Add('Native C++ EoR endian/index/CRC/resource regression failed') }
+          }
           # Source-only C++ loader for actual original 2008 PC EoR menu
           # TXFL wrapped DDS artwork: synthetic test only, no game bytes.
           $uiTest = Join-Path $env:RUNNER_TEMP 'hulk-eor-retail-menu-art-test.exe'
@@ -211,9 +217,10 @@ jobs:
                       'native_port/src/eor_ui_original_dds.cpp',
                       'ci/eor_ui_original_dds_test.cpp')
           & cl.exe @uiArgs
-          if ($LASTEXITCODE -ne 0) { throw 'Hulk original 2008 UI decode failed MSVC compile' }
-          & $uiTest
-          if ($LASTEXITCODE -ne 0) { throw 'Original Hulk EoR PC UI decode regression failed' }
+          if ($LASTEXITCODE -ne 0) { $cppFailures.Add('Hulk original 2008 UI decode failed MSVC compile') } else {
+            & $uiTest
+            if ($LASTEXITCODE -ne 0) { $cppFailures.Add('Original Hulk EoR PC UI decode regression failed') }
+          }
           # Native original Xbox FMOD trailing catalog and type-safe event
           # metadata preservation, no real FMOD bytes in CI or public repo.
           $fmCatTest = Join-Path $env:RUNNER_TEMP 'hulk-eor-fmod-catalog-test.exe'
@@ -222,9 +229,10 @@ jobs:
                          'native_port/src/eor_fmod_catalog.cpp',
                          'ci/eor_fmod_catalog_test.cpp')
           & cl.exe @fmCatArgs
-          if ($LASTEXITCODE -ne 0) { throw 'Original EoR FMOD event catalog failed MSVC compilation' }
-          & $fmCatTest
-          if ($LASTEXITCODE -ne 0) { throw 'Original FMOD trailing catalog/index/metadata regression failed' }
+          if ($LASTEXITCODE -ne 0) { $cppFailures.Add('Original EoR FMOD event catalog failed MSVC compilation') } else {
+            & $fmCatTest
+            if ($LASTEXITCODE -ne 0) { $cppFailures.Add('Original FMOD trailing catalog/index/metadata regression failed') }
+          }
           # Original FMOD FEV1 metadata and EoR resource identity, no
           # proprietary event data, no audio playback or FMOD DLL required.
           $fmodTest = Join-Path $env:RUNNER_TEMP 'hulk-eor-fmod-test.exe'
@@ -233,9 +241,10 @@ jobs:
                         'native_port/src/eor_fmod_project.cpp',
                         'ci/eor_fmod_project_test.cpp')
           & cl.exe @fmodArgs
-          if ($LASTEXITCODE -ne 0) { throw 'Original EoR FMOD Event parser failed MSVC compilation' }
-          & $fmodTest
-          if ($LASTEXITCODE -ne 0) { throw 'EoR FMOD FEV1/CRC event identity regression failed' }
+          if ($LASTEXITCODE -ne 0) { $cppFailures.Add('Original EoR FMOD Event parser failed MSVC compilation') } else {
+            & $fmodTest
+            if ($LASTEXITCODE -ne 0) { $cppFailures.Add('EoR FMOD FEV1/CRC event identity regression failed') }
+          }
           # Real 2008 retail PC / Xbox CRC32+hash-table envelope reader.
           # Synthetic-only tests, no original user save bytes uploaded.
           $saveFmtTest = Join-Path $env:RUNNER_TEMP 'hulk-save-pc-format-test.exe'
@@ -243,9 +252,10 @@ jobs:
                            "/Fe:$saveFmtTest",'native_port/src/native_pc_save_format.cpp',
                            'ci/native_pc_save_format_test.cpp')
           & cl.exe @saveFmtArgs
-          if ($LASTEXITCODE -ne 0) { throw 'Retail PC/Xbox Hulk native save reader failed MSVC compile' }
-          & $saveFmtTest
-          if ($LASTEXITCODE -ne 0) { throw 'Retail PC/Xbox Hulk save CRC/field-table regression failed' }
+          if ($LASTEXITCODE -ne 0) { $cppFailures.Add('Retail PC/Xbox Hulk native save reader failed MSVC compile') } else {
+            & $saveFmtTest
+            if ($LASTEXITCODE -ne 0) { $cppFailures.Add('Retail PC/Xbox Hulk save CRC/field-table regression failed') }
+          }
           # Havok 5.1 standalone PC/Xbox endian/index tests (synthetic only).
           $havokTest = Join-Path $env:RUNNER_TEMP 'hulk-eor-havok-packfile-test.exe'
           $havokArgs = @('/nologo', '/std:c++20', '/EHsc', '/W4', '/WX', '/utf-8',
@@ -253,9 +263,10 @@ jobs:
                          'native_port/src/eor_havok_packfile.cpp',
                          'ci/eor_havok_packfile_test.cpp')
           & cl.exe @havokArgs
-          if ($LASTEXITCODE -ne 0) { throw 'Havok 5.1 native reader failed MSVC compilation' }
-          & $havokTest
-          if ($LASTEXITCODE -ne 0) { throw 'Havok 5.1 indexed packfile reader regression failed' }
+          if ($LASTEXITCODE -ne 0) { $cppFailures.Add('Havok 5.1 native reader failed MSVC compilation') } else {
+            & $havokTest
+            if ($LASTEXITCODE -ne 0) { $cppFailures.Add('Havok 5.1 indexed packfile reader regression failed') }
+          }
           # Original PC 10-profile and Xbox 9-profile font_clean layout:
           # tests use only synthetic data, never redistribute original fonts.
           $fontTest = Join-Path $env:RUNNER_TEMP 'hulk-eor-font-test.exe'
@@ -263,9 +274,10 @@ jobs:
                         "/Fe:$fontTest", 'native_port/src/eor_font_pack.cpp',
                         'ci/eor_font_pack_test.cpp')
           & cl.exe @fontArgs
-          if ($LASTEXITCODE -ne 0) { throw 'Original EoR font profile reader failed MSVC compile' }
-          & $fontTest
-          if ($LASTEXITCODE -ne 0) { throw 'Original EoR PC/Xbox font profile validation failed' }
+          if ($LASTEXITCODE -ne 0) { $cppFailures.Add('Original EoR font profile reader failed MSVC compile') } else {
+            & $fontTest
+            if ($LASTEXITCODE -ne 0) { $cppFailures.Add('Original EoR PC/Xbox font profile validation failed') }
+          }
           # Atomic single-TOML game-data root persistence, with Unicode paths.
           $rootTest = Join-Path $env:RUNNER_TEMP 'hulk-asset-root-test.exe'
           $rootArgs = @('/nologo','/std:c++20','/EHsc','/W4','/WX','/utf-8',
@@ -273,9 +285,10 @@ jobs:
                         'native_port/src/native_game_data_root_store.cpp',
                         'ci/native_game_data_root_store_test.cpp')
           & cl.exe @rootArgs
-          if ($LASTEXITCODE -ne 0) { throw 'Hulk asset-root writer failed MSVC compilation' }
-          & $rootTest
-          if ($LASTEXITCODE -ne 0) { throw 'Atomic Hulk game root TOML writer regression' }
+          if ($LASTEXITCODE -ne 0) { $cppFailures.Add('Hulk asset-root writer failed MSVC compilation') } else {
+            & $rootTest
+            if ($LASTEXITCODE -ne 0) { $cppFailures.Add('Atomic Hulk game root TOML writer regression') }
+          }
           # Host-native EoR draw contract, strictly independent of PM4 and
           # the 720p guest surface layout. Synthetic, no copyrighted payload.
           $frameTest = Join-Path $env:RUNNER_TEMP 'hulk-eor-native-frame-test.exe'
@@ -283,14 +296,16 @@ jobs:
                          "/Fe:$frameTest", 'native_port/src/eor_native_frame.cpp',
                          'ci/eor_native_frame_test.cpp')
           & cl.exe @frameArgs
-          if ($LASTEXITCODE -ne 0) { throw 'EoR host-native frame contract failed MSVC compilation' }
-          & $frameTest
-          if ($LASTEXITCODE -ne 0) { throw 'EoR native 2560x1600 / 16:9 fallback frame test failed' }
+          if ($LASTEXITCODE -ne 0) { $cppFailures.Add('EoR host-native frame contract failed MSVC compilation') } else {
+            & $frameTest
+            if ($LASTEXITCODE -ne 0) { $cppFailures.Add('EoR native 2560x1600 / 16:9 fallback frame test failed') }
+          }
           $resolveTest = Join-Path $env:RUNNER_TEMP 'hulk-eor-resolve-region-test.exe'
           & cl.exe /nologo /std:c++20 /EHsc /W4 /WX /utf-8 "/Fe:$resolveTest" ci/eor_original_resolve_region_test.cpp
-          if ($LASTEXITCODE -ne 0) { throw 'Original Resolve region mapping MSVC compile failed' }
-          & $resolveTest
-          if ($LASTEXITCODE -ne 0) { throw 'Original Resolve region mapping regression failed' }
+          if ($LASTEXITCODE -ne 0) { $cppFailures.Add('Original Resolve region mapping MSVC compile failed') } else {
+            & $resolveTest
+            if ($LASTEXITCODE -ne 0) { $cppFailures.Add('Original Resolve region mapping regression failed') }
+          }
           # EoR-only fixed-step clock and motion-vector math; no guest Havok claim.
           $temporalTest = Join-Path $env:RUNNER_TEMP 'hulk-eor-fixed-temporal-test.exe'
           $temporalArgs = @('/nologo','/std:c++20','/EHsc','/W4','/WX','/utf-8',
@@ -299,9 +314,10 @@ jobs:
                             'native_port/src/eor_motion_vectors.cpp',
                             'ci/eor_frame_temporal_test.cpp')
           & cl.exe @temporalArgs
-          if ($LASTEXITCODE -ne 0) { throw 'Native EoR fixed-clock and motion vectors failed MSVC compilation' }
-          & $temporalTest
-          if ($LASTEXITCODE -ne 0) { throw 'EoR fixed timestep/temporal history regression failed' }
+          if ($LASTEXITCODE -ne 0) { $cppFailures.Add('Native EoR fixed-clock and motion vectors failed MSVC compilation') } else {
+            & $temporalTest
+            if ($LASTEXITCODE -ne 0) { $cppFailures.Add('EoR fixed timestep/temporal history regression failed') }
+          }
           # Stage-specific real USA shader float c0-c255 constant packing.
           # This matches the source translator's compacted float bitmap,
           # never an invented Vulkan UBO binding or cached per-pass matrix.
@@ -311,22 +327,24 @@ jobs:
                                'native_port/src/eor_native_shader_constants.cpp',
                                'ci/eor_native_shader_constants_test.cpp')
           & cl.exe @shaderFloatArgs
-          if ($LASTEXITCODE -ne 0) { throw 'Original EoR VS/PS constant packing failed MSVC compilation' }
-          & $shaderFloats
-          if ($LASTEXITCODE -ne 0) { throw 'Original EoR translated constant register packing regression failed' }
+          if ($LASTEXITCODE -ne 0) { $cppFailures.Add('Original EoR VS/PS constant packing failed MSVC compilation') } else {
+            & $shaderFloats
+            if ($LASTEXITCODE -ne 0) { $cppFailures.Add('Original EoR translated constant register packing regression failed') }
+          }
           # Real USA XDK call provenance observer (no guest writes, no GPU redirection).
           python ci/test_gen_native_x_hooks_probe.py
-          if ($LASTEXITCODE -ne 0) { throw 'Hulk verified XDK wrapper generator regression failed' }
+          if ($LASTEXITCODE -ne 0) { $cppFailures.Add('Hulk verified XDK wrapper generator regression failed') }
           python ci/test_hulk_eor_xdk_observer_only.py
-          if ($LASTEXITCODE -ne 0) { throw 'Hulk observer-only Xenos and real XDK call-through regression failed' }
+          if ($LASTEXITCODE -ne 0) { $cppFailures.Add('Hulk observer-only Xenos and real XDK call-through regression failed') }
           $xdkTest = Join-Path $env:RUNNER_TEMP 'hulk-eor-xdk-capture-test.exe'
           $xdkArgs = @('/nologo', '/std:c++20', '/EHsc', '/W4', '/WX', '/utf-8',
                        "/Fe:$xdkTest", 'native_port/src/eor_xdk_draw_capture.cpp',
                        'ci/eor_xdk_draw_capture_test.cpp')
           & cl.exe @xdkArgs
-          if ($LASTEXITCODE -ne 0) { throw 'Native EoR verified XDK capture test failed MSVC compile' }
-          & $xdkTest
-          if ($LASTEXITCODE -ne 0) { throw 'Original XDK Draw capture regression failed' }
+          if ($LASTEXITCODE -ne 0) { $cppFailures.Add('Native EoR verified XDK capture test failed MSVC compile') } else {
+            & $xdkTest
+            if ($LASTEXITCODE -ne 0) { $cppFailures.Add('Original XDK Draw capture regression failed') }
+          }
           # Verify runtime indexing of real AOT Vulkan modules by SHA-256;
           # no generated copyrighted shader contents in public source tests.
           $bankTest = Join-Path $env:RUNNER_TEMP 'hulk-eor-spv-bank-test.exe'
@@ -334,9 +352,10 @@ jobs:
                         "/Fe:$bankTest", 'native_port/src/eor_spirv_bank.cpp',
                         'ci/eor_spirv_bank_test.cpp')
           & cl.exe @bankArgs
-          if ($LASTEXITCODE -ne 0) { throw 'Private AOT SPIR-V bank reader failed MSVC compile' }
-          & $bankTest
-          if ($LASTEXITCODE -ne 0) { throw 'AOT Vulkan shader SHA index/bounds check failed' }
+          if ($LASTEXITCODE -ne 0) { $cppFailures.Add('Private AOT SPIR-V bank reader failed MSVC compile') } else {
+            & $bankTest
+            if ($LASTEXITCODE -ne 0) { $cppFailures.Add('AOT Vulkan shader SHA index/bounds check failed') }
+          }
           # Full virtual-header SHA256 proves one original Xenos shader
           # source identity among 5,194 authentic ShaderEffects programs.
           # This does not guess a live guest ShaderObject+header offset.
@@ -346,26 +365,29 @@ jobs:
                            'native_port/src/eor_original_virtual_shader_identity.cpp',
                            'ci/eor_original_virtual_shader_identity_test.cpp')
           & cl.exe @virtualArgs
-          if ($LASTEXITCODE -ne 0) { throw 'Original Xenos virtual-shader SHA256 matcher MSVC compilation failed' }
-          & $virtualTest
-          if ($LASTEXITCODE -ne 0) { throw 'Original USA virtual shader source identity regression failed' }
+          if ($LASTEXITCODE -ne 0) { $cppFailures.Add('Original Xenos virtual-shader SHA256 matcher MSVC compilation failed') } else {
+            & $virtualTest
+            if ($LASTEXITCODE -ne 0) { $cppFailures.Add('Original USA virtual shader source identity regression failed') }
+          }
           $samplersTest = Join-Path $env:RUNNER_TEMP 'hulk-eor-xdk-samplers-test.exe'
           $samplersArgs = @('/nologo','/std:c++20','/EHsc','/W4','/WX','/utf-8',
                            "/Fe:$samplersTest",
                            'ci/eor_original_shader_samplers_test.cpp')
           & cl.exe @samplersArgs
-          if ($LASTEXITCODE -ne 0) { throw 'HEORSMP1 original XDK sampler bank failed MSVC compilation' }
-          & $samplersTest
-          if ($LASTEXITCODE -ne 0) { throw 'Original ShaderEffects sampler name/slot catalog regression failed' }
+          if ($LASTEXITCODE -ne 0) { $cppFailures.Add('HEORSMP1 original XDK sampler bank failed MSVC compilation') } else {
+            & $samplersTest
+            if ($LASTEXITCODE -ne 0) { $cppFailures.Add('Original ShaderEffects sampler name/slot catalog regression failed') }
+          }
           # Verified original ShaderEffects IDs and their real VS/PS pairing.
           $effectTest = Join-Path $env:RUNNER_TEMP 'hulk-eor-effect-identity-test.exe'
           $effectArgs = @('/nologo','/std:c++20','/EHsc','/W4','/WX','/utf-8',
                           "/Fe:$effectTest",
                           'ci/eor_effect_catalog_test.cpp')
           & cl.exe @effectArgs
-          if ($LASTEXITCODE -ne 0) { throw 'Original EoR effect and shader identity reader failed MSVC compilation' }
-          & $effectTest
-          if ($LASTEXITCODE -ne 0) { throw 'Original EoR VS/PS material pairing regression failed' }
+          if ($LASTEXITCODE -ne 0) { $cppFailures.Add('Original EoR effect and shader identity reader failed MSVC compilation') } else {
+            & $effectTest
+            if ($LASTEXITCODE -ne 0) { $cppFailures.Add('Original EoR VS/PS material pairing regression failed') }
+          }
           # Native EoR original Xbox/PC model metadata decoding, no asset redistribution.
           $modelTest = Join-Path $env:RUNNER_TEMP 'hulk-eor-model-test.exe'
           $modelArgs = @('/nologo','/std:c++20','/EHsc','/W4','/WX','/utf-8',
@@ -373,9 +395,10 @@ jobs:
                          'native_port/src/eor_model_resource.cpp',
                          'ci/eor_model_resource_test.cpp')
           & cl.exe @modelArgs
-          if ($LASTEXITCODE -ne 0) { throw 'Native original Hulk model decoder failed MSVC compilation' }
-          & $modelTest
-          if ($LASTEXITCODE -ne 0) { throw 'Native original Hulk model parser regression failed' }
+          if ($LASTEXITCODE -ne 0) { $cppFailures.Add('Native original Hulk model decoder failed MSVC compilation') } else {
+            & $modelTest
+            if ($LASTEXITCODE -ne 0) { $cppFailures.Add('Native original Hulk model parser regression failed') }
+          }
           # Original Xbox/PC indexed first-surface texture reference
           # candidates; no fabricated material shader or Vulkan Draw.
           $modelMaterialTest = Join-Path $env:RUNNER_TEMP 'hulk-eor-model-material-test.exe'
@@ -386,9 +409,10 @@ jobs:
                                  'native_port/src/eor_model_material_refs.cpp',
                                  'ci/eor_model_material_refs_test.cpp')
           & cl.exe @modelMaterialArgs
-          if ($LASTEXITCODE -ne 0) { throw 'Native original material texture reader failed MSVC compile' }
-          & $modelMaterialTest
-          if ($LASTEXITCODE -ne 0) { throw 'Native original Xbox/PC texture candidate binding test failed' }
+          if ($LASTEXITCODE -ne 0) { $cppFailures.Add('Native original material texture reader failed MSVC compile') } else {
+            & $modelMaterialTest
+            if ($LASTEXITCODE -ne 0) { $cppFailures.Add('Native original Xbox/PC texture candidate binding test failed') }
+          }
           # Full original EoR surface directory, not just the first name.
           $surfaceTest = Join-Path $env:RUNNER_TEMP 'hulk-eor-all-surfaces-test.exe'
           $surfaceArgs = @('/nologo','/std:c++20','/EHsc','/W4','/WX','/utf-8',
@@ -397,9 +421,10 @@ jobs:
                            'native_port/src/eor_model_surfaces.cpp',
                            'ci/eor_model_surfaces_test.cpp')
           & cl.exe @surfaceArgs
-          if ($LASTEXITCODE -ne 0) { throw 'Full original Xbox/PC surface directory compile failed' }
-          & $surfaceTest
-          if ($LASTEXITCODE -ne 0) { throw 'Original EoR surface directory test failed' }
+          if ($LASTEXITCODE -ne 0) { $cppFailures.Add('Full original Xbox/PC surface directory compile failed') } else {
+            & $surfaceTest
+            if ($LASTEXITCODE -ne 0) { $cppFailures.Add('Original EoR surface directory test failed') }
+          }
           # Actual original Xbox 360 index/vertex stream format, native BE -> host.
           $meshTest = Join-Path $env:RUNNER_TEMP 'hulk-eor-native-mesh-test.exe'
           $meshArgs = @('/nologo','/std:c++20','/EHsc','/W4','/WX','/utf-8',
@@ -408,9 +433,10 @@ jobs:
                         'native_port/src/eor_native_mesh_geometry.cpp',
                         'ci/eor_native_mesh_geometry_test.cpp')
           & cl.exe @meshArgs
-          if ($LASTEXITCODE -ne 0) { throw 'Original Xbox mesh vertex/index decoder compile failed' }
-          & $meshTest
-          if ($LASTEXITCODE -ne 0) { throw 'Original Xbox mesh vertex/index decode regression failed' }
+          if ($LASTEXITCODE -ne 0) { $cppFailures.Add('Original Xbox mesh vertex/index decoder compile failed') } else {
+            & $meshTest
+            if ($LASTEXITCODE -ne 0) { $cppFailures.Add('Original Xbox mesh vertex/index decode regression failed') }
+          }
           # Native XYZ/index GPU upload boundary; all-geometry CPU preflight
           # and GPU buffer rollback regression (synthetic data only).
           $uploadTest = Join-Path $env:RUNNER_TEMP 'hulk-eor-native-upload-test.exe'
@@ -420,9 +446,10 @@ jobs:
                           'native_port/src/eor_native_attributes.cpp',
                           'ci/eor_native_mesh_upload_test.cpp')
           & cl.exe @uploadArgs
-          if ($LASTEXITCODE -ne 0) { throw 'Native EoR mesh upload bridge MSVC compile failed' }
-          & $uploadTest
-          if ($LASTEXITCODE -ne 0) { throw 'Native EoR GPU buffer upload rollback/preflight regression failed' }
+          if ($LASTEXITCODE -ne 0) { $cppFailures.Add('Native EoR mesh upload bridge MSVC compile failed') } else {
+            & $uploadTest
+            if ($LASTEXITCODE -ne 0) { $cppFailures.Add('Native EoR GPU buffer upload rollback/preflight regression failed') }
+          }
           # Original Models IND/ARC metadata and decoded native buffers
           # stay associated without inventing mesh/material draw assignments.
           $modelUploadTest = Join-Path $env:RUNNER_TEMP 'hulk-eor-original-model-upload-test.exe'
@@ -433,9 +460,10 @@ jobs:
                                'native_port/src/eor_original_model_upload.cpp',
                                'ci/eor_original_model_upload_test.cpp')
           & cl.exe @modelUploadArgs
-          if ($LASTEXITCODE -ne 0) { throw 'Native EoR original model/material GPU staging compile failed' }
-          & $modelUploadTest
-          if ($LASTEXITCODE -ne 0) { throw 'Native EoR source model metadata/GPU staging regression failed' }
+          if ($LASTEXITCODE -ne 0) { $cppFailures.Add('Native EoR original model/material GPU staging compile failed') } else {
+            & $modelUploadTest
+            if ($LASTEXITCODE -ne 0) { $cppFailures.Add('Native EoR source model metadata/GPU staging regression failed') }
+          }
           # LOD world streaming residency: hysteresis, prefetch, fallback,
           # never draw a nonresident model; synthetic thresholds only.
           $lodTest = Join-Path $env:RUNNER_TEMP 'hulk-eor-native-lod-test.exe'
@@ -444,9 +472,10 @@ jobs:
                        'native_port/src/eor_native_lod.cpp',
                        'ci/eor_native_lod_test.cpp')
           & cl.exe @lodArgs
-          if ($LASTEXITCODE -ne 0) { throw 'EoR LOD residency policy MSVC compile failed' }
-          & $lodTest
-          if ($LASTEXITCODE -ne 0) { throw 'EoR LOD hysteresis/prefetch regression failed' }
+          if ($LASTEXITCODE -ne 0) { $cppFailures.Add('EoR LOD residency policy MSVC compile failed') } else {
+            & $lodTest
+            if ($LASTEXITCODE -ne 0) { $cppFailures.Add('EoR LOD hysteresis/prefetch regression failed') }
+          }
           # Generic original BE vertex attribute decoding; no inferred
           # semantics until actual EoR vertex declarations are mapped.
           $attributesTest = Join-Path $env:RUNNER_TEMP 'hulk-eor-native-attributes-test.exe'
@@ -455,9 +484,10 @@ jobs:
                               'native_port/src/eor_native_attributes.cpp',
                               'ci/eor_native_attributes_test.cpp')
           & cl.exe @attributesArgs
-          if ($LASTEXITCODE -ne 0) { throw 'EoR original vertex attribute decoder MSVC compile failed' }
-          & $attributesTest
-          if ($LASTEXITCODE -ne 0) { throw 'EoR vertex data format/bounds regression failed' }
+          if ($LASTEXITCODE -ne 0) { $cppFailures.Add('EoR original vertex attribute decoder MSVC compile failed') } else {
+            & $attributesTest
+            if ($LASTEXITCODE -ne 0) { $cppFailures.Add('EoR vertex data format/bounds regression failed') }
+          }
           # I/O thread loads real original IND/ARC resources, render thread
           # owns GPU uploads; LOD streaming never blocks on archive file I/O.
           $worldTest = Join-Path $env:RUNNER_TEMP 'hulk-eor-native-world-stream-test.exe'
@@ -470,13 +500,14 @@ jobs:
                         'native_port/src/eor_native_world_stream.cpp',
                         'ci/eor_native_world_stream_test.cpp')
           & cl.exe @worldArgs
-          if ($LASTEXITCODE -ne 0) { throw 'Original EoR asynchronous LOD model streaming MSVC compile failed' }
-          & $worldTest
-          if ($LASTEXITCODE -ne 0) { throw 'Original EoR LOD asset-stream/gpu-pump regression failed' }
+          if ($LASTEXITCODE -ne 0) { $cppFailures.Add('Original EoR asynchronous LOD model streaming MSVC compile failed') } else {
+            & $worldTest
+            if ($LASTEXITCODE -ne 0) { $cppFailures.Add('Original EoR LOD asset-stream/gpu-pump regression failed') }
+          }
           # Also compile the real archive source against the original IND/ARC reader
           # without adding any proprietary assets to this public source repository.
           & cl.exe /nologo /std:c++20 /EHsc /W4 /WX /utf-8 /c 'native_port/src/eor_native_archive_source.cpp' "/Fo:$env:RUNNER_TEMP\hulk-eor-original-archive-source.obj"
-          if ($LASTEXITCODE -ne 0) { throw 'Original EoR archive source MSVC compile failed' }
+          if ($LASTEXITCODE -ne 0) { $cppFailures.Add('Original EoR archive source MSVC compile failed') }
           # Original EoR model/mesh/material/shader-pair GPU draw provenance.
           # Zero synthetic fallback: unresolved original layout rejects before RT.
           $nativeDrawTest = Join-Path $env:RUNNER_TEMP 'hulk-eor-native-draw-geometry-test.exe'
@@ -494,9 +525,10 @@ jobs:
                               'native_port/src/eor_xdk_draw_capture.cpp',
                               'ci/eor_native_draw_geometry_test.cpp')
           & cl.exe @nativeDrawArgs
-          if ($LASTEXITCODE -ne 0) { throw 'EoR native material/mesh Draw bridge MSVC compile failed' }
-          & $nativeDrawTest
-          if ($LASTEXITCODE -ne 0) { throw 'EoR original geometry/material/shader Draw provenance regression failed' }
+          if ($LASTEXITCODE -ne 0) { $cppFailures.Add('EoR native material/mesh Draw bridge MSVC compile failed') } else {
+            & $nativeDrawTest
+            if ($LASTEXITCODE -ne 0) { $cppFailures.Add('EoR original geometry/material/shader Draw provenance regression failed') }
+          }
           # Original Xbox IND hash -> exact opaque Textures.ARC payloads.
           # Candidate offsets remain candidates, NEVER guessed samplers/mips.
           # Source-faithful Xenos tiled BCn mip-addressing with explicit
@@ -507,9 +539,10 @@ jobs:
                             'native_port/src/eor_xenos_texture_mips.cpp',
                             'ci/eor_xenos_texture_mips_test.cpp')
           & cl.exe @xenosMipArgs
-          if ($LASTEXITCODE -ne 0) { throw 'Original Xenos untile/mip decoder MSVC compilation failed' }
-          & $xenosMipTest
-          if ($LASTEXITCODE -ne 0) { throw 'Original Xenos untile/mip regression failed' }
+          if ($LASTEXITCODE -ne 0) { $cppFailures.Add('Original Xenos untile/mip decoder MSVC compilation failed') } else {
+            & $xenosMipTest
+            if ($LASTEXITCODE -ne 0) { $cppFailures.Add('Original Xenos untile/mip regression failed') }
+          }
           # Original EoR material/texture ownership and true host shader SRB
           # variable slots: never infer fetch register from nearby hashes.
           # SPIR-V sampled-image OpName/Binding/DescriptorSet ownership must
@@ -520,18 +553,20 @@ jobs:
                               'native_port/src/eor_spirv_texture_bindings.cpp',
                               'ci/eor_spirv_texture_bindings_test.cpp')
           & cl.exe @spvSamplerArgs
-          if ($LASTEXITCODE -ne 0) { throw 'Original Xenos SPIR-V sampler resource parser compile failed' }
-          & $spvSamplerTest
-          if ($LASTEXITCODE -ne 0) { throw 'Original Xenos SPIR-V sampled-image mapping regression failed' }
+          if ($LASTEXITCODE -ne 0) { $cppFailures.Add('Original Xenos SPIR-V sampler resource parser compile failed') } else {
+            & $spvSamplerTest
+            if ($LASTEXITCODE -ne 0) { $cppFailures.Add('Original Xenos SPIR-V sampled-image mapping regression failed') }
+          }
           $samplerTest = Join-Path $env:RUNNER_TEMP 'hulk-eor-verified-samplers-test.exe'
           $samplerArgs = @('/nologo','/std:c++20','/EHsc','/W4','/WX','/utf-8',
                            "/Fe:$samplerTest",
                            'native_port/src/eor_verified_sampler_bindings.cpp',
                            'ci/eor_verified_sampler_bindings_test.cpp')
           & cl.exe @samplerArgs
-          if ($LASTEXITCODE -ne 0) { throw 'Original EoR sampler material provenance MSVC compile failed' }
-          & $samplerTest
-          if ($LASTEXITCODE -ne 0) { throw 'Original EoR material/sampler ownership regression failed' }
+          if ($LASTEXITCODE -ne 0) { $cppFailures.Add('Original EoR sampler material provenance MSVC compile failed') } else {
+            & $samplerTest
+            if ($LASTEXITCODE -ne 0) { $cppFailures.Add('Original EoR material/sampler ownership regression failed') }
+          }
           # Source-faithful Xbox BCn mip byte-range planner: no 52-byte
           # original resource trailer can leak into host Vulkan texels.
           # Structural exact original Xbox 360 end-of-record GPU descriptor
@@ -544,9 +579,10 @@ jobs:
                            'native_port/src/eor_source_mip_resolver.cpp',
                            'ci/eor_source_mip_resolver_test.cpp')
           & cl.exe @witnessArgs
-          if ($LASTEXITCODE -ne 0) { throw 'Original Xbox live GPU texture identity resolver compile failed' }
-          & $witnessTest
-          if ($LASTEXITCODE -ne 0) { throw 'Ambiguous original Xenos texture identity accepted' }
+          if ($LASTEXITCODE -ne 0) { $cppFailures.Add('Original Xbox live GPU texture identity resolver compile failed') } else {
+            & $witnessTest
+            if ($LASTEXITCODE -ne 0) { $cppFailures.Add('Ambiguous original Xenos texture identity accepted') }
+          }
           $realGpuMipTest = Join-Path $env:RUNNER_TEMP 'hulk-real-original-gpu-mips-test.exe'
           $realGpuMipArgs = @('/nologo','/std:c++20','/EHsc','/W4','/WX','/utf-8',
                               "/Fe:$realGpuMipTest",
@@ -556,9 +592,10 @@ jobs:
                               'native_port/src/eor_original_texture_gpu_layout.cpp',
                               'ci/eor_original_texture_gpu_layout_test.cpp')
           & cl.exe @realGpuMipArgs
-          if ($LASTEXITCODE -ne 0) { throw 'Original USA GPU texture suffix parser failed MSVC compilation' }
-          & $realGpuMipTest
-          if ($LASTEXITCODE -ne 0) { throw 'Xbox 360 Xenos format/mip offsets original source regression failed' }
+          if ($LASTEXITCODE -ne 0) { $cppFailures.Add('Original USA GPU texture suffix parser failed MSVC compilation') } else {
+            & $realGpuMipTest
+            if ($LASTEXITCODE -ne 0) { $cppFailures.Add('Xbox 360 Xenos format/mip offsets original source regression failed') }
+          }
           $mipRangeTest = Join-Path $env:RUNNER_TEMP 'hulk-original-mip-range-test.exe'
           $mipRangeArgs = @('/nologo','/std:c++20','/EHsc','/W4','/WX','/utf-8',
                             "/Fe:$mipRangeTest",
@@ -567,9 +604,10 @@ jobs:
                             'native_port/src/eor_original_texture_mip_ranges.cpp',
                             'ci/eor_original_texture_mip_ranges_test.cpp')
           & cl.exe @mipRangeArgs
-          if ($LASTEXITCODE -ne 0) { throw 'Original USA LFXT/TexStreams mip ranges failed MSVC compilation' }
-          & $mipRangeTest
-          if ($LASTEXITCODE -ne 0) { throw 'Original USA Xenos mip payload source range regression failed' }
+          if ($LASTEXITCODE -ne 0) { $cppFailures.Add('Original USA LFXT/TexStreams mip ranges failed MSVC compilation') } else {
+            & $mipRangeTest
+            if ($LASTEXITCODE -ne 0) { $cppFailures.Add('Original USA Xenos mip payload source range regression failed') }
+          }
           $textureTest = Join-Path $env:RUNNER_TEMP 'hulk-eor-original-texture-assets-test.exe'
           $textureArgs = @('/nologo','/std:c++20','/EHsc','/W4','/WX','/utf-8',
                             "/Fe:$textureTest",
@@ -580,9 +618,10 @@ jobs:
                             'native_port/src/eor_original_texture_gpu_layout.cpp',
                             'ci/eor_original_texture_assets_test.cpp')
           & cl.exe @textureArgs
-          if ($LASTEXITCODE -ne 0) { throw 'Original Xbox EoR texture ARC loader MSVC compile failed' }
-          & $textureTest
-          if ($LASTEXITCODE -ne 0) { throw 'Original EoR texture index, bounds, dedup regression failed' }
+          if ($LASTEXITCODE -ne 0) { $cppFailures.Add('Original Xbox EoR texture ARC loader MSVC compile failed') } else {
+            & $textureTest
+            if ($LASTEXITCODE -ne 0) { $cppFailures.Add('Original EoR texture index, bounds, dedup regression failed') }
+          }
           # Verified LFXT -> TexStreams.ARC high-detail resource hashes.
           # No copyrighted pixels or guessed GPU format in CI fixtures.
           $streamTest = Join-Path $env:RUNNER_TEMP 'hulk-eor-original-texstream-test.exe'
@@ -592,9 +631,10 @@ jobs:
                           'native_port/src/eor_original_texture_streams.cpp',
                           'ci/eor_original_texture_streams_test.cpp')
           & cl.exe @streamArgs
-          if ($LASTEXITCODE -ne 0) { throw 'Original Xbox EoR TexStreams mapper compile failed' }
-          & $streamTest
-          if ($LASTEXITCODE -ne 0) { throw 'Original EoR TexStreams source/reference regression failed' }
+          if ($LASTEXITCODE -ne 0) { $cppFailures.Add('Original Xbox EoR TexStreams mapper compile failed') } else {
+            & $streamTest
+            if ($LASTEXITCODE -ne 0) { $cppFailures.Add('Original EoR TexStreams source/reference regression failed') }
+          }
           $allSurfaceTest = Join-Path $env:RUNNER_TEMP 'hulk-eor-all-surface-materials-test.exe'
           $allSurfaceArgs = @('/nologo','/std:c++20','/EHsc','/W4','/WX','/utf-8',
                               "/Fe:$allSurfaceTest",
@@ -605,9 +645,10 @@ jobs:
                               'native_port/src/eor_model_surface_materials.cpp',
                               'ci/eor_model_surface_materials_test.cpp')
           & cl.exe @allSurfaceArgs
-          if ($LASTEXITCODE -ne 0) { throw 'Full original EoR surface materials compile failed' }
-          & $allSurfaceTest
-          if ($LASTEXITCODE -ne 0) { throw 'Full EoR original indexed texture references test failed' }
+          if ($LASTEXITCODE -ne 0) { $cppFailures.Add('Full original EoR surface materials compile failed') } else {
+            & $allSurfaceTest
+            if ($LASTEXITCODE -ne 0) { $cppFailures.Add('Full EoR original indexed texture references test failed') }
+          }
           # Endian-proven original EoR Models IND/ARC model retrieval,
           # real surface names and frontend alias hash checks.
           $modelAssetsTest = Join-Path $env:RUNNER_TEMP 'hulk-eor-model-assets-test.exe'
@@ -622,9 +663,10 @@ jobs:
                                'native_port/src/eor_original_model_assets.cpp',
                                'ci/eor_original_model_assets_test.cpp')
           & cl.exe @modelAssetsArgs
-          if ($LASTEXITCODE -ne 0) { throw 'Native EoR model archive adapter failed MSVC compilation' }
-          & $modelAssetsTest
-          if ($LASTEXITCODE -ne 0) { throw 'Native EoR source model archive read regression failed' }
+          if ($LASTEXITCODE -ne 0) { $cppFailures.Add('Native EoR model archive adapter failed MSVC compilation') } else {
+            & $modelAssetsTest
+            if ($LASTEXITCODE -ne 0) { $cppFailures.Add('Native EoR source model archive read regression failed') }
+          }
           # Original Xenos shader source constant registers: ViewProj, World,
           # PrevWorld and SkyViewProj. No engine camera ABI inferred here.
           $reflectionTest = Join-Path $env:RUNNER_TEMP 'hulk-eor-reflection-test.exe'
@@ -632,9 +674,10 @@ jobs:
                               "/Fe:$reflectionTest",
                               'ci/eor_shader_reflection_test.cpp')
           & cl.exe @reflectionArgs
-          if ($LASTEXITCODE -ne 0) { throw 'Original EoR constant register reader failed MSVC compilation' }
-          & $reflectionTest
-          if ($LASTEXITCODE -ne 0) { throw 'Original EoR camera and motion-reflection regression failed' }
+          if ($LASTEXITCODE -ne 0) { $cppFailures.Add('Original EoR constant register reader failed MSVC compilation') } else {
+            & $reflectionTest
+            if ($LASTEXITCODE -ne 0) { $cppFailures.Add('Original EoR camera and motion-reflection regression failed') }
+          }
           # Real SPIR-V bank -> EoR indexed draw pair and source identity gate.
           $aotDrawTest = Join-Path $env:RUNNER_TEMP 'hulk-eor-aot-draw-test.exe'
           $aotDrawArgs = @('/nologo', '/std:c++20', '/EHsc', '/W4', '/WX', '/utf-8',
@@ -646,9 +689,10 @@ jobs:
                            'native_port/src/eor_aot_draw_bridge.cpp',
                            'ci/eor_aot_draw_bridge_test.cpp')
           & cl.exe @aotDrawArgs
-          if ($LASTEXITCODE -ne 0) { throw 'EoR AOT shader/pipeline binding bridge failed MSVC compile' }
-          & $aotDrawTest
-          if ($LASTEXITCODE -ne 0) { throw 'EoR Draw/VS/PS binding safety regression failed' }
+          if ($LASTEXITCODE -ne 0) { $cppFailures.Add('EoR AOT shader/pipeline binding bridge failed MSVC compile') } else {
+            & $aotDrawTest
+            if ($LASTEXITCODE -ne 0) { $cppFailures.Add('EoR Draw/VS/PS binding safety regression failed') }
+          }
           # Verify user settings can be saved in the ONE existing TOML,
           # with no fake F4 Save, duplicate keys or unwanted developer files.
           $optionTest = Join-Path $env:RUNNER_TEMP 'hulk-native-settings-test.exe'
@@ -656,9 +700,11 @@ jobs:
                           "/Fe:$optionTest", 'native_port/src/native_pc_options_store.cpp',
                           'ci/native_pc_options_store_test.cpp')
           & cl.exe @optionArgs
-          if ($LASTEXITCODE -ne 0) { throw 'Native PC TOML settings backend failed MSVC compile' }
-          & $optionTest
-          if ($LASTEXITCODE -ne 0) { throw 'Native PC single-TOML persistence regression failed' }
+          if ($LASTEXITCODE -ne 0) { $cppFailures.Add('Native PC TOML settings backend failed MSVC compile') } else {
+            & $optionTest
+            if ($LASTEXITCODE -ne 0) { $cppFailures.Add('Native PC single-TOML persistence regression failed') }
+          }
+          if ($cppFailures.Count -gt 0) { throw ('Native C++ preflight failed: ' + ($cppFailures -join '; ')) }
           Write-Host '[HULK/D140] Full source adaptation, native EoR resources and persistent PC menu settings verified.'
       - name: Get original input ONLY from private Hulk release
         shell: pwsh
