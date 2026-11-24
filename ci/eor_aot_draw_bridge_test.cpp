@@ -4,6 +4,7 @@
 #include <fstream>
 #include <memory>
 #include <stdexcept>
+#include <string>
 #include <vector>
 #include <utility>
 using namespace hulk::eor;
@@ -476,7 +477,11 @@ int main(){
   draws={entry};
   bool refused=false;
   try {ReplayAotScene(geometry,draws,texturedShaders,effects,reflection,missing_resource);}
-  catch(const std::runtime_error&){refused=true;}
+  catch(const std::runtime_error& error) {
+    const std::string diagnostic=error.what();
+    refused=diagnostic.find("batch draw 0")!=std::string::npos &&
+            diagnostic.find("BindOriginalSamplers")!=std::string::npos;
+  }
   assert(refused && missing_resource.begin==1 && missing_resource.abort==1 &&
          missing_resource.draw==0 && missing_resource.resolve==0);
   // A partially compiled original shader bank must be usable for an exact
