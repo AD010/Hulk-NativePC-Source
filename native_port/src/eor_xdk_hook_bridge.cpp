@@ -18,6 +18,7 @@
 #include <cstring>
 #include <exception>
 #include <filesystem>
+#include <fstream>
 #include <cstdint>
 #include <limits>
 #include <map>
@@ -55,6 +56,8 @@ std::atomic<uint64_t> g_eor_gpu_failures{0};
 OriginalEorSourceCoverage g_original_source_coverage; // guarded by g_mutex
 std::filesystem::path g_original_game_asset_root; // guarded by g_mutex
 std::filesystem::path g_original_material_candidate_index; // guarded by g_mutex
+std::filesystem::path g_original_shader_aot_demand_path; // guarded by g_mutex
+std::set<std::pair<uint32_t,uint32_t>> g_original_shader_aot_requests; // guarded
 FrameCapture g_collector;
 // Only full-source-hash-verified pixel policies are retained across draw
 // calls. Failed guest reads must be retried when streaming finishes.
@@ -1272,11 +1275,16 @@ void ClearOriginalEorGameAssetRoot() noexcept {
   std::lock_guard lock(g_mutex);
   g_original_game_asset_root.clear();
   g_original_material_candidate_index.clear();
+  g_original_shader_aot_demand_path.clear();
+  g_original_shader_aot_requests.clear();
 }
 void InstallOriginalEorMaterialCandidateIndexPath(
     const std::filesystem::path& private_source_index) {
   std::lock_guard lock(g_mutex);
   g_original_material_candidate_index=private_source_index;
+  g_original_shader_aot_demand_path=private_source_index.empty() ?
+      std::filesystem::path{} : private_source_index.parent_path()/"HEORREQ1.txt";
+  g_original_shader_aot_requests.clear();
 }
 void ClearVerifiedSourceShaderPack() noexcept {
   std::lock_guard lock(g_mutex);
@@ -1884,6 +1892,49 @@ native_x_renderer::HulkEorPresentResult ReplayVerifiedMixedOriginalFrame(
     return Result::kNotReady;
   }
 }
+// Persist ONLY independently observed live original ShaderEffects pairs as
+// private AOT compilation demands. This works even before any GPU source
+// owner catalogue, so the first real city draw can feed the original
+// XenosRecomp/DXC build without scanning/compiling all 5194 programs.
+void RecordObservedOriginalAotPairDemand(const Frame& snapshot) noexcept {
+  if(!snapshot.sequence || snapshot.dropped || snapshot.dropped_commands)return;
+  std::set<std::pair<uint32_t,uint32_t>> observed;
+  for(const auto& draw:snapshot.calls) {
+    if(!draw.observed_live_eor_effect_pass ||
+       !draw.observed_live_vertex_shader_header ||
+       !draw.observed_live_pixel_shader_header ||
+       !draw.observed_vs_matrices)continue;
+    const auto& effect=*draw.observed_live_eor_effect_pass;
+    if(effect.effect_hash && effect.pass_index!=UINT32_MAX)
+      observed.emplace(effect.effect_hash,effect.pass_index);
+  }
+  if(observed.empty())return;
+  try {
+    std::lock_guard lock(g_mutex);
+    if(g_original_shader_aot_demand_path.empty())return;
+    std::vector<std::pair<uint32_t,uint32_t>> unseen;
+    for(const auto& item:observed)
+      if(!g_original_shader_aot_requests.contains(item))
+        unseen.push_back(item);
+    if(unseen.empty())return;
+    std::error_code error;
+    const auto parent=g_original_shader_aot_demand_path.parent_path();
+    std::filesystem::create_directories(parent,error);
+    if(error)return;
+    std::ofstream private_file(g_original_shader_aot_demand_path,
+                               std::ios::out|std::ios::app);
+    if(!private_file)return;
+    for(const auto& [effect,pass]:unseen)
+      private_file<<effect<<":"<<pass<<"\n";
+    private_file.flush();
+    if(!private_file)return;
+    for(const auto& item:unseen)
+      g_original_shader_aot_requests.insert(item);
+  } catch (...) {
+    // Missing disk access must never prevent PPC game logic or Vulkan
+    // fallback. The next real source frame can retry this compilation hint.
+  }
+}
 } // namespace
 
 native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(
@@ -1917,6 +1968,11 @@ native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(
       return Result::kNotReady;
     }
   }
+  // The original live ShaderEffects pair is already authenticated by
+  // BOTH guest VS/PS XDK ShaderContainer headers and HEORMAT2. Queue its
+  // exact VS+PS for private offline AOT even if the full material owner is
+  // not yet assembled and the current frame uses the renderer fallback.
+  RecordObservedOriginalAotPairDemand(*source_snapshot);
   // A valid captured Draw alone is not a complete GPU catalogue.
   // Without a registered source-authenticated material/mesh factory or an
   // already-installed owner, the worker cannot possibly reach Vulkan Present.
