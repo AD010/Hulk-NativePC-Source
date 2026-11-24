@@ -1853,10 +1853,12 @@ native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(
   std::shared_ptr<const VerifiedWorkerEorOwnerCatalog> owner_catalog;
   std::shared_ptr<const Frame> source_snapshot;
   uint64_t source_sequence=0;
+  bool has_source_catalog_factory=false;
   {
     std::lock_guard lock(g_mutex);
     ready=g_verified_worker_frame;
     owner_catalog=g_worker_owner_catalog;
+    has_source_catalog_factory=static_cast<bool>(g_worker_catalog_factory);
     if(ready && ready->owner_catalog &&
        ready->owner_catalog!=owner_catalog)
       ready.reset(); // last source catalogue was replaced or cleared
@@ -1872,6 +1874,18 @@ native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(
         g_verified_worker_frame.reset(); // require a fresh source-bound bundle
       return Result::kNotReady;
     }
+  }
+  // A valid captured Draw alone is not a complete GPU catalogue.
+  // Without a registered source-authenticated material/mesh factory or an
+  // already-installed owner, the worker cannot possibly reach Vulkan Present.
+  // Report this concrete upstream blocker instead of silently repeating
+  // a kNotReady fallback forever. Never invent owners from candidates.
+  if(!owner_catalog && !has_source_catalog_factory) {
+    if(source_sequence<=5 || source_sequence%120==0)
+      REXLOG_WARN("[HULK/EOR-PRESENT] source frame={} has no verified "
+                  "material/mesh owner catalog or source factory; "
+                  "independent Vulkan replay cannot begin",source_sequence);
+    return Result::kNotReady;
   }
   // Material registration is NOT allowed to invent EoR material/mesh
   // ownership from shader names, an index archive candidate, or a PM4
