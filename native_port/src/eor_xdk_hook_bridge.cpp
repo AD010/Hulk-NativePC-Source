@@ -1988,20 +1988,24 @@ void AdoptNewPrivateOriginalSpirvIfSafe(uint64_t sequence) noexcept {
     {
       std::lock_guard lock(g_mutex);
       if(g_worker_owner_catalog || g_verified_worker_frame)return;
-      if(file!=g_last_incremental_spirv_file ||
-         size!=g_last_incremental_spirv_size ||
-         stamp!=g_last_incremental_spirv_write) {
+      changed=file!=g_last_incremental_spirv_file ||
+              size!=g_last_incremental_spirv_size ||
+              stamp!=g_last_incremental_spirv_write;
+    }
+    // AOT writer installs HEORSPV1 first, then the four authenticated
+    // metadata banks. Do NOT mark a partially installed generation as
+    // already examined: the next guest frame must be able to retry the
+    // same immutable shader bytes once the remaining files arrive.
+    if(changed && InstallVerifiedSourceShaderPackFromDirectory(root)) {
+      {
+        std::lock_guard lock(g_mutex);
         g_last_incremental_spirv_file=file;
         g_last_incremental_spirv_size=size;
         g_last_incremental_spirv_write=stamp;
-        changed=true;
       }
-    }
-    // A malformed partial bank is never installed; the existing source
-    // identity and fallback remain usable until the compiler replaces it.
-    if(changed && InstallVerifiedSourceShaderPackFromDirectory(root))
       REXLOG_INFO("[HULK/EOR-AOT] admitted newly compiled, authentic "
                   "original Xenos VS/PS bank without restarting the guest");
+    }
   } catch(...) {
     // File replacement in progress or source directory unavailable:
     // guest original Present must not be disturbed.
