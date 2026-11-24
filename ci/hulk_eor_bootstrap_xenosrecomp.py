@@ -115,6 +115,15 @@ def main() -> int:
     xenos, dxc, common = compiler_paths(checkout, build)
     if os.name != "nt":
         dxc.chmod(dxc.stat().st_mode | 0o111)
+        # Both dxc-linux and the host-built XenosRecomp use the pinned
+        # DXC shared library from the same vendor submodule. Do not let
+        # the dynamic loader select an unrelated system dxcompiler.so.
+        dxclib = checkout / "thirdparty" / "dxc-bin" / "lib" / "x64"
+        if not (dxclib / "libdxcompiler.so").is_file():
+            raise FileNotFoundError("Pinned XenosRecomp DXC runtime unavailable")
+        previous=os.environ.get("LD_LIBRARY_PATH","")
+        os.environ["LD_LIBRARY_PATH"]=(
+            str(dxclib) if not previous else str(dxclib)+os.pathsep+previous)
     command = [
         sys.executable, str(repo / "ci" / "hulk_eor_first_present_aot.py"),
         "--bank", str(original),
