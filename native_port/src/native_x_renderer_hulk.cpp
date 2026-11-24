@@ -321,7 +321,6 @@ bool NativeXInitialize(
     // default: writing HEORREQ1 to eor_source while the compiler/metadata
     // lived under eor_offline silently stranded genuine game Draw requests.
     std::filesystem::path original_source_root=cache/"eor_offline";
-    std::error_code original_error;
     const auto source_mirror=cache/"eor_source";
     const auto has_private_originals=[&](const std::filesystem::path& dir) {
       std::error_code ignored;
