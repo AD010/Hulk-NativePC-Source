@@ -55,4 +55,11 @@ Index Index::LoadPinnedUsa(const std::filesystem::path& path) {
 Index Index::LoadPinnedUsaModelArchive(const std::filesystem::path& path) {
   return ReadPinnedUsaIndex(path,true);
 }
+Index Index::LoadPinnedUsaGraphicsArchive(const std::filesystem::path& path) {
+  auto index=ReadPinnedUsaIndex(path,true);
+  const auto streams=index.groups().find("TexStreams");
+  if(streams==index.groups().end() || streams->second.size()!=5836u)
+    throw std::invalid_argument("Original Xbox texture stream census mismatched");
+  return index;
+}
 } // namespace hulk::eor

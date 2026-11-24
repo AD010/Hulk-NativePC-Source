@@ -43,6 +43,11 @@ class Index {
   // archive group records differ. Keep the broader XDK/UI index
   // authenticator unchanged; only model GPU-stream I/O accepts both.
   static Index LoadPinnedUsaModelArchive(const std::filesystem::path& path);
+  // Both SHA-pinned owner indices have exactly the same Models, Textures
+  // and TexStreams records (4174, 6669, 5836 respectively). Graphics
+  // loading may use either; other game-data consumers keep the stricter
+  // global USA index requirement.
+  static Index LoadPinnedUsaGraphicsArchive(const std::filesystem::path& path);
 
   ByteOrder byte_order() const noexcept { return byte_order_; }
   uint32_t footer() const noexcept { return footer_; }

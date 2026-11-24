@@ -52,8 +52,9 @@ class OriginalXboxTextureAssets {
                                         const std::filesystem::path& xbox_textures_arc,
                                         const std::filesystem::path& xbox_texstreams_arc = {});
   // Unlike generic Open (for offline audit and synthetic fixtures), this
-  // entrypoint checks the pinned original USA INDEX.IND SHA-256 before I/O.
-  // A European Xbox index is never substituted based on similar structure.
+  // entrypoint checks one of the two exact pinned USA graphics indices.
+  // All 6,669 Textures and 5,836 TexStreams entries are byte-identical
+  // in those indices. Arbitrary regional/PC indices remain rejected.
   static OriginalXboxTextureAssets OpenPinnedUsa(
       const std::filesystem::path& xbox_usa_index,
       const std::filesystem::path& xbox_usa_textures_arc,

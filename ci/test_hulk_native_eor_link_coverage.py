@@ -205,6 +205,17 @@ class NativeEorLinkCoverage(unittest.TestCase):
         self.assertIn("return e.BufferSlot==i && e.ValueType==Diligent::VT_UINT32;", draw)
         self.assertIn("runtime?(integer_skin?4u:3u)", draw)
 
+    def test_original_archive_graphics_indices_include_real_texstreams(self):
+        index = (ROOT / "native_port/src/eor_usa_index.cpp").read_text()
+        texture = (ROOT / "native_port/src/eor_original_texture_usa.cpp").read_text()
+        worker = (ROOT / "native_port/src/eor_xdk_hook_bridge.cpp").read_text()
+        self.assertIn("Index::LoadPinnedUsaGraphicsArchive", index)
+        self.assertIn('find("TexStreams")', index)
+        self.assertIn("size()!=5836u", index)
+        self.assertIn("Index::LoadPinnedUsaGraphicsArchive(index)", texture)
+        self.assertIn("Index::LoadPinnedUsaGraphicsArchive(index)", worker)
+        self.assertIn('root/"index(2).ind"', worker)
+
     def test_portable_eor_pack_root_shared_between_app_and_worker(self):
         header = (ROOT / "native_port/src/eor_source_pack_paths.h").read_text()
         app = (ROOT / "native_port/src/incredible_hulk_app.h").read_text()

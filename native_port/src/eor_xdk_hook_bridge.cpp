@@ -1756,12 +1756,19 @@ std::optional<AutomaticArchivePaths> FindAutomaticArchives(
     const std::filesystem::path& root) {
   if(root.empty())return {};
   const auto base=root/"DATA"/"XENON";
+  // The game-data resolver can return the original root OR its DATA or
+  // XENON directory. Look in the actual owner layout, including the
+  // separately supplied, digest-verified archive index.
+  const auto xenon=root/"XENON";
   for(const auto& index:{base/"INDEX.IND",base/"indexXBOX360.ind",
        base/"USENGLISH"/"INDEX.IND",base/"UKENGLISH"/"INDEX.IND",
-       root/"INDEX.IND",root/"indexXBOX360.ind",root/"index(1).ind",
+       xenon/"INDEX.IND",xenon/"indexXBOX360.ind",
+       xenon/"USENGLISH"/"INDEX.IND",xenon/"UKENGLISH"/"INDEX.IND",
+       root/"USENGLISH"/"INDEX.IND",root/"UKENGLISH"/"INDEX.IND",
+       root/"INDEX.IND",root/"indexXBOX360.ind",root/"index(1).ind",root/"index(2).ind",
        root/"Data"/"Xenon"/"INDEX.IND"}) {
     if(!std::filesystem::is_regular_file(index))continue;
-    for(const auto& dir:{index.parent_path(),base,root}) {
+    for(const auto& dir:{index.parent_path(),base,xenon,root}) {
       const auto models=dir/"MODELS.ARC";
       const auto textures=dir/"TEXTURES.ARC";
       if(!std::filesystem::is_regular_file(models) ||
@@ -1770,9 +1777,10 @@ std::optional<AutomaticArchivePaths> FindAutomaticArchives(
       for(const auto& candidate:{dir/"TEXSTREAMS.ARC",dir/"TEXSTREAM.ARC",dir/"TexStreams.arc"})
         if(std::filesystem::is_regular_file(candidate)){streams=candidate;break;}
       try {
-        // The texture loader must authenticate the USA global index as
-        // well; the alternative model-only index is not enough for mip I/O.
-        (void)Index::LoadPinnedUsa(index);
+        // Both owner indices have been independently compared at the
+        // complete graphics table level, including TexStreams. The
+        // second pinned source index is NOT a regional guess.
+        (void)Index::LoadPinnedUsaGraphicsArchive(index);
         return AutomaticArchivePaths{index,models,textures,streams};
       } catch(const std::exception&) {}
     }
