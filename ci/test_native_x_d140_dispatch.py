@@ -138,7 +138,12 @@ class D140WindowsDispatchTests(unittest.TestCase):
         self.assertTrue(patch.is_file() and tests.is_file())
         self.assertEqual(builder.count("ci/patch_sdk_hulk_xenia_edge.py"),3)
         self.assertEqual(builder.count("ci/test_patch_sdk_hulk_xenia_edge.py"),1)
-        self.assertEqual(workflow.count("ci/test_patch_sdk_hulk_xenia_edge.py"),1)
+        # Count actual Python invocations, not diagnostic labels naming the test.
+        invocation=r"(?m)^\s*python\s+ci/test_patch_sdk_hulk_xenia_edge\.py\s*$"
+        self.assertEqual(len(re.findall(invocation,workflow)),1)
+        # Keep the guard strict against duplicate or omitted invocations.
+        self.assertEqual(len(re.findall(invocation,workflow+"\n          python ci/test_patch_sdk_hulk_xenia_edge.py\n")),2)
+        self.assertEqual(len(re.findall(invocation,re.sub(invocation,"",workflow))),0)
         self.assertLess(builder.index("'index-pool', $Sdk"),
                         builder.index("'packed-mip', $Sdk"))
         self.assertLess(builder.index("'packed-mip', $Sdk"),

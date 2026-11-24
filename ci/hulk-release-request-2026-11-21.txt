@@ -34,3 +34,5 @@ Retry 15: use the exact one-shot marker accepted by ci/test_native_x_d140_dispat
 2026-11-24: user explicitly requested Windows Release retry after EoR link coverage and runtime uint4 fixes.
 
 2026-11-24: user requested retry after original EoR pass record test drift; aggregate source preflight failures before any private build.
+
+2026-11-24: retry after correcting D140 regression counting diagnostic labels as duplicate test calls; exactly one real invocation remains.
