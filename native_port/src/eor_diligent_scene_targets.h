@@ -57,6 +57,8 @@ inline bool MatchesVerifiedOriginalXdkMainDrawTargets(
 struct OriginalNativeTargetGraph {
   std::vector<uint32_t> colors,depths,resolves;
   std::map<uint32_t,xdk::OriginalSurfaceExtent> extents;
+  std::map<uint32_t,NativeColorFormat> color_formats;
+  std::map<uint32_t,uint32_t> sample_counts;
   uint32_t first_color=0,first_depth=0,final_color=0,front_buffer=0;
   bool operator==(const OriginalNativeTargetGraph&) const=default;
   bool active() const noexcept {return !colors.empty();}
@@ -74,6 +76,12 @@ struct OriginalNativeTargetGraph {
     const auto source=SourceExtent(id,frame.original_guest);
     return source.width==frame.original_guest.width && source.height==frame.original_guest.height ?
         frame.world : source;
+  }
+  NativeColorFormat ColorFormat(uint32_t id,NativeColorFormat fallback) const noexcept {
+    const auto it=color_formats.find(id);return it==color_formats.end()?fallback:it->second;
+  }
+  uint32_t Samples(uint32_t id,uint32_t fallback) const noexcept {
+    const auto it=sample_counts.find(id);return it==sample_counts.end()?fallback:it->second;
   }
   bool HasResolve(uint32_t id) const noexcept {
     return std::binary_search(resolves.begin(),resolves.end(),id);
@@ -154,6 +162,14 @@ inline std::optional<OriginalSourceTargetFormat> PlanOriginalNativeTargets(
     const auto [it,inserted]=graph.extents.emplace(id,size);
     return inserted || it->second==size;
   };
+  auto register_samples=[&](uint32_t id,uint32_t count) {
+    const auto [it,inserted]=graph.sample_counts.emplace(id,count);
+    return inserted || it->second==count;
+  };
+  auto register_color=[&](uint32_t id,NativeColorFormat format) {
+    const auto [it,inserted]=graph.color_formats.emplace(id,format);
+    return inserted || it->second==format;
+  };
   for(const auto& draw:source.calls) {
     if(!draw.observed_vs_matrices || !draw.observed_shader_constants ||
        !draw.observed_shader_constants->fixed_graphics_state)return {};
@@ -178,13 +194,15 @@ inline std::optional<OriginalSourceTargetFormat> PlanOriginalNativeTargets(
       graph.first_color=state.original_rt0_guest_object;
       graph.first_depth=state.original_depth_guest_object;
     }
-    if(output.samples!=format->samples || output.format.color!=format->format.color ||
-       screen.guest_device!=state.original_guest_device)return {};
+    if(screen.guest_device!=state.original_guest_device ||
+       !register_samples(state.original_rt0_guest_object,format->samples) ||
+       !register_color(state.original_rt0_guest_object,format->format.color))return {};
     colors.insert(state.original_rt0_guest_object);
     if(state.original_depth_guest_object) {
       if(format->format.depth!=NativeDepthFormat::D24S8 ||
          !state.original_depth_extent || *state.original_depth_extent!=extent ||
-         !register_extent(state.original_depth_guest_object,*state.original_depth_extent))return {};
+         !register_extent(state.original_depth_guest_object,*state.original_depth_extent) ||
+         !register_samples(state.original_depth_guest_object,format->samples))return {};
       depths.insert(state.original_depth_guest_object);
       output.format.depth=NativeDepthFormat::D24S8;
     }
@@ -256,11 +274,11 @@ inline std::optional<OriginalSourceTargetFormat> PlanOriginalNativeTargets(
         if(final_resolved || !cmd.captured_clear || !active_color ||
            !graph.extents.contains(active_color))return {};
         const auto extent=graph.extents.at(active_color);
-        if(active_depth && *active_depth && graph.extents.at(*active_depth)!=extent)return {};
+        if(active_depth && *active_depth && (graph.extents.at(*active_depth)!=extent || graph.sample_counts.at(*active_depth)!=graph.sample_counts.at(active_color)))return {};
         if(!xdk::IsOriginalFullTargetClear(*cmd.captured_clear,extent.width,extent.height) ||
            ((cmd.captured_clear->flags&0x30u) &&
              (!active_depth || !*active_depth || !graph.extents.contains(*active_depth) ||
-              graph.extents.at(*active_depth)!=extent)))return {};
+              (graph.extents.at(*active_depth)!=extent || graph.sample_counts.at(*active_depth)!=graph.sample_counts.at(active_color)))))return {};
         if(cmd.captured_clear->flags&1u) {
           if(!active_color)return {};
           initialized_color.insert(active_color);
@@ -278,8 +296,9 @@ inline std::optional<OriginalSourceTargetFormat> PlanOriginalNativeTargets(
            cmd.gpr[1] || cmd.gpr[2] || cmd.gpr[4] || cmd.gpr[5] || cmd.gpr[6] ||
            colors.contains(dest) || depths.contains(dest))return {};
         const auto extent=graph.extents.at(active_color);
-        if(active_depth && *active_depth && graph.extents.at(*active_depth)!=extent)return {};
-        if(!register_extent(dest,extent))return {};
+        if(active_depth && *active_depth && (graph.extents.at(*active_depth)!=extent || graph.sample_counts.at(*active_depth)!=graph.sample_counts.at(active_color)))return {};
+        if(!register_extent(dest,extent) || !register_samples(dest,1u) ||
+           !register_color(dest,graph.color_formats.at(active_color)))return {};
         if(dest==front) {
           if(extent.width!=width || extent.height!=height)return {};
           graph.final_color=active_color;graph.front_buffer=dest;final_resolved=true;
@@ -296,6 +315,8 @@ inline std::optional<OriginalSourceTargetFormat> PlanOriginalNativeTargets(
   graph.colors.assign(colors.begin(),colors.end());
   graph.depths.assign(depths.begin(),depths.end());
   graph.resolves.assign(resolve_destinations.begin(),resolve_destinations.end());
+  output.samples=graph.sample_counts.at(graph.final_color);
+  output.format.color=graph.color_formats.at(graph.final_color);
   screen.guest_rt0=graph.final_color;
   screen.guest_depth=depths.empty()?0u:*depths.begin();
   screen.guest_front_buffer=graph.front_buffer;
@@ -333,6 +354,7 @@ class DiligentSceneTargets {
   bool SetDepthBound(bool bind);
   bool SetOriginalColorTarget(uint32_t guest);
   native::Size ActiveHostExtent() const noexcept;
+  uint32_t ActiveOriginalColor() const noexcept;
   native::Size ActiveSourceExtent(native::Size fallback) const noexcept;
   bool SetOriginalDepthTarget(uint32_t guest);
   bool ResolveOriginalIntermediate(uint32_t guest_destination);

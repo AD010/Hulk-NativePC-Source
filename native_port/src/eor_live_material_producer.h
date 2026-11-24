@@ -206,10 +206,12 @@ inline VerifiedOriginalGraphicsPass OriginalScalarPass(
   pass.original_pass_index=call.observed_live_eor_effect_pass->pass_index;
   pass.original_vertex_shader_sha256=vs;pass.original_pixel_shader_sha256=ps;
   pass.original_depth_unbound=!call.observed_vs_matrices->original_depth_guest_object;
+  pass.original_color_owner=format.original_graph.active()?call.observed_vs_matrices->original_rt0_guest_object:0u;
+  const auto color=format.original_graph.ColorFormat(pass.original_color_owner,format.color);
   auto& state=pass.exact_render_state;
   state.NumRenderTargets=1;
-  state.RTVFormats[0]=format.color==NativeColorFormat::Rgba8 ?
-      TEX_FORMAT_RGBA8_UNORM : format.color==NativeColorFormat::Rgba16Float ?
+  state.RTVFormats[0]=color==NativeColorFormat::Rgba8 ?
+      TEX_FORMAT_RGBA8_UNORM : color==NativeColorFormat::Rgba16Float ?
       TEX_FORMAT_RGBA16_FLOAT : TEX_FORMAT_UNKNOWN;
   state.DSVFormat=pass.original_depth_unbound ? TEX_FORMAT_UNKNOWN :
       format.depth==NativeDepthFormat::D24S8 ? TEX_FORMAT_D24_UNORM_S8_UINT : TEX_FORMAT_UNKNOWN;

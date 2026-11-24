@@ -23,7 +23,7 @@
 
 namespace hulk::eor::gpu {
 namespace {
-using MaterialKey=std::tuple<uint32_t,uint32_t,uint32_t,uint32_t,bool,bool>;
+using MaterialKey=std::tuple<uint32_t,uint32_t,uint32_t,uint32_t,bool,bool,uint32_t>;
 // Exact fixed-function variants of a single verified material. The source
 // register tuple includes every input of DeriveOriginalXdkGraphicsPipelineState;
 // it is intentionally not a lossy hash or the guest shader-object address.
@@ -42,7 +42,7 @@ std::optional<PipelineVariantKey> OriginalPipelineVariantKey(
   return key;
 }
 MaterialKey PassKey(uint32_t model,uint32_t surface,const VerifiedOriginalGraphicsPass& pass) {
-  return {model,surface,pass.original_effect_hash,pass.original_pass_index,pass.original_depth_unbound,pass.original_runtime_draw_verified};
+  return {model,surface,pass.original_effect_hash,pass.original_pass_index,pass.original_depth_unbound,pass.original_runtime_draw_verified,pass.original_color_owner};
 }
 MaterialKey PassKey(const NativeEorPassResources& owner) {
   return PassKey(owner.original_model_hash,owner.original_surface_ordinal,owner.pipeline);
@@ -351,10 +351,15 @@ static void ValidateSourceOriginalMaterialPass(
     NativeEorPassResources& owner,const aot::ShaderBank& bank,
     const aot::EffectCatalog& effects,const native::FrameGeometry& frame,
     const VerifiedSceneFormat& formats) {
+  const auto target=owner.pipeline.original_color_owner;
+  if(formats.original_graph.active() && !formats.original_graph.HasColor(target))
+    throw std::invalid_argument("Original material target owner absent from graph");
+  const auto native_color=formats.original_graph.ColorFormat(target,formats.color);
+  const auto samples=formats.original_graph.Samples(target,frame.samples);
   const Diligent::TEXTURE_FORMAT color =
-      formats.color==NativeColorFormat::Rgba8 ?
+      native_color==NativeColorFormat::Rgba8 ?
           Diligent::TEX_FORMAT_RGBA8_UNORM :
-      formats.color==NativeColorFormat::Rgba16Float ?
+      native_color==NativeColorFormat::Rgba16Float ?
           Diligent::TEX_FORMAT_RGBA16_FLOAT : Diligent::TEX_FORMAT_UNKNOWN;
   const Diligent::TEXTURE_FORMAT depth =
       formats.depth==NativeDepthFormat::D24S8 ?
@@ -452,7 +457,7 @@ static void ValidateSourceOriginalMaterialPass(
     if(gpu.NumRenderTargets!=1 || gpu.RTVFormats[0]!=color ||
        gpu.DSVFormat!=(pass.original_depth_unbound ? Diligent::TEX_FORMAT_UNKNOWN : depth) ||
        (!pass.original_depth_unbound && formats.depth==NativeDepthFormat::None) ||
-       gpu.SmplDesc.Count!=frame.samples)
+       gpu.SmplDesc.Count!=samples)
       throw std::invalid_argument("Native Vulkan PSO format/sample contract disagrees with scene");
     if(pass.original_dynamic_font_vertex_layout_verified) {
       const auto& layout=pass.exact_host_input_layout;
@@ -952,7 +957,8 @@ aot::BoundIndexedDraw DiligentEorDirectBackend::StageVerifiedOriginalFontDraw(
   auto cpu=ui::DecodeOriginalLiveFontDraw(call,layout,frame,ordinal);
   const MaterialKey material{
       original_font_resource_hash,surface_ordinal,
-      cpu.original_effect_hash,cpu.original_pass_index,!live.original_depth_guest_object,false};
+      cpu.original_effect_hash,cpu.original_pass_index,!live.original_depth_guest_object,false,
+      s.format.original_graph.active()?live.original_rt0_guest_object:0u};
   const auto found=s.material_lookup.find(material);
   if(found==s.material_lookup.end())
     throw std::invalid_argument("Original EFont archive material/pass not resident");
@@ -1248,7 +1254,8 @@ bool DiligentEorDirectBackend::PreflightOriginalScene(
       return false;
     if(!d.guest_vs_matrices)return false;
     const MaterialKey key{item.original_model_hash,item.original_surface_ordinal,
-                          item.effect_hash,item.pass_index,!d.guest_vs_matrices->original_depth_guest_object,item.original_runtime_draw};
+                          item.effect_hash,item.pass_index,!d.guest_vs_matrices->original_depth_guest_object,item.original_runtime_draw,
+                          s.format.original_graph.active()?d.guest_vs_matrices->original_rt0_guest_object:0u};
     const auto owner=s.material_lookup.find(key);
     const NativeEorPassResources* selected=
         owner==s.material_lookup.end()?nullptr:owner->second;
@@ -1315,7 +1322,7 @@ bool DiligentEorDirectBackend::PreflightOriginalScene(
         // Render-pass attachments and sample count are owned by the
         // established scene; a PSO variant must not change that contract.
         if(!derived || !variant ||
-           derived->SmplDesc.Count!=s.frame.samples)return false;
+           derived->SmplDesc.Count!=s.format.original_graph.Samples(target,s.frame.samples))return false;
         auto verified_variant=pass;
         verified_variant.exact_render_state=*derived;
         if(!MatchesOriginalXdkGraphicsState(verified_variant,live_state))
@@ -1477,7 +1484,8 @@ bool DiligentEorDirectBackend::PreflightOriginalScene(
     for(const auto& item:draws) {
       if(item.original_dynamic_font_draw || !item.draw.source_frame)continue;
       const MaterialKey key{item.original_model_hash,item.original_surface_ordinal,
-                            item.effect_hash,item.pass_index,!item.draw.guest_vs_matrices->original_depth_guest_object,item.original_runtime_draw};
+                            item.effect_hash,item.pass_index,!item.draw.guest_vs_matrices->original_depth_guest_object,item.original_runtime_draw,
+                            s.format.original_graph.active()?item.draw.guest_vs_matrices->original_rt0_guest_object:0u};
       const auto& textures=s.material_lookup.at(key)->original_textures;
       auto& prepared=prepared_constants.at({item.draw.source_frame,item.draw.source_ordinal});
       auto* pipeline=s.pipeline_cache.at(key).pipeline.RawPtr();
@@ -1519,7 +1527,7 @@ bool DiligentEorDirectBackend::PreflightOriginalScene(
               (controls.point_slots&bit)!=0,
               s.format.original_graph.SourceExtent(id.original_resolved_guest_object,s.frame.original_guest).width,
               s.format.original_graph.SourceExtent(id.original_resolved_guest_object,s.frame.original_guest).height,
-              s.format.color==NativeColorFormat::Rgba16Float);
+              s.format.original_graph.ColorFormat(id.original_resolved_guest_object,s.format.color)==NativeColorFormat::Rgba16Float);
         } else {
           if(!texture.uploaded)return false;
           BindOriginalPixelImage2D(s.device,binding,*texture.uploaded,image->slot,
@@ -1586,7 +1594,7 @@ bool DiligentEorDirectBackend::BindSurfaceImpl(uint32_t model,uint32_t ordinal,b
   if(!s.scene_open || s.finished || !model || ordinal==UINT32_MAX)return false;
   // A source model may own many effects, but the first keyed pass is
   // sufficient to prove that THIS exact model/surface is resident.
-  auto item=s.material_lookup.lower_bound({model,ordinal,0u,0u,false,false});
+  auto item=s.material_lookup.lower_bound({model,ordinal,0u,0u,false,false,0u});
   while(item!=s.material_lookup.end() && std::get<0>(item->first)==model &&
         std::get<1>(item->first)==ordinal && std::get<5>(item->first)!=runtime)++item;
   if(item==s.material_lookup.end() || std::get<0>(item->first)!=model ||
@@ -1602,7 +1610,8 @@ bool DiligentEorDirectBackend::BindOriginalEffect(uint32_t effect,uint32_t pass)
   s.selected=nullptr;s.active={};
   s.constants_ready=s.program_ready=s.textures_ready=false;
   const auto item=s.material_lookup.find(
-      {s.requested_model,s.requested_surface,effect,pass,!s.scene.DepthBound(),s.requested_runtime});
+      {s.requested_model,s.requested_surface,effect,pass,!s.scene.DepthBound(),s.requested_runtime,
+       s.format.original_graph.active()?s.scene.ActiveOriginalColor():0u});
   if(item==s.material_lookup.end())return false;
   s.selected=item->second;
   return true;
