@@ -18,6 +18,14 @@ struct VerifiedAttributeLayout {
   bool operator==(const VerifiedAttributeLayout&) const = default;
 };
 using HostAttribute = std::array<float,4>;
+// The original Xbox MODELS.ARC already embeds its real compact attribute
+// declaration in EACH mesh: [type, usage, usage_index, cumulative_byte_end].
+// Convert only known source type/usage combinations and exact byte widths,
+// retaining original attribute order as host Vulkan stream slots 1..N.
+// This is not a shader-input-layout guess: the live source XDK declaration
+// still independently verifies which slots an actual shader consumes.
+std::vector<VerifiedAttributeLayout> DecodeOriginalXboxAttributeLayouts(
+    const NativeIndexedMesh& source);
 // Each output vector index corresponds to the decoded model vertex index.
 // Missing components are zero. Rejects nonfinite values, invalid layouts,
 // overflow and missing original bytes before returning any converted array.

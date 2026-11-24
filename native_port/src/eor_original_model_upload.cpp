@@ -20,6 +20,17 @@ UploadedOriginalModel UploadOriginalModel(
          !ref.original_resource.size || ref.original_resource.reserved)
         throw std::invalid_argument("Original EoR indexed texture candidate inconsistent");
   }
+  // The genuine original model embeds an exact vertex declaration for
+  // every mesh. Decode its normal/tangent/UV/color/skin input bytes BEFORE
+  // GPU allocation, rather than uploading XYZ-only and then rejecting
+  // every original textured world shader for missing Vulkan vertex slots.
+  std::vector<std::vector<VerifiedAttributeLayout>> decoded_layouts;
+  if(original_slots.empty()) {
+    decoded_layouts.reserve(source.decoded_meshes.size());
+    for(const auto& mesh:source.decoded_meshes)
+      decoded_layouts.push_back(DecodeOriginalXboxAttributeLayouts(mesh));
+    original_slots=decoded_layouts;
+  }
   auto uploaded=UploadNativeIndexedMeshes(source.decoded_meshes,backend,original_slots);
   return {source.model.original_resource_hash,
           std::move(source.model.source),
