@@ -437,6 +437,10 @@ struct OriginalEorShaderMethodAtDraw {
   uint32_t original_pass_vs_xdk_guest_object=0;
   uint32_t original_pass_ps_xdk_guest_object=0;
   bool original_pass_vs_ps_xdk_binding_verified=false;
+  // Source 92-byte state from the EXACT original material pass selector;
+  // needed to translate the genuine fixed-function Vulkan PSO later.
+  std::array<std::byte,92> original_pass_state_record{};
+  bool original_pass_state_record_captured=false;
   // USA 0x825F84C0 reads the original per-pass sampler-state record
   // count from +87, first record BE16 from +80, and the actual
   // material+196 four-byte sampler-state source table. Record byte0

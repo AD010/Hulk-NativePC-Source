@@ -106,6 +106,46 @@ inline std::optional<OriginalVsMatrices> CaptureUsaVsMatrices(
   }
   return result;
 }
+// Snapshot the original Xbox USA XDK device's seven live fixed graphics
+// register groups. They contain genuine per-Draw render state, not PM4
+// commands or reconstructed Xenia state. A separate validated translation
+// is still required before these can authorize a Vulkan graphics PSO.
+struct OriginalXdkFixedGraphicsState {
+  static constexpr std::array<uint32_t,7> kGuestOffsets{
+      10368u,10444u,10528u,10548u,10596u,10680u,10832u};
+  static constexpr std::array<uint32_t,7> kRegisterBases{
+      0x2000u,0x2100u,0x2180u,0x2200u,0x2280u,0x2300u,0x2380u};
+  static constexpr std::array<size_t,7> kCounts{16u,21u,5u,12u,21u,38u,8u};
+  static constexpr size_t kTotalRegisters=121u;
+  uint32_t original_guest_device=0;
+  std::array<uint32_t,kTotalRegisters> original_register_values{};
+};
+inline std::optional<OriginalXdkFixedGraphicsState>
+CaptureUsaFixedGraphicsState(uint32_t guest_device,ReadGuestBytes read,
+                             void* state) noexcept {
+  if(!guest_device || !read)return std::nullopt;
+  OriginalXdkFixedGraphicsState snapshot{};
+  snapshot.original_guest_device=guest_device;
+  size_t destination=0;
+  for(size_t group=0;group<OriginalXdkFixedGraphicsState::kCounts.size();++group) {
+    const size_t count=OriginalXdkFixedGraphicsState::kCounts[group];
+    const uint64_t address=uint64_t(guest_device)+
+        OriginalXdkFixedGraphicsState::kGuestOffsets[group];
+    if(address+count*4u>uint64_t(UINT32_MAX)+1u)return std::nullopt;
+    std::array<std::byte,38*4> bytes{};
+    if(!read(state,static_cast<uint32_t>(address),bytes.data(),count*4u))
+      return std::nullopt;
+    for(size_t i=0;i<count;++i) {
+      const auto* w=bytes.data()+i*4;
+      snapshot.original_register_values[destination++]=
+          uint32_t(std::to_integer<uint8_t>(w[0]))<<24 |
+          uint32_t(std::to_integer<uint8_t>(w[1]))<<16 |
+          uint32_t(std::to_integer<uint8_t>(w[2]))<<8 |
+          uint32_t(std::to_integer<uint8_t>(w[3]));
+    }
+  }
+  return snapshot;
+}
 // Entire original USA XDK 2.0.6534 shader-float banks, snapshotted
 // at the SAME PPC Draw as original resource identities. The original device
 // shadow layout has 256 float4 VS registers at +1920 and 256 float4 PS
@@ -121,6 +161,8 @@ struct OriginalShaderRegisters {
   std::array<std::array<uint32_t,6>,16> pixel_fetch{};
   uint16_t valid_pixel_fetch=0;
   bool complete_float_banks=false;
+  // Live source fixed raster/depth/blend state sampled at this exact Draw.
+  std::optional<OriginalXdkFixedGraphicsState> fixed_graphics_state;
 };
 inline void CaptureUsaPixelFetches(uint32_t device,ReadGuestBytes read,void* state,
                                   OriginalShaderRegisters& registers) noexcept {

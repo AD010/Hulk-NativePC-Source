@@ -223,6 +223,8 @@ void ObserveOriginalEorShaderPass(
   scope.original_pass_vs_xdk_guest_object=0u;
   scope.original_pass_ps_xdk_guest_object=0u;
   scope.original_pass_vs_ps_xdk_binding_verified=false;
+  scope.original_pass_state_record={};
+  scope.original_pass_state_record_captured=false;
   scope.original_pass_sampler_slot_mask=0u;
   scope.original_pass_sampler_slots_verified=false;
   scope.original_pass_live_texture_objects_present=false;
@@ -257,7 +259,7 @@ void ObserveOriginalEorShaderPass(
      !*records || !*vstable || !*pstable)return;
   const uint64_t start=uint64_t(*records)+
       uint64_t(original_ctx.r4.u32-1u)*92u;
-  if(start>UINT32_MAX-90u)return;
+  if(start>UINT32_MAX-91u)return;
   // The original material pass selector 0x825F84C0 reads byte
   // slot indexes at original 92-byte state record +84 (VS), +85 (PS),
   // multiplying each by 8 and reading the stage table entry's first
@@ -267,9 +269,10 @@ void ObserveOriginalEorShaderPass(
   // +80 (BE16 sampler table index), +84/+85 VS/PS stage indexes,
   // +87 count of 4-byte original sampler-state records. Only original
   // source data is read; no host bindings or textures are invented.
-  std::array<std::byte,10> shader_slots{};
-  if(!ReadGuest(original_guest_base,static_cast<uint32_t>(start+80u),
-                shader_slots.data(),shader_slots.size()))return;
+  std::array<std::byte,92> original_state{};
+  if(!ReadGuest(original_guest_base,static_cast<uint32_t>(start),
+                original_state.data(),original_state.size()))return;
+  const auto* shader_slots=original_state.data()+80u;
   const uint32_t vs_index=std::to_integer<uint8_t>(shader_slots[4]);
   const uint32_t ps_index=std::to_integer<uint8_t>(shader_slots[5]);
   const uint64_t vs_entry=uint64_t(*vstable)+8u*vs_index;
@@ -284,6 +287,8 @@ void ObserveOriginalEorShaderPass(
   scope.original_pass_pixel_handle_entry_guest=static_cast<uint32_t>(ps_entry);
   scope.original_pass_vs_xdk_guest_object=*bound_vs;
   scope.original_pass_ps_xdk_guest_object=*bound_ps;
+  scope.original_pass_state_record=original_state;
+  scope.original_pass_state_record_captured=true;
   const uint32_t active_sampler_records=
       std::to_integer<uint8_t>(shader_slots[7]);
   if(active_sampler_records<=16u) {
@@ -760,8 +765,11 @@ void CapturePpcDraw(Kind kind, uint32_t guest, const PPCContext& ctx,
         auto constants=std::make_shared<OriginalShaderRegisters>();
         if(CaptureUsaAllShaderRegisters(ctx.r3.u32,ReadGuest,
                                         guest_base,*constants)) {
-          if(REXCVAR_GET(hulk_eor_vulkan_replay))
+          if(REXCVAR_GET(hulk_eor_vulkan_replay)) {
             CaptureUsaPixelFetches(ctx.r3.u32,ReadGuest,guest_base,*constants);
+            constants->fixed_graphics_state=CaptureUsaFixedGraphicsState(
+                ctx.r3.u32,ReadGuest,guest_base);
+          }
           draw.observed_shader_constants=std::move(constants);
         }
       } catch (const std::bad_alloc&) {
