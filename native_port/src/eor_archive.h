@@ -36,6 +36,13 @@ class Index {
   static Index Decode(std::span<const std::byte> bytes);
   static Index Load(const std::filesystem::path& path);
   static Index LoadPinnedUsa(const std::filesystem::path& path);
+  // Source-authenticated Xbox MODELS/Textures ONLY. The user's archived
+  // indexXBOX360.ind (SHA 46e6c6ec...) and native port's pinned USA
+  // INDEX.IND (SHA ad22432b...) have byte-for-byte identical Models
+  // (4174) and Textures (6669) resource tables, although their other
+  // archive group records differ. Keep the broader XDK/UI index
+  // authenticator unchanged; only model GPU-stream I/O accepts both.
+  static Index LoadPinnedUsaModelArchive(const std::filesystem::path& path);
 
   ByteOrder byte_order() const noexcept { return byte_order_; }
   uint32_t footer() const noexcept { return footer_; }
