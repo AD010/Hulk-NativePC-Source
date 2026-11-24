@@ -469,6 +469,10 @@ DiligentEorDirectBackend::DiligentEorDirectBackend(
   (void)PrewarmResidentOriginalPipelines(64);
 }
 DiligentEorDirectBackend::~DiligentEorDirectBackend() noexcept {AbortScene();}
+model::NativeMeshUploadBackend&
+DiligentEorDirectBackend::OriginalModelUploader() noexcept {
+  return state_->meshes;
+}
 std::size_t DiligentEorDirectBackend::AdoptVerifiedResidentWorldMeshes(
     std::span<const model::UploadedOriginalModel* const> residents) {
   if(!state_ || state_->scene_open || state_->frame_preflight_ready)

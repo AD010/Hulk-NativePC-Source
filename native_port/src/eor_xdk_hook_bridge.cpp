@@ -5,6 +5,7 @@
 #include "eor_usa_material_textures.h"
 #include "eor_diligent_aot_backend.h"
 #include "eor_original_font_source.h"
+#include "eor_native_world_stream.h"
 #include "device.h"
 #include "SwapChain.h"
 #include <rex/cvar.h>
@@ -1640,7 +1641,14 @@ PreparedEorMixedFrame PrepareOriginalMixedDraws(
         selected->original_surface_ordinal,*pack.virtual_ids);
   }
   if(!static_frame.calls.empty()) {
-    if(!catalog.resident_lookup || catalog.verified_candidates.empty())
+    const auto resident_lookup=catalog.resident_lookup ?
+        catalog.resident_lookup :
+        (catalog.source_models ?
+          native::VerifiedOriginalResidentLookup{
+            [stream=catalog.source_models](uint32_t hash) {
+              return stream->ResidentShared(hash);
+            }} : native::VerifiedOriginalResidentLookup{});
+    if(!resident_lookup || catalog.verified_candidates.empty())
       throw std::invalid_argument("Original world Draw has no material catalog");
     std::map<uint32_t,std::shared_ptr<const model::UploadedOriginalModel>> owners;
     std::vector<native::VerifiedXdkResourceWitness> candidates;
@@ -1671,7 +1679,7 @@ PreparedEorMixedFrame PrepareOriginalMixedDraws(
          !template_draw.original_model_hash)
         throw std::invalid_argument("Unverified original world material owner");
       if(!owners.contains(template_draw.original_model_hash)) {
-        auto resident=catalog.resident_lookup(template_draw.original_model_hash);
+        auto resident=resident_lookup(template_draw.original_model_hash);
         if(!resident || resident->original_resource_hash!=
              template_draw.original_model_hash ||
            resident->original_identity.platform!=model::Platform::Xbox360)
@@ -1974,7 +1982,8 @@ native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(
   // unavailable model never authorizes a partial Vulkan image, but can
   // become resident before a later exact Draw. Do NOT request every one
   // of the original 4174 world models on each frame.
-  if(owner_catalog && owner_catalog->request_source_models &&
+  if(owner_catalog &&
+     (owner_catalog->request_source_models || owner_catalog->source_models) &&
      !owner_catalog->verified_candidates.empty()) {
     try {
       // One indexed lookup per source Draw instead of O(catalog * Draws)
@@ -2014,8 +2023,15 @@ native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(
       }
       std::sort(relevant.begin(),relevant.end());
       relevant.erase(std::unique(relevant.begin(),relevant.end()),relevant.end());
-      if(!relevant.empty())
-        owner_catalog->request_source_models(relevant);
+      if(!relevant.empty()) {
+        if(owner_catalog->source_models) {
+          if(!owner_catalog->direct_gpu ||
+             !owner_catalog->source_models->UsesGpuBackend(
+                 owner_catalog->direct_gpu->OriginalModelUploader()))
+            return Result::kNotReady;
+          owner_catalog->source_models->RequestSourceVerifiedModels(relevant);
+        } else owner_catalog->request_source_models(relevant);
+      }
     } catch (...) {
       return Result::kNotReady; // a failed source I/O request is not a Draw
     }
@@ -2023,9 +2039,17 @@ native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(
   // Advance real source model GPU uploads on this sole Vulkan worker.
   // Merely queueing model hashes on an I/O thread never creates resident
   // position/index/attribute buffers needed by DrawIndexed.
-  if(owner_catalog && owner_catalog->advance_source_model_uploads) {
-    try {owner_catalog->advance_source_model_uploads();}
-    catch (...) {return Result::kNotReady;}
+  if(owner_catalog) {
+    try {
+      if(owner_catalog->source_models) {
+        if(!owner_catalog->direct_gpu ||
+           !owner_catalog->source_models->UsesGpuBackend(
+               owner_catalog->direct_gpu->OriginalModelUploader()))
+          return Result::kNotReady;
+        (void)owner_catalog->source_models->TickSourceVerifiedModels();
+      } else if(owner_catalog->advance_source_model_uploads)
+        owner_catalog->advance_source_model_uploads();
+    } catch (...) {return Result::kNotReady;}
   }
   // Original EFontShader geometry is transient by design. Route the
   // ENTIRE original Present through the mixed native Vulkan batch rather
@@ -2053,6 +2077,14 @@ native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(
     // instance from the preceding frame can be reused as an authority.
     if(owner_catalog->device!=&host || !host.swap_chain())
       return Result::kNotReady;
+    const auto resident_lookup=owner_catalog->resident_lookup ?
+        owner_catalog->resident_lookup :
+        (owner_catalog->source_models ?
+          native::VerifiedOriginalResidentLookup{
+            [stream=owner_catalog->source_models](uint32_t hash) {
+              return stream->ResidentShared(hash);
+            }} : native::VerifiedOriginalResidentLookup{});
+    if(!resident_lookup)return Result::kNotReady;
     try {
       auto frame=std::make_shared<VerifiedWorkerEorFrame>();
       frame->original_frame_sequence=source_sequence;
@@ -2062,7 +2094,7 @@ native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(
       frame->gpu=owner_catalog->gpu;
       frame->owner_catalog=owner_catalog;
       if(!InstallVerifiedWorkerEorFrameWithResidents(
-             std::move(frame),owner_catalog->resident_lookup))
+             std::move(frame),resident_lookup))
         return Result::kNotReady;
     } catch (...) {
       return Result::kNotReady; // no Vulkan state touched

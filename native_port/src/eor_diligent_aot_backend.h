@@ -126,6 +126,7 @@ class DiligentEorDirectBackend final : public aot::ShaderBindingBackend {
   // Original owners remain alive until the host GPU completion fence.
   std::size_t AdoptVerifiedResidentWorldMeshes(
       std::span<const model::UploadedOriginalModel* const> residents);
+  model::NativeMeshUploadBackend& OriginalModelUploader() noexcept;
   // Stage the REAL EFontShader GPU geometry into the existing original
   // Vulkan pipeline BEFORE scene BeginScene. Builds one ordinary ordered
   // BoundIndexedDraw for ReplayAotScene, using original live VS/PS source

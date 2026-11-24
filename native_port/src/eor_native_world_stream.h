@@ -55,6 +55,9 @@ class NativeWorldStream {
   std::shared_ptr<const model::UploadedOriginalModel> ResidentShared(
       uint32_t original_hash) const noexcept;
   bool Failed(uint32_t original_hash) const;
+  bool UsesGpuBackend(const model::NativeMeshUploadBackend& gpu) const noexcept {
+    return &backend_==&gpu;
+  }
   void RetryFailed(uint32_t original_hash);
  private:
   void Queue(uint32_t hash, bool urgent);

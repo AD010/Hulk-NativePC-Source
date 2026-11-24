@@ -11,6 +11,7 @@
 #include <native_x_renderer/native_x_renderer.h>
 
 namespace hulk::eor::gpu {class DiligentEorDirectBackend;}
+namespace hulk::eor::world {class NativeWorldStream;}
 namespace hulk::eor::xdk {
 // Verified USA EoR script-VM global state_r (original guest 0x8264C798).
 // Its r3 argument is the authentic original VM call context; the
@@ -225,6 +226,9 @@ struct VerifiedWorkerEorOwnerCatalog {
   // Append to preserve older source-owner aggregate initialization order.
   // The owner supplies actual camera distance/LOD, never this bridge.
   std::function<void()> advance_source_model_uploads;
+  // Exact user's original Xbox MODELS.ARC source with persistent async I/O
+  // and physical GPU model residency; retained across Present epochs.
+  std::shared_ptr<world::NativeWorldStream> source_models;
 };
 bool InstallVerifiedWorkerEorOwnerCatalog(
     std::shared_ptr<const VerifiedWorkerEorOwnerCatalog> catalog);
