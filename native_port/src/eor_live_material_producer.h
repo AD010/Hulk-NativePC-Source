@@ -156,18 +156,18 @@ inline std::vector<Diligent::LayoutElement> OriginalScalarMeshLayout(
         // Only equivalently decoded formats. The upstream scalar shader
         // uses asfloat(uint4) for NORMAL/TANGENT when R11G11B10 is off.
         // The decoded float4 allocation already contains those exact bits.
-        const auto format=guest->original_packed_type&63u;
+        const auto format=guest->original_packed_type;
         const bool normal=(usage==3u || usage==6u) && type==0x10u && end-offset==4u;
         if(slot==0u) {
           if(input.uint_bits || input.components!=4u || type!=2u ||
              guest->original_packed_type!=0x2a23b9u)
             throw std::invalid_argument("Unsupported original position ABI");
         } else if(input.uint_bits) {
-          if(!normal || format!=6u || input.components!=4u)
+          if(!normal || format!=0x1a2186u || input.components!=4u)
             throw std::invalid_argument("Original integer/skin attribute needs native uint conversion");
-        } else if(!((usage==5u && type==0x2eu && format==32u) ||
+        } else if(!((usage==5u && type==0x2eu && format==0x1a2360u) ||
                     (usage==10u && type==0x10u && guest->original_packed_type==0x182886u) ||
-                    (usage==1u && type==0x10u && format==6u))) {
+                    (usage==1u && type==0x10u && format==0x1a2086u))) {
           throw std::invalid_argument("Unsupported original float attribute ABI");
         }
         LayoutElement element{input.location,static_cast<uint32_t>(slot),
@@ -223,7 +223,7 @@ inline std::vector<VerifiedNativeMaterialImage> OriginalScalarImages(
     DiligentOriginalTextureResidency& residency) {
   const auto* v=bank.Find(vs,aot::Stage::Vertex);
   const auto* p=bank.Find(ps,aot::Stage::Pixel);
-  if(!v || !p || !call.observed_shader_constants ||
+  if(!v || !p || !call.observed_vs_matrices || !call.observed_shader_constants ||
      !call.observed_live_pixel_shader_header ||
      !call.observed_live_pixel_shader_header->pixel_sampling ||
      !samplers.Find(vs,aot::Stage::Vertex) || !samplers.Find(ps,aot::Stage::Pixel) ||
