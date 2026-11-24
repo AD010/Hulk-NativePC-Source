@@ -205,6 +205,19 @@ class NativeEorLinkCoverage(unittest.TestCase):
         self.assertIn("return e.BufferSlot==i && e.ValueType==Diligent::VT_UINT32;", draw)
         self.assertIn("runtime?(integer_skin?4u:3u)", draw)
 
+    def test_built_in_eor_claims_before_archive_and_target_work(self):
+        hook=(ROOT / "native_port/src/eor_xdk_hook_bridge.cpp").read_text()
+        worker=hook.split("native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(",1)[1]
+        self.assertLess(worker.index("ClaimLatestIndependentIfSequence(source_sequence)"),
+                        worker.index("RecordObservedOriginalAotPairDemand(*source_snapshot)"))
+        self.assertIn("BuildAutomaticOriginalOwnerCatalogForFrame(host,source_snapshot)",worker)
+        self.assertIn("source_sequence,independent_claimed",worker)
+        self.assertIn("owner_catalog->accepts_live_source(*source_snapshot",worker)
+        mixed=hook.split("HulkEorPresentResult ReplayVerifiedMixedOriginalFrame(",1)[1]
+        self.assertIn("if(!independent_claimed)",mixed)
+        self.assertLess(mixed.index("owner->gpu->CanReplayOriginalXdkTimeline(*snapshot)"),
+                        mixed.index("aot::ReplayAotScene("))
+
     def test_original_archive_graphics_indices_include_real_texstreams(self):
         index = (ROOT / "native_port/src/eor_usa_index.cpp").read_text()
         texture = (ROOT / "native_port/src/eor_original_texture_usa.cpp").read_text()

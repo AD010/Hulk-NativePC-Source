@@ -343,6 +343,15 @@ std::shared_ptr<const Frame> CompletedFrameMailbox::ClaimCleanIfSequence(
   missed_since_take_=0;
   return claimed;
 }
+std::shared_ptr<const Frame>
+CompletedFrameMailbox::ClaimLatestIndependentIfSequence(
+    uint64_t source_sequence) noexcept {
+  if(!source_sequence || !pending_ || pending_->sequence!=source_sequence ||
+     pending_->dropped || pending_->dropped_commands)return {};
+  std::shared_ptr<const Frame> claimed=std::move(pending_);
+  missed_since_take_=0;
+  return claimed;
+}
 bool CompletedFrameMailbox::DiscardIfSequence(
     uint64_t source_sequence) noexcept {
   if(!source_sequence || !pending_ ||

@@ -2052,12 +2052,11 @@ struct AutomaticEorOwner {
     return ordered;
   }
 };
-std::shared_ptr<const VerifiedWorkerEorOwnerCatalog> BuildAutomaticOriginalOwnerCatalog(
-    native_x_renderer::Device& host) {
+std::shared_ptr<const VerifiedWorkerEorOwnerCatalog> BuildAutomaticOriginalOwnerCatalogForFrame(
+    native_x_renderer::Device& host,std::shared_ptr<const Frame> source) {
   if(!host.device() || !host.context() || !host.swap_chain())return {};
   OfflineShaderPack pack;
   std::filesystem::path root,candidate;
-  std::shared_ptr<const Frame> source;
   std::shared_ptr<const VerifiedWorkerEorOwnerCatalog> previous;
   {
     std::lock_guard lock(g_mutex);
@@ -2065,7 +2064,7 @@ std::shared_ptr<const VerifiedWorkerEorOwnerCatalog> BuildAutomaticOriginalOwner
     pack=*g_offline_shader_pack;
     root=g_original_game_asset_root;
     candidate=g_original_material_candidate_index;
-    source=g_frames_for_native.Peek();
+    if(!source)source=g_frames_for_native.Peek();
     previous=g_worker_owner_catalog;
   }
   if(!source || !pack.shaders || !pack.samplers || !pack.virtual_ids)return {};
@@ -2094,6 +2093,10 @@ std::shared_ptr<const VerifiedWorkerEorOwnerCatalog> BuildAutomaticOriginalOwner
     return live && SameAutomaticScene(owned->contract,*live);
   };
   return catalog;
+}
+std::shared_ptr<const VerifiedWorkerEorOwnerCatalog> BuildAutomaticOriginalOwnerCatalog(
+    native_x_renderer::Device& host) {
+  return BuildAutomaticOriginalOwnerCatalogForFrame(host,{});
 }
 
 PreparedEorMixedFrame PrepareOriginalMixedDraws(
@@ -2278,7 +2281,8 @@ PreparedEorMixedFrame PrepareOriginalMixedDraws(
 native_x_renderer::HulkEorPresentResult ReplayVerifiedMixedOriginalFrame(
     native_x_renderer::Device& host,
     std::shared_ptr<const VerifiedWorkerEorOwnerCatalog> owner,
-    std::shared_ptr<const Frame> snapshot,uint64_t source_sequence) noexcept {
+    std::shared_ptr<const Frame> snapshot,uint64_t source_sequence,
+    bool independent_claimed=false) noexcept {
   using Result=native_x_renderer::HulkEorPresentResult;
   if(!snapshot || !owner || !owner->direct_gpu || !host.context() ||
      !host.swap_chain() || snapshot->sequence!=source_sequence ||
@@ -2297,9 +2301,13 @@ native_x_renderer::HulkEorPresentResult ReplayVerifiedMixedOriginalFrame(
     // Reserve this exact complete source Present BEFORE material/PSO staging.
     // Previously a new guest Present during expensive preparation invalidated
     // all work, causing indefinite fallback in an otherwise valid scene.
-    auto claimed=g_frames_for_native.ClaimCleanIfSequence(source_sequence);
-    if(!claimed || claimed!=snapshot)return Result::kNotReady;
-    snapshot=std::move(claimed);
+    if(!independent_claimed) {
+      auto claimed=g_frames_for_native.ClaimCleanIfSequence(source_sequence);
+      if(!claimed || claimed!=snapshot)return Result::kNotReady;
+      snapshot=std::move(claimed);
+    } else if(!owner->prepare_live_original_draws || !owner->accepts_live_source) {
+      return Result::kNotReady;
+    }
     pack=*g_offline_shader_pack;
   }
   // This path does not invoke ResolveCapturedResourceDraws for EFontShader:
@@ -2527,6 +2535,7 @@ native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(
   std::shared_ptr<const Frame> source_snapshot;
   uint64_t source_sequence=0;
   bool has_source_catalog_factory=false;
+  bool built_in_source=false,independent_claimed=false;
   {
     std::lock_guard lock(g_mutex);
     ready=g_verified_worker_frame;
@@ -2541,13 +2550,29 @@ native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(
       g_worker_catalog_factory_last_attempt=0;
     }
     has_source_catalog_factory=static_cast<bool>(g_worker_catalog_factory);
+    if(g_worker_catalog_factory) {
+      const auto* producer=g_worker_catalog_factory->target<
+          decltype(&BuildAutomaticOriginalOwnerCatalog)>();
+      built_in_source=producer && *producer==&BuildAutomaticOriginalOwnerCatalog;
+    }
     if(ready && ready->owner_catalog &&
        ready->owner_catalog!=owner_catalog)
       ready.reset(); // last source catalogue was replaced or cleared
     source_snapshot=g_frames_for_native.Peek();
     if(!source_snapshot)return Result::kNotReady;
     source_sequence=source_snapshot->sequence;
-    if(g_frames_for_native.MissedSinceTake()) {
+    if(built_in_source && !source_snapshot->dropped &&
+       !source_snapshot->dropped_commands) {
+      // The built-in target graph starts from original per-frame clears
+      // and independently owns every native attachment and Resolve. Hold
+      // the latest immutable frame BEFORE archive work, target planning,
+      // prefetch and PSO creation. A faster PPC producer must not starve it.
+      auto claimed=g_frames_for_native.ClaimLatestIndependentIfSequence(source_sequence);
+      if(!claimed || claimed!=source_snapshot)return Result::kNotReady;
+      source_snapshot=std::move(claimed);
+      independent_claimed=true;
+    }
+    if(!independent_claimed && g_frames_for_native.MissedSinceTake()) {
       // A dropped mailbox epoch is never permitted to touch Vulkan.
       // Discard it atomically while still under the original Present lock,
       // release the temporary preview first, and let the NEXT frame compete.
@@ -2603,7 +2628,9 @@ native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(
   }
   if(factory) {
     try {
-      auto verified=(*factory)(host);
+      auto verified=built_in_source ?
+          BuildAutomaticOriginalOwnerCatalogForFrame(host,source_snapshot) :
+          (*factory)(host);
       if(verified && verified->device==&host) {
         // A source Present may advance during GPU asset loading; keep
         // stale-frame detection separate from the atomically checked
@@ -2973,7 +3000,7 @@ native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(
     if(!owner_catalog->accepts_live_source(*source_snapshot,{swap.Width,swap.Height}))
       return Result::kNotReady;
     return ReplayVerifiedMixedOriginalFrame(host,std::move(owner_catalog),
-        std::move(source_snapshot),source_sequence);
+        std::move(source_snapshot),source_sequence,independent_claimed);
   }
   if(owner_catalog && owner_catalog->verified_candidates.empty() &&
      owner_catalog->verified_font_materials.empty())

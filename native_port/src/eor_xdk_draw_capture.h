@@ -763,6 +763,13 @@ class CompletedFrameMailbox {
   // A later guest Present can now publish independently while the sole
   // renderer builds PSOs/materials for this immutable frame.
   std::shared_ptr<const Frame> ClaimCleanIfSequence(uint64_t source_sequence) noexcept;
+  // The independent complete-target-graph producer may claim the latest
+  // immutable epoch even when an older complete Present was overwritten.
+  // This is a reservation, NOT authorization: the caller must verify
+  // every clear, attachment, Resolve, Draw and shader of the claimed frame.
+  // External source-witness/legacy replay still requires ClaimClean.
+  std::shared_ptr<const Frame> ClaimLatestIndependentIfSequence(
+      uint64_t source_sequence) noexcept;
   // A missed Present cannot be replayed. Drop the pending epoch by its
   // exact source sequence EVEN WHILE other threads retain read-only Peek()
   // snapshots. Unlike Take(), this never moves data still being inspected.

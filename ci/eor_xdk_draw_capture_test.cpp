@@ -800,7 +800,16 @@ int main() {
   assert(mailbox.Peek()->sequence==76 && mailbox.MissedSinceTake()==0);
   mailbox.Publish(Frame{77,0,{b}});
   assert(!mailbox.ClaimCleanIfSequence(77));
-  assert(mailbox.DiscardIfSequence(77));
+  assert(!mailbox.ClaimLatestIndependentIfSequence(76));
+  const auto independent=mailbox.ClaimLatestIndependentIfSequence(77);
+  assert(independent && independent->sequence==77 && !mailbox.Peek());
+  assert(mailbox.MissedSinceTake()==0 && mailbox.TotalOverwritten()==1);
+  Frame partial{78,1,{a}};
+  mailbox.Publish(std::move(partial));
+  assert(!mailbox.ClaimLatestIndependentIfSequence(78));
+  assert(mailbox.DiscardIfSequence(78));
+  mailbox.Publish(Frame{79,0,{b}});
+  assert(mailbox.ClaimLatestIndependentIfSequence(79));
   mailbox.Reset();
   // Worker/render-thread loss recovery: discard the overwritten epoch
   // without accidentally authorizing its newest frame, then accept the
