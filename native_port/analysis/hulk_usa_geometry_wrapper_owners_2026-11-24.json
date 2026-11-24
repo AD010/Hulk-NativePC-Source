@@ -1,0 +1,31 @@
+{
+  "schema": "hulk.usa.engine.geometry.wrapper.v1",
+  "source_mapped_guest_sha256": "23bee317d427244f331d3a869ca699bc5cebd3c46d9b527f629a15fc5321f104",
+  "indexed": {
+    "entry": "0x82667648",
+    "source_lr": "0x826676A8",
+    "tail_wrapper": "0x82676288",
+    "xdk": "0x8288E318",
+    "geometry_register": "r31",
+    "engine_register": "r30",
+    "vertex_descriptor_offset": 96,
+    "index_descriptor_offset": 48,
+    "declaration_offset": 132,
+    "index_count_offset": 16
+  },
+  "quad": {
+    "entry": "0x8268BF98",
+    "source_lr": "0x8268BFE4",
+    "tail_wrapper": "0x826762C0",
+    "xdk": "0x8288DF30",
+    "geometry_register": "r30",
+    "engine_register": "r31",
+    "vertex_descriptor_offset": 3160,
+    "declaration_offset": 3120,
+    "primitive": 6,
+    "vertex_count": 4
+  },
+  "last_owner_log_indexed_draws": 556731,
+  "last_owner_log_quad_draws": 9174,
+  "actual_native_present_verified": false
+}

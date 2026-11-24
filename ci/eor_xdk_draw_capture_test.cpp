@@ -149,6 +149,27 @@ void CheckBufferSnapshots() {
 int main() {
   CheckBoundVertexWindow();
   CheckIndexDmaFormats();
+  // The source-defined geometry wrapper preserves the outer call LR.
+  // These guest-memory fixtures exercise its exact buffer owner fields.
+  {
+    GuestMemory mem;
+    RawDraw wrapper{Kind::DrawIndexedVertices,0x8288E318u,0x826676A8u,
+                    {0x500,4,0,0,12,0,0,0}};
+    wrapper.observed_vs_matrices=OriginalVsMatrices{};
+    auto& live=*wrapper.observed_vs_matrices;
+    live.original_guest_device=0x500;
+    live.original_vertex_declaration_guest_object=0x900;
+    live.original_vertex_buffer_guest_objects[0]=0x160;
+    live.original_index_buffer_guest_object=0x130;
+    W(mem,0x300,0x500);W(mem,0x184,0x900);W(mem,0x110,12);
+    const auto binding=ReadOriginalGeometryWrapperOwner(wrapper,0x300,0x100,ReadFake,&mem);
+    assert(binding && binding->geometry==0x100 && binding->index==0x130);
+    W(mem,0x110,15);
+    assert(!ReadOriginalGeometryWrapperOwner(wrapper,0x300,0x100,ReadFake,&mem));
+    W(mem,0x110,12);
+    live.original_vertex_buffer_guest_objects[0]=0x164;
+    assert(!ReadOriginalGeometryWrapperOwner(wrapper,0x300,0x100,ReadFake,&mem));
+  }
   // SHA-pinned USA PPC AOT verified one direct bl into DrawVertices and
   // five into DrawIndexedVertices. Tail branches do NOT create an LR:
   // never mistake their callsite+4 for an authenticated source owner.

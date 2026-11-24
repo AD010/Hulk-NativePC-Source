@@ -508,6 +508,13 @@ struct OriginalInlineGlyphBatch {
   uint32_t declaration=0, vertex_count=0;
   std::shared_ptr<const OriginalGuestBufferBytes> payload;
 };
+// These are original engine geometry wrappers, not a guessed direct
+// BL caller: both wrappers tail-branch into the original XDK method.
+// The retained LR therefore identifies their own source call site.
+struct OriginalGeometryWrapperOwner {
+  uint32_t geometry=0,engine=0,device=0,vertex=0,index=0,declaration=0;
+  bool screen_quad=false;
+};
 struct RawDraw {
   Kind kind{};
   uint32_t function = 0, lr = 0;
@@ -553,6 +560,7 @@ struct RawDraw {
   std::array<std::optional<UsaVertexStreamBinding>,16> vertex_bindings{};
   std::optional<UsaIndexBufferBinding> index_binding;
   std::optional<UsaVertexDeclaration> vertex_declaration;
+  std::optional<OriginalGeometryWrapperOwner> original_geometry_wrapper;
 };
 // Original USA Decal direct XDK call is at guest 0x8265B538.
 // An engine render-item->geometry witness, if present, must match the
@@ -690,6 +698,68 @@ inline bool ValidOriginalShaderPassSamplerStateAtDraw(
   // True presence requires the EXACT live original device state,
   // but false presence is not promoted to a GPU texture proof.
   return true;
+}
+// The original geometry wrapper source code is fingerprinted separately
+// by the live bridge. This routine independently checks the current
+// callee-saved register owners and hardware device bindings. The actual
+// vertex declaration, buffers, shaders and texture proof are still
+// required for a native submission.
+inline std::optional<OriginalGeometryWrapperOwner> ReadOriginalGeometryWrapperOwner(
+    const RawDraw& call,uint32_t r30,uint32_t r31,ReadGuestBytes read,void* user) noexcept {
+  if(!read || !r30 || !r31 || !call.observed_vs_matrices)return {};
+  const bool quad=call.function==0x8288DF30u && call.lr==0x8268BFE4u &&
+                  call.kind==Kind::DrawVertices;
+  const bool indexed=call.function==0x8288E318u && call.lr==0x826676A8u &&
+                     call.kind==Kind::DrawIndexedVertices;
+  if(!quad && !indexed)return {};
+  const uint32_t geometry=quad?r30:r31,engine=quad?r31:r30;
+  const auto word=[&](uint32_t base,uint32_t offset)->std::optional<uint32_t>{
+    std::array<std::byte,4> bytes{};
+    if(!base || uint64_t(base)+offset+4u>(uint64_t{1}<<32) ||
+       !read(user,base+offset,bytes.data(),bytes.size()))return {};
+    return MaterialWord(bytes.data());
+  };
+  const auto device=word(engine,0u);
+  const auto decl=word(geometry,quad?0xc30u:0x84u);
+  const uint32_t vb_offset=quad?0xc58u:0x60u;
+  if(uint64_t(geometry)+vb_offset>UINT32_MAX)return {};
+  const auto vertex=geometry+vb_offset;
+  const auto& live=*call.observed_vs_matrices;
+  if(!device || !*device || *device!=call.gpr[0] ||
+     live.original_guest_device!=*device || !decl || !*decl ||
+     *decl!=live.original_vertex_declaration_guest_object ||
+     vertex!=live.original_vertex_buffer_guest_objects[0])return {};
+  OriginalGeometryWrapperOwner owner{geometry,engine,*device,vertex,0,*decl,quad};
+  if(quad) {
+    // 8268BFD0 passes two triangles, fan topology 6; the wrapper
+    // converts these to four vertices via the original topology table.
+    if(call.gpr[1]!=6u || call.gpr[2]!=0u || call.gpr[3]!=4u)return {};
+  } else {
+    // 8266768C loads geometry+16, divides by 3, and passes triangle
+    // count; 82676288 multiplies by three for XDK indexed count.
+    if(uint64_t(geometry)+0x30u>UINT32_MAX)return {};
+    const auto count=word(geometry,16u);
+    owner.index=geometry+0x30u;
+    if(!count || !*count || *count>INT32_MAX || *count%3u ||
+       call.gpr[1]!=4u || call.gpr[2] || call.gpr[3] ||
+       call.gpr[4]!=*count ||
+       owner.index!=live.original_index_buffer_guest_object)return {};
+  }
+  return owner;
+}
+inline bool OriginalGeometryWrapperHasValidParent(const RawDraw& call) noexcept {
+  if(!call.original_engine_shader_method)return true;
+  const auto& owner=*call.original_engine_shader_method;
+  return owner.original_shader_method_vtable_verified &&
+      owner.original_shader_instance_guest && owner.original_shader_vtable_guest &&
+      owner.nesting_depth && owner.nesting_depth<=16u &&
+      ProvenUsaEorShaderMethodVtablePair(owner.original_shader_method_guest,
+                                          owner.original_shader_vtable_guest) &&
+      ValidOriginalEorSourceRenderItem(call) &&
+      ValidOriginalDecalGeometryBinding(call) &&
+      ValidOriginalDecalItemMaterialBinding(call) &&
+      ValidOriginalShaderPassStageBinding(call) &&
+      ValidOriginalShaderPassSamplerStateAtDraw(call);
 }
 // Verified USA XDK 2.0.6534 method ABI from the original wrapper:
 // DrawIndexedVertices(dev, prim, baseVertex, startIndex, indexCount).

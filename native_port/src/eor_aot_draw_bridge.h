@@ -60,6 +60,16 @@ inline bool ProvesDirectXdkRuntimeBindings(const xdk::RawDraw& source,
      (!xdk::DecodeOriginalVerticesXdkCall(source) && !xdk::DecodeOriginalIndexedXdkCall(source)))
     return false;
   const auto& live=*source.observed_vs_matrices;
+  // Known engine wrapper calls may take the direct runtime path only
+  // when their original geometry owner was actually authenticated.
+  if(source.lr==0x826676A8u || source.lr==0x8268BFE4u) {
+    const auto& geometry=source.original_geometry_wrapper;
+    if(!geometry || !geometry->geometry || !geometry->engine ||
+       geometry->device!=owner || geometry->vertex!=live.original_vertex_buffer_guest_objects[0] ||
+       geometry->declaration!=live.original_vertex_declaration_guest_object ||
+       (!geometry->screen_quad && geometry->index!=live.original_index_buffer_guest_object))
+      return false;
+  }
   const auto& controls=*source.observed_live_pixel_shader_header->pixel_sampling;
   uint16_t seen=0;
   for(const auto& image:samplers) {

@@ -920,6 +920,40 @@ void CapturePpcDraw(Kind kind, uint32_t guest, const PPCContext& ctx,
      draw.original_engine_shader_method->original_shader_method_guest==0x8266A0C0u &&
      draw.original_engine_shader_method->original_shader_method_vtable_verified)
     draw.original_font_fetch=CaptureUsaFontFetch(ctx.r3.u32,ReadGuest,guest_base);
+  // Two dominant USA callsites have a source-defined geometry owner even
+  // when a virtual material method was not active. Validate the original
+  // caller AND the wrapper's tail branch once per immutable guest image.
+  if(draw.observed_vs_matrices &&
+     (draw.lr==0x826676A8u || draw.lr==0x8268BFE4u)) {
+    struct SourceImage {uint8_t* base=nullptr;bool indexed=false,quad=false;};
+    static thread_local SourceImage image;
+    if(image.base!=guest_base) {
+      image={guest_base,false,false};
+      const auto fingerprint=[&](uint32_t addr,size_t size,uint64_t expected) {
+        std::array<std::byte,120> bytes{};
+        if(size>bytes.size() || !ReadGuest(guest_base,addr,bytes.data(),size))return false;
+        uint64_t hash=0xcbf29ce484222325ull;
+        for(size_t i=0;i<size;++i)
+          hash=(hash^std::to_integer<uint8_t>(bytes[i]))*0x100000001b3ull;
+        return hash==expected;
+      };
+      image.indexed=fingerprint(0x82667648u,0x78u,0x3dd4ad253a230bdfull) &&
+                    fingerprint(0x82676288u,0x34u,0x24259fb7d422584dull);
+      image.quad=fingerprint(0x8268bf98u,0x64u,0x44d4d951bb925d7full) &&
+                 fingerprint(0x826762c0u,0x28u,0x03f51a528c7ae7400ull);
+    }
+    if((draw.lr==0x826676A8u && image.indexed) ||
+       (draw.lr==0x8268BFE4u && image.quad)) {
+      draw.original_geometry_wrapper=ReadOriginalGeometryWrapperOwner(
+          draw,ctx.r30.u32,ctx.r31.u32,ReadGuest,guest_base);
+      // An incomplete optional parent must not poison a real Draw that
+      // has independently verified geometry. Remove ONLY the failed
+      // attribution; do not remove the Draw or promote any shader or
+      // texture. The direct runtime path still requires exact resources.
+      if(draw.original_geometry_wrapper && !OriginalGeometryWrapperHasValidParent(draw))
+        draw.original_engine_shader_method.reset();
+    }
+  }
   // Keep buffer revisions and their Draw in the same Present epoch.
   std::lock_guard lock(g_mutex);
   // Learn authentic material texture ownership before shader admission.
