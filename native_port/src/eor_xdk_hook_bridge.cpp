@@ -1839,33 +1839,34 @@ struct AutomaticEorOwner {
     // Strong owners remain attached to this source frame until the
     // existing worker's Vulkan queue completion barrier.
     std::map<uint32_t,std::shared_ptr<const model::UploadedOriginalModel>> models;
-    bool waiting_for_model=false;
+    std::set<size_t> runtime_required;
     std::set<uint32_t> requested;
     // Discover only source-proven texture candidates. Request ALL unique
     // original archive owners for the sampled texture set (bounded).
     // A unique match among an incomplete subset is not archive proof.
-    for(const auto& call:frame.calls) {
+    for(size_t ordinal=0;ordinal<frame.calls.size();++ordinal) {
+      const auto& call=frame.calls[ordinal];
       const auto& parent=call.original_engine_shader_method;
       if(parent && parent->original_shader_method_guest==0x8266a0c0u)continue;
       if(!parent || !call.observed_live_pixel_shader_header ||
          !call.observed_live_pixel_shader_header->pixel_sampling ||
          !parent->original_pass_sampler_slots_verified)
-        throw std::invalid_argument("Original material source sampler mask unavailable");
+        {runtime_required.insert(ordinal);continue;}
       auto mask=call.observed_live_pixel_shader_header->pixel_sampling->sampled_slots;
       if(call.observed_vs_matrices)
         for(uint32_t slot=0;slot<16;++slot)
           if(contract.format.original_graph.HasResolve(call.observed_vs_matrices->original_texture_guest_objects[slot]))
             mask&=static_cast<uint16_t>(~(1u<<slot));
       if(!mask || (mask&~parent->original_pass_sampler_slot_mask))
-        throw std::invalid_argument("Original material lacks unique indexed texture proof");
+        {runtime_required.insert(ordinal);continue;}
       const auto surfaces=candidates->FindLiveSurfaceCandidates(
           call.original_pixel_texture_keys,mask,0,96);
-      if(surfaces.empty())throw std::invalid_argument("Original material archive candidates unresolved");
+      if(surfaces.empty()){runtime_required.insert(ordinal);continue;}
       for(const auto& surface:surfaces) {
         const auto hash=surface.original_model_hash;
         if(models.contains(hash))continue;
         auto resident=source_models->ResidentShared(hash);
-        if(!resident){waiting_for_model=true;requested.insert(hash);continue;}
+        if(!resident){runtime_required.insert(ordinal);requested.insert(hash);continue;}
         models.emplace(hash,std::move(resident));
       }
     }
@@ -1873,7 +1874,6 @@ struct AutomaticEorOwner {
       const std::vector<uint32_t> queue(requested.begin(),requested.end());
       source_models->RequestSourceVerifiedModels(queue);
     }
-    if(waiting_for_model)throw std::runtime_error("Original source models are streaming");
     std::vector<const model::UploadedOriginalModel*> borrowed;
     for(const auto& [_,model]:models) {
       retained.push_back(model);borrowed.push_back(model.get());
@@ -1936,27 +1936,44 @@ struct AutomaticEorOwner {
         ordered.push_back(backend->StageVerifiedOriginalFontDraw(
             call,*layout,frame.sequence,ordinal,atlas,0,*pack.virtual_ids));
       } else {
-        auto produced=gpu::live::ProduceOriginalWorldMaterial(call,frame.sequence,ordinal,
-            borrowed,*pack.shaders,*pack.effects,*pack.virtual_ids,*pack.samplers,
-            contract.format,textures);
-        if(contract.output.widescreen_camera) {
-          const auto& digest=produced.draw.vertex_source_sha256;
+        // Prefer exact resident archive geometry. A transient Draw is
+        // independently verified against its actual declaration, VB/IB and
+        // original material setter, not treated as an approximate archive match.
+        std::optional<gpu::live::ProducedWorldMaterial> archived;
+        if(!runtime_required.contains(i)) {
+          try {
+            archived=gpu::live::ProduceOriginalWorldMaterial(call,frame.sequence,ordinal,
+                borrowed,*pack.shaders,*pack.effects,*pack.virtual_ids,*pack.samplers,
+                contract.format,textures);
+          } catch(const std::invalid_argument&) {}
+        }
+        auto project=[&](gpu::VerifiedOriginalGraphicsPass& pipeline,const aot::Digest& digest) {
+          if(!contract.output.widescreen_camera)return;
           const auto* vertex=pack.shaders->Find(digest,aot::Stage::Vertex);
           const auto* reflected=pack.reflection->Find(digest,aot::Stage::Vertex);
-          const auto projection=vertex && reflected ?
+          const auto projection=vertex && reflected && call.observed_shader_constants ?
               aot::IdentifyLiveScalarProjection(*vertex,*reflected,*call.observed_shader_constants,1280.0/720.0) :
               std::nullopt;
           if(!projection)throw std::invalid_argument("Live perspective camera matrix not proven");
-          auto& pipeline=produced.material.original_pipeline;
           pipeline.original_view_space=gpu::VerifiedOriginalViewSpace::MainPerspective;
           pipeline.original_view_space_verified=true;
           pipeline.source_main_view=gpu::VerifiedOriginalMainView{
               projection->proof,projection->registers.index,1280.0/720.0,true};
+        };
+        if(archived) {
+          auto& produced=*archived;
+          project(produced.material.original_pipeline,produced.draw.vertex_source_sha256);
+          auto draw=native::BindVerifiedGeometryDraws({&produced.draw,1},borrowed,*pack.effects);
+          if(draw.size()!=1u)throw std::runtime_error("Original material did not produce exactly one Draw");
+          backend->AdoptVerifiedOriginalMaterialPasses({&produced.material,1},textures);
+          ordered.push_back(std::move(draw.front()));
+        } else {
+          auto produced=gpu::live::ProduceOriginalRuntimeMaterial(call,frame.sequence,ordinal,
+              *pack.shaders,*pack.effects,*pack.virtual_ids,*pack.samplers,contract.format,textures);
+          project(produced.material.original_pipeline,produced.material.original_pipeline.original_vertex_shader_sha256);
+          ordered.push_back(backend->StageOriginalRuntimeDraw(call,frame.sequence,ordinal,
+              produced.material,produced.geometry,textures));
         }
-        backend->AdoptVerifiedOriginalMaterialPasses({&produced.material,1},textures);
-        auto draw=native::BindVerifiedGeometryDraws({&produced.draw,1},borrowed,*pack.effects);
-        if(draw.size()!=1u)throw std::runtime_error("Original material did not produce exactly one Draw");
-        ordered.push_back(std::move(draw.front()));
       }
     }
     return ordered;
