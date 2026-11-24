@@ -18,6 +18,15 @@ std::optional<Diligent::COMPARISON_FUNCTION> OriginalCompare(
       COMPARISON_FUNC_ALWAYS};
   return encoded<values.size()?std::optional{values[encoded]}:std::nullopt;
 }
+Diligent::StencilOpDesc OriginalStencilFace(uint32_t encoded) noexcept {
+  using namespace Diligent;
+  constexpr std::array<STENCIL_OP,8> ops{
+      STENCIL_OP_KEEP,STENCIL_OP_ZERO,STENCIL_OP_REPLACE,
+      STENCIL_OP_INCR_SAT,STENCIL_OP_DECR_SAT,STENCIL_OP_INVERT,
+      STENCIL_OP_INCR_WRAP,STENCIL_OP_DECR_WRAP};
+  return {ops[(encoded>>3u)&7u],ops[(encoded>>9u)&7u],
+          ops[(encoded>>6u)&7u],*OriginalCompare(encoded&7u)};
+}
 std::optional<Diligent::BLEND_FACTOR> OriginalBlend(uint32_t encoded,
                                                    bool alpha) noexcept {
   using namespace Diligent;
@@ -92,12 +101,12 @@ std::optional<Diligent::GraphicsPipelineDesc> DeriveOriginalXdkGraphicsPipelineS
     return {};
   // Only directly equivalent Xenos states are emitted as a native Vulkan
   // PSO. Alpha test/coverage require faithful source pixel-shader lowering,
-  // stencil requires its own front/back dynamic reference and operation
-  // mapping, and polygon offset requires exact Xenos bias conversion.
+  // distinct per-face stencil masks require separate Vulkan state, and
+  // polygon offset requires exact Xenos bias conversion.
   const uint32_t polygon_mode=(*raster>>3)&3u;
   const uint32_t polygon_front=(*raster>>5)&7u;
   const uint32_t polygon_back=(*raster>>8)&7u;
-  if((*depth&1u) || (*color&0x18u) || (*clip&0x3fu) ||
+  if((*color&0x18u) || (*clip&0x3fu) ||
      ((*raster&3u)==3u) ||
      polygon_mode==3u ||
      (polygon_mode==1u && (polygon_front!=2u || polygon_back!=2u)) ||
@@ -126,7 +135,22 @@ std::optional<Diligent::GraphicsPipelineDesc> DeriveOriginalXdkGraphicsPipelineS
   result.DepthStencilDesc.DepthEnable=z_enabled;
   result.DepthStencilDesc.DepthWriteEnable=z_enabled && ((*depth&4u)!=0u);
   result.DepthStencilDesc.DepthFunc=*compare;
-  result.DepthStencilDesc.StencilEnable=false;
+  auto& stencil=result.DepthStencilDesc;
+  stencil.StencilEnable=(*depth&1u)!=0u;
+  if(stencil.StencilEnable) {
+    if(result.DSVFormat!=TEX_FORMAT_D24_UNORM_S8_UINT)return {};
+    const auto front=source.ReadOriginalXenosRegister(0x210du);
+    const auto back=source.ReadOriginalXenosRegister(0x210cu);
+    if(!front || !back)return {};
+    const bool two_sided=(*depth&0x80u)!=0;
+    // Diligent exposes a single dynamic reference and shared masks.
+    // Preserve independent front/back ops; don't merge distinct masks.
+    if(two_sided && ((*front^*back)&0x00ffffffu))return {};
+    stencil.StencilReadMask=static_cast<Uint8>(*front>>8u);
+    stencil.StencilWriteMask=static_cast<Uint8>(*front>>16u);
+    stencil.FrontFace=OriginalStencilFace(*depth>>8u);
+    stencil.BackFace=two_sided ? OriginalStencilFace(*depth>>20u) : stencil.FrontFace;
+  }
   result.RasterizerDesc.FillMode=FILL_MODE_SOLID;
   result.RasterizerDesc.CullMode=(*raster&1u) ? CULL_MODE_FRONT :
       (*raster&2u) ? CULL_MODE_BACK : CULL_MODE_NONE;
@@ -160,11 +184,16 @@ bool MatchesOriginalXdkGraphicsState(
      expected.DepthStencilDesc.DepthEnable!=state.DepthStencilDesc.DepthEnable ||
      expected.DepthStencilDesc.DepthWriteEnable!=
         state.DepthStencilDesc.DepthWriteEnable ||
-     expected.DepthStencilDesc.StencilEnable ||
+     expected.DepthStencilDesc.StencilEnable!=state.DepthStencilDesc.StencilEnable ||
+     (state.DepthStencilDesc.StencilEnable &&
+       (expected.DepthStencilDesc.StencilReadMask!=state.DepthStencilDesc.StencilReadMask ||
+        expected.DepthStencilDesc.StencilWriteMask!=state.DepthStencilDesc.StencilWriteMask ||
+        !(expected.DepthStencilDesc.FrontFace==state.DepthStencilDesc.FrontFace) ||
+        !(expected.DepthStencilDesc.BackFace==state.DepthStencilDesc.BackFace))) ||
      (expected.DepthStencilDesc.DepthEnable &&
        expected.DepthStencilDesc.DepthFunc!=state.DepthStencilDesc.DepthFunc) ||
      (original.original_depth_unbound &&
-       state.DepthStencilDesc.DepthEnable) ||
+       (state.DepthStencilDesc.DepthEnable || state.DepthStencilDesc.StencilEnable)) ||
      expected.RasterizerDesc.CullMode!=state.RasterizerDesc.CullMode ||
      expected.RasterizerDesc.FrontCounterClockwise!=
         state.RasterizerDesc.FrontCounterClockwise ||
