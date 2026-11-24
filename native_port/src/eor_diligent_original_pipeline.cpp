@@ -65,9 +65,31 @@ std::optional<Diligent::GraphicsPipelineDesc> DeriveOriginalXdkGraphicsPipelineS
   const auto raster=source.ReadOriginalXenosRegister(0x2205u);
   const auto color_mask=source.ReadOriginalXenosRegister(0x2104u);
   const auto surface=source.ReadOriginalXenosRegister(0x2000u);
+  const auto original_color_rt=source.ReadOriginalXenosRegister(0x2001u);
+  const auto original_depth_rt=source.ReadOriginalXenosRegister(0x2002u);
   const auto clip=source.ReadOriginalXenosRegister(0x2204u);
   if(!depth || !blend || !color || !raster || !color_mask ||
-     !surface || !clip)return {};
+     !surface || !original_color_rt || !original_depth_rt || !clip)
+    return {};
+  // The actual current Xbox GPU RT format is not supplied by a shader
+  // effect name or an archived texture. It is the ACTIVE XDK RB_COLOR_INFO
+  // register at the identical original Draw. Do not render a FP16 guest RT
+  // through an RGBA8 native PSO or vice versa. Xenos gamma (format 1),
+  // integer, FP10 and special 16-bit formats need distinct conversions.
+  const uint32_t source_color_format=(*original_color_rt>>16u)&15u;
+  const auto expected_color=source_color_format==0u ?
+      TEX_FORMAT_RGBA8_UNORM : source_color_format==7u ?
+      TEX_FORMAT_RGBA16_FLOAT : TEX_FORMAT_UNKNOWN;
+  if(expected_color==TEX_FORMAT_UNKNOWN ||
+     source_proven_attachments.RTVFormats[0]!=expected_color)
+    return {};
+  // D24FS8 uses an original Xbox 20e4 depth encoding, not a Vulkan
+  // D32 float attachment. The sampled original bound guest depth object
+  // is independently required before the pass can be declared verified.
+  if(source_proven_attachments.DSVFormat!=TEX_FORMAT_UNKNOWN &&
+     (source_proven_attachments.DSVFormat!=TEX_FORMAT_D24_UNORM_S8_UINT ||
+      ((*original_depth_rt>>16u)&1u)!=0u))
+    return {};
   // Only directly equivalent Xenos states are emitted as a native Vulkan
   // PSO. Alpha test/coverage require faithful source pixel-shader lowering,
   // stencil requires its own front/back dynamic reference and operation
