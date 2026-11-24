@@ -11,6 +11,7 @@
 #include <stdexcept>
 #include <string>
 #include <utility>
+#include <thread>
 
 namespace {
 void Expect(bool yes, const char* error) {
@@ -251,6 +252,16 @@ int main() {
          "Original EoR both-axis settings transaction failed");
   Expect(Read(config)=="hulk_mouse_invert_x = true\nhulk_mouse_invert_y = false\nvsync = false\n",
          "Original EoR both-axis settings did not survive transaction");
+  for(unsigned attempt=0;attempt<100;++attempt) {
+    Write(config,"hulk_mouse_invert_x = false\nhulk_mouse_invert_y = true\nvsync = false\n");
+    bool original_ok=false,host_ok=false;
+    std::thread original_menu([&]{original_ok=hulk::options::SaveOriginalLookInversion(true,false);});
+    std::thread pc_menu([&]{host_ok=Save(config,"vsync","true");});
+    original_menu.join();pc_menu.join();
+    Expect(original_ok && host_ok,"Concurrent original and PC option writes failed");
+    Expect(Read(config)=="hulk_mouse_invert_x = true\nhulk_mouse_invert_y = false\nvsync = true\n",
+           "Concurrent menu writes lost a setting");
+  }
   hulk::options::SetLiveConfigPath({});
   Write(config, "vsync = true\nvsync = false\n");
   Expect(!Save(config, "vsync", "true"), "Duplicate TOML keys must be refused");

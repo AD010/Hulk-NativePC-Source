@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <map>
 #include <optional>
 #include <set>
@@ -92,6 +93,16 @@ class EffectCatalog {
     const auto it=reverse_.find(std::pair<Digest,Digest>{vs,ps});
     if(it==reverse_.end())return std::nullopt;
     return it->second;
+  }
+  // A debug-stripped pixel ShaderContainer can be physically identical
+  // to several source records. Only a vertex SHA with exactly one
+  // original paired PS can independently distinguish those records.
+  std::optional<Digest> UniquePixelForVertex(const Digest& vs) const noexcept {
+    const auto it=reverse_.lower_bound(std::pair<Digest,Digest>{vs,Digest{}});
+    if(it==reverse_.end() || it->first.first!=vs)return {};
+    const auto next=std::next(it);
+    if(next!=reverse_.end() && next->first.first==vs)return {};
+    return it->first.second;
   }
   // Compare every original SHA pair/ordinal, not only the 233/5194
   // census. A different ShaderEffects generation may have the same counts.

@@ -42,6 +42,7 @@ int main() {
   assert(catalog.ShaderCount()==6);
   hulk::eor::aot::Digest vs{},ps{};vs.fill(0x11);ps.fill(0x22);
   assert(catalog.HasPair(0x111,0,vs,ps));
+  assert(catalog.UniquePixelForVertex(vs)==ps);
   const auto first_original_pass=catalog.FindOriginalPass(vs,ps);
   assert(first_original_pass && first_original_pass->effect_hash==0x111 &&
          first_original_pass->pass_index==0);
@@ -59,6 +60,8 @@ int main() {
   hulk::eor::aot::Digest reused_vs{},reused_ps{};
   reused_vs.fill(0x11);reused_ps.fill(0x66);
   assert(catalog.HasPair(0x222,1,reused_vs,reused_ps));
+  assert(!catalog.UniquePixelForVertex(reused_vs)); // reused VS must not choose an alias
+  assert(catalog.UniquePixelForVertex(vs)==ps);
   const auto shared_original_pass=catalog.FindOriginalPass(reused_vs,reused_ps);
   assert(shared_original_pass && shared_original_pass->effect_hash==0x222 &&
          shared_original_pass->pass_index==1);

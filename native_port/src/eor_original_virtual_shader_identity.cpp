@@ -287,22 +287,22 @@ size_t OriginalVirtualShaderIdentity::LoadOriginalPixelDebugAliases(
         i+=size_t(v)+p-1;
       }
       if(seen.size()!=2597u)return 0;
-      // Remove EVERY ambiguous source; no guessed effect, path, or ordinal
-      // may select among programs with the same normalized metadata/code.
-      const auto unique_only=[](auto& candidates) {
+      // Preserve every authenticated candidate, even when stripping UPDB
+      // makes several source records identical. The unpaired lookup still
+      // requires uniqueness; the live VS + HEORMAT2 pair may distinguish
+      // candidates without guessing an effect or accepting different code.
+      const auto count_unambiguous=[](const auto& candidates) {
         size_t admitted=0;
-        for(auto it=candidates.begin();it!=candidates.end();) {
+        for(const auto& [_,entries]:candidates) {
           std::map<Digest,size_t> counts;
-          for(const auto& row:it->second)++counts[row.physical_sha];
-          auto& entries=it->second;
-          entries.erase(std::remove_if(entries.begin(),entries.end(),
-             [&](const PixelDebugAlias& row){return counts.at(row.physical_sha)!=1;}),entries.end());
-          admitted+=entries.size();
-          if(entries.empty())it=candidates.erase(it);else ++it;
+          for(const auto& row:entries)++counts[row.physical_sha];
+          for(const auto& row:entries)
+            if(counts.at(row.physical_sha)==1u)++admitted;
         }
         return admitted;
       };
-      const auto admitted=unique_only(next),metadata_admitted=unique_only(metadata);
+      const auto admitted=count_unambiguous(next),
+                 metadata_admitted=count_unambiguous(metadata);
       if(admitted!=2595u || metadata_admitted!=1601u)return 0;
       pixel_debug_aliases_.swap(next);pixel_alias_count_=admitted;
       pixel_metadata_aliases_.swap(metadata);pixel_metadata_count_=metadata_admitted;
@@ -320,7 +320,8 @@ bool OriginalVirtualShaderIdentity::HasPixelDebugCandidate(
 }
 const OriginalVirtualShaderIdentity::PixelDebugAlias*
 OriginalVirtualShaderIdentity::FindPixelDebugAlias(
-    std::span<const uint8_t> header,std::span<const uint8_t> physical) const noexcept {
+    std::span<const uint8_t> header,std::span<const uint8_t> physical,
+    const Digest* paired_pixel_source) const noexcept {
   if(pixel_debug_aliases_.empty() || header.size()<36 ||
      physical.empty() || physical.size()!=Be32(header.data()+8))return nullptr;
   const auto digest=ExactHeaderDigest(physical);
@@ -330,7 +331,8 @@ OriginalVirtualShaderIdentity::FindPixelDebugAlias(
     const auto it=candidates.find(*key);
     if(it==candidates.end())return nullptr;
     const PixelDebugAlias* found=nullptr;
-    for(const auto& entry:it->second)if(entry.physical_sha==digest) {
+    for(const auto& entry:it->second)if(entry.physical_sha==digest &&
+        (!paired_pixel_source || entry.full_source_sha==*paired_pixel_source)) {
       if(found)return nullptr;
       found=&entry;
     }
@@ -353,7 +355,8 @@ std::optional<OriginalLiveXdkShaderHeaderWitness>
 ObserveOriginalBoundXdkShader(
     const OriginalVirtualShaderIdentity& identities, uint32_t object,
     Stage stage, ReadOriginalGuestShaderBytes reader, void* original_guest_base,
-    uint64_t exact_frame_sequence, uint32_t exact_call_ordinal) noexcept {
+    uint64_t exact_frame_sequence, uint32_t exact_call_ordinal,
+    const Digest* paired_pixel_source) noexcept {
   if (!reader || !original_guest_base || !identities.size() ||
       !exact_frame_sequence || exact_call_ordinal == UINT32_MAX)
     return std::nullopt;
@@ -398,12 +401,20 @@ ObserveOriginalBoundXdkShader(
     const auto physical_at=Be32(pointer.data());
     if(!physical_at || uint64_t(physical_at)+physical_bytes>(uint64_t{1}<<32))return {};
     std::vector<uint8_t> physical(physical_bytes);
-    if(!reader(original_guest_base,physical_at,reinterpret_cast<std::byte*>(physical.data()),physical.size()) ||
-       !identities.FindPixelDebugAlias(header,physical))return {};
+    if(!reader(original_guest_base,physical_at,reinterpret_cast<std::byte*>(physical.data()),physical.size()))
+      return {};
+    const auto* alias=identities.FindPixelDebugAlias(header,physical);
+    bool paired=false;
+    if(!alias && paired_pixel_source) {
+      alias=identities.FindPixelDebugAlias(header,physical,paired_pixel_source);
+      paired=alias!=nullptr;
+    }
+    if(!alias)return {};
     OriginalLiveXdkShaderHeaderWitness result{
         object,header_address,true,std::move(header),
         exact_frame_sequence,exact_call_ordinal};
     result.alias_live_physical=std::move(physical);
+    if(paired)result.alias_paired_pixel_source=alias->full_source_sha;
     return result;
   } catch (...) {
     // A guest read, allocation or checksum error is never gameplay-fatal.
@@ -469,7 +480,8 @@ std::optional<OriginalPixelSamplerControls> CaptureOriginalPixelSamplerControls(
         witness.original_virtual_header_guest_address)return {};
   if(!witness.alias_live_physical.empty()) {
     const auto* alias=identities ?
-        identities->FindPixelDebugAlias(header,witness.alias_live_physical):nullptr;
+        identities->FindPixelDebugAlias(header,witness.alias_live_physical,
+            witness.alias_paired_pixel_source ? &*witness.alias_paired_pixel_source : nullptr):nullptr;
     if(!alias || alias->full_source_sha!=source)return {};
     if(const auto known=cache.find(source);known!=cache.end()) {
       const auto& saved=known->second.container;
@@ -534,11 +546,15 @@ std::optional<Digest> ResolveOriginalLiveXdkShaderSource(
      uint64_t(source.original_virtual_header_guest_address)+
          source.exact_original_guest_virtual_header.size()>uint64_t(UINT32_MAX)+1u)
     return std::nullopt;
+  if(source.alias_paired_pixel_source &&
+     (expected_stage!=Stage::Pixel || source.alias_live_physical.empty()))return {};
   if(const auto direct=identities.FindOriginalSource(
-      source.exact_original_guest_virtual_header,expected_stage))return direct;
+      source.exact_original_guest_virtual_header,expected_stage))
+    return source.alias_paired_pixel_source ? std::nullopt : direct;
   if(expected_stage==Stage::Pixel && !source.alias_live_physical.empty())
     if(const auto* alias=identities.FindPixelDebugAlias(
-         source.exact_original_guest_virtual_header,source.alias_live_physical))
+         source.exact_original_guest_virtual_header,source.alias_live_physical,
+         source.alias_paired_pixel_source ? &*source.alias_paired_pixel_source : nullptr))
       return alias->full_source_sha;
   return {};
 }
@@ -557,6 +573,13 @@ std::optional<OriginalEffectPass> ResolveOriginalLiveEorEffectPass(
       identities,pixel,bound_pixel_xdk_object,Stage::Pixel,
       exact_frame_sequence,exact_call_ordinal);
   if(!vs || !ps)return std::nullopt;
+  if(pixel.alias_paired_pixel_source) {
+    // Recheck the independent bound VS from this same frame/ordinal.
+    // An asserted PS selection alone cannot authorize an original pass.
+    const auto paired=effects.UniquePixelForVertex(*vs);
+    if(!paired || *paired!=*ps || *paired!=*pixel.alias_paired_pixel_source)
+      return {};
+  }
   return effects.FindOriginalPass(*vs,*ps);
 }
 

@@ -755,9 +755,15 @@ static void ObserveBoundShaderIdentity(RawDraw& draw,uint32_t vertex,
     draw.observed_live_vertex_shader_header = aot::ObserveOriginalBoundXdkShader(
         sources, vertex, aot::Stage::Vertex,
         ReadGuest, guest_base, frame, ordinal);
+    std::optional<aot::Digest> paired_pixel;
+    if(draw.observed_live_vertex_shader_header && g_original_effect_capture_catalog) {
+      const auto live_vs=aot::ResolveOriginalLiveXdkShaderSource(sources,
+          *draw.observed_live_vertex_shader_header,vertex,aot::Stage::Vertex,frame,ordinal);
+      if(live_vs)paired_pixel=g_original_effect_capture_catalog->UniquePixelForVertex(*live_vs);
+    }
     draw.observed_live_pixel_shader_header = aot::ObserveOriginalBoundXdkShader(
         sources, pixel, aot::Stage::Pixel,
-        ReadGuest, guest_base, frame, ordinal);
+        ReadGuest, guest_base, frame, ordinal,paired_pixel ? &*paired_pixel : nullptr);
     if (draw.observed_live_vertex_shader_header &&
         draw.observed_live_pixel_shader_header && g_original_effect_capture_catalog)
       draw.observed_live_eor_effect_pass = aot::ResolveOriginalLiveEorEffectPass(

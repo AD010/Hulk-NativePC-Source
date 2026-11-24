@@ -51,8 +51,12 @@ class OriginalVirtualShaderIdentity {
   // No new asset download, compilation, or public shader binary is needed.
   size_t LoadOriginalPixelDebugAliases(const std::filesystem::path& game_root) noexcept;
   bool HasPixelDebugCandidate(std::span<const uint8_t> header) const noexcept;
+  // Without a paired digest, ambiguous aliases still fail closed.
+  // A paired digest may narrow candidates only after the independently
+  // verified bound VS identifies its unique original HEORMAT2 partner.
   const PixelDebugAlias* FindPixelDebugAlias(
-      std::span<const uint8_t> header,std::span<const uint8_t> physical) const noexcept;
+      std::span<const uint8_t> header,std::span<const uint8_t> physical,
+      const Digest* paired_pixel_source=nullptr) const noexcept;
   size_t PixelDebugAliasCount() const noexcept {return pixel_alias_count_;}
   size_t PixelMetadataAliasCount() const noexcept {return pixel_metadata_count_;}
   size_t size() const noexcept {return original_.size();}
@@ -107,6 +111,9 @@ struct OriginalLiveXdkShaderHeaderWitness {
   // Present only for an independently source-authenticated debug-path
   // alias. These are actual live physical bytes, never copied from ARC.
   std::vector<uint8_t> alias_live_physical;
+  // Set only when exact metadata + physical code were ambiguous alone.
+  // The real paired VS and HEORMAT2 must confirm this digest at Draw.
+  std::optional<Digest> alias_paired_pixel_source{};
 };
 // Read the inline ShaderContainer of the current USA XDK shader object and
 // establish archive ownership from the SHA-256 of the complete virtual bytes.
@@ -118,7 +125,8 @@ ObserveOriginalBoundXdkShader(
     uint32_t current_bound_xdk_shader_object,
     Stage stage,
     ReadOriginalGuestShaderBytes reader,void* original_guest_base,
-    uint64_t exact_frame_sequence,uint32_t exact_call_ordinal) noexcept;
+    uint64_t exact_frame_sequence,uint32_t exact_call_ordinal,
+    const Digest* paired_pixel_source=nullptr) noexcept;
 std::optional<OriginalPixelSamplerControls> CaptureOriginalPixelSamplerControls(
     const OriginalLiveXdkShaderHeaderWitness& witness,const Digest& original_source,
     ReadOriginalGuestShaderBytes read,void* state,OriginalPixelSamplerCache& cache,
