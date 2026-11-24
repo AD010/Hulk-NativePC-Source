@@ -57,6 +57,9 @@ OriginalEorSourceCoverage g_original_source_coverage; // guarded by g_mutex
 std::filesystem::path g_original_game_asset_root; // guarded by g_mutex
 std::filesystem::path g_original_material_candidate_index; // guarded by g_mutex
 std::filesystem::path g_original_shader_aot_demand_path; // guarded by g_mutex
+std::filesystem::path g_last_incremental_spirv_file; // guarded by g_mutex
+std::filesystem::file_time_type g_last_incremental_spirv_write{}; // guarded
+std::uintmax_t g_last_incremental_spirv_size=0; // guarded
 std::set<std::pair<uint32_t,uint32_t>> g_original_shader_aot_requests; // guarded
 FrameCapture g_collector;
 // Only full-source-hash-verified pixel policies are retained across draw
@@ -1292,6 +1295,9 @@ void ClearOriginalEorGameAssetRoot() noexcept {
   g_original_material_candidate_index.clear();
   g_original_shader_aot_demand_path.clear();
   g_original_shader_aot_requests.clear();
+  g_last_incremental_spirv_file.clear();
+  g_last_incremental_spirv_write={};
+  g_last_incremental_spirv_size=0;
 }
 void InstallOriginalEorMaterialCandidateIndexPath(
     const std::filesystem::path& private_source_index) {
@@ -1300,6 +1306,9 @@ void InstallOriginalEorMaterialCandidateIndexPath(
   g_original_shader_aot_demand_path=private_source_index.empty() ?
       std::filesystem::path{} : private_source_index.parent_path()/"HEORREQ1.txt";
   g_original_shader_aot_requests.clear();
+  g_last_incremental_spirv_file.clear();
+  g_last_incremental_spirv_write={};
+  g_last_incremental_spirv_size=0;
 }
 void ClearVerifiedSourceShaderPack() noexcept {
   std::lock_guard lock(g_mutex);
@@ -1950,6 +1959,54 @@ void RecordObservedOriginalAotPairDemand(const Frame& snapshot) noexcept {
     // fallback. The next real source frame can retry this compilation hint.
   }
 }
+// The Windows AOT compiler atomically replaces hulk_shader_bank.bin while
+// the original game continues producing real XDK Draws. Adopt only validated
+// new original source VS/PS modules, without restarting the game or touching
+// Vulkan GPU pipeline objects. An active GPU owner still requires an
+// explicit completion fence before changing its shader generation.
+void AdoptNewPrivateOriginalSpirvIfSafe(uint64_t sequence) noexcept {
+  if(sequence>5 && sequence%120!=0)return;
+  try {
+    std::filesystem::path root;
+    {
+      std::lock_guard lock(g_mutex);
+      if(g_worker_owner_catalog || g_verified_worker_frame ||
+         g_original_shader_aot_demand_path.empty())
+        return;
+      root=g_original_shader_aot_demand_path.parent_path();
+    }
+    const auto compiled=root/"hulk_shader_bank.bin";
+    const auto alias=root/"HEORSPV1.bin";
+    const auto file=std::filesystem::is_regular_file(compiled)?compiled:alias;
+    std::error_code ec;
+    if(!std::filesystem::is_regular_file(file,ec) || ec)return;
+    const auto size=std::filesystem::file_size(file,ec);
+    if(ec || size<16 || size>1024ull*1024ull*1024ull)return;
+    const auto stamp=std::filesystem::last_write_time(file,ec);
+    if(ec)return;
+    bool changed=false;
+    {
+      std::lock_guard lock(g_mutex);
+      if(g_worker_owner_catalog || g_verified_worker_frame)return;
+      if(file!=g_last_incremental_spirv_file ||
+         size!=g_last_incremental_spirv_size ||
+         stamp!=g_last_incremental_spirv_write) {
+        g_last_incremental_spirv_file=file;
+        g_last_incremental_spirv_size=size;
+        g_last_incremental_spirv_write=stamp;
+        changed=true;
+      }
+    }
+    // A malformed partial bank is never installed; the existing source
+    // identity and fallback remain usable until the compiler replaces it.
+    if(changed && InstallVerifiedSourceShaderPackFromDirectory(root))
+      REXLOG_INFO("[HULK/EOR-AOT] admitted newly compiled, authentic "
+                  "original Xenos VS/PS bank without restarting the guest");
+  } catch(...) {
+    // File replacement in progress or source directory unavailable:
+    // guest original Present must not be disturbed.
+  }
+}
 } // namespace
 
 native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(
@@ -1983,6 +2040,7 @@ native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(
       return Result::kNotReady;
     }
   }
+  AdoptNewPrivateOriginalSpirvIfSafe(source_sequence);
   // The original live ShaderEffects pair is already authenticated by
   // BOTH guest VS/PS XDK ShaderContainer headers and HEORMAT2. Queue its
   // exact VS+PS for private offline AOT even if the full material owner is
