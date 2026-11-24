@@ -1964,52 +1964,79 @@ void RecordObservedOriginalAotPairDemand(const Frame& snapshot) noexcept {
 // new original source VS/PS modules, without restarting the game or touching
 // Vulkan GPU pipeline objects. An active GPU owner still requires an
 // explicit completion fence before changing its shader generation.
-void AdoptNewPrivateOriginalSpirvIfSafe(uint64_t sequence) noexcept {
-  if(sequence>5 && sequence%120!=0)return;
+bool AdoptNewPrivateOriginalSpirvIfSafe(
+    uint64_t sequence,native_x_renderer::Device& host) noexcept {
+  if(sequence>5 && sequence%120!=0)return false;
   try {
     std::filesystem::path root;
     {
       std::lock_guard lock(g_mutex);
-      if(g_worker_owner_catalog || g_verified_worker_frame ||
-         g_original_shader_aot_demand_path.empty())
-        return;
+      // A source owner may already exist while only the FIRST VS/PS
+      // pair was compiled. Requiring an empty owner here made later
+      // shader growth permanently impossible without restarting Hulk.
+      // Such a generation may change ONLY if its source factory can
+      // rebuild every real Vulkan PSO after the GPU completion fence.
+      if(g_original_shader_aot_demand_path.empty() ||
+         (g_worker_owner_catalog && !g_worker_catalog_factory))
+        return false;
       root=g_original_shader_aot_demand_path.parent_path();
     }
     const auto compiled=root/"hulk_shader_bank.bin";
     const auto alias=root/"HEORSPV1.bin";
     const auto file=std::filesystem::is_regular_file(compiled)?compiled:alias;
     std::error_code ec;
-    if(!std::filesystem::is_regular_file(file,ec) || ec)return;
+    if(!std::filesystem::is_regular_file(file,ec) || ec)return false;
     const auto size=std::filesystem::file_size(file,ec);
-    if(ec || size<16 || size>1024ull*1024ull*1024ull)return;
+    if(ec || size<16 || size>1024ull*1024ull*1024ull)return false;
     const auto stamp=std::filesystem::last_write_time(file,ec);
-    if(ec)return;
+    if(ec)return false;
     bool changed=false;
     {
       std::lock_guard lock(g_mutex);
-      if(g_worker_owner_catalog || g_verified_worker_frame)return;
+      if(g_worker_owner_catalog && !g_worker_catalog_factory)
+        return false;
       changed=file!=g_last_incremental_spirv_file ||
               size!=g_last_incremental_spirv_size ||
               stamp!=g_last_incremental_spirv_write;
     }
+    if(!changed)return false;
+    // The prior owner can retain live Vulkan PSOs, textures and scene
+    // attachments. Source generation changes may destroy those owners
+    // ONLY after the SAME host GPU worker has finished its pending draws.
+    // Never install a new bank across an in-flight source frame.
+    bool has_old_gpu_owner=false;
+    {
+      std::lock_guard lock(g_mutex);
+      has_old_gpu_owner=static_cast<bool>(g_worker_owner_catalog) ||
+                         static_cast<bool>(g_verified_worker_frame);
+    }
+    if(has_old_gpu_owner) {
+      if(!host.context())return false;
+      host.context()->Flush();
+      host.context()->WaitForIdle();
+    }
     // AOT writer installs HEORSPV1 first, then the four authenticated
     // metadata banks. Do NOT mark a partially installed generation as
-    // already examined: the next guest frame must be able to retry the
-    // same immutable shader bytes once the remaining files arrive.
-    if(changed && InstallVerifiedSourceShaderPackFromDirectory(root)) {
+    // already examined: the next guest frame retries the same source.
+    if(InstallVerifiedSourceShaderPackFromDirectory(root)) {
       {
         std::lock_guard lock(g_mutex);
         g_last_incremental_spirv_file=file;
         g_last_incremental_spirv_size=size;
         g_last_incremental_spirv_write=stamp;
       }
-      REXLOG_INFO("[HULK/EOR-AOT] admitted newly compiled, authentic "
-                  "original Xenos VS/PS bank without restarting the guest");
+      REXLOG_INFO("[HULK/EOR-AOT] admitted newly compiled original "
+                  "VS/PS bank; GPU owner PSOs must rebuild on next Present");
+      // The caller's locally cached owner/ready pointers belong to the
+      // previous shader generation. Do not submit even ONE more stale
+      // original Vulkan Draw on this epoch after the bank changed.
+      return true;
     }
   } catch(...) {
     // File replacement in progress or source directory unavailable:
     // guest original Present must not be disturbed.
   }
+  return false;
 }
 } // namespace
 
@@ -2044,7 +2071,8 @@ native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(
       return Result::kNotReady;
     }
   }
-  AdoptNewPrivateOriginalSpirvIfSafe(source_sequence);
+  if(AdoptNewPrivateOriginalSpirvIfSafe(source_sequence,host))
+    return Result::kNotReady; // next source epoch rebuilds matching PSOs
   // The original live ShaderEffects pair is already authenticated by
   // BOTH guest VS/PS XDK ShaderContainer headers and HEORMAT2. Queue its
   // exact VS+PS for private offline AOT even if the full material owner is
