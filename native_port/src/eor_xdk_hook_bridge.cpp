@@ -1336,6 +1336,13 @@ void InstallOriginalEorMaterialCandidateIndexPath(
   g_last_incremental_spirv_write={};
   g_last_incremental_spirv_size=0;
 }
+bool HasVerifiedSourceShaderPack() noexcept {
+  std::lock_guard lock(g_mutex);
+  return g_offline_shader_pack && g_offline_shader_pack->shaders &&
+      g_offline_shader_pack->shaders->size() &&
+      g_offline_shader_pack->effects && g_offline_shader_pack->reflection &&
+      g_offline_shader_pack->samplers && g_offline_shader_pack->virtual_ids;
+}
 void ClearVerifiedSourceShaderPack() noexcept {
   std::lock_guard lock(g_mutex);
   g_verified_worker_frame.reset();

@@ -103,8 +103,24 @@ bool NativeXInitialize(
   // here before installing any worker or Vulkan backbuffer. Keep the
   // source-gated EoR worker separate from the NativeX compatibility
   // fallback; no guest XDK memory or material proof is invented.
-  const bool direct_eor_requested =
+  const auto original_source_root=source_root.empty() ?
+      hulk::eor::source::ResolvePackRoot(cache,{}) : source_root;
+  bool direct_eor_requested =
       rex::cvar::Query<bool>("hulk_eor_vulkan_replay");
+  if(direct_eor_requested) {
+    // Reuse the app's authenticated immutable shader pack. Only attempt a
+    // directory reload when startup did not already register all five banks.
+    const bool available=hulk::eor::xdk::HasVerifiedSourceShaderPack() ||
+        hulk::eor::xdk::InstallVerifiedSourceShaderPackFromDirectory(original_source_root);
+    if(!available) {
+      // Preserve normal pacing and avoid byte-exact VB/IB capture when
+      // no EoR submission can possibly succeed. Do not mutate saved TOML.
+      rex::cvar::SetFlagByName("hulk_eor_vulkan_replay","false");
+      direct_eor_requested=false;
+      REXLOG_WARN("[HULK/EOR-WORKER] complete source pack unavailable; "
+                  "direct replay disabled for this session");
+    }
+  }
   bool native_requested = rex::cvar::Query<bool>("native_x_renderer");
   if(direct_eor_requested && !native_requested) {
     const bool selected=rex::cvar::SetFlagByName(
@@ -322,8 +338,6 @@ bool NativeXInitialize(
     // VRT catalog under eor_offline. Reuse THAT SAME private directory by
     // default: writing HEORREQ1 to eor_source while the compiler/metadata
     // lived under eor_offline silently stranded genuine game Draw requests.
-    const auto original_source_root=source_root.empty() ?
-        hulk::eor::source::ResolvePackRoot(cache,{}) : source_root;
     REXLOG_INFO("[HULK/EOR-WORKER] runtime source root={} complete_files={}",
                 original_source_root.string(),
                 hulk::eor::source::HasCompletePack(original_source_root));
@@ -332,8 +346,7 @@ bool NativeXInitialize(
     // never used to synthesize EoR material/PSO ownership.
     hulk::eor::xdk::InstallOriginalEorMaterialCandidateIndexPath(
         original_source_root/"HEORCND1.bin");
-    if(hulk::eor::xdk::InstallVerifiedSourceShaderPackFromDirectory(
-           original_source_root))
+    if(hulk::eor::xdk::HasVerifiedSourceShaderPack())
       REXLOG_INFO("[HULK/EOR-WORKER] source-authenticated HEORSPV1 "
                   "compiled VS/PS subset and four complete original "
                   "identity metadata banks loaded; individual frames "
@@ -342,7 +355,7 @@ bool NativeXInitialize(
       REXLOG_WARN("[HULK/EOR-WORKER] complete original AOT shader bank "
                   "unavailable; independent EoR Draws remain gated");
   }
-  const bool eor_worker_allowed = requested_eor &&
+  const bool eor_worker_allowed = requested_eor && direct_eor_requested &&
       rex::cvar::Query<bool>("hulk_eor_xdk_capture") &&
       !rex::cvar::Query<bool>("native_x_renderer_present_with_swaps");
   if(requested_eor && !eor_worker_allowed)
