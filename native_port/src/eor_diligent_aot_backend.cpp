@@ -1113,7 +1113,10 @@ bool DiligentEorDirectBackend::PreflightOriginalScene(
         const auto derived=DeriveOriginalXdkGraphicsPipelineState(
             live_state,pass.exact_render_state);
         const auto variant=OriginalPipelineVariantKey(key,live_state);
-        if(!derived || !variant)return false;
+        // Render-pass attachments and sample count are owned by the
+        // established scene; a PSO variant must not change that contract.
+        if(!derived || !variant ||
+           derived->SmplDesc.Count!=s.frame.samples)return false;
         auto verified_variant=pass;
         verified_variant.exact_render_state=*derived;
         if(!MatchesOriginalXdkGraphicsState(verified_variant,live_state))
