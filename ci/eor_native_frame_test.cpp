@@ -37,6 +37,40 @@ template<class F> void MustThrow(F f) {
   assert(found);
 }
 int main() {
+  // Multi-pass city-sized target count: distinct intermediate Resolve
+  // resources must not be dropped at an arbitrary 16-image boundary.
+  {
+    using namespace hulk::eor::gpu;
+    OriginalNativeTargetGraph graph;
+    graph.colors={1};graph.first_color=graph.final_color=1;
+    graph.depths={2};graph.first_depth=2;
+    graph.extents[1]={1280,720};graph.extents[2]={1280,720};
+    graph.sample_counts[1]=4;graph.sample_counts[2]=4;
+    graph.color_formats[1]=NativeColorFormat::Rgba16Float;
+    for(uint32_t id=3;id<22;++id) {
+      graph.resolves.push_back(id);
+      graph.extents[id]={320,180};graph.sample_counts[id]=1;
+      graph.color_formats[id]=NativeColorFormat::Rgba8;
+    }
+    FrameGeometry frame{};
+    frame.world={2560,1600};frame.backbuffer=frame.world;
+    frame.original_guest={1280,720};
+    const uint64_t exact=uint64_t(2560)*1600*(4*8+4*4+8)+uint64_t(19)*320*180*4;
+    assert(OriginalTargetGraphFitsBudget(graph,frame,exact));
+    assert(!OriginalTargetGraphFitsBudget(graph,frame,exact-1));
+    graph.partial_msaa_sources.insert(1);
+    assert(!OriginalTargetGraphFitsBudget(graph,frame,exact));
+    assert(OriginalTargetGraphFitsBudget(graph,frame,exact+uint64_t(2560)*1600*8));
+    graph.partial_msaa_sources.clear();
+    graph.extents.erase(3);
+    assert(!OriginalTargetGraphFitsBudget(graph,frame));
+    graph.extents[3]={320,180};
+    for(uint32_t id=22;id<36;++id) {
+      graph.resolves.push_back(id);graph.extents[id]={20,11};
+      graph.sample_counts[id]=1;graph.color_formats[id]=NativeColorFormat::Rgba8;
+    }
+    assert(!OriginalTargetGraphFitsBudget(graph,frame)); // 33 distinct resolves
+  }
   hulk::eor::xdk::OriginalRasterWindow v{64,32,800,400,0.25f,0.75f,true,{96,48,400,296}};
   const Rect hud{0,80,2560,1440};
   auto raster=MapOriginalRasterWindow(v,{1280,720},hud);

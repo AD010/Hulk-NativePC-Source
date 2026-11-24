@@ -88,6 +88,45 @@ struct OriginalNativeTargetGraph {
     return std::binary_search(resolves.begin(),resolves.end(),id);
   }
 };
+// The retail city post stack may require more than sixteen independent
+// Resolve destinations. Keep each resource distinct, with a physical
+// byte budget rather than lowering the scene to an incomplete subset.
+inline constexpr size_t kMaxOriginalColorTargets=16;
+inline constexpr size_t kMaxOriginalDepthTargets=16;
+inline constexpr size_t kMaxOriginalResolveTargets=32;
+inline constexpr uint64_t kMaxOriginalSceneImageBytes=uint64_t{2}<<30;
+inline bool OriginalTargetGraphFitsBudget(const OriginalNativeTargetGraph& graph,
+    const native::FrameGeometry& frame,
+    uint64_t budget=kMaxOriginalSceneImageBytes) noexcept {
+  if(!graph.active() || !graph.HasColor(graph.final_color) ||
+     graph.colors.size()>kMaxOriginalColorTargets ||
+     graph.depths.size()>kMaxOriginalDepthTargets ||
+     graph.resolves.size()>kMaxOriginalResolveTargets)return false;
+  uint64_t remaining=budget;
+  const auto charge=[&](uint32_t id,bool depth,bool single_sample) {
+    if(!id || !graph.extents.contains(id) || !graph.sample_counts.contains(id))return false;
+    const auto size=graph.HostExtent(id,frame);
+    const auto samples=single_sample?1u:graph.Samples(id,0);
+    if(!size.width || !size.height || size.width>16384 || size.height>16384 ||
+       (samples!=1 && samples!=2 && samples!=4 && samples!=8))return false;
+    const auto format=graph.ColorFormat(id,NativeColorFormat::Unknown);
+    if(!depth && format!=NativeColorFormat::Rgba8 &&
+       format!=NativeColorFormat::Rgba16Float)return false;
+    const uint64_t bytes=uint64_t(size.width)*size.height*samples*
+        (depth || format==NativeColorFormat::Rgba8?4u:8u);
+    if(bytes>remaining)return false;
+    remaining-=bytes;
+    return true;
+  };
+  for(auto id:graph.colors)if(!charge(id,false,false))return false;
+  for(auto id:graph.depths)if(!charge(id,true,false))return false;
+  for(auto id:graph.resolves)if(!charge(id,false,true))return false;
+  for(auto id:graph.partial_msaa_sources)
+    if(!graph.HasColor(id) || graph.Samples(id,0)<=1 || !charge(id,false,true))return false;
+  // The final scene has an additional single-sample image only for MSAA.
+  if(graph.Samples(graph.final_color,0)>1 && !charge(graph.final_color,false,true))return false;
+  return true;
+}
 struct VerifiedSceneFormat {
   NativeColorFormat color = NativeColorFormat::Unknown;
   NativeDepthFormat depth = NativeDepthFormat::Unknown;
@@ -209,7 +248,7 @@ inline std::optional<OriginalSourceTargetFormat> PlanOriginalNativeTargets(
     }
   }
   if(!output.samples || colors.empty() ||
-     colors.size()>16 || depths.size()>16)return {};
+     colors.size()>kMaxOriginalColorTargets || depths.size()>kMaxOriginalDepthTargets)return {};
   const auto front=source.commands.back().gpr[1];
   if(!front || colors.contains(front) || depths.contains(front))return {};
   uint32_t active_color=graph.first_color;
@@ -329,7 +368,7 @@ inline std::optional<OriginalSourceTargetFormat> PlanOriginalNativeTargets(
       default:return {};
     }
   }
-  if(!final_resolved || resolve_destinations.size()>16)return {};
+  if(!final_resolved || resolve_destinations.size()>kMaxOriginalResolveTargets)return {};
   graph.colors.assign(colors.begin(),colors.end());
   graph.depths.assign(depths.begin(),depths.end());
   graph.resolves.assign(resolve_destinations.begin(),resolve_destinations.end());

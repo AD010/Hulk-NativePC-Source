@@ -78,7 +78,7 @@ bool DiligentSceneTargets::Prepare(const native::FrameGeometry& frame,
      (!graph.HasColor(graph.first_color) || !graph.HasColor(graph.final_color) ||
       !graph.HasDepth(graph.first_depth) || graph.final_color!=verified.original_screen.guest_rt0 ||
       graph.front_buffer!=verified.original_screen.guest_front_buffer ||
-      graph.colors.size()>16 || graph.depths.size()>16 || graph.resolves.size()>16))
+      !OriginalTargetGraphFitsBudget(graph,frame)))
     return false;
   if(!frame.direct_engine_path_ready || !verified.original_color_format_verified ||
      !verified.original_depth_format_verified ||

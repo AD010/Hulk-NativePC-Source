@@ -1870,7 +1870,8 @@ std::optional<AutomaticSceneContract> OriginalTargetContract(
   setup.samples=target->samples;
   setup.projection_hook_verified=aspect_change;
   result.output=native::PlanFrame(setup);
-  if(!result.output.direct_engine_path_ready)return {};
+  if(!result.output.direct_engine_path_ready ||
+     !gpu::OriginalTargetGraphFitsBudget(result.format.original_graph,result.output))return {};
   return result;
 }
 bool SameAutomaticScene(const AutomaticSceneContract& a,
@@ -2609,6 +2610,16 @@ bool AdoptNewPrivateOriginalSpirvIfSafe(
       // rebuild every real Vulkan PSO after the GPU completion fence.
       if(g_original_shader_aot_demand_path.empty() ||
          (g_worker_owner_catalog && !g_worker_catalog_factory))
+        return false;
+      // Cumulative AOT cannot add any further programs after the complete
+      // authenticated bank has been installed. Reopening the same bank
+      // at the first Present discards valid owners and forces a second
+      // source/metadata load for no benefit. Replacing a complete bank
+      // now requires a restart (or explicit InstallVerifiedSourceShaderPack).
+      if(g_offline_shader_pack && g_offline_shader_pack->shaders &&
+         g_offline_shader_pack->shaders->HasFullArchiveCoverage() &&
+         g_offline_shader_pack->effects && g_offline_shader_pack->reflection &&
+         g_offline_shader_pack->samplers && g_offline_shader_pack->virtual_ids)
         return false;
       root=g_original_shader_aot_demand_path.parent_path();
     }
