@@ -32,3 +32,5 @@ Retry 14: correct MSVC Draw witness regression: restore original source VB after
 Retry 15: use the exact one-shot marker accepted by ci/test_native_x_d140_dispatch.py; run latest main after source-only validation.
 
 2026-11-24: user explicitly requested Windows Release retry after EoR link coverage and runtime uint4 fixes.
+
+2026-11-24: user requested retry after original EoR pass record test drift; aggregate source preflight failures before any private build.

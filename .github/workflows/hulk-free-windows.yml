@@ -6,6 +6,10 @@ on:
   # The previous push marker remains archived as source history but it
   # must never trigger another build by an unrelated commit.
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'ci/hulk-release-request-2026-11-21.txt'
 permissions:
   contents: write
 concurrency:
@@ -76,81 +80,80 @@ jobs:
       - name: Verify NativeX D140 complete source adaptation and regression safety
         shell: pwsh
         run: |
+          $sourceFailures = [System.Collections.Generic.List[string]]::new()
           python ci/test_native_x_patch_chain.py --d140
-          if ($LASTEXITCODE -ne 0) {
-            throw 'NativeX D140 fa19ea85 full source patch integration FAILED; refusing private Windows build.'
-          }
+          if ($LASTEXITCODE -ne 0) { $sourceFailures.Add('ci/test_native_x_patch_chain.py --d140'); Write-Host '[HULK/PREFLIGHT-FAIL] ci/test_native_x_patch_chain.py --d140' }
           python ci/test_report_hulk_compiler_failure.py
-          if ($LASTEXITCODE -ne 0) { throw 'Redacted current-build diagnostics self-test failed' }
+          if ($LASTEXITCODE -ne 0) { $sourceFailures.Add('ci/test_report_hulk_compiler_failure.py'); Write-Host '[HULK/PREFLIGHT-FAIL] ci/test_report_hulk_compiler_failure.py' }
           python ci/test_patch_sdk_hulk_fps_probe.py
-          if ($LASTEXITCODE -ne 0) { throw 'Hulk VdSwap cvar test failed' }
+          if ($LASTEXITCODE -ne 0) { $sourceFailures.Add('ci/test_patch_sdk_hulk_fps_probe.py'); Write-Host '[HULK/PREFLIGHT-FAIL] ci/test_patch_sdk_hulk_fps_probe.py' }
           python ci/test_hulk_us_gpu_defaults.py
-          if ($LASTEXITCODE -ne 0) { throw 'USA game configuration test failed' }
+          if ($LASTEXITCODE -ne 0) { $sourceFailures.Add('ci/test_hulk_us_gpu_defaults.py'); Write-Host '[HULK/PREFLIGHT-FAIL] ci/test_hulk_us_gpu_defaults.py' }
           python ci/test_audit_hulk_sdk_services.py
-          if ($LASTEXITCODE -ne 0) { throw 'ReXGlue XMA/XAM/VFS/thread source services audit regression failed' }
+          if ($LASTEXITCODE -ne 0) { $sourceFailures.Add('ci/test_audit_hulk_sdk_services.py'); Write-Host '[HULK/PREFLIGHT-FAIL] ci/test_audit_hulk_sdk_services.py' }
           python ci/test_patch_sdk_upstream_v011_ppc.py
-          if ($LASTEXITCODE -ne 0) { throw 'ReXGlue v0.11 source-only PPC backport regression failed' }
+          if ($LASTEXITCODE -ne 0) { $sourceFailures.Add('ci/test_patch_sdk_upstream_v011_ppc.py'); Write-Host '[HULK/PREFLIGHT-FAIL] ci/test_patch_sdk_upstream_v011_ppc.py' }
           python ci/test_audit_hulk_pc_middleware.py
+          if ($LASTEXITCODE -ne 0) { $sourceFailures.Add('ci/test_audit_hulk_pc_middleware.py'); Write-Host '[HULK/PREFLIGHT-FAIL] ci/test_audit_hulk_pc_middleware.py' }
           python ci/test_audit_hulk_fmod_owner_pair.py
-          if ($LASTEXITCODE -ne 0) { throw 'Original FMOD 32bit DLL and USA event index comparison regression failed' }
-          if ($LASTEXITCODE -ne 0) { throw 'Original Windows 2008 FMOD/Havok pure-PE audit regression failed' }
+          if ($LASTEXITCODE -ne 0) { $sourceFailures.Add('ci/test_audit_hulk_fmod_owner_pair.py'); Write-Host '[HULK/PREFLIGHT-FAIL] ci/test_audit_hulk_fmod_owner_pair.py' }
           python ci/test_audit_hulk_gpu_load.py
+          if ($LASTEXITCODE -ne 0) { $sourceFailures.Add('ci/test_audit_hulk_gpu_load.py'); Write-Host '[HULK/PREFLIGHT-FAIL] ci/test_audit_hulk_gpu_load.py' }
           python ci/test_native_gpu_autodiag.py
-          if ($LASTEXITCODE -ne 0) { throw 'Native Vulkan auto GPU diagnostic sink source regression failed' }
-          if ($LASTEXITCODE -ne 0) { throw 'NativeX real GPU interval statistics parser regression failed' }
+          if ($LASTEXITCODE -ne 0) { $sourceFailures.Add('ci/test_native_gpu_autodiag.py'); Write-Host '[HULK/PREFLIGHT-FAIL] ci/test_native_gpu_autodiag.py' }
           python ci/test_patch_sdk_hulk_thread_probe.py
-          if ($LASTEXITCODE -ne 0) { throw 'Read-only real guest thread/affinity CPU probe SDK patch regression failed' }
+          if ($LASTEXITCODE -ne 0) { $sourceFailures.Add('ci/test_patch_sdk_hulk_thread_probe.py'); Write-Host '[HULK/PREFLIGHT-FAIL] ci/test_patch_sdk_hulk_thread_probe.py' }
           python ci/test_hulk_pc_menu.py
-          if ($LASTEXITCODE -ne 0) { throw 'Native PC menu regression failed' }
+          if ($LASTEXITCODE -ne 0) { $sourceFailures.Add('ci/test_hulk_pc_menu.py'); Write-Host '[HULK/PREFLIGHT-FAIL] ci/test_hulk_pc_menu.py' }
           # Check actual linked native EoR EXE units and the independent
           # model/geometry MSVC link command before downloading private XEX.
           python ci/test_hulk_native_eor_link_coverage.py
-          if ($LASTEXITCODE -ne 0) { throw 'EoR EXE source manifest or native model adapter link dependencies incomplete' }
+          if ($LASTEXITCODE -ne 0) { $sourceFailures.Add('ci/test_hulk_native_eor_link_coverage.py'); Write-Host '[HULK/PREFLIGHT-FAIL] ci/test_hulk_native_eor_link_coverage.py' }
           # Synthetic-only PM4/header/shader-family test: no private XEX
           # and no game shader bytes are loaded into the source workspace.
           python tools/audit_hulk_shader_pm4_overlap.py --test
-          if ($LASTEXITCODE -ne 0) { throw '27-word shader/PM4 provenance classifier regression failed' }
+          if ($LASTEXITCODE -ne 0) { $sourceFailures.Add('tools/audit_hulk_shader_pm4_overlap.py --test'); Write-Host '[HULK/PREFLIGHT-FAIL] tools/audit_hulk_shader_pm4_overlap.py --test' }
           python ci/test_audit_hulk_pc_x360_ui_assets.py
-          if ($LASTEXITCODE -ne 0) { throw 'Original EoR UI archive/index regression failed (no game assets used)' }
+          if ($LASTEXITCODE -ne 0) { $sourceFailures.Add('ci/test_audit_hulk_pc_x360_ui_assets.py'); Write-Host '[HULK/PREFLIGHT-FAIL] ci/test_audit_hulk_pc_x360_ui_assets.py' }
           # Assert the actual original Xbox pause-page serialized VM symbol
           # route before the private build. No proprietary OBJECTS.ARC is
           # required to execute this synthetic-only regression.
           python ci/test_audit_hulk_original_pause_ui_objects.py
-          if ($LASTEXITCODE -ne 0) { throw 'Original Xbox pause VM route regression failed' }
+          if ($LASTEXITCODE -ne 0) { $sourceFailures.Add('ci/test_audit_hulk_original_pause_ui_objects.py'); Write-Host '[HULK/PREFLIGHT-FAIL] ci/test_audit_hulk_original_pause_ui_objects.py' }
           # Actual original USA EoR VM native state_r callback is
           # source-verified independently from genuine private PPC image.
           # The test uses only synthetic methods; never imports Xbox data.
           python ci/test_hulk_usa_pause_state_vm_dispatch.py
-          if ($LASTEXITCODE -ne 0) { throw 'Original USA pause VM state_r native PPC ABI witness invalid' }
+          if ($LASTEXITCODE -ne 0) { $sourceFailures.Add('ci/test_hulk_usa_pause_state_vm_dispatch.py'); Write-Host '[HULK/PREFLIGHT-FAIL] ci/test_hulk_usa_pause_state_vm_dispatch.py' }
           python ci/test_audit_hulk_havok_pair.py
-          if ($LASTEXITCODE -ne 0) { throw 'Original user-indexed PC/Xbox Havok 5.1 section/fixup synthetic regression failed' }
+          if ($LASTEXITCODE -ne 0) { $sourceFailures.Add('ci/test_audit_hulk_havok_pair.py'); Write-Host '[HULK/PREFLIGHT-FAIL] ci/test_audit_hulk_havok_pair.py' }
           python ci/test_hulk_eor_extract_named_assets.py
-          if ($LASTEXITCODE -ne 0) { throw 'Original EoR CRC32 named asset extractor regression failed (synthetic assets only)' }
+          if ($LASTEXITCODE -ne 0) { $sourceFailures.Add('ci/test_hulk_eor_extract_named_assets.py'); Write-Host '[HULK/PREFLIGHT-FAIL] ci/test_hulk_eor_extract_named_assets.py' }
           python ci/test_hulk_shader_effect_bank.py
-          if ($LASTEXITCODE -ne 0) { throw 'Private X360 EoR effect bank extraction regression failed' }
+          if ($LASTEXITCODE -ne 0) { $sourceFailures.Add('ci/test_hulk_shader_effect_bank.py'); Write-Host '[HULK/PREFLIGHT-FAIL] ci/test_hulk_shader_effect_bank.py' }
           python ci/test_hulk_xenos_aot.py
-          if ($LASTEXITCODE -ne 0) { throw 'Hulk XenosRecomp/DXC offline AOT toolchain regression failed' }
+          if ($LASTEXITCODE -ne 0) { $sourceFailures.Add('ci/test_hulk_xenos_aot.py'); Write-Host '[HULK/PREFLIGHT-FAIL] ci/test_hulk_xenos_aot.py' }
           # Native original ShaderEffects shader and material source-only verification.
           python ci/test_hulk_xenos_to_spirv.py
-          if ($LASTEXITCODE -ne 0) { throw 'Hulk Xenos shader-to-SPIR-V offline compiler validation failed' }
+          if ($LASTEXITCODE -ne 0) { $sourceFailures.Add('ci/test_hulk_xenos_to_spirv.py'); Write-Host '[HULK/PREFLIGHT-FAIL] ci/test_hulk_xenos_to_spirv.py' }
           python ci/test_hulk_spirv_resource_contract.py
-          if ($LASTEXITCODE -ne 0) { throw 'Native Vulkan sampled-image descriptor/name preflight failed' }
+          if ($LASTEXITCODE -ne 0) { $sourceFailures.Add('ci/test_hulk_spirv_resource_contract.py'); Write-Host '[HULK/PREFLIGHT-FAIL] ci/test_hulk_spirv_resource_contract.py' }
           python ci/test_hulk_eor_xdk_callsite_crosswalk.py
-          if ($LASTEXITCODE -ne 0) { throw 'Hulk USA engine PPC/XDK runtime callsite correlation test failed' }
+          if ($LASTEXITCODE -ne 0) { $sourceFailures.Add('ci/test_hulk_eor_xdk_callsite_crosswalk.py'); Write-Host '[HULK/PREFLIGHT-FAIL] ci/test_hulk_eor_xdk_callsite_crosswalk.py' }
           # Exact SHA-pinned original USA PPC XDK entry ABI + all eight
           # direct source callers; synthetic only, no private code/asset
           # bytes in public Windows jobs. Material/guest UI ABI not inferred.
           python ci/test_hulk_verify_original_usa_xdk_draw_abi.py
-          if ($LASTEXITCODE -ne 0) { throw 'Original USA PPC XDK entry ABI source witness regression failed' }
+          if ($LASTEXITCODE -ne 0) { $sourceFailures.Add('ci/test_hulk_verify_original_usa_xdk_draw_abi.py'); Write-Host '[HULK/PREFLIGHT-FAIL] ci/test_hulk_verify_original_usa_xdk_draw_abi.py' }
           python ci/test_hulk_usa_eor_shader_vtables.py
-          if ($LASTEXITCODE -ne 0) { throw 'Original USA 52 shader class vtables and 20 shared/unique PPC entry hooks invalid' }
+          if ($LASTEXITCODE -ne 0) { $sourceFailures.Add('ci/test_hulk_usa_eor_shader_vtables.py'); Write-Host '[HULK/PREFLIGHT-FAIL] ci/test_hulk_usa_eor_shader_vtables.py' }
           python ci/test_hulk_usa_decal_guest_geometry_abi.py
-          if ($LASTEXITCODE -ne 0) { throw 'Original USA Decal per-item geometry->XDK VB/IB PPC ABI proof invalid' }
+          if ($LASTEXITCODE -ne 0) { $sourceFailures.Add('ci/test_hulk_usa_decal_guest_geometry_abi.py'); Write-Host '[HULK/PREFLIGHT-FAIL] ci/test_hulk_usa_decal_guest_geometry_abi.py' }
           # Real source 92-byte EoR material-state selector -> two actual
           # original XDK shader setters. 19 PPC instruction signatures;
           # never claim it proves archived ShaderEffects PDB pass index.
           python ci/test_hulk_usa_eor_pass_stage_abi.py
-          if ($LASTEXITCODE -ne 0) { throw 'USA original EoR dual-stage VS/PS XDK material pass source ABI regression failed' }
+          if ($LASTEXITCODE -ne 0) { $sourceFailures.Add('ci/test_hulk_usa_eor_pass_stage_abi.py'); Write-Host '[HULK/PREFLIGHT-FAIL] ci/test_hulk_usa_eor_pass_stage_abi.py' }
           # Real original USA ShaderEffect::render-item virtual call:
           # 52 source-matched vtables, 22 distinct PPC functions,
           # PPC bctrl at 0x82642BD4, only LR 0x82642BD8 may bind
@@ -158,39 +161,40 @@ jobs:
           # Item vtable+48 material source returns r27 (17 PPC checks),
           # not a guessed material hash or a ShaderEffects effect pass.
           python ci/test_hulk_usa_shader_render_item_dispatch_abi.py
-          if ($LASTEXITCODE -ne 0) { throw 'Original USA EoR per-item shader virtual source ABI or 22-hook coverage failed' }
+          if ($LASTEXITCODE -ne 0) { $sourceFailures.Add('ci/test_hulk_usa_shader_render_item_dispatch_abi.py'); Write-Host '[HULK/PREFLIGHT-FAIL] ci/test_hulk_usa_shader_render_item_dispatch_abi.py' }
           python ci/test_hulk_ghidra_xdk_crosscheck.py
-          if ($LASTEXITCODE -ne 0) { throw 'Ghidra/ReXGlue/live XDK triple-evidence verifier failed' }
+          if ($LASTEXITCODE -ne 0) { $sourceFailures.Add('ci/test_hulk_ghidra_xdk_crosscheck.py'); Write-Host '[HULK/PREFLIGHT-FAIL] ci/test_hulk_ghidra_xdk_crosscheck.py' }
           # Single source-only suite; real ReXGlue source anchors are
           # independently checked at each staged SDK patch in BUILD_WINDOWS.
           python ci/test_patch_sdk_hulk_xenia_edge.py
-          if ($LASTEXITCODE -ne 0) { throw 'Xenia Edge shader/index/packed-mip source backport tests failed' }
+          if ($LASTEXITCODE -ne 0) { $sourceFailures.Add('ci/test_patch_sdk_hulk_xenia_edge.py'); Write-Host '[HULK/PREFLIGHT-FAIL] ci/test_patch_sdk_hulk_xenia_edge.py' }
           python ci/test_patch_xenosrecomp_hulk_fetch.py
-          if ($LASTEXITCODE -ne 0) { throw 'Hulk strict Xenos fetch adapter regression failed' }
+          if ($LASTEXITCODE -ne 0) { $sourceFailures.Add('ci/test_patch_xenosrecomp_hulk_fetch.py'); Write-Host '[HULK/PREFLIGHT-FAIL] ci/test_patch_xenosrecomp_hulk_fetch.py' }
           python ci/test_patch_xenosrecomp_hulk_lod.py
-          if ($LASTEXITCODE -ne 0) { throw 'Hulk computed LOD native adapter regression failed' }
+          if ($LASTEXITCODE -ne 0) { $sourceFailures.Add('ci/test_patch_xenosrecomp_hulk_lod.py'); Write-Host '[HULK/PREFLIGHT-FAIL] ci/test_patch_xenosrecomp_hulk_lod.py' }
           python ci/test_patch_xenosrecomp_hulk_gradients.py
-          if ($LASTEXITCODE -ne 0) { throw 'Hulk original registered gradient adapter regression failed' }
+          if ($LASTEXITCODE -ne 0) { $sourceFailures.Add('ci/test_patch_xenosrecomp_hulk_gradients.py'); Write-Host '[HULK/PREFLIGHT-FAIL] ci/test_patch_xenosrecomp_hulk_gradients.py' }
           python ci/test_audit_hulk_eor_shader_coverage.py
-          if ($LASTEXITCODE -ne 0) { throw 'Hulk original shader opcode audit regression failed' }
+          if ($LASTEXITCODE -ne 0) { $sourceFailures.Add('ci/test_audit_hulk_eor_shader_coverage.py'); Write-Host '[HULK/PREFLIGHT-FAIL] ci/test_audit_hulk_eor_shader_coverage.py' }
           python ci/test_hulk_eor_effect_ledger.py
-          if ($LASTEXITCODE -ne 0) { throw 'Hulk original effect/VS/PS identity ledger regression failed' }
+          if ($LASTEXITCODE -ne 0) { $sourceFailures.Add('ci/test_hulk_eor_effect_ledger.py'); Write-Host '[HULK/PREFLIGHT-FAIL] ci/test_hulk_eor_effect_ledger.py' }
           python ci/test_hulk_eor_shader_reflection.py
-          if ($LASTEXITCODE -ne 0) { throw 'Original EoR camera/constant register reflection regression failed' }
+          if ($LASTEXITCODE -ne 0) { $sourceFailures.Add('ci/test_hulk_eor_shader_reflection.py'); Write-Host '[HULK/PREFLIGHT-FAIL] ci/test_hulk_eor_shader_reflection.py' }
           python ci/test_hulk_eor_shader_samplers.py
-          if ($LASTEXITCODE -ne 0) { throw 'Original shader sampler register provenance/reflection regression failed' }
+          if ($LASTEXITCODE -ne 0) { $sourceFailures.Add('ci/test_hulk_eor_shader_samplers.py'); Write-Host '[HULK/PREFLIGHT-FAIL] ci/test_hulk_eor_shader_samplers.py' }
           # Full source-only pinned USA Xbox ShaderEffects census:
           # 2597 original PDB VS/PS pairs, 5194 unique shaders,
           # 4420 sampler declarations. No proprietary shader bytes in CI.
           python ci/test_hulk_verify_usa_original_shader_effects.py
-          if ($LASTEXITCODE -ne 0) { throw 'Original USA full ShaderEffects and live Vulkan sampler-source contract regression failed' }
+          if ($LASTEXITCODE -ne 0) { $sourceFailures.Add('ci/test_hulk_verify_usa_original_shader_effects.py'); Write-Host '[HULK/PREFLIGHT-FAIL] ci/test_hulk_verify_usa_original_shader_effects.py' }
           # Source-only original 5194-program virtual metadata fingerprint
           # generation from actual owner private 233-effect manifest shape.
           # Synthetic collision/corruption tests; original GPU code stays private.
           python ci/test_hulk_eor_virtual_shader_identity.py
-          if ($LASTEXITCODE -ne 0) { throw 'Original virtual header SHA to full original Xenos source crosswalk regression failed' }
+          if ($LASTEXITCODE -ne 0) { $sourceFailures.Add('ci/test_hulk_eor_virtual_shader_identity.py'); Write-Host '[HULK/PREFLIGHT-FAIL] ci/test_hulk_eor_virtual_shader_identity.py' }
           python ci/test_ghidra_hulk_ui_hash_xrefs.py
-          if ($LASTEXITCODE -ne 0) { throw 'Original pause-menu resource CRC32 cross-reference scanner regression failed' }
+          if ($LASTEXITCODE -ne 0) { $sourceFailures.Add('ci/test_ghidra_hulk_ui_hash_xrefs.py'); Write-Host '[HULK/PREFLIGHT-FAIL] ci/test_ghidra_hulk_ui_hash_xrefs.py' }
+          if ($sourceFailures.Count -gt 0) { throw ('Source preflight failed: ' + ($sourceFailures -join '; ')) }
           # Compile the real native C++ asset backend against the Windows
           # toolchain independently of RexGlue, Xenia and guest codegen.
           $nativeTest = Join-Path $env:RUNNER_TEMP 'hulk-eor-asset-test.exe'
