@@ -1482,11 +1482,28 @@ bool InstallVerifiedWorkerEorOwnerCatalogInternal(
     const std::shared_ptr<const VerifiedWorkerEorCatalogFactory>* factory,
     const OfflineShaderPack* pack,
     const std::shared_ptr<const VerifiedWorkerEorOwnerCatalog>* expected_previous) {
+  // Permit the EXISTING direct Vulkan backend to accept a purely
+  // source-backed resident-model bootstrap BEFORE the first material owner
+  // has been proven. It may stream real archive meshes from live XDK
+  // texture hashes, but never authorizes a Draw or physical Present until
+  // source witnesses and exact SPIR-V/Vulkan PSOs have been adopted.
+  // Earlier the empty-catalog reject created a deadlock: no source GPU
+  // mesh was eligible to upload until at least one fully verified material
+  // existed, but material verification itself needed that resident mesh.
+  const bool source_residency_bootstrap =
+      catalog && catalog->verified_candidates.empty() &&
+      catalog->verified_font_materials.empty() &&
+      catalog->direct_gpu && catalog->gpu &&
+      catalog->gpu.get()==catalog->direct_gpu.get() &&
+      catalog->source_models && catalog->source_material_candidates &&
+      catalog->source_models->UsesGpuBackend(
+          catalog->direct_gpu->OriginalModelUploader());
   if(!catalog || !catalog->device || !catalog->gpu ||
      (!catalog->resident_lookup && !catalog->source_models &&
       !catalog->verified_candidates.empty()) ||
      (catalog->verified_candidates.empty() &&
-      catalog->verified_font_materials.empty()) ||
+      catalog->verified_font_materials.empty() &&
+      !source_residency_bootstrap) ||
      (!catalog->verified_font_materials.empty() &&
       (!catalog->direct_gpu ||
        catalog->gpu.get()!=catalog->direct_gpu.get())) ||
