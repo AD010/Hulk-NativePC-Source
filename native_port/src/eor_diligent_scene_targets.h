@@ -59,6 +59,7 @@ struct OriginalNativeTargetGraph {
   std::map<uint32_t,xdk::OriginalSurfaceExtent> extents;
   std::map<uint32_t,NativeColorFormat> color_formats;
   std::map<uint32_t,uint32_t> sample_counts;
+  std::set<uint32_t> partial_msaa_sources;
   uint32_t first_color=0,first_depth=0,final_color=0,front_buffer=0;
   bool operator==(const OriginalNativeTargetGraph&) const=default;
   bool active() const noexcept {return !colors.empty();}
@@ -307,11 +308,11 @@ inline std::optional<OriginalSourceTargetFormat> PlanOriginalNativeTargets(
           if(raster.scissor_enabled || raster.x!=0 || raster.y!=0 ||
              raster.width!=float(extent.width) || raster.height!=float(extent.height))return {};
           if(dest==front || !completed_resolves.contains(dest) ||
-             graph.sample_counts.at(active_color)!=1u ||
              !graph.extents.contains(dest) || graph.extents.at(dest)!=extent ||
              graph.color_formats.at(dest)!=graph.color_formats.at(active_color))return {};
           for(int32_t v:region->source)if(v&7)return {};
           for(int32_t v:region->destination)if(v&7)return {};
+          if(graph.sample_counts.at(active_color)>1u)graph.partial_msaa_sources.insert(active_color);
         }
         if(active_depth && *active_depth && (graph.extents.at(*active_depth)!=extent || graph.sample_counts.at(*active_depth)!=graph.sample_counts.at(active_color)))return {};
         if(!register_extent(dest,extent) || !register_samples(dest,1u) ||

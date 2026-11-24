@@ -32,7 +32,7 @@ struct DiligentSceneTargets::State {
   Diligent::RefCntAutoPtr<Diligent::IRenderDevice> device;
   Diligent::RefCntAutoPtr<Diligent::IDeviceContext> context;
   Diligent::RefCntAutoPtr<Diligent::ITexture> color,depth,resolved;
-  std::map<uint32_t,Diligent::RefCntAutoPtr<Diligent::ITexture>> colors,depths,intermediates;
+  std::map<uint32_t,Diligent::RefCntAutoPtr<Diligent::ITexture>> colors,depths,intermediates,partial_msaa_scratch;
   std::set<uint32_t> completed_intermediates;
   uint32_t active_color=0,active_depth=0;
   native::Size physical{},original{};
@@ -60,7 +60,7 @@ void DiligentSceneTargets::Reset() noexcept {
   if(!state_)return;
   AbortScene();
   state_->resolved.Release();state_->depth.Release();state_->color.Release();
-  state_->colors.clear();state_->depths.clear();state_->intermediates.clear();
+  state_->colors.clear();state_->depths.clear();state_->intermediates.clear();state_->partial_msaa_scratch.clear();
   state_->active_color=state_->active_depth=0;
   state_->physical={};state_->original={};state_->formats={};state_->samples=0;
 }
@@ -118,7 +118,7 @@ bool DiligentSceneTargets::Prepare(const native::FrameGeometry& frame,
   // Transactional attachment allocation: a failure keeps the preceding
   // complete target set, rather than presenting an empty/half-size image.
   Diligent::RefCntAutoPtr<Diligent::ITexture> new_color,new_depth,new_resolved;
-  decltype(state_->colors) new_colors,new_depths,new_intermediates;
+  decltype(state_->colors) new_colors,new_depths,new_intermediates,new_partial_msaa_scratch;
   Diligent::TextureDesc desc;
   desc.Name="EoR verified host color MSAA";
   desc.Type=Diligent::RESOURCE_DIM_TEX_2D;
@@ -156,6 +156,19 @@ bool DiligentSceneTargets::Prepare(const native::FrameGeometry& frame,
         if(!color || !color->GetDefaultView(Diligent::TEXTURE_VIEW_RENDER_TARGET))return false;
         if(!new_colors.emplace(guest,std::move(color)).second)return false;
       }
+    }
+    // Allocate only the exact MSAA surfaces proven to require a region
+    // resolve. Diligent's whole-subresource Resolve goes to scratch;
+    // CopyTexture then updates ONLY the original destination RECT.
+    if(graph.active())for(uint32_t guest:graph.partial_msaa_sources) {
+      const auto source=new_colors.find(guest);
+      if(source==new_colors.end() || source->second->GetDesc().SampleCount<=1)return false;
+      auto scratch=source->second->GetDesc();
+      scratch.Name="EoR partial MSAA Resolve scratch";
+      scratch.SampleCount=1;scratch.BindFlags=Diligent::BIND_RENDER_TARGET;
+      Diligent::RefCntAutoPtr<Diligent::ITexture> image;
+      state_->device->CreateTexture(scratch,nullptr,&image);
+      if(!image || !new_partial_msaa_scratch.emplace(guest,std::move(image)).second)return false;
     }
     if(verified.depth!=NativeDepthFormat::None) {
       desc.Name="EoR verified host depth";
@@ -214,6 +227,7 @@ bool DiligentSceneTargets::Prepare(const native::FrameGeometry& frame,
   state_->colors=std::move(new_colors);
   state_->depths=std::move(new_depths);
   state_->intermediates=std::move(new_intermediates);
+  state_->partial_msaa_scratch=std::move(new_partial_msaa_scratch);
   state_->active_color=state_->active_depth=0;
   if(graph.active()) {
     state_->active_color=graph.first_color;state_->active_depth=graph.first_depth;
@@ -337,7 +351,14 @@ bool DiligentSceneTargets::ResolveOriginalIntermediate(uint32_t guest,
         destination.width,destination.height,src.Width,src.Height,dst.Width,dst.Height);
     if(!mapped)return false;
     if(!mapped->IsFull(src.Width,src.Height) &&
-       (src.SampleCount!=1 || !state_->completed_intermediates.contains(guest)))return false;
+       !state_->completed_intermediates.contains(guest))return false;
+  }
+  const bool partial=mapped && !mapped->IsFull(src.Width,src.Height);
+  Diligent::ITexture* copy_source=state_->color.RawPtr();
+  if(partial && src.SampleCount>1) {
+    const auto scratch=state_->partial_msaa_scratch.find(state_->active_color);
+    if(scratch==state_->partial_msaa_scratch.end() || !scratch->second)return false;
+    copy_source=scratch->second.RawPtr();
   }
   auto* rtv=state_->color->GetDefaultView(TEXTURE_VIEW_RENDER_TARGET);
   auto* dsv=state_->depth_bound && state_->depth ?
@@ -353,10 +374,11 @@ bool DiligentSceneTargets::ResolveOriginalIntermediate(uint32_t guest,
       args.Format=src.Format;
       args.SrcTextureTransitionMode=RESOURCE_STATE_TRANSITION_MODE_TRANSITION;
       args.DstTextureTransitionMode=RESOURCE_STATE_TRANSITION_MODE_TRANSITION;
-      state_->context->ResolveTextureSubresource(state_->color,it->second,args);
-    } else {
+      state_->context->ResolveTextureSubresource(state_->color,partial?copy_source:it->second.RawPtr(),args);
+    }
+    if(src.SampleCount==1 || partial) {
       CopyTextureAttribs args{};
-      args.pSrcTexture=state_->color;args.pDstTexture=it->second;
+      args.pSrcTexture=copy_source;args.pDstTexture=it->second;
       Box box{};
       if(mapped && !mapped->IsFull(src.Width,src.Height)) {
         const auto& r=mapped->source;

@@ -211,7 +211,7 @@ std::optional<OriginalResolveRegion> CaptureOriginalColorResolveRegion(
     if(address&3u || uint64_t(address)+words.size()*4u>(uint64_t{1}<<32))return false;
     std::array<std::byte,16> raw{};
     if(!read(state,address,raw.data(),words.size()*4u))return false;
-    for(size_t i=0;i<words.size();++i)words[i]=std::bit_cast<int32_t>(be32(raw.data()+i*4));
+    for(size_t i=0;i<words.size();++i)words[i]=std::bit_cast<int32_t>(SourceWord(raw.data()+i*4));
     return true;
   };
   if(!read_words(gpr[2],region.source) || !read_words(gpr[4],region.destination))return {};
