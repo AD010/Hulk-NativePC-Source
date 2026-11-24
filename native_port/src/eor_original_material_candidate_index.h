@@ -3,6 +3,8 @@
 // NEVER use the results as a source-verified Vulkan material or XDK Draw.
 // The caller must independently authenticate guest VB/IB, shaders, sampler,
 // render targets, original render-state and the real SPIR-V PSO.
+#include "eor_original_model_assets.h"
+#include "eor_original_virtual_shader_identity.h"
 #include <algorithm>
 #include <array>
 #include <cstddef>
@@ -30,6 +32,67 @@ struct OriginalSurfaceCandidate {
 class OriginalMaterialCandidateIndex {
  public:
   OriginalMaterialCandidateIndex()=default;
+  // Build the very same private Xbox source candidate index directly
+  // from the USER's actual USA INDEX.IND and MODELS.ARC. Both accepted USA
+  // index variants are pinned by full SHA-256 in Index::LoadPinnedUsaModelArchive.
+  // No HEORCND1 sidecar, precomputed model-name guesses or separate GPU
+  // renderer is required. A source texture match still only PREFETCHES
+  // archive models, it never asserts a real XDK Draw/material/PSO.
+  void LoadFromOriginalXboxArchive(const std::filesystem::path& index_path,
+                                   const std::filesystem::path& models_path) {
+    const auto source_index=Index::LoadPinnedUsaModelArchive(index_path);
+    const auto group=source_index.groups().find("Models");
+    if(group==source_index.groups().end() || group->second.size()!=4174 ||
+       source_index.groups().find("Textures")==source_index.groups().end() ||
+       source_index.groups().at("Textures").size()!=6669)
+      throw std::invalid_argument("Incomplete pinned original USA material archive index");
+    const auto source=model::OriginalModelAssets::Open(source_index,models_path);
+    if(source.IndexedModelCount()!=4174)
+      throw std::invalid_argument("Incomplete original EoR model archive census");
+    std::vector<Link> next;
+    next.reserve(41745);
+    uint32_t total_surfaces=0;
+    for(const auto& item:group->second) {
+      auto original=source.LoadWithMaterialsHash(item.hash);
+      if(!original || original->model.original_resource_hash!=item.hash)
+        throw std::invalid_argument("Missing authentic indexed original Xbox model");
+      for(const auto& surface:original->surfaces) {
+        if(surface.ordinal>=original->surfaces.size() ||
+           surface.ordinal!=(&surface-original->surfaces.data()) ||
+           surface.original_material_name.empty())
+          throw std::invalid_argument("Original Xbox material surface order broken");
+        ++total_surfaces;
+        for(const auto& texture:surface.indexed_texture_references) {
+          if(texture.original_resource.hash!=texture.original_texture_hash ||
+             !texture.original_texture_hash || !texture.original_resource.size ||
+             texture.original_resource.reserved)
+            throw std::invalid_argument("Original Xbox texture source binding invalid");
+          next.push_back(Link{
+              texture.original_texture_hash,
+              OriginalSurfaceCandidate{item.hash,surface.ordinal}});
+        }
+      }
+    }
+    std::sort(next.begin(),next.end());
+    next.erase(std::unique(next.begin(),next.end(),
+        [](const Link& a,const Link& b){return !(a<b)&&!(b<a);}),next.end());
+    if(total_surfaces!=11622 || next.size()!=41745)
+      throw std::invalid_argument(
+          "USA MODELS.ARC material/texture source census changed");
+    // SHA digest of the SAME pinned original index file that authorized
+    // this complete live archive. Never replace a good loaded candidate
+    // map with a partially scanned/corrupt archive.
+    std::ifstream file(index_path,std::ios::binary|std::ios::ate);
+    if(!file || file.tellg()!=534176)
+      throw std::invalid_argument("Wrong source index during material generation");
+    std::vector<uint8_t> bytes(534176);
+    file.seekg(0);
+    if(!file.read(reinterpret_cast<char*>(bytes.data()),bytes.size()))
+      throw std::invalid_argument("Truncated source index during material generation");
+    const auto digest=aot::SourceSha256(bytes);
+    source_index_=digest;
+    entries_=std::move(next);
+  }
   void Load(const std::filesystem::path& file) {
     std::ifstream in(file,std::ios::binary|std::ios::ate);
     if(!in)throw std::invalid_argument("Missing original material candidate index");
