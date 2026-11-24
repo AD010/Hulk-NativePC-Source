@@ -34,7 +34,8 @@ std::shared_ptr<const UploadedEorTexture> DiligentOriginalTextureResidency::Acqu
     uint32_t hash, OriginalTextureColorSpace space,OriginalTextureViewKind view) {
   if(!hash || space==OriginalTextureColorSpace::Unknown ||
      (view!=OriginalTextureViewKind::Native2D &&
-      view!=OriginalTextureViewKind::NativeX2DArray))
+      view!=OriginalTextureViewKind::NativeX2DArray &&
+      view!=OriginalTextureViewKind::Native1D))
     throw std::invalid_argument("Original EoR material color space/image dimension not proven");
   const State::Key key{hash,space,view};
   std::lock_guard lock(state_->residency_mutex);

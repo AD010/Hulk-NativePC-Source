@@ -380,11 +380,12 @@ static void ValidateSourceOriginalMaterialPass(
         throw std::invalid_argument("Original EoR material shader absent from native AOT bank");
       const auto reflected=aot::InspectSpirvImageResources(binary->spirv,stage);
       for(const auto& image:reflected) {
-        if(image.spirv_dim!=1 || image.image_multisampled)
-          throw std::invalid_argument("Original EoR material requires unsupported non-2D or multisampled shader image");
-        const auto view=image.image_arrayed ?
-            OriginalTextureViewKind::NativeX2DArray :
-            OriginalTextureViewKind::Native2D;
+        if(image.spirv_dim>1 || image.image_multisampled ||
+           (image.spirv_dim==0 && image.image_arrayed))
+          throw std::invalid_argument("Unsupported original EoR image dimension");
+        const auto view=image.spirv_dim==0 ? OriginalTextureViewKind::Native1D :
+            image.image_arrayed ? OriginalTextureViewKind::NativeX2DArray :
+                                  OriginalTextureViewKind::Native2D;
         unsigned matches=0;
         for(const auto& texture:owner.original_textures)
           if(texture.identity.stage==
@@ -1328,7 +1329,7 @@ bool DiligentEorDirectBackend::PreflightOriginalScene(
       for(const auto& texture:textures) {
         const auto& id=texture.identity;
         const auto image=aot::DecodeFixedAotImageSlot(id.exact_shader_variable_name);
-        if(id.stage!=OriginalSamplerStage::Pixel || !image || image->dimension!=1 ||
+        if(id.stage!=OriginalSamplerStage::Pixel || !image || image->dimension>1 ||
            image->slot!=id.original_fetch_register)return false;
         const auto bit=static_cast<uint16_t>(1u<<image->slot);
         if(!(controls.sampled_slots&bit) || !(captured.valid_pixel_fetch&bit) || (bound&bit))

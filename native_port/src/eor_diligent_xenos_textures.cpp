@@ -72,7 +72,8 @@ UploadedEorTexture UploadExplicitOriginalTexture(
     std::span<const textures::SourceMipLayout> layouts,
     OriginalTextureViewKind view_kind) {
   if((view_kind!=OriginalTextureViewKind::Native2D &&
-      view_kind!=OriginalTextureViewKind::NativeX2DArray) ||
+      view_kind!=OriginalTextureViewKind::NativeX2DArray &&
+      view_kind!=OriginalTextureViewKind::Native1D) ||
      !host_device || !original.hash || original.source_record.hash!=original.hash ||
      original.original_bytes.empty() ||
      color_space==OriginalTextureColorSpace::Unknown ||
@@ -148,6 +149,17 @@ UploadedEorTexture UploadExplicitOriginalTexture(
       format,layouts,original.original_bytes,original.original_stream_bytes);
   if(image.mips.empty() || image.mips.size()>std::numeric_limits<Diligent::Uint32>::max())
     throw std::invalid_argument("Unverified host texture mip chain");
+  if(view_kind==OriginalTextureViewKind::Native1D) {
+    // A native 1D SRV can use the exact original row only when every
+    // source-proven mip is one texel high. BC images need a 2D block
+    // allocation; don't present a guessed compressed 1D interpretation.
+    if(image.format!=textures::XenosTextureFormat::RGBA8 &&
+       image.format!=textures::XenosTextureFormat::RGBA16F)
+      throw std::invalid_argument("Unsupported original compressed 1D texture");
+    for(const auto& mip:image.mips)
+      if(mip.height!=1u)
+        throw std::invalid_argument("Original 1D texture source has multiple rows");
+  }
   const auto format_host=Convert(image.format,color_space);
   Diligent::TextureDesc desc;
   desc.Name="Original EoR verified Xbox texture";
@@ -155,7 +167,9 @@ UploadedEorTexture UploadExplicitOriginalTexture(
   // layer). A bare Texture2D view is incompatible with that SPIR-V image
   // type. Only the caller's verified live fetch/PSO may select array mode.
   desc.Type=view_kind==OriginalTextureViewKind::NativeX2DArray ?
-      Diligent::RESOURCE_DIM_TEX_2D_ARRAY : Diligent::RESOURCE_DIM_TEX_2D;
+      Diligent::RESOURCE_DIM_TEX_2D_ARRAY :
+      view_kind==OriginalTextureViewKind::Native1D ?
+        Diligent::RESOURCE_DIM_TEX_1D : Diligent::RESOURCE_DIM_TEX_2D;
   desc.Format=format_host;
   desc.Width=image.mips.front().width;
   desc.Height=image.mips.front().height;

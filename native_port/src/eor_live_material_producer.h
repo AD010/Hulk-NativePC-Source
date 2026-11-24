@@ -242,7 +242,7 @@ inline std::vector<VerifiedNativeMaterialImage> OriginalScalarImages(
   std::vector<VerifiedNativeMaterialImage> out;
   for(const auto& image:aot::InspectSpirvImageResources(p->spirv,aot::Stage::Pixel)) {
     const auto slot=aot::DecodeFixedAotImageSlot(image.exact_variable_name);
-    if(!slot || slot->slot>=16u || slot->dimension!=1u || image.spirv_dim!=1u ||
+    if(!slot || slot->slot>=16u || slot->dimension>1u || image.spirv_dim!=slot->dimension ||
        image.image_arrayed || image.image_multisampled)
       throw std::invalid_argument("Unsupported original scalar image dimension");
     const auto bit=static_cast<uint16_t>(1u<<slot->slot);
@@ -261,14 +261,15 @@ inline std::vector<VerifiedNativeMaterialImage> OriginalScalarImages(
     if((captured.pixel_fetch[slot->slot][0]&1023u)!=2u)
       throw std::invalid_argument("Unsupported original scalar color space");
     const auto hash=call.original_pixel_texture_keys[slot->slot];
-    auto uploaded=residency.Acquire(hash,OriginalTextureColorSpace::Linear,
-                                    OriginalTextureViewKind::Native2D);
+    const auto view=slot->dimension==0u ? OriginalTextureViewKind::Native1D :
+                                         OriginalTextureViewKind::Native2D;
+    auto uploaded=residency.Acquire(hash,OriginalTextureColorSpace::Linear,view);
     if(!uploaded || uploaded->original_texture_hash!=hash || !uploaded->SRV())
       throw std::invalid_argument("Original scalar mip chain not resident");
     VerifiedEorSampler binding{model,surface,call.observed_live_eor_effect_pass->effect_hash,
       call.observed_live_eor_effect_pass->pass_index,hash,slot->slot,OriginalSamplerStage::Pixel,
       image.exact_variable_name,true,true,true};
-    out.push_back({std::move(binding),OriginalTextureColorSpace::Linear,OriginalTextureViewKind::Native2D});
+    out.push_back({std::move(binding),OriginalTextureColorSpace::Linear,view});
     used|=bit;
   }
   if(used!=sampling.sampled_slots)
