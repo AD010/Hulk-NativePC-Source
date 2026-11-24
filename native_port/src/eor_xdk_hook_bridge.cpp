@@ -6,12 +6,14 @@
 #include "eor_diligent_aot_backend.h"
 #include "eor_original_font_source.h"
 #include "eor_native_world_stream.h"
+#include "eor_native_archive_source.h"
 #include "device.h"
 #include "SwapChain.h"
 #include <rex/cvar.h>
 #include <rex/logging.h>
 #include <algorithm>
 #include <atomic>
+#include <array>
 #include <cstring>
 #include <exception>
 #include <filesystem>
@@ -50,6 +52,7 @@ std::mutex g_mutex;
 std::atomic<uint64_t> g_eor_ready_backbuffers{0};
 std::atomic<uint64_t> g_eor_gpu_failures{0};
 OriginalEorSourceCoverage g_original_source_coverage; // guarded by g_mutex
+std::filesystem::path g_original_game_asset_root; // guarded by g_mutex
 FrameCapture g_collector;
 // Only full-source-hash-verified pixel policies are retained across draw
 // calls. Failed guest reads must be retried when streaming finishes.
@@ -1248,6 +1251,17 @@ bool InstallVerifiedSourceShaderPack(
   g_original_effect_capture_catalog=g_offline_shader_pack->effects;
   return true;
 }
+void InstallOriginalEorGameAssetRoot(
+    const std::filesystem::path& user's_original_game_root) {
+  std::lock_guard lock(g_mutex);
+  // This root contains only privately owned original game resources.
+  // No public repo or packaged native executable embeds game archive data.
+  g_original_game_asset_root=user's_original_game_root;
+}
+void ClearOriginalEorGameAssetRoot() noexcept {
+  std::lock_guard lock(g_mutex);
+  g_original_game_asset_root.clear();
+}
 void ClearVerifiedSourceShaderPack() noexcept {
   std::lock_guard lock(g_mutex);
   g_verified_worker_frame.reset();
@@ -1936,6 +1950,47 @@ native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(
              !g_frames_for_native.Peek() ||
              g_frames_for_native.Peek()->sequence!=source_sequence)
             verified.reset();
+        }
+        // If the factory already authenticated the original GPU material
+        // and shader/pass ownership, source original Xbox models can now be
+        // loaded automatically from the exact user's game installation.
+        // The archive reader validates the pinned USA index SHA and models
+        // BEFORE starting async I/O. Only model hashes carried by the
+        // source-verified owner witnesses will be queued for GPU upload.
+        if(!verified->source_models && verified->direct_gpu) {
+          std::filesystem::path game_root;
+          {
+            std::lock_guard lock(g_mutex);
+            game_root=g_original_game_asset_root;
+          }
+          if(!game_root.empty()) {
+            const auto base=game_root/"DATA"/"XENON";
+            const std::array<std::filesystem::path,3> indexes={
+                base/"INDEX.IND",
+                base/"USENGLISH"/"INDEX.IND",
+                base/"UKENGLISH"/"INDEX.IND"};
+            for(const auto& index:indexes) {
+              if(!std::filesystem::is_regular_file(index) ||
+                 !std::filesystem::is_regular_file(base/"MODELS.ARC"))
+                continue;
+              try {
+                auto source=std::make_unique<world::ArchiveModelSource>(
+                    index,base/"MODELS.ARC");
+                auto world_stream=std::make_shared<world::NativeWorldStream>(
+                    std::move(source),
+                    verified->direct_gpu->OriginalModelUploader(),
+                    std::vector<world::LodTier>{});
+                auto completed=std::make_shared<VerifiedWorkerEorOwnerCatalog>(
+                    *verified);
+                completed->source_models=std::move(world_stream);
+                verified=std::move(completed);
+                break;
+              } catch(const std::exception&) {
+                // A region-mismatched index or missing physical game model
+                // archive is not a valid native EoR resource source.
+              }
+            }
+          }
         }
         // A source loader may return the same immutable catalogue on
         // successive 60-frame polls: do not discard expensive Vulkan PSOs

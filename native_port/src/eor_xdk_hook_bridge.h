@@ -244,6 +244,12 @@ using VerifiedWorkerEorCatalogFactory=std::function<
         native_x_renderer::Device&)>;
 bool InstallVerifiedWorkerEorCatalogFactory(
     VerifiedWorkerEorCatalogFactory factory);
+// Own only the user's game directory path. The GPU worker resolves the
+// SHA-pinned USA original INDEX.IND and MODELS.ARC when it receives a
+// real source-authenticated Vulkan material/PSO owner catalogue.
+void InstallOriginalEorGameAssetRoot(
+    const std::filesystem::path& user's_original_game_root);
+void ClearOriginalEorGameAssetRoot() noexcept;
 void ClearVerifiedWorkerEorCatalogFactory() noexcept;
 void ClearVerifiedWorkerEorOwnerCatalog() noexcept;
 void ClearVerifiedWorkerEorFrame() noexcept;

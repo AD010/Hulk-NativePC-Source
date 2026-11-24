@@ -78,6 +78,7 @@ class IncredibleHulkApp : public rex::ReXApp {
       return std::nullopt;
     }
     paths.game_data_root = *game;
+    eor_original_game_root_=*game;
     return paths;
   }
   // void OnLoadXexImage(std::string& xex_image) override {}
@@ -297,6 +298,9 @@ class IncredibleHulkApp : public rex::ReXApp {
       }
     }
 #if defined(HULK_NATIVE_X_LINKED)
+    // Make the user's existing authentic Xbox asset root available to the
+    // sole Vulkan worker; no manual model archive path/sidecar is needed.
+    hulk::eor::xdk::InstallOriginalEorGameAssetRoot(eor_original_game_root_);
     if(eor_virtual_ids_ &&
        !hulk::eor::xdk::InstallOriginalShaderCaptureIndex(
            eor_virtual_ids_,eor_effects_))
@@ -352,6 +356,7 @@ class IncredibleHulkApp : public rex::ReXApp {
     native_x_renderer::SetHulkEorPresentCallback(nullptr);
     hulk::eor::xdk::ClearVerifiedWorkerEorFrame();
     hulk::eor::xdk::ClearVerifiedSourceShaderPack();
+    hulk::eor::xdk::ClearOriginalEorGameAssetRoot();
     hulk::eor::xdk::ClearOriginalShaderCaptureIndex();
 #endif
     hulk::ReportAutomaticGpuDiagnostics();
@@ -374,5 +379,6 @@ class IncredibleHulkApp : public rex::ReXApp {
   std::shared_ptr<hulk::eor::aot::OriginalXdkShaderSamplers> eor_samplers_;
   std::shared_ptr<hulk::eor::aot::OriginalVirtualShaderIdentity> eor_virtual_ids_;
   std::filesystem::path native_pc_config_;
+  std::filesystem::path eor_original_game_root_;
   std::unique_ptr<rex::ui::ImGuiDialog> pc_menu_;
 };
