@@ -50,86 +50,117 @@ std::optional<Diligent::BLEND_OPERATION> OriginalBlendOp(
   }
 }
 }
+std::optional<Diligent::GraphicsPipelineDesc> DeriveOriginalXdkGraphicsPipelineState(
+    const xdk::OriginalXdkFixedGraphicsState& source,
+    const Diligent::GraphicsPipelineDesc& source_proven_attachments) noexcept {
+  using namespace Diligent;
+  if(!source.original_guest_device ||
+     source_proven_attachments.NumRenderTargets!=1 ||
+     source_proven_attachments.RTVFormats[0]==TEX_FORMAT_UNKNOWN ||
+     source_proven_attachments.PrimitiveTopology!=PRIMITIVE_TOPOLOGY_TRIANGLE_LIST)
+    return {};
+  const auto depth=source.ReadOriginalXenosRegister(0x2200u);
+  const auto blend=source.ReadOriginalXenosRegister(0x2201u);
+  const auto color=source.ReadOriginalXenosRegister(0x2202u);
+  const auto raster=source.ReadOriginalXenosRegister(0x2205u);
+  const auto color_mask=source.ReadOriginalXenosRegister(0x2104u);
+  const auto surface=source.ReadOriginalXenosRegister(0x2000u);
+  const auto clip=source.ReadOriginalXenosRegister(0x2204u);
+  if(!depth || !blend || !color || !raster || !color_mask ||
+     !surface || !clip)return {};
+  // Only directly equivalent Xenos states are emitted as a native Vulkan
+  // PSO. Alpha test/coverage require faithful source pixel-shader lowering,
+  // stencil requires its own front/back dynamic reference and operation
+  // mapping, and polygon offset requires exact Xenos bias conversion.
+  const uint32_t polygon_mode=(*raster>>3)&3u;
+  const uint32_t polygon_front=(*raster>>5)&7u;
+  const uint32_t polygon_back=(*raster>>8)&7u;
+  if((*depth&1u) || (*color&0x18u) || (*clip&0x3fu) ||
+     ((*raster&3u)==3u) ||
+     polygon_mode==3u ||
+     (polygon_mode==1u && (polygon_front!=2u || polygon_back!=2u)) ||
+     (*raster&(7u<<11)) || (*raster&(1u<<20)))
+    return {};
+  const uint32_t samples=(*surface>>16u)&3u;
+  if(samples>2u)return {};
+  const uint32_t src_raw=*blend&31u,dst_raw=(*blend>>8u)&31u;
+  const uint32_t alpha_src_raw=(*blend>>16u)&31u;
+  const uint32_t alpha_dst_raw=(*blend>>24u)&31u;
+  const auto src=OriginalBlend(src_raw,false);
+  const auto dst=OriginalBlend(dst_raw,false);
+  const auto op=OriginalBlendOp((*blend>>5u)&7u);
+  const auto asrc=OriginalBlend(alpha_src_raw,true);
+  const auto adst=OriginalBlend(alpha_dst_raw,true);
+  const auto aop=OriginalBlendOp((*blend>>21u)&7u);
+  const auto compare=OriginalCompare((*depth>>4u)&7u);
+  if(!src || !dst || !op || !asrc || !adst || !aop || !compare)
+    return {};
+  auto result=source_proven_attachments;
+  result.SmplDesc.Count=1u<<samples;
+  // Attachments are source-owned by the caller. A depth-enabled original
+  // game Draw cannot be represented by an absent Vulkan depth attachment.
+  const bool z_enabled=(*depth&2u)!=0u;
+  if(z_enabled && result.DSVFormat==TEX_FORMAT_UNKNOWN)return {};
+  result.DepthStencilDesc.DepthEnable=z_enabled;
+  result.DepthStencilDesc.DepthWriteEnable=z_enabled && ((*depth&4u)!=0u);
+  result.DepthStencilDesc.DepthFunc=*compare;
+  result.DepthStencilDesc.StencilEnable=false;
+  result.RasterizerDesc.FillMode=FILL_MODE_SOLID;
+  result.RasterizerDesc.CullMode=(*raster&1u) ? CULL_MODE_FRONT :
+      (*raster&2u) ? CULL_MODE_BACK : CULL_MODE_NONE;
+  result.RasterizerDesc.FrontCounterClockwise=(*raster&4u)==0u;
+  result.BlendDesc.AlphaToCoverageEnable=false;
+  result.BlendDesc.IndependentBlendEnable=false;
+  auto& target=result.BlendDesc.RenderTargets[0];
+  const bool opaque=src_raw==1u && dst_raw==0u &&
+      ((*blend>>5u)&7u)==0u && alpha_src_raw==1u &&
+      alpha_dst_raw==0u && ((*blend>>21u)&7u)==0u;
+  target.BlendEnable=!opaque;
+  target.LogicOperationEnable=false;
+  target.RenderTargetWriteMask=static_cast<COLOR_MASK>(*color_mask&15u);
+  target.SrcBlend=*src;target.DestBlend=*dst;target.BlendOp=*op;
+  target.SrcBlendAlpha=*asrc;target.DestBlendAlpha=*adst;
+  target.BlendOpAlpha=*aop;
+  return result;
+}
 bool MatchesOriginalXdkGraphicsState(
     const VerifiedOriginalGraphicsPass& original,
     const xdk::OriginalXdkFixedGraphicsState& source) noexcept {
   if(!original.material_pass_verified ||
      !original.original_render_state_verified ||
-     !source.original_guest_device)
+     !source.original_guest_device)return false;
+  const auto derived=DeriveOriginalXdkGraphicsPipelineState(
+      source,original.exact_render_state);
+  if(!derived)return false;
+  const auto& expected=original.exact_render_state;
+  const auto& state=*derived;
+  if(expected.SmplDesc.Count!=state.SmplDesc.Count ||
+     expected.DepthStencilDesc.DepthEnable!=state.DepthStencilDesc.DepthEnable ||
+     expected.DepthStencilDesc.DepthWriteEnable!=
+        state.DepthStencilDesc.DepthWriteEnable ||
+     expected.DepthStencilDesc.StencilEnable ||
+     (expected.DepthStencilDesc.DepthEnable &&
+       expected.DepthStencilDesc.DepthFunc!=state.DepthStencilDesc.DepthFunc) ||
+     (original.original_depth_unbound &&
+       state.DepthStencilDesc.DepthEnable) ||
+     expected.RasterizerDesc.CullMode!=state.RasterizerDesc.CullMode ||
+     expected.RasterizerDesc.FrontCounterClockwise!=
+        state.RasterizerDesc.FrontCounterClockwise ||
+     expected.RasterizerDesc.FillMode!=state.RasterizerDesc.FillMode ||
+     expected.BlendDesc.AlphaToCoverageEnable)
     return false;
-  const auto read=[&](uint32_t index)->std::optional<uint32_t> {
-    return source.ReadOriginalXenosRegister(index);
-  };
-  const auto depth=read(0x2200),blend=read(0x2201),
-             color=read(0x2202),raster=read(0x2205),
-             color_mask=read(0x2104),surface=read(0x2000),
-             clip=read(0x2204);
-  if(!depth || !blend || !color || !raster || !color_mask ||
-     !surface || !clip)return false;
-  const auto& state=original.exact_render_state;
-  const auto& ds=state.DepthStencilDesc;
-  const auto& rs=state.RasterizerDesc;
-  const auto& bs=state.BlendDesc;
-  // Alpha test must be done by the original translated pixel shader;
-  // alpha-to-coverage dithering, source clip planes, polygon modes and
-  // source depth bias are not interchangeable with a host PSO default.
-  // Xenos polygon mode 0 draws filled triangles. Mode 1 selects
-  // per-face primitive types and is compatible with host TRIANGLE_LIST
-  // only when BOTH sides request triangles. Original Xbox titles also
-  // use reserved value 2 to mean ordinary triangles (Xenos hardware
-  // actually rasterizes them as filled, unlike the naïve bit-test that
-  // rejected every such world Draw). Unknown mode 3 still fails closed.
-  const uint32_t polygon_mode=(*raster>>3)&3u;
-  const uint32_t polygon_front=(*raster>>5)&7u;
-  const uint32_t polygon_back=(*raster>>8)&7u;
-  if((*color&0x18u) || (*clip&0x3fu) ||
-     polygon_mode==3u ||
-     (polygon_mode==1u && (polygon_front!=2u || polygon_back!=2u)) ||
-     (*raster&(7u<<11)) ||
-     (*raster&(1u<<20)) || ((*raster&3u)==3u) ||
-     (*depth&1u) || ((*surface>>16)&3u)>2u)
-    return false;
-  const uint32_t source_msaa=1u<<((*surface>>16)&3u);
-  if(state.SmplDesc.Count!=source_msaa)return false;
-  const bool z_enabled=(*depth&2u)!=0,z_write=(*depth&4u)!=0;
-  if(ds.DepthEnable!=z_enabled ||
-     ds.DepthWriteEnable!=(z_enabled && z_write) ||
-     ds.StencilEnable || (original.original_depth_unbound && z_enabled))
-    return false;
-  const auto z_compare=OriginalCompare((*depth>>4)&7u);
-  if(!z_compare || (z_enabled && ds.DepthFunc!=*z_compare))
-    return false;
-  const bool front=(*raster&1u)!=0,back=(*raster&2u)!=0;
-  const auto cull=front ? Diligent::CULL_MODE_FRONT :
-                  back ? Diligent::CULL_MODE_BACK : Diligent::CULL_MODE_NONE;
-  if(rs.CullMode!=cull ||
-     rs.FrontCounterClockwise!=((*raster&4u)==0u) ||
-     rs.FillMode!=Diligent::FILL_MODE_SOLID)
-    return false;
-  if(bs.AlphaToCoverageEnable)return false;
-  for(uint32_t i=0;i<state.NumRenderTargets;++i) {
-    if(i>=4u)return false;
-    const auto& target=bs.RenderTargets[i];
-    const auto physical_mask=static_cast<Diligent::COLOR_MASK>(
-        (*color_mask>>(i*4u))&15u);
-    if(target.RenderTargetWriteMask!=physical_mask ||
-       target.LogicOperationEnable)return false;
-    if(!target.BlendEnable)continue;
-    const uint32_t packed=i==0u?*blend:read(0x2208u+i).value_or(UINT32_MAX);
-    if(packed==UINT32_MAX)return false;
-    const auto src=OriginalBlend(packed&31u,false);
-    const auto dst=OriginalBlend((packed>>8)&31u,false);
-    const auto op=OriginalBlendOp((packed>>5)&7u);
-    const auto asrc=OriginalBlend((packed>>16)&31u,true);
-    const auto adst=OriginalBlend((packed>>24)&31u,true);
-    const auto aop=OriginalBlendOp((packed>>21)&7u);
-    if(!src || !dst || !op || !asrc || !adst || !aop ||
-       target.SrcBlend!=*src || target.DestBlend!=*dst ||
-       target.BlendOp!=*op || target.SrcBlendAlpha!=*asrc ||
-       target.DestBlendAlpha!=*adst || target.BlendOpAlpha!=*aop)
-      return false;
-  }
-  return true;
+  const auto& provided=expected.BlendDesc.RenderTargets[0];
+  const auto& checked=state.BlendDesc.RenderTargets[0];
+  if(provided.BlendEnable!=checked.BlendEnable ||
+     provided.RenderTargetWriteMask!=checked.RenderTargetWriteMask ||
+     provided.LogicOperationEnable)return false;
+  if(!checked.BlendEnable)return true;
+  return provided.SrcBlend==checked.SrcBlend &&
+         provided.DestBlend==checked.DestBlend &&
+         provided.BlendOp==checked.BlendOp &&
+         provided.SrcBlendAlpha==checked.SrcBlendAlpha &&
+         provided.DestBlendAlpha==checked.DestBlendAlpha &&
+         provided.BlendOpAlpha==checked.BlendOpAlpha;
 }
 OriginalVulkanPipeline CreateOriginalVulkanPipeline(
     Diligent::IRenderDevice* device,

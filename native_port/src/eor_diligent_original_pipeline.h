@@ -72,6 +72,13 @@ struct OriginalVulkanPipeline {
 // register shadow. Verify this exact source state against a material's
 // already source-authenticated Vulkan PSO before accepting its Draw. Source
 // PSO ownership and vertex/texture identities remain independent gates.
+// Derive the live source Xenos color-mask/blend, depth, cull and MSAA
+// directly into the existing Diligent Vulkan graphics descriptor. The input
+// descriptor must already carry independently verified attachment formats,
+// topology and input layout. The original XDK state can never prove those.
+std::optional<Diligent::GraphicsPipelineDesc> DeriveOriginalXdkGraphicsPipelineState(
+    const xdk::OriginalXdkFixedGraphicsState& source,
+    const Diligent::GraphicsPipelineDesc& source_proven_attachments) noexcept;
 bool MatchesOriginalXdkGraphicsState(
     const VerifiedOriginalGraphicsPass& original,
     const xdk::OriginalXdkFixedGraphicsState& source) noexcept;
