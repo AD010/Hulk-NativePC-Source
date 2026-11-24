@@ -128,6 +128,9 @@ std::mutex g_state_mutex;
 std::array<uint8_t, 12> g_last_pad{};
 bool g_have_last_pad = false;
 #if defined(_WIN32)
+std::mutex inversion_mutex;
+uint8_t* inversion_base=nullptr;
+std::optional<camera::OriginalLookInversion> previous_inversion;
 std::atomic<HWND> g_game_window{nullptr};
 bool Down(int vk) { return (GetAsyncKeyState(vk) & 0x8000) != 0; }
 
@@ -243,6 +246,34 @@ void NativeInputRawMouse(int dx, int dy) {
   g_raw_abs_x.fetch_add(static_cast<uint64_t>(std::abs(x)), std::memory_order_relaxed);
   g_raw_abs_y.fetch_add(static_cast<uint64_t>(std::abs(y)), std::memory_order_relaxed);
 }
+// The original pause UI callback has already changed its own genuine
+// game option. Persist that one axis without waiting for XInput polling,
+// preserving the independent host setting on the other axis.
+void CommitOriginalCameraMenuOption(bool yaw,bool value,uint8_t* base) noexcept {
+#ifdef _WIN32
+  try {
+    std::lock_guard lock(inversion_mutex);
+    const auto original=camera::ReadGameLookInversion(base);
+    if(!original || (yaw?original->yaw:original->pitch)!=value)return;
+    if(inversion_base!=base) {
+      inversion_base=base;previous_inversion.reset();
+    }
+    if(yaw)REXCVAR_SET(hulk_mouse_invert_x,value);
+    else REXCVAR_SET(hulk_mouse_invert_y,value);
+    const bool saved=options::SaveOriginalLookInversion(
+        yaw?std::optional<bool>{value}:std::nullopt,
+        yaw?std::nullopt:std::optional<bool>{value});
+    if(!previous_inversion)previous_inversion=*original;
+    // On failure retain the changed axis as pending for the next poll.
+    // The current original guest value is never undone by this mirror.
+    if(yaw)previous_inversion->yaw=saved?value:!value;
+    else previous_inversion->pitch=saved?value:!value;
+    if(!saved)REXLOG_WARN("[HULK/INPUT] Original EoR menu option applied; PC TOML save failed");
+  } catch (...) {}
+#else
+  (void)yaw;(void)value;(void)base;
+#endif
+}
 // Called after the real Xam pad read; returns true when a virtual pad was supplied.
 // Does not override a connected physical controller.
 bool NativeInputApply(uint32_t user, bool real_pad_connected, uint8_t* state, uint8_t* guest_base) {
@@ -256,9 +287,6 @@ bool NativeInputApply(uint32_t user, bool real_pad_connected, uint8_t* state, ui
   // The original Pause/Game Settings and PC controls share the exact USA
   // camera option bytes when their source fingerprint is valid. RawInput
   // must NOT invert again: the original camera (or direct yaw/pitch) does it.
-  static std::mutex inversion_mutex;
-  static uint8_t* inversion_base=nullptr;
-  static std::optional<camera::OriginalLookInversion> previous_inversion;
   bool original_inversion_bound=false;
   {
     std::lock_guard lock(inversion_mutex);

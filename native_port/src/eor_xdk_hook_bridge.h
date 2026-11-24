@@ -1,5 +1,6 @@
 #pragma once
 #include "eor_xdk_draw_capture.h"
+#include "eor_original_pause_vm.h"
 #include "eor_usa_material_textures.h"
 #include "eor_native_draw_geometry.h"
 #include "eor_native_font_geometry.h"
@@ -21,6 +22,12 @@ namespace hulk::eor::xdk {
 void ObserveOriginalEorVmState_r(
     uint32_t original_method_guest,const PPCContext& original_ctx,
     uint8_t* original_guest_base) noexcept;
+// Called before/after the authentic menu VM boolean setter, even with
+// Vulkan capture disabled. The original function remains authoritative.
+std::optional<vm::OriginalCameraMenuChange> CaptureOriginalCameraMenuOption(
+    uint32_t method,const PPCContext& ctx,uint8_t* base) noexcept;
+void FinishOriginalCameraMenuOption(
+    std::optional<vm::OriginalCameraMenuChange> change,uint8_t* base) noexcept;
 // Source-verified original 0x825F84C0 EoR material state slot to
 // both original VS/PS XDK shader objects. 92-byte records and exact
 // SetVertexShader/SetPixelShader handle sources are proven in USA PPC.

@@ -131,3 +131,7 @@
 8266C8D0
 # Above: original EoR shader vtable slot+44 per-item virtual PPC methods, 52 source classes / 22 unique targets; require real source LR 0x82642BD8
 8288D8F8
+
+# Actual USA EoR registered camera pitch/yaw boolean setter bodies.
+823399E8
+82339A08

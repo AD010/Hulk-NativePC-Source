@@ -90,6 +90,7 @@ SOURCE_EOR_RENDER_ITEM_METHODS = {
 }
 SOURCE_INLINE_END = {"8288D8F8"}
 SOURCE_EOR_VM_METHODS = {"8264C798"}  # original registered state_r global
+SOURCE_EOR_CAMERA_OPTION_METHODS = {"823399E8", "82339A08"}
 # 0x825F8A50 is original Decal item-material setter, independently verified
 # from PPC bl 0x82642CB0 and its native shader context ABI.
 SOURCE_EOR_MATERIAL_METHODS = {"825F8A50"}
@@ -97,7 +98,7 @@ SOURCE_EOR_MATERIAL_METHODS = {"825F8A50"}
 SOURCE_EOR_PASS_METHODS = {"825F84C0"}
 if len(sys.argv) == 5 and (set(mandatory) &
                             (SOURCE_INLINE_END | SOURCE_EOR_SHADER_METHODS |
-                             SOURCE_EOR_VM_METHODS | SOURCE_EOR_MATERIAL_METHODS |
+                             SOURCE_EOR_VM_METHODS | SOURCE_EOR_CAMERA_OPTION_METHODS | SOURCE_EOR_MATERIAL_METHODS |
                              SOURCE_EOR_PASS_METHODS |
                              SOURCE_EOR_RENDER_ITEM_METHODS)):
     raise SystemExit("Original EoR shader/VM method incorrectly declared an XDK profile entry")
@@ -177,6 +178,17 @@ h += r"""
         __imp__sub_##addr(ctx,base); \
     }
 """
+# Genuine original EoR menu camera options. Capture before original call,
+# then mirror only the confirmed original boolean after the call returns.
+h += r"""
+#define HULK_EOR_CAMERA_OPTION_HOOK(addr) \
+    REX_EXTERN(__imp__sub_##addr); \
+    REX_HOOK_RAW(sub_##addr) { \
+        const auto change=::hulk::eor::xdk::CaptureOriginalCameraMenuOption(0x##addr,ctx,base); \
+        __imp__sub_##addr(ctx,base); \
+        ::hulk::eor::xdk::FinishOriginalCameraMenuOption(change,base); \
+    }
+"""
 # Original item-material descriptor setter: observe this source PPC method
 # before original call, but never invoke native Vulkan or change its state.
 h += r"""
@@ -219,6 +231,7 @@ h += r"""
 Path(sys.argv[3]).parent.mkdir(parents=True,exist_ok=True)
 generated = h + '\n'.join(
     'HULK_EOR_INLINE_END_HOOK('+addr+')' if addr in SOURCE_INLINE_END else
+    'HULK_EOR_CAMERA_OPTION_HOOK('+addr+')' if addr in SOURCE_EOR_CAMERA_OPTION_METHODS else
     'HULK_EOR_VM_STATE_TRACE_HOOK('+addr+')'
     if addr in SOURCE_EOR_VM_METHODS
     else ('HULK_EOR_RENDER_ITEM_TRACE_HOOK('+addr+')'

@@ -57,6 +57,9 @@ REXCVAR_DEFINE_BOOL(hulk_eor_xdk_source_mesh_capture, false, "Hulk/Diagnostics",
                     "Read-only original XDK VB/IB bytes; 64 MiB frame cap");
 REXCVAR_DEFINE_BOOL(hulk_eor_vulkan_replay, false, "Hulk/Diagnostics",
                     "Opt-in direct EoR Vulkan replay; requires verified sole presenter");
+namespace hulk {
+void CommitOriginalCameraMenuOption(bool yaw,bool value,uint8_t* base) noexcept;
+}
 namespace hulk::eor::xdk {
 namespace {
 std::mutex g_mutex;
@@ -161,6 +164,20 @@ bool ReadGuest(void* state,uint32_t address,std::byte* output,size_t length) noe
   return false;
 #endif
 }
+}
+
+std::optional<vm::OriginalCameraMenuChange> CaptureOriginalCameraMenuOption(
+    uint32_t method,const PPCContext& ctx,uint8_t* base) noexcept {
+  if(!base)return {};
+  return vm::CaptureCameraMenuChange(method,static_cast<uint32_t>(ctx.lr),
+      ctx.r3.u32,ctx.r31.u32,ctx.r27.u32,ctx.r28.u32,
+      [&](uint32_t address,uint8_t* data,size_t size) {
+        return ReadGuest(base,address,reinterpret_cast<std::byte*>(data),size);
+      });
+}
+void FinishOriginalCameraMenuOption(
+    std::optional<vm::OriginalCameraMenuChange> change,uint8_t* base) noexcept {
+  if(change)hulk::CommitOriginalCameraMenuOption(change->yaw,change->value,base);
 }
 
 void ObserveOriginalEorVmState_r(
