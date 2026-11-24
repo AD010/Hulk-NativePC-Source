@@ -3,6 +3,7 @@
 #pragma once
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 namespace hulk::camera {
 struct Layout {
   uint32_t pointer_slot=0;  // guest address of big-endian camera object pointer
@@ -14,7 +15,26 @@ struct Layout {
   bool invert_y=false;
 };
 struct Angles {float yaw=0,pitch=0;};
-struct OriginalLookInversion { bool yaw=false, pitch=false; };
+struct OriginalLookInversion {
+  bool yaw=false, pitch=false;
+  bool operator==(const OriginalLookInversion&) const = default;
+};
+// Original USA camera options are the same state used by the actual pause
+// menu and the gameplay camera. Only the verified two option bytes may be
+// changed, and only in response to an explicit PC settings change.
+std::optional<OriginalLookInversion> ReadGameLookInversion(uint8_t* base);
+bool WriteGameLookInversion(uint8_t* base,OriginalLookInversion expected,
+                            OriginalLookInversion desired);
+// Original UI changes win on the axis they changed. PC changes on the
+// other axis remain independent. At startup retain an existing PC opt-in
+// as well as any enabled saved original option.
+inline OriginalLookInversion ReconcileLookInversion(
+    std::optional<OriginalLookInversion> previous,
+    OriginalLookInversion original,OriginalLookInversion pc) noexcept {
+  if(!previous)return {original.yaw || pc.yaw,original.pitch || pc.pitch};
+  return {original.yaw!=previous->yaw ? original.yaw : pc.yaw,
+          original.pitch!=previous->pitch ? original.pitch : pc.pitch};
+}
 // A validated camera profile uses the same user sensitivity as RawInput;
 // scale 1.0 corresponds to the original default sensitivity value 4.0.
 Angles ApplyDelta(Angles angles,int dx,int dy,const Layout& cfg,

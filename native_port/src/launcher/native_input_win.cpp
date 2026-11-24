@@ -252,6 +252,35 @@ bool NativeInputApply(uint32_t user, bool real_pad_connected, uint8_t* state, ui
   if (real_pad_connected && !REXCVAR_GET(hulk_native_mnk_force)) return false;
   input::Frame f{};
 #if defined(_WIN32)
+  // The original Pause/Game Settings and PC controls share the exact USA
+  // camera option bytes when their source fingerprint is valid. RawInput
+  // must NOT invert again: the original camera (or direct yaw/pitch) does it.
+  static std::mutex inversion_mutex;
+  static uint8_t* inversion_base=nullptr;
+  static std::optional<camera::OriginalLookInversion> previous_inversion;
+  bool original_inversion_bound=false;
+  {
+    std::lock_guard lock(inversion_mutex);
+    if(inversion_base!=guest_base) {
+      inversion_base=guest_base;
+      previous_inversion.reset();
+    }
+    if(const auto original=camera::ReadGameLookInversion(guest_base)) {
+      const camera::OriginalLookInversion pc{REXCVAR_GET(hulk_mouse_invert_x),
+                                             REXCVAR_GET(hulk_mouse_invert_y)};
+      const auto desired=camera::ReconcileLookInversion(previous_inversion,*original,pc);
+      if(desired==*original || camera::WriteGameLookInversion(guest_base,*original,desired)) {
+        if(pc.yaw!=desired.yaw)REXCVAR_SET(hulk_mouse_invert_x,desired.yaw);
+        if(pc.pitch!=desired.pitch)REXCVAR_SET(hulk_mouse_invert_y,desired.pitch);
+        previous_inversion=desired;
+        original_inversion_bound=true;
+      } else {
+        // Never double-invert an original camera during a concurrent
+        // menu change. Resolve it from the current guest option next poll.
+        original_inversion_bound=true;
+      }
+    } else previous_inversion.reset();
+  }
   HWND hwnd = g_game_window;
   const bool focused = hwnd && GetForegroundWindow() == hwnd;
   // Neutral Xbox state while the PC host menu captures keyboard/mouse;
@@ -286,8 +315,8 @@ bool NativeInputApply(uint32_t user, bool real_pad_connected, uint8_t* state, ui
       add(REXCVAR_GET(hulk_bind_rstick_click), input::MouseMiddle);
       f.mouse_dx = g_dx.exchange(0);
       f.mouse_dy = g_dy.exchange(0);
-      if (REXCVAR_GET(hulk_mouse_invert_x)) f.mouse_dx = -f.mouse_dx;
-      if (REXCVAR_GET(hulk_mouse_invert_y)) f.mouse_dy = -f.mouse_dy;
+      if (!original_inversion_bound && REXCVAR_GET(hulk_mouse_invert_x)) f.mouse_dx = -f.mouse_dx;
+      if (!original_inversion_bound && REXCVAR_GET(hulk_mouse_invert_y)) f.mouse_dy = -f.mouse_dy;
       const auto now = static_cast<uint64_t>(GetTickCount64());
       const int wheel = g_pending_wheel.exchange(0);
       if (REXCVAR_GET(hulk_wheel_adjust_speed)) {

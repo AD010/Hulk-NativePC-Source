@@ -32,6 +32,11 @@ int main(){
  REQUIRE(ApplyToGuestSpan(memory.data(),memory.size(),c,10,-20,2.0f,0.5f));
  REQUIRE(std::abs(R(memory,0x224)-0.2f)<1.e-5f);
  REQUIRE(std::abs(R(memory,0x228)+0.1f)<1.e-5f);
+ // Original menu and PC changes are reconciled per axis, not XORed.
+ REQUIRE((ReconcileLookInversion({}, {false,true}, {true,false})==OriginalLookInversion{true,true}));
+ REQUIRE((ReconcileLookInversion(OriginalLookInversion{true,true}, {false,true}, {true,false})==OriginalLookInversion{false,false}));
+ REQUIRE((ReconcileLookInversion(OriginalLookInversion{false,false}, {true,false}, {false,true})==OriginalLookInversion{true,true}));
+ REQUIRE((ReconcileLookInversion(OriginalLookInversion{true,true}, {true,true}, {false,true})==OriginalLookInversion{false,true}));
  // As in the original settings page, yaw and pitch are independent.
  for (bool invert_yaw : {false, true}) {
    for (bool invert_pitch : {false, true}) {

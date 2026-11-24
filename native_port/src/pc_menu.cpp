@@ -496,10 +496,10 @@ class PcMenu final : public rex::ui::ImGuiDialog {
       ImGui::Text("Move: %s / %s / %s / %s", w.c_str(), a.c_str(), s.c_str(), d.c_str());
       ImGui::TextUnformatted("Look: mouse");
       // Black V3-style separate axis controls; both routes use live CVars.
-      bool invert_x = PendingBool("hulk_mouse_invert_x");
+      bool invert_x = rex::cvar::Query<bool>("hulk_mouse_invert_x");
       if (ImGui::Checkbox("Invert mouse X", &invert_x))
         Change("hulk_mouse_invert_x", invert_x ? "true" : "false");
-      bool invert_y = PendingBool("hulk_mouse_invert_y");
+      bool invert_y = rex::cvar::Query<bool>("hulk_mouse_invert_y");
       if (ImGui::Checkbox("Invert mouse Y", &invert_y))
         Change("hulk_mouse_invert_y", invert_y ? "true" : "false");
       DrawMouseMultiplier("Mouse horizontal speed",

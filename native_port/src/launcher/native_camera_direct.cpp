@@ -248,7 +248,7 @@ uint8_t* GuestAddress(
   return p;
 }
 
-OriginalLookInversion ReadOriginalLookInversion(uint8_t* base) {
+uint8_t* VerifiedOriginalLookFlags(uint8_t* base,bool writable) {
   // The USA VM registers separate pitch/yaw getters which read adjacent
   // option bytes. Check both complete getters before using their data address.
   constexpr uint32_t getters = 0x82338A00;
@@ -260,15 +260,38 @@ OriginalLookInversion ReadOriginalLookInversion(uint8_t* base) {
     fingerprint = (fingerprint ^ code[i]) * 0x100000001b3ull;
   if (fingerprint != 0xce487ca27f9d0efeull) return {};
 
-  const auto* flags = GuestAddress(base, 0x82E53B3C, 2, false);
-  if (!flags) return {};
-  const uint8_t pitch = flags[0], yaw = flags[1];
-  if (pitch > 1 || yaw > 1) return {};
-  return {yaw != 0, pitch != 0};
+  auto* flags = GuestAddress(base, 0x82E53B3C, 2, writable);
+  if (!flags || flags[0]>1u || flags[1]>1u) return nullptr;
+  return flags;
 }
 #endif
 
 } // namespace
+
+std::optional<OriginalLookInversion> ReadGameLookInversion(uint8_t* base) {
+#ifdef _WIN32
+  if(const auto* flags=VerifiedOriginalLookFlags(base,false))
+    return OriginalLookInversion{flags[1]!=0,flags[0]!=0};
+#else
+  (void)base;
+#endif
+  return std::nullopt;
+}
+bool WriteGameLookInversion(uint8_t* base,OriginalLookInversion expected,
+                            OriginalLookInversion desired) {
+#ifdef _WIN32
+  if(auto* flags=VerifiedOriginalLookFlags(base,true)) {
+    if((flags[1]!=0)!=expected.yaw || (flags[0]!=0)!=expected.pitch)
+      return false; // original menu changed meanwhile
+    if(expected.pitch!=desired.pitch)flags[0]=static_cast<uint8_t>(desired.pitch);
+    if(expected.yaw!=desired.yaw)flags[1]=static_cast<uint8_t>(desired.yaw);
+    return true;
+  }
+#else
+  (void)base;(void)expected;(void)desired;
+#endif
+  return false;
+}
 
 Angles ApplyDelta(
     Angles angles, int dx, int dy,
@@ -401,7 +424,7 @@ bool ApplyToGameMemory(
 
   const Angles next = ApplyDelta(previous, dx, dy, c,
                                  sensitivity_scale, sensitivity_y_scale,
-                                 ReadOriginalLookInversion(base));
+                                 ReadGameLookInversion(base).value_or(OriginalLookInversion{}));
   WriteBEFloat(yaw, next.yaw);
   WriteBEFloat(pitch, next.pitch);
   return true;
