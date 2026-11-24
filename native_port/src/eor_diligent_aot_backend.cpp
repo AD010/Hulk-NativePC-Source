@@ -101,7 +101,12 @@ bool HasVerifiedHostAttributeLayout(
              static_cast<uint32_t>(item.NumComponents),
              static_cast<uint32_t>(item.RelativeOffset),
              static_cast<uint32_t>(item.Stride),
-             item.ValueType==Diligent::VT_FLOAT32,
+             // Scalar XenosRecomp NORMAL/TANGENT inputs are uint4 bit
+             // patterns of the same native float4 bytes (asfloat path).
+             item.ValueType==Diligent::VT_FLOAT32 ||
+               (item.ValueType==Diligent::VT_UINT32 && item.BufferSlot>0 &&
+                (item.InputIndex==1u || item.InputIndex==2u) &&
+                item.NumComponents==4u),
              item.Frequency==Diligent::INPUT_ELEMENT_FREQUENCY_PER_VERTEX};
   }
   return ValidateHostVertexLayout(
@@ -532,9 +537,22 @@ std::size_t DiligentEorDirectBackend::AdoptVerifiedOriginalMaterialPasses(
            pass.pipeline.original_vertex_shader_sha256 ||
        old.pipeline.original_pixel_shader_sha256!=
            pass.pipeline.original_pixel_shader_sha256 ||
-       old.original_textures.size()!=pass.original_textures.size())
+       old.original_textures.size()!=pass.original_textures.size() ||
+       old.pipeline.exact_host_input_layout.size()!=pass.pipeline.exact_host_input_layout.size())
       throw std::invalid_argument(
           "Original material shader/image generation changed while resident");
+    // A surface may reference more than one mesh. A different vertex
+    // layout must not silently reuse the first mesh's cached Vulkan PSO.
+    for(size_t i=0;i<pass.pipeline.exact_host_input_layout.size();++i) {
+      const auto& x=old.pipeline.exact_host_input_layout[i];
+      const auto& y=pass.pipeline.exact_host_input_layout[i];
+      if(x.InputIndex!=y.InputIndex || x.BufferSlot!=y.BufferSlot ||
+         x.NumComponents!=y.NumComponents || x.ValueType!=y.ValueType ||
+         x.IsNormalized!=y.IsNormalized || x.RelativeOffset!=y.RelativeOffset ||
+         x.Stride!=y.Stride || x.Frequency!=y.Frequency ||
+         x.InstanceDataStepRate!=y.InstanceDataStepRate)
+        throw std::invalid_argument("Original material vertex layout generation changed");
+    }
     for(size_t i=0;i<pass.original_textures.size();++i) {
       const auto& a=old.original_textures[i];
       const auto& b=pass.original_textures[i];
