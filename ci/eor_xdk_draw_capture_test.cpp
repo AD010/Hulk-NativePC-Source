@@ -788,6 +788,20 @@ int main() {
          latest->overwritten_since_take==1 &&
          latest->frame.calls.size()==2);
   mailbox.Reset();
+  // Native mixed-frame staging owns a complete immutable epoch before
+  // expensive PSO/material work, while newer Presents may continue.
+  mailbox.Publish(Frame{75,0,{a,b}});
+  const auto inspected=mailbox.Peek();
+  assert(!mailbox.ClaimCleanIfSequence(74));
+  const auto claimed=mailbox.ClaimCleanIfSequence(75);
+  assert(claimed && claimed==inspected && !mailbox.Peek());
+  mailbox.Publish(Frame{76,0,{a}});
+  assert(claimed->sequence==75 && claimed->calls.size()==2);
+  assert(mailbox.Peek()->sequence==76 && mailbox.MissedSinceTake()==0);
+  mailbox.Publish(Frame{77,0,{b}});
+  assert(!mailbox.ClaimCleanIfSequence(77));
+  assert(mailbox.DiscardIfSequence(77));
+  mailbox.Reset();
   // Worker/render-thread loss recovery: discard the overwritten epoch
   // without accidentally authorizing its newest frame, then accept the
   // next independent original Present with a clean loss counter.

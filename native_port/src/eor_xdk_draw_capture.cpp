@@ -335,6 +335,14 @@ std::optional<DeliveredFrame> CompletedFrameMailbox::TakeIfSequence(
      pending_->sequence!=source_sequence)return std::nullopt;
   return Take();
 }
+std::shared_ptr<const Frame> CompletedFrameMailbox::ClaimCleanIfSequence(
+    uint64_t source_sequence) noexcept {
+  if(!source_sequence || !pending_ || pending_->sequence!=source_sequence ||
+     missed_since_take_)return {};
+  std::shared_ptr<const Frame> claimed=std::move(pending_);
+  missed_since_take_=0;
+  return claimed;
+}
 bool CompletedFrameMailbox::DiscardIfSequence(
     uint64_t source_sequence) noexcept {
   if(!source_sequence || !pending_ ||

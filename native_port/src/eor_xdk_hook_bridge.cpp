@@ -2277,9 +2277,14 @@ native_x_renderer::HulkEorPresentResult ReplayVerifiedMixedOriginalFrame(
   OfflineShaderPack pack;
   {
     std::lock_guard lock(g_mutex);
-    if(g_worker_owner_catalog!=owner || !g_offline_shader_pack ||
-       g_frames_for_native.MissedSinceTake()!=0)
+    if(g_worker_owner_catalog!=owner || !g_offline_shader_pack)
       return Result::kNotReady;
+    // Reserve this exact complete source Present BEFORE material/PSO staging.
+    // Previously a new guest Present during expensive preparation invalidated
+    // all work, causing indefinite fallback in an otherwise valid scene.
+    auto claimed=g_frames_for_native.ClaimCleanIfSequence(source_sequence);
+    if(!claimed || claimed!=snapshot)return Result::kNotReady;
+    snapshot=std::move(claimed);
     pack=*g_offline_shader_pack;
   }
   // This path does not invoke ResolveCapturedResourceDraws for EFontShader:
@@ -2307,28 +2312,25 @@ native_x_renderer::HulkEorPresentResult ReplayVerifiedMixedOriginalFrame(
       if(!pack.shaders->Find(draw.vertex_source_sha256,aot::Stage::Vertex) ||
          !pack.shaders->Find(draw.pixel_source_sha256,aot::Stage::Pixel))
         return Result::kNotReady;
-    // The source producer may advance while Vulkan allocates transient UI
-    // vertices. Consume ONLY the SAME original guest Present and the SAME
-    // verified source catalog/shader bank generation. No stale XDK shaders
-    // or archive material owners may be passed to host Clear/Present.
-    snapshot.reset();
-    std::optional<DeliveredFrame> delivered;
+    // The claimed source frame is immutable, including all Draw constants
+    // and buffer bytes. A newer guest Present belongs to the next worker
+    // invocation; it cannot replace any resource in this frame.
     {
       std::lock_guard lock(g_mutex);
       if(g_worker_owner_catalog!=owner || !g_offline_shader_pack ||
          g_offline_shader_pack->shaders!=pack.shaders ||
          g_offline_shader_pack->effects!=pack.effects ||
          g_offline_shader_pack->reflection!=pack.reflection ||
-         g_offline_shader_pack->virtual_ids!=pack.virtual_ids ||
-         g_frames_for_native.MissedSinceTake()!=0)
+         g_offline_shader_pack->samplers!=pack.samplers ||
+         g_offline_shader_pack->virtual_ids!=pack.virtual_ids)
         return Result::kNotReady;
-      delivered=g_frames_for_native.TakeIfSequence(source_sequence);
     }
-    if(!delivered || delivered->overwritten_since_take)
-      return Result::kNotReady;
+    const auto& current=host.swap_chain()->GetDesc();
+    if(current.Width!=owner->output.backbuffer.width ||
+       current.Height!=owner->output.backbuffer.height)return Result::kNotReady;
     aot::ReplayAotScene(owner->output,prepared.ordered,
         *pack.shaders,*pack.effects,*pack.reflection,*owner->gpu,
-        &delivered->frame,&began_gpu);
+        snapshot.get(),&began_gpu);
     // The original resident-model owner and transient glyph GPU buffers
     // must survive the host graphics completion fence. NativeX exposes
     // no verified per-source fence to this bridge yet: use the existing

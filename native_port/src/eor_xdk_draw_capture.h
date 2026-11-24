@@ -759,6 +759,10 @@ class CompletedFrameMailbox {
   uint64_t MissedSinceTake() const noexcept {return missed_since_take_;}
   // Atomically reject a stale frame after another original guest Present.
   std::optional<DeliveredFrame> TakeIfSequence(uint64_t source_sequence);
+  // Claim one complete, non-overwritten Present without moving its storage.
+  // A later guest Present can now publish independently while the sole
+  // renderer builds PSOs/materials for this immutable frame.
+  std::shared_ptr<const Frame> ClaimCleanIfSequence(uint64_t source_sequence) noexcept;
   // A missed Present cannot be replayed. Drop the pending epoch by its
   // exact source sequence EVEN WHILE other threads retain read-only Peek()
   // snapshots. Unlike Take(), this never moves data still being inspected.
