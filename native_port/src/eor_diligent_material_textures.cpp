@@ -1,4 +1,5 @@
 #include "eor_diligent_material_textures.h"
+#include "eor_original_sampler_mips.h"
 #include "ShaderResourceBinding.h"
 #include "ShaderResourceVariable.h"
 #include "TextureView.h"
@@ -40,6 +41,10 @@ void BindOriginalPixelImage2D(Diligent::IRenderDevice* device,
   const bool cube=texture.view_kind==OriginalTextureViewKind::NativeCube;
   const auto& image=texture.host_texture->GetDesc();
   const auto shape=fetch[2], sampling=fetch[3], format=fetch[1]&63u;
+  const uint32_t guest_width=one_dimensional?(shape&0xffffffu)+1u:(shape&8191u)+1u;
+  const uint32_t guest_height=one_dimensional?1u:((shape>>13)&8191u)+1u;
+  const auto window=PlanOriginalMipWindow(image.Width,image.Height,image.MipLevels,
+                                          guest_width,guest_height);
   // These four layouts are decoded by the USA LFXT asset loader. Validate
   // the live swizzle, exponent, signs and typed Vulkan SRV independently.
   const bool compatible=
@@ -53,11 +58,10 @@ void BindOriginalPixelImage2D(Diligent::IRenderDevice* device,
      (fetch[1]&(1u<<10)) ||
      (one_dimensional ?
         ((fetch[5]>>9&3u)!=0u || (shape>>24) ||
-         (shape&0xffffffu)+1u!=image.Width || image.Height!=1u) :
+         image.Height!=1u) :
         ((fetch[5]>>9&3u)!=(cube?3u:1u) ||
-         (shape>>26)!=(cube?5u:0u) ||
-         (shape&8191u)+1u!=image.Width || ((shape>>13)&8191u)+1u!=image.Height)) ||
-     (cube && (image.ArraySize!=6u || image.Width!=image.Height)) ||
+         (shape>>26)!=(cube?5u:0u))) ||
+     !window || (cube && (image.ArraySize!=6u || image.Width!=image.Height || window->base!=0)) ||
      texture.original_mip_levels!=image.MipLevels || !image.MipLevels || (sampling>>28))
     throw std::invalid_argument("Original pixel fetch constant and resident image disagree");
   auto address=[](uint32_t v) {
@@ -80,19 +84,11 @@ void BindOriginalPixelImage2D(Diligent::IRenderDevice* device,
   desc.MinFilter=force_point ? FILTER_TYPE_POINT : filter(sampling>>21&3u);
   const auto mip=force_point ? 0u : (sampling>>23&3u);
   desc.MipFilter=mip==2u ? FILTER_TYPE_POINT : filter(mip);
-  const auto last=std::bit_width(std::max(image.Width,image.Height))-1u;
-  uint32_t lo=0,hi=0;
-  if(fetch[5]>>12&0x1ffffu) {
-    lo=std::min(fetch[4]>>2&15u,last);
-    hi=std::max(lo,std::min(fetch[4]>>6&15u,last));
-  }
-  if(!(fetch[1]>>12&0x1ffffu)) {
-    if(!hi)throw std::invalid_argument("Original image has no resident base or mip page");
-    lo=std::max(lo,1u);
-  }
-  if(mip==2u)hi=lo;
-  if(hi>=image.MipLevels)
-    throw std::invalid_argument("Source sampler requires a missing original mip level");
+  const auto range=PlanOriginalSamplerMipRange(guest_width,guest_height,window->count,
+      (fetch[1]>>12&0x1ffffu)!=0,(fetch[5]>>12&0x1ffffu)!=0,
+      fetch[4]>>2&15u,fetch[4]>>6&15u,mip==2u);
+  if(!range)throw std::invalid_argument("Source sampler requires a missing original mip level");
+  const auto lo=range->lo,hi=range->hi;
   desc.MinLOD=static_cast<float>(lo);
   desc.MaxLOD=static_cast<float>(hi);
   const auto bias_bits=static_cast<int>((fetch[4]>>12)&1023u);
@@ -117,7 +113,19 @@ void BindOriginalPixelImage2D(Diligent::IRenderDevice* device,
   RefCntAutoPtr<ISampler> native;
   device->CreateSampler(desc,&native);
   if(!native)throw std::runtime_error("Original texture sampler creation failed");
-  resource->Set(texture.SRV());
+  // The guest's active base may be a smaller original streamed level.
+  // Preserve normalized coordinates and explicit relative LOD using a
+  // view of the verified suffix, not a rescaled or fabricated image.
+  RefCntAutoPtr<ITextureView> resident_view;
+  if(window->base) {
+    TextureViewDesc view{};
+    view.Name="Original EoR streamed mip suffix";
+    view.ViewType=TEXTURE_VIEW_SHADER_RESOURCE;
+    view.MostDetailedMip=window->base;view.NumMipLevels=window->count;
+    texture.host_texture->CreateView(view,&resident_view);
+    if(!resident_view)throw std::runtime_error("Original streamed mip view unavailable");
+  }
+  resource->Set(resident_view?resident_view.RawPtr():texture.SRV());
   sampler->Set(native);
 }
 

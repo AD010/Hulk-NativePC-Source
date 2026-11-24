@@ -308,6 +308,12 @@ jobs:
             & $immutableTest
             if ($LASTEXITCODE -ne 0) { $cppFailures.Add('Native immutable buffer identity/lifetime regression failed') }
           }
+          $samplerMipTest = Join-Path $env:RUNNER_TEMP 'hulk-eor-original-sampler-mips-test.exe'
+          & cl.exe /nologo /std:c++20 /EHsc /W4 /WX /utf-8 "/Fe:$samplerMipTest" ci/eor_original_sampler_mips_test.cpp
+          if ($LASTEXITCODE -ne 0) { $cppFailures.Add('Original streamed mip sampler regression compile failed') } else {
+            & $samplerMipTest
+            if ($LASTEXITCODE -ne 0) { $cppFailures.Add('Original streamed mip window regression failed') }
+          }
           # EoR-only fixed-step clock and motion-vector math; no guest Havok claim.
           $temporalTest = Join-Path $env:RUNNER_TEMP 'hulk-eor-fixed-temporal-test.exe'
           $temporalArgs = @('/nologo','/std:c++20','/EHsc','/W4','/WX','/utf-8',
