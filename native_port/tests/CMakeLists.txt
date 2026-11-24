@@ -48,6 +48,18 @@ if(HULK_DILIGENT_CORE)
     target_link_libraries(hulk_original_ui_vulkan_test PRIVATE
         Diligent-GraphicsEngineVk-static Diligent-GraphicsEngineVkInterface Diligent-Common)
     add_test(NAME original_mixed_targets_vulkan COMMAND hulk_original_ui_vulkan_test --mixed-targets)
+    # Formal SPIRV-Tools validation independent from driver acceptance.
+    # These private source tests deliberately do not require a separate workflow.
+    if(HULK_USA_SPIRV)
+        find_package(Python3 COMPONENTS Interpreter REQUIRED)
+        find_program(HULK_SPIRV_VAL NAMES spirv-val spirv-val.exe REQUIRED)
+        add_executable(hulk_export_cube_gamma eor_export_cube_gamma.cpp)
+        target_compile_features(hulk_export_cube_gamma PRIVATE cxx_std_20)
+        add_test(NAME original_shader_bank_spirv_val
+            COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/validate_original_shader_bank.py"
+                "${HULK_USA_SPIRV}" "$<TARGET_FILE:hulk_export_cube_gamma>" "${HULK_SPIRV_VAL}")
+    endif()
+
     if(HULK_USA_SPIRV AND HULK_USA_EFFECTS)
         add_test(NAME full_original_shader_bank_vulkan COMMAND hulk_original_ui_vulkan_test
             --shader-bank "${HULK_USA_SPIRV}" "${HULK_USA_EFFECTS}")
