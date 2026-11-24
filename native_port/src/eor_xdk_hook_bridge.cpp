@@ -971,6 +971,8 @@ void CapturePpcCommand(CommandKind kind,uint32_t guest,
   if(kind==CommandKind::ClearF)
     event.captured_clear=CaptureOriginalXdkClearF(
         event.gpr,ctx.f1.f64,ReadGuest,guest_base);
+  if(kind==CommandKind::Resolve)
+    event.captured_resolve=CaptureOriginalColorResolveRegion(event.gpr,ReadGuest,guest_base);
   std::lock_guard lock(g_mutex);
   g_collector.RecordCommand(event);
 }

@@ -198,6 +198,25 @@ std::optional<OriginalXdkClearF> CaptureOriginalXdkClearF(
   if((out.flags & 0x0fu) && !out.has_color)return std::nullopt;
   return out;
 }
+// Verified USA Resolve 0x828897F8: original AOT host 0x141D58D33..0x141D58D78
+// reads two BE signed destination POINT words at r7; host
+// 0x141D594B4..0x141D59575 reads four BE RECT words at r5.
+// Snapshot the arguments before the guest call can mutate their storage.
+std::optional<OriginalResolveRegion> CaptureOriginalColorResolveRegion(
+    const std::array<uint32_t,8>& gpr,ReadGuestBytes read,void* state) noexcept {
+  if(!read || gpr[1] || !gpr[3] || gpr[5] || gpr[6])return {};
+  OriginalResolveRegion region{};
+  auto read_words=[&](uint32_t address,auto& words) {
+    if(!address)return true;
+    if(address&3u || uint64_t(address)+words.size()*4u>(uint64_t{1}<<32))return false;
+    std::array<std::byte,16> raw{};
+    if(!read(state,address,raw.data(),words.size()*4u))return false;
+    for(size_t i=0;i<words.size();++i)words[i]=std::bit_cast<int32_t>(be32(raw.data()+i*4));
+    return true;
+  };
+  if(!read_words(gpr[2],region.source) || !read_words(gpr[4],region.destination))return {};
+  return region;
+}
 std::optional<IndexedXdkCall> DecodeOriginalIndexedXdkCall(const RawDraw& call) {
   // Method 0x8288E318 is the exact SHA-pinned USA XDK DrawIndexedVertices
   // implementation; the other r8-r10 fields are caller-volatiles, NOT

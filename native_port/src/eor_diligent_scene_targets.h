@@ -293,9 +293,22 @@ inline std::optional<OriginalSourceTargetFormat> PlanOriginalNativeTargets(
       case xdk::CommandKind::Resolve: {
         const auto dest=cmd.gpr[3];
         if(final_resolved || !drawn.contains(active_color) || !dest ||
-           cmd.gpr[1] || cmd.gpr[2] || cmd.gpr[4] || cmd.gpr[5] || cmd.gpr[6] ||
            colors.contains(dest) || depths.contains(dest))return {};
         const auto extent=graph.extents.at(active_color);
+        const auto region=xdk::DecodeOriginalColorResolveRegion(cmd,extent.width,extent.height);
+        if(!region)return {};
+        const bool full=region->IsFull(extent.width,extent.height);
+        // The original XDK rounds Resolve edges to its eight-texel grid.
+        // Do not claim equivalence for unaligned/clipped copies. A partial
+        // update needs a previously initialized destination in THIS frame.
+        if(!full) {
+          if(dest==front || !completed_resolves.contains(dest) ||
+             graph.sample_counts.at(active_color)!=1u ||
+             !graph.extents.contains(dest) || graph.extents.at(dest)!=extent ||
+             graph.color_formats.at(dest)!=graph.color_formats.at(active_color))return {};
+          for(int32_t v:region->source)if(v&7)return {};
+          for(int32_t v:region->destination)if(v&7)return {};
+        }
         if(active_depth && *active_depth && (graph.extents.at(*active_depth)!=extent || graph.sample_counts.at(*active_depth)!=graph.sample_counts.at(active_color)))return {};
         if(!register_extent(dest,extent) || !register_samples(dest,1u) ||
            !register_color(dest,graph.color_formats.at(active_color)))return {};
@@ -357,7 +370,8 @@ class DiligentSceneTargets {
   uint32_t ActiveOriginalColor() const noexcept;
   native::Size ActiveSourceExtent(native::Size fallback) const noexcept;
   bool SetOriginalDepthTarget(uint32_t guest);
-  bool ResolveOriginalIntermediate(uint32_t guest_destination);
+  bool ResolveOriginalIntermediate(uint32_t guest_destination,
+      const std::optional<xdk::OriginalResolveRegion>& source_region=std::nullopt);
   Diligent::ITextureView* IntermediateColorSRV(uint32_t guest_destination) const noexcept;
   bool DepthBound() const noexcept;
   bool BeginScene(); // does not clear: the real EoR Clear/Depth ABI owns it

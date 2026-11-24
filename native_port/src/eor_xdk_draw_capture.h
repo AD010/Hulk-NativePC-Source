@@ -2,6 +2,7 @@
 // Keep original PPC call-through and memory untouched. Opt-in audit only.
 #pragma once
 #include "eor_xdk_guest_constants.h"
+#include "eor_original_resolve_region.h"
 #include "eor_original_virtual_shader_identity.h"
 #include <array>
 #include <cstddef>
@@ -85,7 +86,23 @@ struct RawCommand {
   std::array<uint32_t,8> gpr{};  // original r3..r10
   uint32_t draw_ordinal=UINT32_MAX; // populated only for Draw commands
   std::optional<OriginalXdkClearF> captured_clear;
+  std::optional<OriginalResolveRegion> captured_resolve;
 };
+std::optional<OriginalResolveRegion> CaptureOriginalColorResolveRegion(
+    const std::array<uint32_t,8>& gpr,ReadGuestBytes read,void* state) noexcept;
+inline std::optional<OriginalResolveRegion> DecodeOriginalColorResolveRegion(
+    const RawCommand& cmd,uint32_t width,uint32_t height) noexcept {
+  if(cmd.kind!=CommandKind::Resolve || cmd.gpr[1] || !cmd.gpr[3] ||
+     cmd.gpr[5] || cmd.gpr[6] || !width || !height || width>8192 || height>8192)return {};
+  if(!cmd.gpr[2] && !cmd.gpr[4] && !cmd.captured_resolve)
+    return OriginalResolveRegion{{0,0,int32_t(width),int32_t(height)},{0,0}};
+  if(!cmd.captured_resolve)return {};
+  auto region=*cmd.captured_resolve;
+  if(!cmd.gpr[2])region.source={0,0,int32_t(width),int32_t(height)};
+  if(!cmd.gpr[4])region.destination={0,0};
+  if(!ValidOriginalResolveRegion(region,width,height,width,height))return {};
+  return region;
+}
 struct OriginalGuestBufferBytes {
   uint32_t guest_object=0,guest_address=0,guest_size=0;
   std::vector<std::byte> bytes;

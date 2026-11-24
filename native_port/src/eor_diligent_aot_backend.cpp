@@ -731,7 +731,8 @@ bool DiligentEorDirectBackend::CanReplayOriginalXdkCommand(
            s.format.depth==NativeDepthFormat::D24S8);
     case xdk::CommandKind::Resolve:
       if(s.format.original_graph.active())
-        return !cmd.gpr[1] && !cmd.gpr[2] && !cmd.gpr[4] && !cmd.gpr[5] && !cmd.gpr[6] &&
+        return !cmd.gpr[1] && !cmd.gpr[5] && !cmd.gpr[6] &&
+           ((!cmd.gpr[2] && !cmd.gpr[4]) || cmd.captured_resolve) &&
            (cmd.gpr[3]==original.guest_front_buffer || s.format.original_graph.HasResolve(cmd.gpr[3]));
       return original.final_resolve_to_front_buffer_verified &&
              (cmd.gpr[1]&7u)==0 &&
@@ -868,8 +869,14 @@ bool DiligentEorDirectBackend::ReplayOriginalXdkCommand(
       // DrawIndexed; physical MSAA resolve is performed by ResolveScene()
       // immediately after the final source Draw, not against guest EDRAM.
       if(s.source_resolve_recorded)return false;
-      if(s.format.original_graph.active() && cmd.gpr[3]!=s.format.original_screen.guest_front_buffer)
-        return s.scene.ResolveOriginalIntermediate(cmd.gpr[3]);
+      if(s.format.original_graph.active()) {
+        const auto size=s.scene.ActiveSourceExtent(s.frame.original_guest);
+        const auto region=xdk::DecodeOriginalColorResolveRegion(cmd,size.width,size.height);
+        if(!region)return false;
+        if(cmd.gpr[3]!=s.format.original_screen.guest_front_buffer)
+          return s.scene.ResolveOriginalIntermediate(cmd.gpr[3],region);
+        if(!region->IsFull(size.width,size.height))return false;
+      }
       s.source_resolve_recorded=true;
       return true;
     default:return false;

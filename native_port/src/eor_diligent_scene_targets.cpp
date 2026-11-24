@@ -318,7 +318,8 @@ bool DiligentSceneTargets::SetOriginalDepthTarget(uint32_t guest) {
   state_->active_depth=guest;state_->depth_bound=guest!=0;
   return BindOriginalAttachments();
 }
-bool DiligentSceneTargets::ResolveOriginalIntermediate(uint32_t guest) {
+bool DiligentSceneTargets::ResolveOriginalIntermediate(uint32_t guest,
+    const std::optional<xdk::OriginalResolveRegion>& source_region) {
   using namespace Diligent;
   if(!state_ || !state_->bound || !state_->color ||
      !state_->formats.original_graph.active())return false;
@@ -328,6 +329,16 @@ bool DiligentSceneTargets::ResolveOriginalIntermediate(uint32_t guest) {
   if(src.Width!=dst.Width || src.Height!=dst.Height || src.Format!=dst.Format || dst.SampleCount!=1)return false;
   if(state_->depth_bound && (!state_->depth || state_->depth->GetDesc().Width!=src.Width ||
       state_->depth->GetDesc().Height!=src.Height || state_->depth->GetDesc().SampleCount!=src.SampleCount))return false;
+  std::optional<xdk::OriginalResolveRegion> mapped;
+  if(source_region) {
+    const auto source=ActiveSourceExtent(state_->original);
+    const auto destination=state_->formats.original_graph.SourceExtent(guest,state_->original);
+    mapped=xdk::MapOriginalResolveRegion(*source_region,source.width,source.height,
+        destination.width,destination.height,src.Width,src.Height,dst.Width,dst.Height);
+    if(!mapped)return false;
+    if(!mapped->IsFull(src.Width,src.Height) &&
+       (src.SampleCount!=1 || !state_->completed_intermediates.contains(guest)))return false;
+  }
   auto* rtv=state_->color->GetDefaultView(TEXTURE_VIEW_RENDER_TARGET);
   auto* dsv=state_->depth_bound && state_->depth ?
       state_->depth->GetDefaultView(TEXTURE_VIEW_DEPTH_STENCIL) : nullptr;
@@ -346,6 +357,13 @@ bool DiligentSceneTargets::ResolveOriginalIntermediate(uint32_t guest) {
     } else {
       CopyTextureAttribs args{};
       args.pSrcTexture=state_->color;args.pDstTexture=it->second;
+      Box box{};
+      if(mapped && !mapped->IsFull(src.Width,src.Height)) {
+        const auto& r=mapped->source;
+        box=Box{uint32_t(r[0]),uint32_t(r[2]),uint32_t(r[1]),uint32_t(r[3])};
+        args.pSrcBox=&box;
+        args.DstX=uint32_t(mapped->destination[0]);args.DstY=uint32_t(mapped->destination[1]);
+      }
       args.SrcTextureTransitionMode=RESOURCE_STATE_TRANSITION_MODE_TRANSITION;
       args.DstTextureTransitionMode=RESOURCE_STATE_TRANSITION_MODE_TRANSITION;
       state_->context->CopyTexture(args);
