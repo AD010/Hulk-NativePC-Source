@@ -86,8 +86,19 @@ bool MatchesOriginalXdkGraphicsState(
   // Alpha test must be done by the original translated pixel shader;
   // alpha-to-coverage dithering, source clip planes, polygon modes and
   // source depth bias are not interchangeable with a host PSO default.
+  // Xenos polygon mode 0 draws filled triangles. Mode 1 selects
+  // per-face primitive types and is compatible with host TRIANGLE_LIST
+  // only when BOTH sides request triangles. Original Xbox titles also
+  // use reserved value 2 to mean ordinary triangles (Xenos hardware
+  // actually rasterizes them as filled, unlike the naïve bit-test that
+  // rejected every such world Draw). Unknown mode 3 still fails closed.
+  const uint32_t polygon_mode=(*raster>>3)&3u;
+  const uint32_t polygon_front=(*raster>>5)&7u;
+  const uint32_t polygon_back=(*raster>>8)&7u;
   if((*color&0x18u) || (*clip&0x3fu) ||
-     ((*raster>>3)&3u) || (*raster&(7u<<11)) ||
+     polygon_mode==3u ||
+     (polygon_mode==1u && (polygon_front!=2u || polygon_back!=2u)) ||
+     (*raster&(7u<<11)) ||
      (*raster&(1u<<20)) || ((*raster&3u)==3u) ||
      (*depth&1u) || ((*surface>>16)&3u)>2u)
     return false;
