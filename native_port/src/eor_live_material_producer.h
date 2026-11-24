@@ -280,7 +280,35 @@ struct ProducedWorldMaterial {
   VerifiedNativeMaterialPass material;
   native::VerifiedDrawSource draw;
 };
-inline ProducedWorldMaterial ProduceOriginalIndexedMaterial(
+// DrawVertices and DrawIndexedVertices use the same verified archive
+// mesh. For nonindexed lists/fans, locate a host triangle-index window
+// whose effective vertex sequence equals EVERY original source vertex.
+struct LinearizedOriginalDraw {uint32_t first=0,count=0;int32_t base=0;};
+inline std::optional<LinearizedOriginalDraw> FindOriginalLinearizedDraw(
+    const xdk::VerticesXdkCall& original,const native::ExactOriginalGuestMesh& exact,
+    const model::UploadedNativeMesh& mesh) noexcept {
+  const auto count=xdk::VerifiedTriangleListCount(original.primitive,original.vertex_count);
+  const int64_t first=int64_t(original.start_vertex)-exact.guest_first_vertex;
+  if(!count || first<0 || uint64_t(first)+original.vertex_count>mesh.vertex_count ||
+     mesh.host_indices.size()!=mesh.index_count || *count>mesh.index_count)return {};
+  for(uint32_t i=0;i<=mesh.index_count-*count;++i) {
+    const int64_t base=first-mesh.host_indices[i];
+    if(base<INT32_MIN || base>INT32_MAX)continue;
+    bool equal=true;
+    for(uint32_t j=0;j<*count;++j) {
+      const auto position=original.primitive==6u ?
+          xdk::OriginalTriangleFanVertex(j/3u,j%3u) : j;
+      if(int64_t(mesh.host_indices[i+j])+base!=first+position) {
+        equal=false;break;
+      }
+    }
+    // Equivalent duplicate windows generate the exact same effective
+    // vertex sequence; choose the first without altering any source index.
+    if(equal)return LinearizedOriginalDraw{i,*count,static_cast<int32_t>(base)};
+  }
+  return {};
+}
+inline ProducedWorldMaterial ProduceOriginalWorldMaterial(
     const xdk::RawDraw& call,uint64_t frame,uint32_t ordinal,
     std::span<const model::UploadedOriginalModel* const> residents,
     const aot::ShaderBank& bank,const aot::EffectCatalog& effects,
@@ -288,7 +316,10 @@ inline ProducedWorldMaterial ProduceOriginalIndexedMaterial(
     const aot::OriginalXdkShaderSamplers& samplers,const VerifiedSceneFormat& format,
     DiligentOriginalTextureResidency& residency) {
   const auto indexed=xdk::DecodeOriginalIndexedXdkCall(call);
-  if(!indexed || indexed->primitive!=4u || !call.captured_vertex_bindings ||
+  const auto vertices=xdk::DecodeOriginalVerticesXdkCall(call);
+  if((!indexed && !vertices) || (indexed && indexed->primitive!=4u) ||
+     (vertices && !xdk::VerifiedTriangleListCount(vertices->primitive,vertices->vertex_count)) ||
+     !call.captured_vertex_bindings ||
      !call.vertex_declaration || !call.observed_vs_matrices ||
      !call.observed_live_vertex_shader_header || !call.observed_live_pixel_shader_header ||
      !call.observed_live_eor_effect_pass || !call.original_engine_shader_method ||
@@ -335,9 +366,18 @@ inline ProducedWorldMaterial ProduceOriginalIndexedMaterial(
   const auto surface=native::IdentifyLiveOriginalXdkMaterialSurface(*owner,call,sampling->sampled_slots);
   if(!surface || *surface>=owner->original_surface_candidates.size())
     throw std::invalid_argument("Original material surface is ambiguous");
-  const int64_t base=int64_t(indexed->base_vertex)-exact->guest_first_vertex;
-  if(base<INT32_MIN || base>INT32_MAX || indexed->first_index<exact->guest_first_index)
-    throw std::invalid_argument("Original indexed host rebase outside signed range");
+  LinearizedOriginalDraw host_draw;
+  if(indexed) {
+    const int64_t base=int64_t(indexed->base_vertex)-exact->guest_first_vertex;
+    if(base<INT32_MIN || base>INT32_MAX || indexed->first_index<exact->guest_first_index)
+      throw std::invalid_argument("Original indexed host rebase outside signed range");
+    host_draw={indexed->first_index-exact->guest_first_index,indexed->index_count,
+               static_cast<int32_t>(base)};
+  } else {
+    const auto linear=FindOriginalLinearizedDraw(*vertices,*exact,*mesh);
+    if(!linear)throw std::invalid_argument("Original DrawVertices triangle sequence not resident");
+    host_draw=*linear;
+  }
   ProducedWorldMaterial out;
   auto& pass=out.material.original_pipeline;
   pass=OriginalScalarPass(call,*vs,*ps,format);
@@ -362,8 +402,9 @@ inline ProducedWorldMaterial ProduceOriginalIndexedMaterial(
   d.original_effect_hash=effect.effect_hash;d.original_pass_index=effect.pass_index;
   d.vertex_source_sha256=*vs;d.pixel_source_sha256=*ps;
   d.vertex_shader_id=live.original_vs_guest_object;d.pixel_shader_id=live.original_ps_guest_object;
-  d.first_index=indexed->first_index-exact->guest_first_index;
-  d.index_count=indexed->index_count;d.host_base_vertex=static_cast<int32_t>(base);
+  d.first_index=host_draw.first;
+  d.index_count=host_draw.count;d.host_base_vertex=host_draw.base;
+  d.original_linear_draw_verified=vertices.has_value();
   d.original_frame_sequence=frame;d.original_call_ordinal=ordinal;
   d.original_vs_matrices=live;d.original_shader_constants=call.observed_shader_constants;
   d.original_live_vertex_shader_header=call.observed_live_vertex_shader_header;

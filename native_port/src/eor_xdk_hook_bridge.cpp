@@ -2022,7 +2022,7 @@ struct AutomaticEorOwner {
         ordered.push_back(backend->StageVerifiedOriginalFontDraw(
             call,*layout,frame.sequence,ordinal,atlas,0,*pack.virtual_ids));
       } else {
-        auto produced=gpu::live::ProduceOriginalIndexedMaterial(call,frame.sequence,ordinal,
+        auto produced=gpu::live::ProduceOriginalWorldMaterial(call,frame.sequence,ordinal,
             borrowed,*pack.shaders,*pack.effects,*pack.virtual_ids,*pack.samplers,
             contract.format,textures);
         if(contract.output.widescreen_camera) {
