@@ -17,6 +17,10 @@ struct OriginalRasterWindow {
   bool scissor_enabled=false;
   std::array<int32_t,4> scissor{};
 };
+struct OriginalSurfaceExtent {
+  uint32_t width=0,height=0;
+  bool operator==(const OriginalSurfaceExtent&) const=default;
+};
 struct OriginalVsMatrices {
   static constexpr uint32_t kFirstRegister=7;
   static constexpr uint32_t kLastRegister=25;
@@ -37,6 +41,7 @@ struct OriginalVsMatrices {
   std::array<float,kRegisterCount*4> c7_through_c25{};
   uint32_t finite_register_mask=0;
   std::optional<OriginalRasterWindow> raster;
+  std::optional<OriginalSurfaceExtent> original_color_extent,original_depth_extent;
 };
 struct MatrixRegisters {
   uint32_t original_first_register=0;
@@ -47,6 +52,23 @@ struct MatrixRegisters {
 // never logs/publishes original game data. Reader MUST check committed guest
 // memory; this function never dereferences a guessed original guest pointer.
 using ReadGuestBytes=bool (*)(void*,uint32_t,std::byte*,size_t) noexcept;
+// Source AOT ClearF (USA guest 0x82888C40, host 0x141FEC5A0)
+// reads the currently bound color or depth object at device+12440/+12456.
+// At host 0x141FEC6DD..0x141FEC736 it reads BE object+36, extracts
+// bits 3..17 and 18..31 and increments both extents.
+inline std::optional<OriginalSurfaceExtent> ReadUsaSurfaceExtent(
+    uint32_t object,ReadGuestBytes read,void* state) noexcept {
+  if(!object || (object&3u) || !read || uint64_t(object)+40u>(uint64_t{1}<<32))return {};
+  std::array<std::byte,4> b{};
+  if(!read(state,object+36u,b.data(),b.size()))return {};
+  const auto word=uint32_t(std::to_integer<uint8_t>(b[0]))<<24 |
+                  uint32_t(std::to_integer<uint8_t>(b[1]))<<16 |
+                  uint32_t(std::to_integer<uint8_t>(b[2]))<<8 |
+                  uint32_t(std::to_integer<uint8_t>(b[3]));
+  const OriginalSurfaceExtent result{((word>>3)&0x7fffu)+1u,(word>>18)+1u};
+  if(result.width>8192u || result.height>8192u)return {};
+  return result;
+}
 inline std::optional<OriginalVsMatrices> CaptureUsaVsMatrices(
     uint32_t guest_device,ReadGuestBytes reader,void* reader_state) noexcept {
   if(!guest_device || !reader)return std::nullopt;
@@ -85,6 +107,8 @@ inline std::optional<OriginalVsMatrices> CaptureUsaVsMatrices(
     result.original_vertex_buffer_guest_objects[i]=at(12460+i*4);
   result.original_rt0_guest_object=at(12440);
   result.original_depth_guest_object=at(12456);
+  result.original_color_extent=ReadUsaSurfaceExtent(result.original_rt0_guest_object,reader,reader_state);
+  result.original_depth_extent=ReadUsaSurfaceExtent(result.original_depth_guest_object,reader,reader_state);
   for(uint32_t i=0;i<result.original_texture_guest_objects.size();++i)
     result.original_texture_guest_objects[i]=at(12544+i*4);
   // USA GetViewport (0x8287E5E8) reads six BE floats. SetScissorRect

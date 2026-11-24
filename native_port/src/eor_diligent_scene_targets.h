@@ -10,6 +10,7 @@
 #include <vector>
 #include <algorithm>
 #include <set>
+#include <map>
 namespace Diligent {
 struct IRenderDevice;
 struct IDeviceContext;
@@ -55,6 +56,7 @@ inline bool MatchesVerifiedOriginalXdkMainDrawTargets(
 // images, never aliases of the currently bound color attachment.
 struct OriginalNativeTargetGraph {
   std::vector<uint32_t> colors,depths,resolves;
+  std::map<uint32_t,xdk::OriginalSurfaceExtent> extents;
   uint32_t first_color=0,first_depth=0,final_color=0,front_buffer=0;
   bool operator==(const OriginalNativeTargetGraph&) const=default;
   bool active() const noexcept {return !colors.empty();}
@@ -63,6 +65,15 @@ struct OriginalNativeTargetGraph {
   }
   bool HasDepth(uint32_t id) const noexcept {
     return !id || std::binary_search(depths.begin(),depths.end(),id);
+  }
+  native::Size SourceExtent(uint32_t id,native::Size fallback) const noexcept {
+    const auto it=extents.find(id);
+    return it==extents.end()?fallback:native::Size{it->second.width,it->second.height};
+  }
+  native::Size HostExtent(uint32_t id,const native::FrameGeometry& frame) const noexcept {
+    const auto source=SourceExtent(id,frame.original_guest);
+    return source.width==frame.original_guest.width && source.height==frame.original_guest.height ?
+        frame.world : source;
   }
   bool HasResolve(uint32_t id) const noexcept {
     return std::binary_search(resolves.begin(),resolves.end(),id);
@@ -137,7 +148,12 @@ inline std::optional<OriginalSourceTargetFormat> PlanOriginalNativeTargets(
   OriginalSourceTargetFormat output{};
   auto& graph=output.format.original_graph;
   auto& screen=output.format.original_screen;
-  std::set<uint32_t> colors,depths,full_view,resolve_destinations;
+  std::set<uint32_t> colors,depths,resolve_destinations;
+  auto register_extent=[&](uint32_t id,xdk::OriginalSurfaceExtent size) {
+    if(!id || !size.width || !size.height || size.width>8192u || size.height>8192u)return false;
+    const auto [it,inserted]=graph.extents.emplace(id,size);
+    return inserted || it->second==size;
+  };
   for(const auto& draw:source.calls) {
     if(!draw.observed_vs_matrices || !draw.observed_shader_constants ||
        !draw.observed_shader_constants->fixed_graphics_state)return {};
@@ -147,8 +163,13 @@ inline std::optional<OriginalSourceTargetFormat> PlanOriginalNativeTargets(
     const auto mask=fixed.ReadOriginalXenosRegister(0x2104u);
     const auto surface=fixed.ReadOriginalXenosRegister(0x2000u);
     if(!format || !mask || (*mask&~15u) || !surface ||
-       (*surface&0x3fffu)<width || !state.raster ||
-       !native::MapOriginalRasterWindow(*state.raster,{width,height},{0,0,width,height}))
+       !state.original_color_extent || !state.raster ||
+       !register_extent(state.original_rt0_guest_object,*state.original_color_extent))
+      return {};
+    const auto extent=*state.original_color_extent;
+    if((*surface&0x3fffu)<extent.width ||
+       !native::MapOriginalRasterWindow(*state.raster,{extent.width,extent.height},
+                                              {0,0,extent.width,extent.height}))
       return {};
     if(!output.samples) {
       output.samples=format->samples;output.format.color=format->format.color;
@@ -160,16 +181,15 @@ inline std::optional<OriginalSourceTargetFormat> PlanOriginalNativeTargets(
     if(output.samples!=format->samples || output.format.color!=format->format.color ||
        screen.guest_device!=state.original_guest_device)return {};
     colors.insert(state.original_rt0_guest_object);
-    const auto& view=*state.raster;
-    if(view.x==0 && view.y==0 && view.width==width && view.height==height)
-      full_view.insert(state.original_rt0_guest_object);
     if(state.original_depth_guest_object) {
-      if(format->format.depth!=NativeDepthFormat::D24S8)return {};
+      if(format->format.depth!=NativeDepthFormat::D24S8 ||
+         !state.original_depth_extent || *state.original_depth_extent!=extent ||
+         !register_extent(state.original_depth_guest_object,*state.original_depth_extent))return {};
       depths.insert(state.original_depth_guest_object);
       output.format.depth=NativeDepthFormat::D24S8;
     }
   }
-  if(!output.samples || colors.empty() || colors!=full_view ||
+  if(!output.samples || colors.empty() ||
      colors.size()>16 || depths.size()>16)return {};
   const auto front=source.commands.back().gpr[1];
   if(!front || colors.contains(front) || depths.contains(front))return {};
@@ -209,7 +229,16 @@ inline std::optional<OriginalSourceTargetFormat> PlanOriginalNativeTargets(
         for(uint32_t slot=0;slot<16;++slot) {
           if(!(mask&(1u<<slot)))continue;
           const auto texture=gpu.original_texture_guest_objects[slot];
-          if(declared_resolves.contains(texture) && !completed_resolves.contains(texture))return {};
+          if(declared_resolves.contains(texture)) {
+            if(!completed_resolves.contains(texture) ||
+               !draw.observed_shader_constants ||
+               !(draw.observed_shader_constants->valid_pixel_fetch&(1u<<slot)))return {};
+            const auto& fetch=draw.observed_shader_constants->pixel_fetch[slot];
+            const auto extent=graph.extents.at(texture);
+            if((fetch[5]>>9&3u)!=1u || (fetch[2]>>26) ||
+               (fetch[2]&8191u)+1u!=extent.width || ((fetch[2]>>13)&8191u)+1u!=extent.height)
+              return {};
+          }
           if(colors.contains(texture) || depths.contains(texture))return {};
         }
       }
@@ -223,9 +252,14 @@ inline std::optional<OriginalSourceTargetFormat> PlanOriginalNativeTargets(
       case xdk::CommandKind::SetDepthStencilSurface:
         if(final_resolved || (cmd.gpr[1] && !depths.contains(cmd.gpr[1])))return {};
         active_depth=cmd.gpr[1];break;
-      case xdk::CommandKind::ClearF:
-        if(final_resolved || !cmd.captured_clear ||
-           !xdk::IsOriginalFullTargetClear(*cmd.captured_clear,width,height))return {};
+      case xdk::CommandKind::ClearF: {
+        if(final_resolved || !cmd.captured_clear || !active_color ||
+           !graph.extents.contains(active_color))return {};
+        const auto extent=graph.extents.at(active_color);
+        if(!xdk::IsOriginalFullTargetClear(*cmd.captured_clear,extent.width,extent.height) ||
+           ((cmd.captured_clear->flags&0x30u) &&
+             (!active_depth || !*active_depth || !graph.extents.contains(*active_depth) ||
+              graph.extents.at(*active_depth)!=extent)))return {};
         if(cmd.captured_clear->flags&1u) {
           if(!active_color)return {};
           initialized_color.insert(active_color);
@@ -236,12 +270,16 @@ inline std::optional<OriginalSourceTargetFormat> PlanOriginalNativeTargets(
           if(cmd.captured_clear->flags&0x20u)initialized_stencil.insert(*active_depth);
         }
         break;
+      }
       case xdk::CommandKind::Resolve: {
         const auto dest=cmd.gpr[3];
         if(final_resolved || !drawn.contains(active_color) || !dest ||
            cmd.gpr[1] || cmd.gpr[2] || cmd.gpr[4] || cmd.gpr[5] || cmd.gpr[6] ||
            colors.contains(dest) || depths.contains(dest))return {};
+        const auto extent=graph.extents.at(active_color);
+        if(!register_extent(dest,extent))return {};
         if(dest==front) {
+          if(extent.width!=width || extent.height!=height)return {};
           graph.final_color=active_color;graph.front_buffer=dest;final_resolved=true;
         } else {resolve_destinations.insert(dest);completed_resolves.insert(dest);}
         break;
@@ -292,6 +330,8 @@ class DiligentSceneTargets {
                VerifiedSceneFormat verified);
   bool SetDepthBound(bool bind);
   bool SetOriginalColorTarget(uint32_t guest);
+  native::Size ActiveHostExtent() const noexcept;
+  native::Size ActiveSourceExtent(native::Size fallback) const noexcept;
   bool SetOriginalDepthTarget(uint32_t guest);
   bool ResolveOriginalIntermediate(uint32_t guest_destination);
   Diligent::ITextureView* IntermediateColorSRV(uint32_t guest_destination) const noexcept;
@@ -309,6 +349,7 @@ class DiligentSceneTargets {
   void AbortScene() noexcept;
   void Reset() noexcept;
  private:
+  bool BindOriginalAttachments();
   struct State;
   std::unique_ptr<State> state_;
 };
