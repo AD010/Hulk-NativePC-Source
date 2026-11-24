@@ -1,0 +1,40 @@
+{
+  "schema": 1,
+  "source": "Private user USA guest mapped image; independently verified VM and camera getter fingerprints",
+  "mapped_slice_sha256": "7bb068af5438f4daba6c965ec1ee842bffb6f7642e2c1400c9db1103b6f42276",
+  "world_step": {
+    "address": "0x82509C18",
+    "world_argument": "r3",
+    "simulation_offset": 8,
+    "virtual_slot_offset": 12,
+    "delta_argument": "f1",
+    "result": "r3"
+  },
+  "split_prepare": {
+    "address": "0x82508F60",
+    "simulation_method": "0x825314B8",
+    "delta_argument": "f1",
+    "source_calls": [
+      "0x8296B894",
+      "0x8296B978"
+    ],
+    "scheduler": "r31",
+    "scheduler_world_offset": 0,
+    "scheduler_delta_offset": 4
+  },
+  "simulation": {
+    "world_offset": 8,
+    "current_time_offset": 16,
+    "current_psi_time_offset": 20,
+    "physics_delta_time_offset": 24,
+    "vtable_discrete": "0x82050D94",
+    "vtable_continuous": "0x82053104",
+    "vtable_multithreaded": "0x8205272C"
+  },
+  "limitations": [
+    "No source evidence yet for producer of scheduler delta",
+    "No live world instance in private dump verified",
+    "No change to step or thread barriers",
+    "No gameplay validation"
+  ]
+}

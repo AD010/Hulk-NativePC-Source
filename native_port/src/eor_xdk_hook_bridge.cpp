@@ -3,6 +3,7 @@
 // This is an input provenance oracle, not a completed Vulkan renderer.
 #include "eor_xdk_hook_bridge.h"
 #include "eor_original_pause_vm.h"
+#include "eor_original_havok_step.h"
 #include "eor_usa_material_textures.h"
 #include "eor_diligent_aot_backend.h"
 #include "eor_diligent_host_output.h"
@@ -57,6 +58,8 @@ REXCVAR_DEFINE_BOOL(hulk_eor_xdk_source_mesh_capture, false, "Hulk/Diagnostics",
                     "Read-only original XDK VB/IB bytes; 64 MiB frame cap");
 REXCVAR_DEFINE_BOOL(hulk_eor_vulkan_replay, false, "Hulk/Diagnostics",
                     "Opt-in direct EoR Vulkan replay; requires verified sole presenter");
+REXCVAR_DEFINE_BOOL(hulk_original_havok_step_probe, false, "Hulk/Diagnostics",
+                    "Verify original Havok world and split-step delta; does not modify timing");
 namespace hulk {
 void CommitOriginalCameraMenuOption(bool yaw,bool value,uint8_t* base) noexcept;
 }
@@ -178,6 +181,30 @@ std::optional<vm::OriginalCameraMenuChange> CaptureOriginalCameraMenuOption(
 void FinishOriginalCameraMenuOption(
     std::optional<vm::OriginalCameraMenuChange> change,uint8_t* base) noexcept {
   if(change)hulk::CommitOriginalCameraMenuOption(change->yaw,change->value,base);
+}
+
+void ObserveOriginalHavokStep(uint32_t method,const PPCContext& ctx,uint8_t* base) noexcept {
+  if(!base || !REXCVAR_GET(hulk_original_havok_step_probe))return;
+  try {
+    const auto step=havok::CaptureStep(method,static_cast<uint32_t>(ctx.lr),
+        ctx.r3.u32,ctx.r31.u32,ctx.f1.f64,
+        [&](uint32_t address,uint8_t* data,size_t size) {
+          return ReadGuest(base,address,reinterpret_cast<std::byte*>(data),size);
+        });
+    static std::atomic<uint64_t> verified{0},rejected{0};
+    if(!step) {
+      const auto n=rejected.fetch_add(1,std::memory_order_relaxed)+1;
+      if(n<=8 || n%600==0)
+        REXLOG_WARN("[HULK/HAVOK] rejected source step ABI method=0x{:08X} lr=0x{:08X} count={}",
+                    method,static_cast<uint32_t>(ctx.lr),n);
+      return;
+    }
+    const auto n=verified.fetch_add(1,std::memory_order_relaxed)+1;
+    if(n<=16 || n%300==0)
+      REXLOG_INFO("[HULK/HAVOK] verified step={} split={} simulation={} delta={} current={} psi={} previous_delta={}",
+          n,step->split,static_cast<unsigned>(step->kind),step->seconds,
+          step->current_time,step->psi_time,step->previous_delta);
+  } catch (...) {}
 }
 
 void ObserveOriginalEorVmState_r(

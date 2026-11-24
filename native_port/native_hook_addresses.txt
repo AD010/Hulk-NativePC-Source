@@ -135,3 +135,7 @@
 # Actual USA EoR registered camera pitch/yaw boolean setter bodies.
 823399E8
 82339A08
+
+# Original Havok 5.1 world step and split-step prepare boundaries (read-only).
+82508F60
+82509C18
