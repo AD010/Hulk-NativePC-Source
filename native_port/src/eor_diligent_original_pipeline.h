@@ -68,6 +68,13 @@ struct OriginalVulkanPipeline {
   Diligent::RefCntAutoPtr<Diligent::IPipelineState> pipeline;
   Diligent::RefCntAutoPtr<Diligent::IShaderResourceBinding> bindings;
 };
+// The original 6534 device has live per-Draw Xenos raster/depth/blend
+// register shadow. Verify this exact source state against a material's
+// already source-authenticated Vulkan PSO before accepting its Draw. Source
+// PSO ownership and vertex/texture identities remain independent gates.
+bool MatchesOriginalXdkGraphicsState(
+    const VerifiedOriginalGraphicsPass& original,
+    const xdk::OriginalXdkFixedGraphicsState& source) noexcept;
 // Creates a real SPIR-V-backed Vulkan PSO and SRB, only after the calling
 // engine bridge supplies a source-proven pass, color/depth formats, MSAA,
 // and a vertex layout. No guessed blend/depth/culling/sampler state.

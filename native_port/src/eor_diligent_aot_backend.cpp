@@ -1070,6 +1070,16 @@ bool DiligentEorDirectBackend::PreflightOriginalScene(
       packed.raster=*raster;
       const auto& registers=*d.guest_shader_constants;
       const auto& pass=selected->pipeline;
+      // Every actual Draw must still carry the genuine GPU fixed-function
+      // generation used to produce its source-authenticated Vulkan PSO.
+      // Reusing a material across cull/depth/blend transitions without this
+      // check was able to render the correct mesh with the WRONG pipeline.
+      if(!registers.fixed_graphics_state ||
+         registers.fixed_graphics_state->original_guest_device!=
+             d.guest_vs_matrices->original_guest_device ||
+         !MatchesOriginalXdkGraphicsState(
+             pass,*registers.fixed_graphics_state))
+        return false;
       auto prepare=[&](aot::Stage stage,const aot::Digest& source,
                        const std::optional<aot::VerifiedOriginalFloatLayout>& layout,
                        std::vector<float>& values) {

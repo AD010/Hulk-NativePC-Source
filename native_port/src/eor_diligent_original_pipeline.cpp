@@ -3,7 +3,136 @@
 #include "ShaderResourceBinding.h"
 #include "Shader.h"
 #include <stdexcept>
+#include <array>
 namespace hulk::eor::gpu {
+namespace {
+// Read the original device shadow using the pinned USA XDK register group
+// index, not the source's linear offset treated as a GPU register address.
+std::optional<uint32_t> SourceRegister(
+    const xdk::OriginalXdkFixedGraphicsState& source,
+    uint32_t index) noexcept {
+  size_t cursor=0;
+  for(size_t group=0;group<source.kCounts.size();++group) {
+    const uint32_t first=source.kRegisterBases[group];
+    const uint32_t count=static_cast<uint32_t>(source.kCounts[group]);
+    if(index>=first && index-first<count)
+      return source.original_register_values[cursor+index-first];
+    cursor+=count;
+  }
+  return {};
+}
+std::optional<Diligent::COMPARISON_FUNCTION> OriginalCompare(
+    uint32_t encoded) noexcept {
+  using namespace Diligent;
+  constexpr std::array<COMPARISON_FUNCTION,8> values{
+      COMPARISON_FUNC_NEVER,COMPARISON_FUNC_LESS,COMPARISON_FUNC_EQUAL,
+      COMPARISON_FUNC_LESS_EQUAL,COMPARISON_FUNC_GREATER,
+      COMPARISON_FUNC_NOT_EQUAL,COMPARISON_FUNC_GREATER_EQUAL,
+      COMPARISON_FUNC_ALWAYS};
+  return encoded<values.size()?std::optional{values[encoded]}:std::nullopt;
+}
+std::optional<Diligent::BLEND_FACTOR> OriginalBlend(uint32_t encoded,
+                                                   bool alpha) noexcept {
+  using namespace Diligent;
+  switch(encoded) {
+    case 0:return BLEND_FACTOR_ZERO;
+    case 1:return BLEND_FACTOR_ONE;
+    case 4:if(!alpha)return BLEND_FACTOR_SRC_COLOR;break;
+    case 5:if(!alpha)return BLEND_FACTOR_INV_SRC_COLOR;break;
+    case 6:return BLEND_FACTOR_SRC_ALPHA;
+    case 7:return BLEND_FACTOR_INV_SRC_ALPHA;
+    case 8:if(!alpha)return BLEND_FACTOR_DEST_COLOR;break;
+    case 9:if(!alpha)return BLEND_FACTOR_INV_DEST_COLOR;break;
+    case 10:return BLEND_FACTOR_DEST_ALPHA;
+    case 11:return BLEND_FACTOR_INV_DEST_ALPHA;
+    case 16:if(!alpha)return BLEND_FACTOR_SRC_ALPHA_SAT;break;
+    default:break; // Xenos blend constants require an independent source value
+  }
+  return {};
+}
+std::optional<Diligent::BLEND_OPERATION> OriginalBlendOp(
+    uint32_t encoded) noexcept {
+  using namespace Diligent;
+  switch(encoded) {
+    case 0:return BLEND_OPERATION_ADD;
+    case 1:return BLEND_OPERATION_SUBTRACT;
+    case 2:return BLEND_OPERATION_MIN;
+    case 3:return BLEND_OPERATION_MAX;
+    case 4:return BLEND_OPERATION_REV_SUBTRACT;
+    default:return {};
+  }
+}
+}
+bool MatchesOriginalXdkGraphicsState(
+    const VerifiedOriginalGraphicsPass& original,
+    const xdk::OriginalXdkFixedGraphicsState& source) noexcept {
+  if(!original.material_pass_verified ||
+     !original.original_render_state_verified ||
+     !source.original_guest_device)
+    return false;
+  const auto read=[&](uint32_t index)->std::optional<uint32_t> {
+    return SourceRegister(source,index);
+  };
+  const auto depth=read(0x2200),blend=read(0x2201),
+             color=read(0x2202),raster=read(0x2205),
+             color_mask=read(0x2104),surface=read(0x2000),
+             clip=read(0x2204);
+  if(!depth || !blend || !color || !raster || !color_mask ||
+     !surface || !clip)return false;
+  const auto& state=original.exact_render_state;
+  const auto& ds=state.DepthStencilDesc;
+  const auto& rs=state.RasterizerDesc;
+  const auto& bs=state.BlendDesc;
+  // Alpha test must be done by the original translated pixel shader;
+  // alpha-to-coverage dithering, source clip planes, polygon modes and
+  // source depth bias are not interchangeable with a host PSO default.
+  if((*color&0x18u) || (*clip&0x3fu) ||
+     ((*raster>>3)&3u) || (*raster&(7u<<11)) ||
+     (*raster&(1u<<20)) || ((*raster&3u)==3u) ||
+     (*depth&1u) || ((*surface>>16)&3u)>2u)
+    return false;
+  const uint32_t source_msaa=1u<<((*surface>>16)&3u);
+  if(state.SmplDesc.Count!=source_msaa)return false;
+  const bool z_enabled=(*depth&2u)!=0,z_write=(*depth&4u)!=0;
+  if(ds.DepthEnable!=z_enabled ||
+     ds.DepthWriteEnable!=(z_enabled && z_write) ||
+     ds.StencilEnable || (original.original_depth_unbound && z_enabled))
+    return false;
+  const auto z_compare=OriginalCompare((*depth>>4)&7u);
+  if(!z_compare || (z_enabled && ds.DepthFunc!=*z_compare))
+    return false;
+  const bool front=(*raster&1u)!=0,back=(*raster&2u)!=0;
+  const auto cull=front ? Diligent::CULL_MODE_FRONT :
+                  back ? Diligent::CULL_MODE_BACK : Diligent::CULL_MODE_NONE;
+  if(rs.CullMode!=cull ||
+     rs.FrontCounterClockwise!=((*raster&4u)==0u) ||
+     rs.FillMode!=Diligent::FILL_MODE_SOLID)
+    return false;
+  if(bs.AlphaToCoverageEnable)return false;
+  for(uint32_t i=0;i<state.NumRenderTargets;++i) {
+    if(i>=4u)return false;
+    const auto& target=bs.RenderTargets[i];
+    const auto physical_mask=static_cast<Diligent::COLOR_MASK>(
+        (*color_mask>>(i*4u))&15u);
+    if(target.RenderTargetWriteMask!=physical_mask ||
+       target.LogicOperationEnable)return false;
+    if(!target.BlendEnable)continue;
+    const uint32_t packed=i==0u?*blend:read(0x2208u+i).value_or(UINT32_MAX);
+    if(packed==UINT32_MAX)return false;
+    const auto src=OriginalBlend(packed&31u,false);
+    const auto dst=OriginalBlend((packed>>8)&31u,false);
+    const auto op=OriginalBlendOp((packed>>5)&7u);
+    const auto asrc=OriginalBlend((packed>>16)&31u,true);
+    const auto adst=OriginalBlend((packed>>24)&31u,true);
+    const auto aop=OriginalBlendOp((packed>>21)&7u);
+    if(!src || !dst || !op || !asrc || !adst || !aop ||
+       target.SrcBlend!=*src || target.DestBlend!=*dst ||
+       target.BlendOp!=*op || target.SrcBlendAlpha!=*asrc ||
+       target.DestBlendAlpha!=*adst || target.BlendOpAlpha!=*aop)
+      return false;
+  }
+  return true;
+}
 OriginalVulkanPipeline CreateOriginalVulkanPipeline(
     Diligent::IRenderDevice* device,
     DiligentAotShaderModules& shaders,
