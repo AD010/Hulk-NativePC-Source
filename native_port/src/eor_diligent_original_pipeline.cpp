@@ -8,19 +8,6 @@ namespace hulk::eor::gpu {
 namespace {
 // Read the original device shadow using the pinned USA XDK register group
 // index, not the source's linear offset treated as a GPU register address.
-std::optional<uint32_t> SourceRegister(
-    const xdk::OriginalXdkFixedGraphicsState& source,
-    uint32_t index) noexcept {
-  size_t cursor=0;
-  for(size_t group=0;group<source.kCounts.size();++group) {
-    const uint32_t first=source.kRegisterBases[group];
-    const uint32_t count=static_cast<uint32_t>(source.kCounts[group]);
-    if(index>=first && index-first<count)
-      return source.original_register_values[cursor+index-first];
-    cursor+=count;
-  }
-  return {};
-}
 std::optional<Diligent::COMPARISON_FUNCTION> OriginalCompare(
     uint32_t encoded) noexcept {
   using namespace Diligent;
@@ -71,7 +58,7 @@ bool MatchesOriginalXdkGraphicsState(
      !source.original_guest_device)
     return false;
   const auto read=[&](uint32_t index)->std::optional<uint32_t> {
-    return SourceRegister(source,index);
+    return source.ReadOriginalXenosRegister(index);
   };
   const auto depth=read(0x2200),blend=read(0x2201),
              color=read(0x2202),raster=read(0x2205),

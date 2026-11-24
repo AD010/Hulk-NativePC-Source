@@ -6,6 +6,7 @@
 #include "eor_xdk_draw_capture.h"
 #include <cstdint>
 #include <memory>
+#include <optional>
 namespace Diligent {
 struct IRenderDevice;
 struct IDeviceContext;
@@ -52,6 +53,57 @@ struct VerifiedSceneFormat {
   bool original_depth_format_verified = false;
   VerifiedOriginalXdkScreen original_screen;
 };
+// Read genuine RB_COLOR0_INFO (0x2001), RB_DEPTH_INFO (0x2002) and
+// RB_SURFACE_INFO (0x2000) from the SAME original game XDK Draw.
+// This returns the actual GPU surface *formats* for the common supported
+// RGBA8, RGBA16F and D24S8 cases. The guest frontbuffer/resolve and
+// tiling ownership remain independent, mandatory XDK witnesses: never
+// promote this format decoder alone to a permitted Vulkan Present.
+struct OriginalSourceTargetFormat {
+  VerifiedSceneFormat format;
+  uint32_t samples=0;
+};
+inline std::optional<OriginalSourceTargetFormat>
+ResolveOriginalXdkSurfaceFormats(
+    const xdk::OriginalVsMatrices& guest,
+    const xdk::OriginalXdkFixedGraphicsState& registers) noexcept {
+  if(!guest.original_guest_device || !guest.original_rt0_guest_object ||
+     registers.original_guest_device!=guest.original_guest_device)
+    return std::nullopt;
+  const auto surface=registers.ReadOriginalXenosRegister(0x2000u);
+  const auto color=registers.ReadOriginalXenosRegister(0x2001u);
+  const auto depth=registers.ReadOriginalXenosRegister(0x2002u);
+  if(!surface || !color || !depth)return std::nullopt;
+  const uint32_t msaa=(*surface>>16u)&3u;
+  const uint32_t color_code=(*color>>16u)&15u;
+  const uint32_t depth_code=(*depth>>16u)&1u;
+  if(msaa>2u)return std::nullopt;
+  OriginalSourceTargetFormat result{};
+  // Xbox original color format 1 is GAMMA, not RGBA8 linear.
+  // 7 is true FP16x4; 0 is UNORM8x4. Other original Xenos formats
+  // (10:10:10:2, signed FP10, 16:16 etc.) require explicit conversion.
+  if(color_code==0u)result.format.color=NativeColorFormat::Rgba8;
+  else if(color_code==7u)result.format.color=NativeColorFormat::Rgba16Float;
+  else return std::nullopt;
+  if(guest.original_depth_guest_object) {
+    // Xenos depth format 1 is 20e4 float-depth+8 stencil, not
+    // interchangeable with a host 32f depth format or UNORM24.
+    if(depth_code!=0u)return std::nullopt;
+    result.format.depth=NativeDepthFormat::D24S8;
+  } else {
+    result.format.depth=NativeDepthFormat::None;
+  }
+  result.format.original_color_format_verified=true;
+  result.format.original_depth_format_verified=true;
+  result.format.original_screen.guest_device=guest.original_guest_device;
+  result.format.original_screen.guest_rt0=guest.original_rt0_guest_object;
+  result.format.original_screen.guest_depth=guest.original_depth_guest_object;
+  result.samples=1u<<msaa;
+  // Deliberately do not set exact_guest_to_native_targets_verified,
+  // final_resolve_to_front_buffer_verified or
+  // original_tiling_has_no_host_aliases_verified.
+  return result;
+}
 class DiligentSceneTargets {
  public:
   DiligentSceneTargets(Diligent::IRenderDevice* device,

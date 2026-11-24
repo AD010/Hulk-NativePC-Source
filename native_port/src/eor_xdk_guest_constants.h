@@ -119,6 +119,18 @@ struct OriginalXdkFixedGraphicsState {
   static constexpr size_t kTotalRegisters=121u;
   uint32_t original_guest_device=0;
   std::array<uint32_t,kTotalRegisters> original_register_values{};
+  std::optional<uint32_t> ReadOriginalXenosRegister(
+      uint32_t source_register) const noexcept {
+    size_t base=0;
+    for(size_t group=0;group<kCounts.size();++group) {
+      const auto first=kRegisterBases[group];
+      const auto count=static_cast<uint32_t>(kCounts[group]);
+      if(source_register>=first && source_register-first<count)
+        return original_register_values[base+source_register-first];
+      base+=count;
+    }
+    return std::nullopt;
+  }
 };
 inline std::optional<OriginalXdkFixedGraphicsState>
 CaptureUsaFixedGraphicsState(uint32_t guest_device,ReadGuestBytes read,
