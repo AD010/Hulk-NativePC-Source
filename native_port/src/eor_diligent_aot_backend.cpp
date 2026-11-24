@@ -1143,7 +1143,8 @@ aot::BoundIndexedDraw DiligentEorDirectBackend::StageOriginalRuntimeDraw(
   buffers.original_mesh_header_offset=SIZE_MAX;
   buffers.original_runtime_draw_verified=true;buffers.original_runtime_frame=frame;
   buffers.original_runtime_ordinal=ordinal;
-  const auto position=buffers.position_handle,index=buffers.index_handle,count=buffers.index_count;
+  const auto position=buffers.position_handle,index=buffers.index_handle;
+  const auto count=buffers.index_count;
   s.runtime_uploads.emplace(epoch,std::move(owner));
   try {
     AdoptVerifiedOriginalMaterialPasses({&material,1},textures);

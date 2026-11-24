@@ -1,4 +1,5 @@
 #pragma once
+#include <initializer_list>
 // Post-filter Xbox piecewise gamma conversion, specialized by authenticated live cube slots.
 // The original bank remains immutable. No texture re-encoding or sRGB approximation.
 #include <bit>

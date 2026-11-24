@@ -439,5 +439,195 @@ inline ProducedWorldMaterial ProduceOriginalWorldMaterial(
   for(const auto& image:out.material.original_images)d.original_sampler_slots.push_back(image.original_binding);
   return out;
 }
+
+inline std::optional<model::VerifiedAttributeLayout> RuntimeAttribute(
+    const xdk::UsaVertexElement& e) noexcept {
+  using E=model::AttributeEncoding;
+  uint8_t n=0; E encoding=E::BigFloat32;
+  switch(e.original_packed_type) {
+    case 0x2c83a4u:n=1;break;
+    case 0x2c23a5u:n=2;break;
+    case 0x2a23b9u:n=3;break;
+    case 0x1a23a6u:n=4;break;
+    case 0x182886u:n=4;encoding=E::BigArgb8;break;
+    case 0x1a2286u:n=4;encoding=E::UInt8;break;
+    case 0x1a2086u:n=4;encoding=E::UNorm8;break;
+    case 0x1a2186u:n=4;encoding=E::SNorm8;break;
+    case 0x2c2159u:n=2;encoding=E::BigSNorm16;break;
+    case 0x1a215au:n=4;encoding=E::BigSNorm16;break;
+    case 0x2c2059u:n=2;encoding=E::BigUNorm16;break;
+    case 0x1a205au:n=4;encoding=E::BigUNorm16;break;
+    case 0x2c235fu:n=2;encoding=E::BigFloat16;break;
+    case 0x1a2360u:n=4;encoding=E::BigFloat16;break;
+    default:return {};
+  }
+  return model::VerifiedAttributeLayout{e.byte_offset,n,encoding};
+}
+// Rebuild the exact effective vertex sequence of an ordinary buffered XDK
+// Draw. No archive model is required for a transient or deformed stream.
+inline DecodedRuntimeGeometry DecodeOriginalRuntimeGeometry(
+    const xdk::RawDraw& call,const ScalarInterface& shader) {
+  if(!call.captured_vertex_bindings || !call.vertex_declaration ||
+     !shader.supported || shader.inputs.empty() || shader.inputs.front().location!=0u)
+    throw std::invalid_argument("Missing transient vertex declaration");
+  auto indexed=xdk::DecodeOriginalIndexedXdkCall(call);
+  auto vertices=xdk::DecodeOriginalVerticesXdkCall(call);
+  if(!indexed && !vertices)throw std::invalid_argument("Unsupported transient Draw kind");
+  const uint32_t primitive=indexed?indexed->primitive:vertices->primitive;
+  const uint32_t count=indexed?indexed->index_count:vertices->vertex_count;
+  const auto triangle_count=xdk::VerifiedRuntimeTriangleListCount(primitive,count);
+  if(!triangle_count || count>1048576u || *triangle_count>3145728u)
+    throw std::invalid_argument("Unsupported transient topology or draw size");
+  std::vector<uint32_t> sequence;sequence.reserve(count);
+  if(indexed && (!call.index_binding || !call.source_ib ||
+                 !call.index_binding->Matches(*call.source_ib)))
+    throw std::invalid_argument("Unverified transient index buffer");
+  for(uint32_t i=0;i<count;++i) {
+    int64_t effective=0;
+    if(indexed) {
+      if(uint64_t(indexed->first_index)+i>UINT32_MAX)
+        throw std::invalid_argument("Transient index offset overflow");
+      const auto value=call.index_binding->Read(call.source_ib->bytes,indexed->first_index+i);
+      if(!value)throw std::invalid_argument("Transient index outside source allocation");
+      effective=int64_t(*value)+indexed->base_vertex;
+    } else effective=int64_t(vertices->start_vertex)+i;
+    if(effective<0 || effective>UINT32_MAX)
+      throw std::invalid_argument("Transient effective vertex outside range");
+    sequence.push_back(static_cast<uint32_t>(effective));
+  }
+  const auto [minimum,maximum]=std::minmax_element(sequence.begin(),sequence.end());
+  const uint32_t first=*minimum;
+  const uint64_t size=uint64_t(*maximum)-first+1u;
+  if(size>1048576u)throw std::invalid_argument("Transient vertex span too large");
+  for(auto& i:sequence)i-=first;
+  DecodedRuntimeGeometry out;out.vertex_count=static_cast<uint32_t>(size);
+  out.indices.reserve(*triangle_count);
+  if(primitive==4u)out.indices=sequence;
+  else if(primitive==5u)for(uint32_t i=0;i+2<count;++i) {
+    out.indices.push_back(sequence[i+(i&1u)]);
+    out.indices.push_back(sequence[i+1u-(i&1u)]);
+    out.indices.push_back(sequence[i+2u]);
+  } else if(primitive==6u)for(uint32_t i=1;i+1<count;++i) {
+    out.indices.insert(out.indices.end(),{sequence[0],sequence[i],sequence[i+1]});
+  } else if(primitive==13u)for(uint32_t i=0;i<count;i+=4) {
+    out.indices.insert(out.indices.end(),{sequence[i],sequence[i+1],sequence[i+2],
+                                         sequence[i],sequence[i+2],sequence[i+3]});
+  }
+  if(out.indices.size()!=*triangle_count)throw std::logic_error("Transient triangle count mismatch");
+  std::map<uint32_t,model::NativeIndexedMesh> streams;
+  for(const auto& input:shader.inputs) {
+    const xdk::UsaVertexElement* element=nullptr;
+    for(const auto& e:call.vertex_declaration->elements) {
+      const auto loc=SemanticLocation((e.original_packed_usage>>16)&255u,
+                                     (e.original_packed_usage>>8)&255u);
+      if(loc && *loc==input.location) {
+        if(element)throw std::invalid_argument("Duplicate transient input");
+        element=&e;
+      }
+    }
+    if(!element || element->stream>=16u)
+      throw std::invalid_argument("Transient shader input has no declaration");
+    const auto slot=element->stream;
+    const auto& binding=call.vertex_bindings[slot];
+    auto bytes=call.source_vertex_streams[slot];
+    if(!bytes && slot==0u)bytes=call.source_vb0;
+    if(!binding || !bytes || !binding->Matches(*bytes) ||
+       !binding->stride || binding->stride>192u || binding->stride%4u ||
+       (uint64_t(first)+size)*binding->stride>binding->length)
+      throw std::invalid_argument("Transient vertex window outside source allocation");
+    auto [it,inserted]=streams.try_emplace(slot);
+    if(inserted) {
+      auto& mesh=it->second;mesh.original_vertex_stride=binding->stride;
+      mesh.positions.resize(out.vertex_count);
+      const size_t begin=size_t(binding->offset)+size_t(first)*binding->stride;
+      const size_t end=begin+size_t(size)*binding->stride;
+      mesh.original_vertex_stream.assign(bytes->bytes.begin()+begin,bytes->bytes.begin()+end);
+    }
+    const auto format=RuntimeAttribute(*element);
+    if(!format || (input.uint_bits && input.location!=1u &&
+        input.location!=2u && input.location!=9u) ||
+       (input.location==9u && (!input.uint_bits ||
+          format->encoding!=model::AttributeEncoding::UInt8)))
+      throw std::invalid_argument("Unsupported transient scalar vertex format");
+    auto values=model::DecodeVerifiedAttribute(it->second,*format);
+    if(format->components<4u)for(auto& v:values)v[3]=1.f;
+    out.attributes.emplace_back();out.integer_attributes.emplace_back();
+    if(input.location==9u) {
+      auto& ints=out.integer_attributes.back();ints.reserve(values.size());
+      for(const auto& v:values)ints.push_back({uint32_t(v[0]),uint32_t(v[1]),uint32_t(v[2]),uint32_t(v[3])});
+    } else out.attributes.back()=std::move(values);
+    Diligent::LayoutElement layout{input.location,static_cast<uint32_t>(out.layout.size()),4,
+        input.uint_bits?Diligent::VT_UINT32:Diligent::VT_FLOAT32,Diligent::False};
+    layout.RelativeOffset=0;layout.Stride=16;out.layout.push_back(layout);
+  }
+  return out;
+}
+struct ProducedRuntimeMaterial {
+  VerifiedNativeMaterialPass material;
+  DecodedRuntimeGeometry geometry;
+};
+inline ProducedRuntimeMaterial ProduceOriginalRuntimeMaterial(
+    const xdk::RawDraw& call,uint64_t frame,uint32_t ordinal,
+    const aot::ShaderBank& bank,const aot::EffectCatalog& effects,
+    const aot::OriginalVirtualShaderIdentity& identities,
+    const aot::OriginalXdkShaderSamplers& samplers,const VerifiedSceneFormat& format,
+    DiligentOriginalTextureResidency& residency) {
+  if(!call.observed_vs_matrices || !call.observed_shader_constants ||
+     !call.observed_live_vertex_shader_header || !call.observed_live_pixel_shader_header ||
+     !call.observed_live_eor_effect_pass || !call.original_engine_shader_method ||
+     !xdk::ValidOriginalEorSourceRenderItem(call) || !xdk::ValidOriginalDecalGeometryBinding(call) ||
+     !xdk::ValidOriginalDecalItemMaterialBinding(call) || !xdk::ValidOriginalShaderPassStageBinding(call) ||
+     !xdk::ValidOriginalShaderPassSamplerStateAtDraw(call))
+    throw std::invalid_argument("Transient engine Draw is not source proven");
+  const auto& method=*call.original_engine_shader_method;
+  const auto& live=*call.observed_vs_matrices;
+  const auto& sampling=call.observed_live_pixel_shader_header->pixel_sampling;
+  if(!method.original_shader_method_vtable_verified ||
+     !method.original_pass_vs_ps_xdk_binding_verified ||
+     !method.original_pass_material_context_guest || !sampling ||
+     (sampling->sampled_slots && (!method.original_pass_sampler_slots_verified ||
+                                  !method.original_pass_live_texture_objects_present)))
+    throw std::invalid_argument("Transient material context is not source proven");
+  const auto vs=aot::ResolveOriginalLiveXdkShaderSource(identities,
+      *call.observed_live_vertex_shader_header,live.original_vs_guest_object,aot::Stage::Vertex,frame,ordinal);
+  const auto ps=aot::ResolveOriginalLiveXdkShaderSource(identities,
+      *call.observed_live_pixel_shader_header,live.original_ps_guest_object,aot::Stage::Pixel,frame,ordinal);
+  const auto& effect=*call.observed_live_eor_effect_pass;
+  if(!vs || !ps || !effects.HasPair(effect.effect_hash,effect.pass_index,*vs,*ps))
+    throw std::invalid_argument("Transient shader identity mismatch");
+  const auto* v=bank.Find(*vs,aot::Stage::Vertex);
+  const auto* p=bank.Find(*ps,aot::Stage::Pixel);
+  if(!v || !p)throw std::invalid_argument("Transient shader AOT pair missing");
+  const auto vi=InspectScalarInterface(*v),pi=InspectScalarInterface(*p);
+  if(!vi.supported || !pi.supported ||
+     (((vi.shared_members|pi.shared_members)&1u) &&
+       !xdk::PackOriginalScalarBooleans(*call.observed_shader_constants)))
+    throw std::invalid_argument("Transient shader ABI unsupported");
+  ProducedRuntimeMaterial out;
+  out.geometry=DecodeOriginalRuntimeGeometry(call,vi);
+  auto& material=out.material;
+  material.original_model_hash=method.original_pass_material_context_guest;
+  material.original_surface_ordinal=ordinal;
+  auto& pass=material.original_pipeline;
+  pass=OriginalScalarPass(call,*vs,*ps,format);
+  pass.exact_host_input_layout=out.geometry.layout;
+  pass.original_host_vertex_layout_verified=true;
+  pass.original_runtime_draw_verified=true;
+  pass.original_scalar_alpha_test_verified=pi.has_kill && (pi.shared_members&24u)==24u;
+  const auto alpha=ResolveOriginalScalarAlpha(*call.observed_shader_constants->fixed_graphics_state);
+  if(!alpha || (alpha->flags && !pass.original_scalar_alpha_test_verified))
+    throw std::invalid_argument("Transient alpha-test shader unsupported");
+  material.original_images=OriginalScalarImages(call,*vs,*ps,bank,samplers,
+    material.original_model_hash,ordinal,method.original_pass_sampler_slot_mask,residency,format);
+  for(auto& image:material.original_images) {
+    image.original_binding.original_runtime_material=true;
+    const auto slot=image.original_binding.original_fetch_register;
+    if(image.shader_reflected_view==OriginalTextureViewKind::NativeCube &&
+       (call.observed_shader_constants->pixel_fetch[slot][0]&1023u)==254u)
+      pass.original_xbox_cube_gamma_mask|=uint16_t(1u<<slot);
+  }
+  pass.material_pass_verified=true;
+  return out;
+}
 } // namespace live
 } // namespace hulk::eor::gpu

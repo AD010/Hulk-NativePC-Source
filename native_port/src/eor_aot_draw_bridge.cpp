@@ -35,7 +35,7 @@ bool MatchesOriginalXdkDraw(
   }
   if(const auto indexed=xdk::DecodeOriginalIndexedXdkCall(source)) {
     const auto expected=host.original_runtime_draw ?
-        xdk::VerifiedTriangleListCount(indexed->primitive,indexed->index_count) :
+        xdk::VerifiedRuntimeTriangleListCount(indexed->primitive,indexed->index_count) :
         std::optional<uint32_t>(indexed->index_count);
     return expected && !host.source_nonindexed_linearization_verified &&
            indexed->guest_device==draw.guest_vs_matrices->original_guest_device &&
@@ -50,7 +50,7 @@ bool MatchesOriginalXdkDraw(
   }
   const auto vertices=xdk::DecodeOriginalVerticesXdkCall(source);
   const auto indices=vertices ?
-      xdk::VerifiedTriangleListCount(vertices->primitive,vertices->vertex_count) :
+      (host.original_runtime_draw ? xdk::VerifiedRuntimeTriangleListCount(vertices->primitive,vertices->vertex_count) : xdk::VerifiedTriangleListCount(vertices->primitive,vertices->vertex_count)) :
       std::nullopt;
   return indices && host.source_nonindexed_linearization_verified &&
          vertices->guest_device==draw.guest_vs_matrices->original_guest_device &&
