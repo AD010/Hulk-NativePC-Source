@@ -1,4 +1,5 @@
 #include "../native_port/src/eor_native_shader_constants.h"
+#include "../native_port/src/eor_live_projection.h"
 #include <cassert>
 #include <cmath>
 #include <cstdint>
@@ -100,6 +101,21 @@ int main() {
       16.0/9.0,2560,1600,proof,aot::FloatRegisterOrder::Original);
   assert(direct.size()==1024 && direct[7*4]==captured.vertex[7*4] &&
          direct[255*4]==captured.vertex[255*4] && std::abs(direct[11*4+1]-10.8f)<1e-5f);
+  // Real perspective axes, both register storage conventions; reject
+  // an orthographic matrix and an unrelated aspect before altering the UBO.
+  const std::array<float,16> perspective{
+      1.125f,0,0,0, 0,2.f,0,0, 0,0,1.01f,-0.1f, 0,0,1.f,0};
+  auto storage=aot::IdentifyLivePerspectiveStorage(perspective,16.0/9.0);
+  assert(storage && *storage==hulk::camera::ClipMatrixConvention::ColumnVector);
+  std::array<float,16> transposed{};
+  for(size_t i=0;i<4;++i)for(size_t j=0;j<4;++j)
+    transposed[i*4+j]=perspective[j*4+i];
+  storage=aot::IdentifyLivePerspectiveStorage(transposed,16.0/9.0);
+  assert(storage && *storage==hulk::camera::ClipMatrixConvention::RowVector);
+  assert(!aot::IdentifyLivePerspectiveStorage(perspective,4.0/3.0));
+  auto ortho=perspective;
+  ortho[14]=0;ortho[15]=1;
+  assert(!aot::IdentifyLivePerspectiveStorage(ortho,16.0/9.0));
   // 21:9 and 32:9 must widen horizontal view, NOT crop vertically.
   const auto wider=aot::ExpandVerifiedOriginalPackedViewProjection(
       wide_values,wide,11,16.0/9.0,3440,1440,proof);
