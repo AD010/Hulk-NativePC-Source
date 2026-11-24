@@ -3,6 +3,7 @@
 // The original source CTAB names and exact SPIR-V register reads are separate
 // from the matrix-shape test. No guest memory writes, FOV guessing, or stretch.
 #include "native_camera_projection.h"
+#include "eor_spirv_static_registers.h"
 #include "eor_shader_reflection.h"
 #include "eor_xdk_guest_constants.h"
 #include <vector>
@@ -49,43 +50,11 @@ inline std::optional<camera::ClipMatrixConvention> IdentifyLivePerspectiveStorag
                camera::ClipMatrixConvention::RowVector;
 }
 inline bool ScalarReadsOriginalMatrix(const Blob& shader,RegisterSpan range) {
-  if(shader.stage!=Stage::Vertex || range.count!=4 ||
-     range.index>252 || shader.spirv.size()<5)return false;
-  std::map<uint32_t,uint32_t> constants;
-  std::set<uint32_t> blocks;
-  std::set<uint32_t> read_registers;
-  const auto& words=shader.spirv;
-  for(size_t i=5;i<words.size();) {
-    const auto n=words[i]>>16,op=words[i]&65535u;
-    if(!n || n>words.size()-i)return false;
-    const auto* w=words.data()+i;
-    if(op==5u && n>=3) {
-      std::string name;
-      bool end=false;
-      for(size_t j=2;j<n && !end;++j)
-        for(unsigned b=0;b<4;++b) {
-          const auto c=static_cast<char>(w[j]>>(8*b));
-          if(!c){end=true;break;}
-          name+=c;
-        }
-      if(!end)return false;
-      if(name=="HulkVertexConstants")blocks.insert(w[1]);
-    } else if(op==43u && n==4u)constants.emplace(w[2],w[3]);
-    i+=n;
-  }
-  if(blocks.size()!=1)return false;
-  const auto block=*blocks.begin();
-  for(size_t i=5;i<words.size();) {
-    const auto n=words[i]>>16,op=words[i]&65535u;
-    const auto* w=words.data()+i;
-    if((op==65u || op==66u) && n==6u && w[3]==block) {
-      const auto member=constants.find(w[4]),index=constants.find(w[5]);
-      if(member!=constants.end() && index!=constants.end() && member->second==0)
-        read_registers.insert(index->second);
-    }
-    i+=n;
-  }
-  for(uint32_t i=0;i<4;++i)if(!read_registers.contains(range.index+i))return false;
+  if(shader.stage!=Stage::Vertex || range.count!=4 || range.index>252)
+    return false;
+  const auto reads=shader.scalar_register_reads ?
+      *shader.scalar_register_reads : AnalyzeScalarRegisterReads(shader.spirv);
+  for(uint32_t i=0;i<4;++i)if(!reads.test(range.index+i))return false;
   return true;
 }
 struct LivePerspectiveProjection {

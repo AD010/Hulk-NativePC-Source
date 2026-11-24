@@ -1714,7 +1714,8 @@ std::optional<AutomaticSceneContract> OriginalTargetContract(
         const auto* shader=pack.shaders->Find(*vs,aot::Stage::Vertex);
         const auto* reflection=pack.reflection->Find(*vs,aot::Stage::Vertex);
         if(!shader || !reflection ||
-           (!aot::ScalarPreservesClipXYW(shader->spirv) &&
+           (!(shader->scalar_preserves_clip_xyw ? *shader->scalar_preserves_clip_xyw :
+              aot::ScalarPreservesClipXYW(shader->spirv)) &&
             !aot::IdentifyLiveScalarProjection(*shader,*reflection,*draw.observed_shader_constants,1280.0/720.0)))return {};
       }
     }
@@ -1981,7 +1982,8 @@ struct AutomaticEorOwner {
               aot::IdentifyLiveScalarProjection(*vertex,*reflected,*call.observed_shader_constants,1280.0/720.0) :
               std::nullopt;
           if(!projection) {
-            if(!vertex || !aot::ScalarPreservesClipXYW(vertex->spirv))
+            if(!vertex || !(vertex->scalar_preserves_clip_xyw ? *vertex->scalar_preserves_clip_xyw :
+                aot::ScalarPreservesClipXYW(vertex->spirv)))
               throw std::invalid_argument("Live perspective or clip-space camera matrix not proven");
             // Geometry is already in clip coordinates. Preserve its original
             // picture aspect unless this is a proven full-screen post pass.

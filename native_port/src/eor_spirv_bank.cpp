@@ -1,4 +1,6 @@
 #include "eor_spirv_bank.h"
+#include "eor_spirv_static_registers.h"
+#include "eor_spirv_clip_position.h"
 #include <cstring>
 #include <fstream>
 #include <iterator>
@@ -105,6 +107,10 @@ void ShaderBank::Load(const std::filesystem::path& path) {
         blob.spirv[4] != 0)
       throw std::invalid_argument("Invalid SPIR-V module header in private bank");
     CheckStructure(blob.spirv, blob.stage);
+    if(blob.stage==Stage::Vertex) {
+      blob.scalar_register_reads=AnalyzeScalarRegisterReads(blob.spirv);
+      blob.scalar_preserves_clip_xyw=ScalarPreservesClipXYW(blob.spirv);
+    }
     if (!next.emplace(key, std::move(blob)).second)
       throw std::invalid_argument("Duplicate Xenos source SHA in private AOT bank");
   }

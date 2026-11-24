@@ -1,4 +1,6 @@
 #include "../native_port/src/eor_spirv_bank.h"
+#include "../native_port/src/eor_spirv_static_registers.h"
+#include "../native_port/src/eor_spirv_clip_position.h"
 #include <cassert>
 #include <filesystem>
 #include <fstream>
@@ -38,10 +40,17 @@ int main() {
   ShaderBank bank;bank.Load(p);
   assert(bank.size()==2 && bank.expected()==2 && bank.HasFullArchiveCoverage());
   Digest one{};one.fill(1);
-  assert(bank.Find(one,Stage::Vertex));
+  const auto* vertex=bank.Find(one,Stage::Vertex);
+  assert(vertex && vertex->scalar_register_reads.has_value());
+  assert(*vertex->scalar_register_reads==AnalyzeScalarRegisterReads(vertex->spirv));
+  assert(vertex->scalar_preserves_clip_xyw.has_value());
+  assert(*vertex->scalar_preserves_clip_xyw==ScalarPreservesClipXYW(vertex->spirv));
   assert(!bank.Find(one,Stage::Pixel));
   Digest two{};two.fill(2);
   assert(bank.Find(two,Stage::Pixel) && bank.Find(two,Stage::Pixel)->spirv.size()==15);
+  assert(!bank.Find(two,Stage::Pixel)->scalar_register_reads.has_value());
+  // A new successful load derives its own evidence; no SHA/address cache
+  // survives an AOT generation or trusts caller-provided mutable bytecode.
   // First OpCapability word starts at the first record's 5-word header end.
   // Changing its wordcount to zero must be rejected before any Vulkan upload.
   auto damaged=data;

@@ -4,6 +4,8 @@
 // Does not create GPU PSOs until vertex layouts and descriptors are verified.
 #pragma once
 #include <array>
+#include <bitset>
+#include <optional>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
@@ -17,6 +19,10 @@ using Digest = std::array<uint8_t, 32>;
 struct Blob {
   Stage stage = Stage::Vertex;
   std::vector<uint32_t> spirv;
+  // Derived once from immutable, structurally verified AOT bytecode.
+  // Synthetic caller-created Blobs can omit these and use uncached analysis.
+  std::optional<std::bitset<256>> scalar_register_reads{};
+  std::optional<bool> scalar_preserves_clip_xyw{};
 };
 class ShaderBank {
  public:
