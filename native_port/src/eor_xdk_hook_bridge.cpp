@@ -2486,6 +2486,15 @@ native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(
       return Result::kNotReady;
     }
   }
+  // A source-only bootstrap deliberately has no verified material
+  // owner yet. The real model I/O and GPU attribute uploads above MUST
+  // run, but calling the expensive all-Draw witness resolver against an
+  // empty catalog cannot produce a real scene. A later source factory
+  // refresh may supply verified owners after residency and ShaderEffects
+  // are ready; until then the existing renderer keeps ownership of Present.
+  if(owner_catalog && owner_catalog->verified_candidates.empty() &&
+     owner_catalog->verified_font_materials.empty())
+    return Result::kNotReady;
   // Original EFontShader geometry is transient by design. Route the
   // ENTIRE original Present through the mixed native Vulkan batch rather
   // than trying to disguise font glyphs as archived world-model meshes.
