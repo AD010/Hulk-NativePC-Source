@@ -100,6 +100,11 @@ class EffectCatalog {
            unique_shader_count_==rhs.unique_shader_count_ &&
            sources_==rhs.sources_;
   }
+  template<class F> void ForEachPair(F&& visit) const {
+    for(const auto& [effect,pairs]:sources_)
+      for(size_t i=0;i<pairs.size();++i)
+        visit(effect,static_cast<uint32_t>(i),pairs[i].first,pairs[i].second);
+  }
   size_t EffectCount() const noexcept { return sources_.size(); }
   size_t PairCount() const noexcept { return pair_count_; }
   // Actual number of AOT modules, not the number of draw/material references.

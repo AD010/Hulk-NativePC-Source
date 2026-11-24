@@ -6,6 +6,8 @@
 #include "eor_effect_catalog.h"
 #include "eor_original_font_source.h"
 #include "eor_native_font_geometry.h"
+#include "eor_live_material_producer.h"
+#include "eor_spirv_clip_position.h"
 #include <algorithm>
 #include <cmath>
 #include <fstream>
@@ -39,7 +41,10 @@ static std::vector<std::byte> ReadPixels(IRenderDevice* device, IDeviceContext* 
                           staging,RESOURCE_STATE_TRANSITION_MODE_TRANSITION};
   context->CopyTexture(copy);
   context->WaitForIdle();
-  const size_t pitch=size_t(desc.Width)*4;
+  const size_t bytes_per_pixel=desc.Format==TEX_FORMAT_RGBA16_FLOAT?8u:4u;
+  if(desc.SampleCount!=1 || (desc.Format!=TEX_FORMAT_RGBA16_FLOAT && desc.Format!=TEX_FORMAT_RGBA8_UNORM && desc.Format!=TEX_FORMAT_BGRA8_UNORM))
+    throw std::runtime_error("Unsupported integration-test readback format");
+  const size_t pitch=size_t(desc.Width)*bytes_per_pixel;
   std::vector<std::byte> pixels(pitch*desc.Height);
   MappedTextureSubresource mapped{};
   context->MapTextureSubresource(staging,0,0,MAP_READ,MAP_FLAG_DO_NOT_WAIT,nullptr,mapped);
@@ -248,6 +253,8 @@ static void VerifySequentialTargets(IRenderDevice* device,IDeviceContext* contex
   auto& graph=format.original_graph;
   graph.colors={2,3};graph.resolves={4};
   graph.extents={{2,{w/2,h/2}},{3,{w,h}},{4,{w/2,h/2}}};
+  graph.color_formats={{2,gpu::NativeColorFormat::Rgba16Float},{3,gpu::NativeColorFormat::Rgba8},{4,gpu::NativeColorFormat::Rgba16Float}};
+  graph.sample_counts={{2,4},{3,1},{4,1}};
   graph.first_color=2;graph.final_color=3;graph.front_buffer=5;
   gpu::DiligentSceneTargets scene(device,context);
   eor::xdk::OriginalXdkClearF clear{};
@@ -265,11 +272,13 @@ static void VerifySequentialTargets(IRenderDevice* device,IDeviceContext* contex
     throw std::runtime_error("Sequential native target final resolve failed");
   const auto first=ReadPixels(device,context,scene.IntermediateColorSRV(4)->GetTexture());
   const auto final=ReadPixels(device,context,scene.ResolvedColorSRV()->GetTexture());
-  if(first.size()!=(w/2)*(h/2)*4 || final.size()!=w*h*4)
+  if(first.size()!=(w/2)*(h/2)*8 || final.size()!=w*h*4)
     throw std::runtime_error("Sequential target readback size mismatch");
-  const std::array red{std::byte{255},std::byte{0},std::byte{0},std::byte{255}};
+  // Native IEEE half floats {1,0,0,1} in little-endian host storage.
+  const std::array red{std::byte{0},std::byte{0x3c},std::byte{0},std::byte{0},
+                       std::byte{0},std::byte{0},std::byte{0},std::byte{0x3c}};
   const std::array blue{std::byte{0},std::byte{0},std::byte{255},std::byte{255}};
-  for(size_t i=0;i<first.size();i+=4)
+  for(size_t i=0;i<first.size();i+=8)
     if(!std::equal(red.begin(),red.end(),first.begin()+i))
       throw std::runtime_error("Intermediate target contents changed");
   for(size_t i=0;i<final.size();i+=4)
@@ -278,7 +287,7 @@ static void VerifySequentialTargets(IRenderDevice* device,IDeviceContext* contex
   if(!scene.Prepare(frame,format) || !scene.BeginScene() || scene.IntermediateColorSRV(4))
     throw std::runtime_error("Stale intermediate target survived into the next frame");
   scene.AbortScene();
-  std::cout<<"Native sequential targets and intermediate Resolve readback passed\n";
+  std::cout<<"Native mixed RGBA16F 4x MSAA and RGBA8 1x sequential targets readback passed\n";
 }
 
 // Controlled XDK state for the original shader integration fixture only.
@@ -845,9 +854,69 @@ static void VerifyFontDraw(IRenderDevice* device, IDeviceContext* context,
   std::cout<<"USA font shader DrawIndexed matched 131072 rendered pixels\n";
 }
 
+// Actual private original shader bank, not synthetic shader replacements.
+// This tests driver PSO admission only; draw semantics and pixel readbacks
+// are exercised separately. Never represent PSO creation as a game frame.
+static void VerifyFullOriginalShaderBank(IRenderDevice* device,const char* bank_path,const char* effects_path) {
+  namespace aot=eor::aot;
+  namespace gpu=eor::gpu;
+  aot::ShaderBank bank;bank.Load(bank_path);
+  aot::EffectCatalog effects;effects.Load(effects_path);
+  if(!bank.HasFullArchiveCoverage() || bank.size()!=5194 || effects.PairCount()!=2597)
+    throw std::runtime_error("Original USA shader bank coverage incomplete");
+  size_t pipelines=0,cube_variants=0,clip_programs=0;
+  effects.ForEachPair([&](uint32_t effect,uint32_t index,const aot::Digest& vs,const aot::Digest& ps) {
+    const auto* vertex=bank.Find(vs,aot::Stage::Vertex);
+    const auto* pixel=bank.Find(ps,aot::Stage::Pixel);
+    if(!vertex || !pixel)throw std::runtime_error("Missing original pair");
+    const auto interface=gpu::live::InspectScalarInterface(*vertex);
+    if(!interface.supported || interface.inputs.empty())
+      throw std::runtime_error("Unsupported original VS vertex ABI in test");
+    gpu::VerifiedOriginalGraphicsPass pass{};
+    pass.original_effect_hash=effect;pass.original_pass_index=index;
+    pass.original_vertex_shader_sha256=vs;pass.original_pixel_shader_sha256=ps;
+    pass.material_pass_verified=pass.original_render_state_verified=pass.original_host_vertex_layout_verified=true;
+    pass.exact_render_state.NumRenderTargets=1;
+    pass.exact_render_state.RTVFormats[0]=TEX_FORMAT_RGBA8_UNORM;
+    pass.exact_render_state.DSVFormat=TEX_FORMAT_D24_UNORM_S8_UINT;
+    pass.exact_render_state.DepthStencilDesc.DepthEnable=False;
+    pass.exact_render_state.DepthStencilDesc.DepthWriteEnable=False;
+    pass.exact_render_state.RasterizerDesc.CullMode=CULL_MODE_NONE;
+    pass.exact_render_state.PrimitiveTopology=PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+    for(const auto& input:interface.inputs) {
+      LayoutElement e{input.location,static_cast<uint32_t>(pass.exact_host_input_layout.size()),
+          input.components,input.uint_bits?VT_UINT32:VT_FLOAT32,False};
+      e.RelativeOffset=0;e.Stride=input.components*4u;
+      pass.exact_host_input_layout.push_back(e);
+    }
+    uint16_t cube_mask=0;
+    for(const auto& image:aot::InspectSpirvImageResources(pixel->spirv,aot::Stage::Pixel))
+      if(const auto slot=aot::DecodeFixedAotImageSlot(image.exact_variable_name);slot && slot->dimension==3u)
+        cube_mask|=static_cast<uint16_t>(1u<<slot->slot);
+    // Keep memory bounded: destroy this fixture's native PSOs and modules
+    // after each pair. The runtime cache remains untouched.
+    gpu::DiligentAotShaderModules modules(device);
+    auto pipeline=gpu::CreateOriginalVulkanPipeline(device,modules,bank,effects,pass);
+    if(!pipeline.pipeline)throw std::runtime_error("Original Vulkan pair rejected");
+    ++pipelines;
+    // Test every nonempty subset, including a mixture of linear/gamma slots.
+    for(uint16_t mask=cube_mask;mask;mask=static_cast<uint16_t>((mask-1)&cube_mask)) {
+      pass.original_xbox_cube_gamma_mask=mask;
+      auto variant=gpu::CreateOriginalVulkanPipeline(device,modules,bank,effects,pass);
+      if(!variant.pipeline)throw std::runtime_error("Original cube gamma variant rejected");
+      ++cube_variants;
+    }
+    clip_programs+=aot::ScalarPreservesClipXYW(vertex->spirv)?1:0;
+  });
+  if(pipelines!=2597 || cube_variants<248 || clip_programs!=37)
+    throw std::runtime_error("Original shader bank regression coverage mismatch");
+  std::cout<<"Original Vulkan pairs: "<<pipelines<<"; cube gamma variants: "<<cube_variants
+           <<"; proven clip-space programs: "<<clip_programs<<"\n";
+}
+
 int main(int argc,char** argv) {
   try {
-    if (argc!=3 && argc!=5 && argc!=6 && argc!=7 && argc!=10) throw std::invalid_argument("Expected USA INDEX.IND and TEXTURES.ARC paths");
+    if (argc!=3 && argc!=4 && argc!=5 && argc!=6 && argc!=7 && argc!=10) throw std::invalid_argument("Expected USA INDEX.IND and TEXTURES.ARC paths");
     auto* factory=LoadAndGetEngineFactoryVk();
     if (!factory) throw std::runtime_error("Diligent Vulkan factory unavailable");
     EngineVkCreateInfo ci{};
@@ -856,6 +925,11 @@ int main(int argc,char** argv) {
     factory->CreateDeviceAndContextsVk(ci,&device,&context);
     if (!device || !context) throw std::runtime_error("Vulkan device unavailable");
     std::cout<<device->GetAdapterInfo().Description<<'\n';
+    if(argc==4 && std::strcmp(argv[1],"--shader-bank")==0) {
+      VerifyFullOriginalShaderBank(device,argv[2],argv[3]);
+      return 0;
+    }
+    if(argc==4)throw std::invalid_argument("Unrecognized original shader-bank test mode");
     if(argc==5 && std::strcmp(argv[1],"--material-replay")==0) {
       VerifySequentialTargets(device,context);
       VerifyMaterialReplay(device,context,argv[2],argv[3],argv[4]);
