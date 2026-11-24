@@ -54,6 +54,7 @@ struct DeviceSamplerState {
   DWORD afOriginalMaximum[16]{};
   // Presentation HWND belongs to the device, never to the last CreateDevice.
   HWND presentationWindow = nullptr;
+  bool filteringHooksReady = false;
 };
 std::unordered_map<IDirect3DDevice9*,DeviceSamplerState> samplerStates;
 struct ShaderInfo {
@@ -487,8 +488,12 @@ HRESULT STDMETHODCALLTYPE OnCreateDevice(IDirect3D9* api,UINT adapter,
     ReplaceVtable(*result,92,&OnSetVS,realSetVS);
     ReplaceVtable(*result,94,&OnVSConstants,realVSConst);
     ReplaceVtable(*result,106,&OnCreatePS,realCreatePS);
-    ReplaceVtable(*result,69,&OnSampler,realSampler);
-    ReplaceVtable(*result,65,&OnSetTexture,realSetTexture);
+    const bool textureHooked=ReplaceVtable(*result,65,&OnSetTexture,realSetTexture);
+    const bool samplerHooked=textureHooked && ReplaceVtable(*result,69,&OnSampler,realSampler);
+    {std::lock_guard lock(mipMutex);
+     samplerStates[*result].filteringHooksReady=textureHooked && samplerHooked;}
+    if(!samplerHooked)
+      Log("[D3D9] Filtering disabled for device: incomplete texture/sampler hooks\r\n");
     Log("[D3D9] trilinear mip: requested=%u caps 2D=%u cube=%u volume=%u\r\n",
         (unsigned)forceTrilinearMip,(unsigned)!!mipLinearCaps2D,
         (unsigned)!!mipLinearCapsCube,(unsigned)!!mipLinearCapsVolume);
@@ -560,7 +565,9 @@ HRESULT STDMETHODCALLTYPE OnReset(IDirect3DDevice9* dev,D3DPRESENT_PARAMETERS* p
     {std::lock_guard lock(shaderMutex);activeVS=nullptr;}
     {std::lock_guard lock(mipMutex);
      auto& state=samplerStates[dev];
+     const bool filteringHooksReady=state.filteringHooksReady;
      state=DeviceSamplerState{};
+     state.filteringHooksReady=filteringHooksReady;
      state.presentationWindow=effectiveWindow;}
   }
   if(pp)Log("[D3D9] Reset %ux%u windowed=%u hr=0x%08lX\r\n",
@@ -825,11 +832,16 @@ HRESULT STDMETHODCALLTYPE OnVSConstants(IDirect3DDevice9* dev,UINT reg,
   }
   return realVSConst(dev,reg,changed,count);
 }
+bool FilteringHooksReady(IDirect3DDevice9* dev) {
+  std::lock_guard lock(mipMutex);
+  const auto it=samplerStates.find(dev);
+  return it!=samplerStates.end() && it->second.filteringHooksReady;
+}
 HRESULT STDMETHODCALLTYPE OnSetTexture(IDirect3DDevice9* dev,DWORD stage,
                                        IDirect3DBaseTexture9* texture) {
   if(!realSetTexture)return D3DERR_INVALIDCALL;
   const HRESULT hr=realSetTexture(dev,stage,texture);
-  if(SUCCEEDED(hr) && stage<16 && realSampler) {
+  if(SUCCEEDED(hr) && stage<16 && realSampler && FilteringHooksReady(dev)) {
     bool point=false,linear=false,restoreMaximum=false;
     DWORD originalMaximum=0;
     {std::lock_guard lock(mipMutex);
@@ -926,6 +938,7 @@ HRESULT STDMETHODCALLTYPE OnSetTexture(IDirect3DDevice9* dev,DWORD stage,
 HRESULT STDMETHODCALLTYPE OnSampler(IDirect3DDevice9* dev,DWORD sampler,
                                     D3DSAMPLERSTATETYPE type,DWORD value) {
   if(!realSampler)return D3DERR_INVALIDCALL;
+  if(!FilteringHooksReady(dev))return realSampler(dev,sampler,type,value);
   // An explicit engine MAX request supersedes any saved AF restoration.
   if(type==D3DSAMP_MAXANISOTROPY && sampler<16) {
     const HRESULT hr=realSampler(dev,sampler,type,value);
