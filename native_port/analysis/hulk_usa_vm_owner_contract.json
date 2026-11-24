@@ -1,0 +1,29 @@
+{
+  "schema": "hulk.usa.eor.vm.owner.v1",
+  "dispatch_entry": "0x825EA070",
+  "native_call_lr": "0x825EA158",
+  "native_state_handler": "0x8264C798",
+  "dispatcher_vm_register": "r31",
+  "descriptor_register": "r27",
+  "context_register": "r28",
+  "context_owner_offset": 20,
+  "vm_depth_offset": 32,
+  "owner_stack_word_base": 2093,
+  "owner_resource_offset": 124,
+  "resource_definition_offset": 8,
+  "definition_vtable": "0x8206A4D0",
+  "definition_key_offset": 12,
+  "definition_tagged_name_offset": 4,
+  "source_pages": [
+    {
+      "name": "UIPage_Pause_Settings",
+      "key": "0xD7A9E027"
+    },
+    {
+      "name": "UIPage_Pause_GameSettings",
+      "key": "0x04AA3A30"
+    }
+  ],
+  "evidence": "Original PPC owner resolution plus matching loaded page definitions in the user-owned USA dump. No fixed heap addresses or proprietary byte sequences stored.",
+  "live_pause_dispatch_observed": false
+}

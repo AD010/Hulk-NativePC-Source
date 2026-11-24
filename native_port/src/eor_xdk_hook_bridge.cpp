@@ -2,6 +2,7 @@
 // Never writes guest memory, never bypasses the original NativeX or Xenos.
 // This is an input provenance oracle, not a completed Vulkan renderer.
 #include "eor_xdk_hook_bridge.h"
+#include "eor_original_pause_vm.h"
 #include "eor_usa_material_textures.h"
 #include "eor_diligent_aot_backend.h"
 #include "eor_diligent_host_output.h"
@@ -207,23 +208,36 @@ void ObserveOriginalEorVmState_r(
       ? read32(*owner+12u) : std::nullopt;
   const auto previous=output && *output<=UINT32_MAX-12u
       ? read32(*output+12u) : std::nullopt;
+  const auto page=vm::ResolveNativeOwner(
+      call_lr,original_ctx.r3.u32,original_ctx.r31.u32,
+      original_ctx.r27.u32,original_ctx.r28.u32,
+      [&](uint32_t address,uint8_t* bytes,size_t length) {
+        return ReadGuest(original_guest_base,address,
+            reinterpret_cast<std::byte*>(bytes),length);
+      });
+  // Only the interpreter's live owner can name a Pause page. Do not
+  // mutate the shared state_r return or confuse it with a menu action.
+  const char* page_name=page.page==vm::PausePage::Settings?"UIPage_Pause_Settings":
+      page.page==vm::PausePage::GameSettings?"UIPage_Pause_GameSettings":
+      "PAGE-OWNER UNKNOWN";
   static std::atomic<uint64_t> calls{0};
   const auto n=calls.fetch_add(1,std::memory_order_relaxed)+1u;
   // Bound log cost and preserve only original PPC virtual addresses.
   // This common VM getter/setter must NEVER be promoted to a native
   // Windows menu event merely because ChangeState_r calls it.
-  if(n<=8u || (n%8192u)==0u)
+  if(n<=8u || (n%8192u)==0u || page.page!=vm::PausePage::Unknown)
     REXLOG_INFO("[HULK/EOR-VM-STATE-R] calls={} original_native=0x{:08X} "
                 "guest_LR=0x{:08X} VM_r3=0x{:08X} frame=0x{:08X} "
                 "input_owner=0x{:08X} output_owner=0x{:08X} "
                 "vm_state_before=0x{:08X} vm_state_requested=0x{:08X} "
                 "complete_ppc_source_chain={}; "
-                "PAGE-OWNER UNKNOWN, not native Pause Settings event",
+                "owner_page={} owner_object=0x{:08X} owner_definition=0x{:08X} "
+                "owner_key=0x{:08X}; not native Pause Settings event",
                 n,original_method_guest,call_lr,original_ctx.r3.u32,
                 vm_frame.value_or(0u),input.value_or(0u),
                 output.value_or(0u),previous.value_or(0u),
                 requested.value_or(0u),
-                static_cast<bool>(requested && previous));
+                static_cast<bool>(requested && previous),page_name,page.object,page.definition,page.key);
 }
 
 void ObserveOriginalEorShaderPass(
