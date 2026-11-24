@@ -120,6 +120,12 @@ class DiligentEorDirectBackend final : public aot::ShaderBindingBackend {
   // more models can request further batches BEFORE the next GPU scene.
   // Returns the number of newly cached verified owner-specific pipelines.
   std::size_t PrewarmResidentOriginalPipelines(std::size_t max_new);
+  // Adopt already uploaded, source-verified Xbox model GPU buffers before
+  // this frame's Vulkan preflight. No new renderer, shader or geometry
+  // conversion: preserve the resident model and the existing PSO cache.
+  // Original owners remain alive until the host GPU completion fence.
+  std::size_t AdoptVerifiedResidentWorldMeshes(
+      std::span<const model::UploadedOriginalModel* const> residents);
   // Stage the REAL EFontShader GPU geometry into the existing original
   // Vulkan pipeline BEFORE scene BeginScene. Builds one ordinary ordered
   // BoundIndexedDraw for ReplayAotScene, using original live VS/PS source

@@ -304,12 +304,7 @@ DiligentEorDirectBackend::DiligentEorDirectBackend(
   if(!state_ || device->GetDeviceInfo().Type != Diligent::RENDER_DEVICE_TYPE_VULKAN ||
      !frame.direct_engine_path_ready || !state_->bind_constants ||
      !state_->composite || !bank.size() ||
-     effects.ShaderCount()!=bank.expected() || state_->passes.empty() ||
-     (state_->draw_buffers.empty() &&
-      std::none_of(state_->passes.begin(),state_->passes.end(),
-          [](const NativeEorPassResources& p) {
-            return p.pipeline.original_dynamic_font_vertex_layout_verified;
-          })))
+     effects.ShaderCount()!=bank.expected() || state_->passes.empty())
     throw std::invalid_argument("Original EoR engine Draw/constant/output Vulkan ABI not verified");
   if(!formats.original_color_format_verified ||
      !formats.original_depth_format_verified)
@@ -474,6 +469,70 @@ DiligentEorDirectBackend::DiligentEorDirectBackend(
   (void)PrewarmResidentOriginalPipelines(64);
 }
 DiligentEorDirectBackend::~DiligentEorDirectBackend() noexcept {AbortScene();}
+std::size_t DiligentEorDirectBackend::AdoptVerifiedResidentWorldMeshes(
+    std::span<const model::UploadedOriginalModel* const> residents) {
+  if(!state_ || state_->scene_open || state_->frame_preflight_ready)
+    throw std::invalid_argument(
+        "Original EoR world meshes cannot change inside a GPU scene");
+  if(residents.empty())return 0;
+  auto& s=*state_;
+  // The source archive GPU uploader has already authenticated the real
+  // MODELS.ARC mesh headers and native-decoded position/index/UV streams.
+  // This attaches those SAME GPU allocations to the live Draw dispatcher.
+  auto incoming=PositionOnlyDrawBuffersFromOriginalModels(residents);
+  for(const auto& draw:incoming) {
+    if(!draw.position_handle || !draw.index_handle ||
+       draw.vertex_count<3 || draw.index_count<3 ||
+       !draw.original_model_hash ||
+       draw.original_mesh_header_offset==SIZE_MAX ||
+       s.meshes.KindOf(draw.position_handle)!=0u ||
+       s.meshes.KindOf(draw.index_handle)!=2u)
+      throw std::invalid_argument("Streamed original EoR mesh has no GPU owner");
+    auto* vertex=s.meshes.FindBuffer(draw.position_handle);
+    auto* index=s.meshes.FindBuffer(draw.index_handle);
+    if(!vertex || !index ||
+       vertex->GetDesc().Size <
+           uint64_t(draw.vertex_count)*sizeof(model::NativePosition) ||
+       index->GetDesc().Size <
+           uint64_t(draw.index_count)*sizeof(uint32_t))
+      throw std::invalid_argument("Original EoR streamed mesh allocation missing");
+    // The complete index buffer may contain distinct draw windows with
+    // different signed base vertices. Verify only their allocated bytes
+    // here; actual index extrema are checked for EACH Draw in preflight.
+    if(draw.host_vertex_slots.empty() ||
+       draw.host_vertex_slots[0]!=draw.position_handle)
+      throw std::invalid_argument("Original EoR vertex position slot missing");
+    for(size_t slot=1;slot<draw.host_vertex_slots.size();++slot) {
+      const auto handle=draw.host_vertex_slots[slot];
+      auto* buffer=s.meshes.FindBuffer(handle);
+      if(!buffer || s.meshes.KindOf(handle)!=3u ||
+         buffer->GetDesc().Size <
+             uint64_t(draw.vertex_count)*sizeof(model::HostAttribute))
+        throw std::invalid_argument("Original EoR decoded GPU attribute missing");
+    }
+    const auto old=s.draw_buffers.find(draw.position_handle);
+    if(old!=s.draw_buffers.end()) {
+      const auto& existing=old->second;
+      if(existing.original_dynamic_font_verified ||
+         existing.original_model_hash!=draw.original_model_hash ||
+         existing.original_mesh_header_offset!=draw.original_mesh_header_offset ||
+         existing.index_handle!=draw.index_handle ||
+         existing.vertex_count!=draw.vertex_count ||
+         existing.index_count!=draw.index_count ||
+         existing.host_vertex_slots!=draw.host_vertex_slots)
+        throw std::invalid_argument(
+            "Original EoR streamed GPU mesh identity unexpectedly changed");
+    }
+  }
+  size_t inserted=0;
+  for(auto& draw:incoming)
+    if(s.draw_buffers.emplace(draw.position_handle,std::move(draw)).second)
+      ++inserted;
+  // Shader modules are compiled only for resident model passes, in a small
+  // batch. Exact real Draw PSOs remain subject to normal source preflight.
+  if(inserted)(void)PrewarmResidentOriginalPipelines(4);
+  return inserted;
+}
 bool DiligentEorDirectBackend::CanReplayOriginalXdkCommand(
     const xdk::RawCommand& cmd) const {
   if(!state_)return false;

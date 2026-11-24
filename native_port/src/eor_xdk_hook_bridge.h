@@ -192,6 +192,11 @@ struct VerifiedWorkerEorOwnerCatalog {
   // shader objects, target pair and effect/pass select an upload request.
   // The resident lookup and ALL full Draw provenance checks still gate GPU.
   std::function<void(std::span<const uint32_t>)> request_source_models;
+  // Render-thread GPU upload step for source-authenticated world models.
+  // NativeWorldStream::RequestSourceVerifiedModels queues CPU I/O but
+  // Tick must be driven here before a Vulkan Draw can see new buffers.
+  // The owner supplies the real camera distance/LOD selection.
+  std::function<void()> advance_source_model_uploads;
   std::shared_ptr<aot::ShaderBindingBackend> gpu;
   struct VerifiedFontMaterial {
     ui::VerifiedFontVertexLayout source_vertex_layout;

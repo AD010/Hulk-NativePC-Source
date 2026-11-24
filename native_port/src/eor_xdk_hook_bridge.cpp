@@ -1687,6 +1687,9 @@ PreparedEorMixedFrame PrepareOriginalMixedDraws(
     }
     if(candidates.empty() || borrowed.empty())
       throw std::invalid_argument("No matching source world material candidates");
+    // Streamed original GPU meshes can become resident after the source
+    // Vulkan backend was created; bind their live handles before replay.
+    catalog.direct_gpu->AdoptVerifiedResidentWorldMeshes(borrowed);
     auto source=native::ResolveCapturedResourceDraws(
         static_frame,candidates,borrowed);
     native::ValidateLiveOriginalShaderPasses(
@@ -2017,6 +2020,13 @@ native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(
       return Result::kNotReady; // a failed source I/O request is not a Draw
     }
   }
+  // Advance real source model GPU uploads on this sole Vulkan worker.
+  // Merely queueing model hashes on an I/O thread never creates resident
+  // position/index/attribute buffers needed by DrawIndexed.
+  if(owner_catalog && owner_catalog->advance_source_model_uploads) {
+    try {owner_catalog->advance_source_model_uploads();}
+    catch (...) {return Result::kNotReady;}
+  }
   // Original EFontShader geometry is transient by design. Route the
   // ENTIRE original Present through the mixed native Vulkan batch rather
   // than trying to disguise font glyphs as archived world-model meshes.
@@ -2080,6 +2090,9 @@ native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(
   try {
     residents.reserve(ready->residents.size());
     for(const auto& model:ready->residents)residents.push_back(model.get());
+    if(ready->owner_catalog && ready->owner_catalog->direct_gpu &&
+       ready->gpu.get()==ready->owner_catalog->direct_gpu.get())
+      ready->owner_catalog->direct_gpu->AdoptVerifiedResidentWorldMeshes(residents);
     // Verify the ACTUAL original Draw -> guest resource -> native mesh/surface
     // correspondence, paired shader effects and real original SPIR-V BEFORE
     // the worker opens a Vulkan render target. This does not infer an EoR
