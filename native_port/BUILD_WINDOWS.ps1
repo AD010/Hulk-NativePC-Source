@@ -203,6 +203,8 @@ try {
   # Hulk original city: locate real low/high LOD archive ranges, no rendering changes.
   Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_sdk_hulk_world_stream_trace.py')) $Source
   Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_sdk_hulk_world_stream_trace.py'), $Sdk) $Source
+  Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_sdk_hulk_city_distance.py')) $Source
+  Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/patch_sdk_hulk_city_distance.py'), $Sdk) $Source
   # The original Xenos vertex disassembler can format a null format name;
   # this is not a US XEX string-table offset. Keep shader analysis live.
   Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_patch_sdk_hulk_shader_disasm.py')) $Source

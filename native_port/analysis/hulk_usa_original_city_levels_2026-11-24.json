@@ -1,0 +1,30 @@
+{
+  "schema": "hulk_usa_original_city_levels_v1",
+  "index_sha256": "ad22432b3484d079080047a5d6b8a0bffa54b7e8affba1d2273003d9b3c6090d",
+  "quickdat_sha256": "0fc4d0354772c0430a410d6d4ca242c5a9cd7dc4a33dcf9dad677ae820f2acbb",
+  "metadata_sha256": "adb01255c60ee87bf9fb23a8018dd13a02b8cd368f0f652863844442be0f8ec7",
+  "levels_hash": "6fd2a39f",
+  "levels_offset": 1372596,
+  "levels_bytes": 7804,
+  "levels_sha256": "b455f3ea6e65439a58ae26fcaccf1415ec9d0c8b1e9e9fe6dc5d772913655dd3",
+  "levels_fnv1a64": "91814db56ecea4d9",
+  "city_level_id": "The City",
+  "level_class": "bruceclasslib_LevelData",
+  "level_instance_offset": 320,
+  "camera_far_plane_class_offset": 116,
+  "camera_far_plane_record_offset": 436,
+  "original_far_plane": 2000,
+  "stream_class": "sharedqdlib_ZoneStreamManager",
+  "stream_instance_offset": 336,
+  "zone_buffer_class_offset": 24,
+  "zone_buffer_record_offset": 360,
+  "original_zone_buffer": 50,
+  "zone_size": [
+    1500,
+    1500
+  ],
+  "pc_comparator_same_field_offsets_and_original_values": true,
+  "default_trial_far_plane": 6000,
+  "default_trial_zone_buffer": 300,
+  "game_runtime_verified": false
+}

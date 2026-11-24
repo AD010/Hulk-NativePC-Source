@@ -1,0 +1,68 @@
+#!/usr/bin/env python3
+"""Install a USA city-only runtime view of original QUICKDAT.ARC Levels.
+
+Apply AFTER patch_sdk_hulk_world_stream_trace.py. No archive modification;
+validate the complete original Levels record on every intersecting read.
+"""
+from pathlib import Path
+import sys
+
+INCLUDE = '#include <rex/filesystem/devices/host_path_file.h>\n'
+INCLUDE_NEW = INCLUDE + '#include <rex/filesystem/hulk_city_distance.h>\n'
+CVAR_ANCHOR = 'REXCVAR_DEFINE_BOOL(hulk_world_stream_trace, false, "Hulk",'
+CVAR_NEW = '''REXCVAR_DEFINE_DOUBLE(hulk_city_far_plane, 6000.0, "Hulk/World",
+                     "Original USA city camera far clip (2000 = retail)").range(2000.0, 10000.0);
+REXCVAR_DEFINE_DOUBLE(hulk_city_zone_buffer, 300.0, "Hulk/World",
+                     "Original USA city streaming buffer (50 = retail)").range(50.0, 750.0);
+
+''' + CVAR_ANCHOR
+READ = '  const bool ok = file_handle_->Read(byte_offset, buffer.data(), buffer.size(), out_bytes_read);\n'
+READ_NEW = READ + '''  // HULK/CITY-DISTANCE: the original indexed Levels record, not
+  // shader fog guesses or global magic-number replacement.
+  const auto far=static_cast<float>(REXCVAR_GET(hulk_city_far_plane));
+  const auto zone=static_cast<float>(REXCVAR_GET(hulk_city_zone_buffer));
+  if(ok && entry_ && out_bytes_read && *out_bytes_read<=buffer.size() &&
+     (far!=hulk::city::kOriginalFarPlane || zone!=hulk::city::kOriginalZoneBuffer) &&
+     hulk::city::IsTargetRead(byte_offset,*out_bytes_read)) {
+    std::string name=entry_->name();
+    std::transform(name.begin(),name.end(),name.begin(),
+                   [](unsigned char c){return static_cast<char>(std::toupper(c));});
+    if(name=="QUICKDAT.ARC") {
+      std::array<uint8_t,hulk::city::kLevelsBytes> original{};
+      size_t read=0;
+      if(file_handle_->Read(hulk::city::kLevelsOffset,original.data(),original.size(),&read) &&
+         read==original.size() &&
+         hulk::city::ApplyToRead(buffer.first(*out_bytes_read),byte_offset,original,far,zone)) {
+        static std::atomic<bool> logged{false};
+        if(!logged.exchange(true,std::memory_order_relaxed))
+          REXLOG_INFO("[HULK/CITY-DISTANCE] original USA Levels city far={} zone_buffer={} (runtime only)",far,zone);
+      }
+    }
+  }
+'''
+
+def patch(source: str) -> tuple[str, bool]:
+    if all(x in source for x in (INCLUDE_NEW, CVAR_NEW, READ_NEW)):
+        return source, False
+    if 'HULK/CITY-DISTANCE' in source or INCLUDE_NEW in source or CVAR_NEW in source:
+        raise ValueError("Partial Hulk city distance patch")
+    if any(source.count(x)!=1 for x in (INCLUDE, CVAR_ANCHOR, READ)):
+        raise ValueError("Unknown Hulk host archive read path; apply world stream trace first")
+    return source.replace(INCLUDE,INCLUDE_NEW).replace(CVAR_ANCHOR,CVAR_NEW).replace(READ,READ_NEW), True
+
+def main():
+    if len(sys.argv)!=2:
+        raise SystemExit("Usage: patch_sdk_hulk_city_distance.py SDK_ROOT")
+    root=Path(sys.argv[1])
+    cpp=root/"src/filesystem/devices/host_path_file.cpp"
+    source=cpp.read_text(encoding="utf-8")
+    patched,changed=patch(source)
+    header=root/"include/rex/filesystem/hulk_city_distance.h"
+    header.parent.mkdir(parents=True,exist_ok=True)
+    template=Path(__file__).resolve().parents[1]/"native_port/src/native_city_distance.h"
+    header.write_text(template.read_text(encoding="utf-8"),encoding="utf-8",newline="\n")
+    if changed:cpp.write_text(patched,encoding="utf-8",newline="\n")
+    print("Hulk original city camera/streaming distance:", "installed" if changed else "already installed")
+
+if __name__=="__main__":
+    main()
