@@ -9,6 +9,7 @@
 #include <map>
 #include <span>
 #include <tuple>
+#include <utility>
 #include <vector>
 
 namespace hulk::eor::gpu {
@@ -16,6 +17,8 @@ template<class Value> class ImmutableBufferCache {
  public:
   ImmutableBufferCache(size_t bytes,size_t entries,size_t max_payload)
       : budget_(bytes),max_entries_(entries),max_payload_(max_payload) {}
+  ImmutableBufferCache(const ImmutableBufferCache&)=delete;
+  ImmutableBufferCache& operator=(const ImmutableBufferCache&)=delete;
   const Value* Find(uint32_t kind,std::span<const std::byte> bytes) {
     if(!Eligible(bytes))return nullptr;
     const auto found=index_.find(MakeKey(kind,bytes));

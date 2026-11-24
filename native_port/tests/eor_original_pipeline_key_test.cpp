@@ -1,4 +1,5 @@
 #include "../src/eor_original_pipeline_key.h"
+#undef NDEBUG
 #include <cassert>
 #include <string>
 #include <vector>

@@ -1,5 +1,6 @@
 #include "../native_port/src/eor_immutable_buffer_cache.h"
 #include <array>
+#undef NDEBUG
 #include <cassert>
 #include <memory>
 using hulk::eor::gpu::ImmutableBufferCache;

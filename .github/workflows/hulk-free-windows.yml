@@ -302,6 +302,12 @@ jobs:
             & $resolveTest
             if ($LASTEXITCODE -ne 0) { $cppFailures.Add('Original Resolve region mapping regression failed') }
           }
+          $immutableTest = Join-Path $env:RUNNER_TEMP 'hulk-eor-immutable-buffer-cache-test.exe'
+          & cl.exe /nologo /std:c++20 /EHsc /W4 /WX /utf-8 "/Fe:$immutableTest" ci/eor_immutable_buffer_cache_test.cpp
+          if ($LASTEXITCODE -ne 0) { $cppFailures.Add('Native immutable GPU buffer cache failed MSVC compilation') } else {
+            & $immutableTest
+            if ($LASTEXITCODE -ne 0) { $cppFailures.Add('Native immutable buffer identity/lifetime regression failed') }
+          }
           # EoR-only fixed-step clock and motion-vector math; no guest Havok claim.
           $temporalTest = Join-Path $env:RUNNER_TEMP 'hulk-eor-fixed-temporal-test.exe'
           $temporalArgs = @('/nologo','/std:c++20','/EHsc','/W4','/WX','/utf-8',

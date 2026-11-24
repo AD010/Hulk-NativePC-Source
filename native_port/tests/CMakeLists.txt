@@ -48,6 +48,10 @@ if(HULK_DILIGENT_CORE)
     target_link_libraries(hulk_original_ui_vulkan_test PRIVATE
         Diligent-GraphicsEngineVk-static Diligent-GraphicsEngineVkInterface Diligent-Common)
     add_test(NAME original_mixed_targets_vulkan COMMAND hulk_original_ui_vulkan_test --mixed-targets)
+    add_executable(hulk_original_pipeline_key_test eor_original_pipeline_key_test.cpp)
+    target_compile_features(hulk_original_pipeline_key_test PRIVATE cxx_std_20)
+    target_link_libraries(hulk_original_pipeline_key_test PRIVATE Diligent-GraphicsEngineVkInterface Diligent-Common)
+    add_test(NAME original_pipeline_key COMMAND hulk_original_pipeline_key_test)
     # Formal SPIRV-Tools validation independent from driver acceptance.
     # These private source tests deliberately do not require a separate workflow.
     if(HULK_USA_SPIRV)
@@ -93,6 +97,10 @@ if(HULK_DILIGENT_CORE)
         endif()
     endif()
 endif()
+
+add_executable(hulk_immutable_buffer_cache_test ../../ci/eor_immutable_buffer_cache_test.cpp)
+target_compile_features(hulk_immutable_buffer_cache_test PRIVATE cxx_std_20)
+add_test(NAME immutable_buffer_cache COMMAND hulk_immutable_buffer_cache_test)
 
 # The actual original EFontShader DrawVertices / DrawIndexedVertices source
 # can supply native float4 vertex streams when its current XDK declaration,

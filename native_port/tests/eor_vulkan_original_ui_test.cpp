@@ -138,6 +138,10 @@ static void VerifyFillRectRegisters(IRenderDevice* device,IDeviceContext* contex
      modules.GetFloatRegisterAbi(bank,pass.original_pixel_shader_sha256,Stage::Pixel)!=FloatRegisterAbi::Direct256)
     throw std::runtime_error("Original FillRect register ABI mismatch");
   auto pso=eor::gpu::CreateOriginalVulkanPipeline(device,modules,bank,effects,pass);
+  auto repeated=eor::gpu::CreateOriginalVulkanPipeline(device,modules,bank,effects,pass);
+  if(pso.pipeline.RawPtr()!=repeated.pipeline.RawPtr() ||
+     pso.bindings.RawPtr()==repeated.bindings.RawPtr())
+    throw std::runtime_error("Immutable PSO reuse lost independent mutable SRBs");
   TextureDesc desc{};
   desc.Type=RESOURCE_DIM_TEX_2D;
   desc.Width=64;desc.Height=32;
@@ -162,8 +166,10 @@ static void VerifyFillRectRegisters(IRenderDevice* device,IDeviceContext* contex
   context->SetVertexBuffers(0,1,&stream,&offset,RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
   context->SetIndexBuffer(index,0,RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
   auto shared=BufferOf(device,BIND_UNIFORM_BUFFER,std::array<uint32_t,8>{});
-  for(auto stage:{SHADER_TYPE_VERTEX,SHADER_TYPE_PIXEL})
+  for(auto stage:{SHADER_TYPE_VERTEX,SHADER_TYPE_PIXEL}) {
     pso.bindings->GetVariableByName(stage,"HulkSharedConstants")->Set(shared);
+    repeated.bindings->GetVariableByName(stage,"HulkSharedConstants")->Set(shared);
+  }
   auto paint=[&](const eor::gpu::OriginalVulkanPipeline& active,int half) {
     context->SetPipelineState(active.pipeline);
     Rect scissor{half*32,0,(half+1)*32,32};
@@ -176,7 +182,7 @@ static void VerifyFillRectRegisters(IRenderDevice* device,IDeviceContext* contex
     context->DrawIndexed({3,VT_UINT32,DRAW_FLAG_VERIFY_ALL});
   };
   paint(pso,0);
-  paint(pso,1);
+  paint(repeated,1);
   context->SetRenderTargets(0,nullptr,nullptr,RESOURCE_STATE_TRANSITION_MODE_NONE);
   const auto pixels=ReadPixels(device,context,color);
   for(size_t i=0;i<pixels.size();i+=4) {
@@ -201,6 +207,8 @@ static void VerifyFillRectRegisters(IRenderDevice* device,IDeviceContext* contex
   depth_writing.exact_render_state.DepthStencilDesc.DepthWriteEnable=True;
   expect_rejected(depth_writing);
   auto color_only=eor::gpu::CreateOriginalVulkanPipeline(device,modules,bank,effects,without_depth);
+  if(color_only.pipeline.RawPtr()==pso.pipeline.RawPtr())
+    throw std::runtime_error("Distinct depth attachment state incorrectly reused a PSO");
   for(auto stage:{SHADER_TYPE_VERTEX,SHADER_TYPE_PIXEL})
     color_only.bindings->GetVariableByName(stage,"HulkSharedConstants")->Set(shared);
 
@@ -244,6 +252,25 @@ static void VerifyFillRectRegisters(IRenderDevice* device,IDeviceContext* contex
 // Real GPU readback of the production target graph. Separate owner IDs
 // must retain distinct contents across intermediate Resolve and final output.
 static void VerifySequentialTargets(IRenderDevice* device,IDeviceContext* context) {
+  {
+    eor::gpu::DiligentMeshUploadBackend meshes(device);
+    const std::array<uint32_t,3> indices{0,1,2},changed{0,2,1};
+    const auto first=meshes.UploadIndices(indices);
+    const auto second=meshes.UploadIndices(indices);
+    const auto different=meshes.UploadIndices(changed);
+    if(!first || !second || !different || first==second ||
+       meshes.FindBuffer(first)!=meshes.FindBuffer(second) ||
+       meshes.FindBuffer(first)==meshes.FindBuffer(different) ||
+       !meshes.IndexWindowInRange(second,0,3,0,3))
+      throw std::runtime_error("Immutable Vulkan mesh cache identity mismatch");
+    meshes.ReleaseBuffer(first);
+    if(meshes.FindBuffer(first) || !meshes.FindBuffer(second))
+      throw std::runtime_error("Releasing one Draw lost another GPU owner");
+    meshes.ReleaseBuffer(second);
+    const auto next=meshes.UploadIndices(indices);
+    if(!next || next==second || !meshes.IndexWindowInRange(next,0,3,0,3))
+      throw std::runtime_error("Reacquired GPU index buffer lost source provenance");
+  }
   namespace gpu=eor::gpu;
   constexpr uint32_t w=64,h=32;
   const eor::native::Size size{w,h};
