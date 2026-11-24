@@ -34,6 +34,11 @@ class NativeWorldStream {
   // uploaded per tick; I/O never blocks this method. GPU upload itself may
   // consume time and should be submitted before the scene's DrawIndexed.
   LodDecision Tick(double camera_distance_world_units);
+  // Pure world material stream: no source-proven Hulk/city LOD tiers are
+  // required for models explicitly authenticated by their live Draw owner.
+  // Unlike Tick(distance), this never invents camera distance or LOD.
+  // Returns true when a staged real original Xbox model became GPU-resident.
+  bool TickSourceVerifiedModels();
   // The game world can reference many real EoR models per frame, not just
   // the three camera-distance LOD tiers. Supply hashes identified by the
   // independently authenticated CURRENT XDK Draw->MODELS.ARC witness.
@@ -55,7 +60,7 @@ class NativeWorldStream {
   void Queue(uint32_t hash, bool urgent);
   void Worker();
   model::NativeMeshUploadBackend& backend_; // outlives this object
-  ResidentLodSet lod_;
+  std::optional<ResidentLodSet> lod_;
   std::map<uint32_t,std::shared_ptr<model::UploadedOriginalModel>> gpu_; // GPU buffers shared with submitted frames
   std::unique_ptr<ModelSource> source_;
   mutable std::mutex mutex_;

@@ -7,7 +7,11 @@ namespace hulk::eor::world {
 NativeWorldStream::NativeWorldStream(std::unique_ptr<ModelSource> source,
     model::NativeMeshUploadBackend& backend, std::vector<LodTier> tiers,
     LodPolicy policy)
-    : backend_(backend), lod_(std::move(tiers), policy), source_(std::move(source)) {
+    : backend_(backend), source_(std::move(source)) {
+  // World streaming must not require an invented player-only LOD tier.
+  // An empty tier list is allowed solely for independently source-verified
+  // live Draw owners supplied to RequestSourceVerifiedModels.
+  if(!tiers.empty())lod_.emplace(std::move(tiers),policy);
   if (!source_) throw std::invalid_argument("No verified original EoR model archive source");
   worker_ = std::thread([this] { Worker(); });
 }
@@ -39,7 +43,8 @@ void NativeWorldStream::RetryFailed(uint32_t hash) {
   // Retrying is restricted to hashes previously authenticated by the
   // caller, including world models outside the player-only LOD tiers.
   bool known=false;
-  for (const auto& tier:lod_.Tiers()) if (tier.original_model_hash==hash) known=true;
+  if(lod_)for (const auto& tier:lod_->Tiers())
+    if (tier.original_model_hash==hash) known=true;
   std::lock_guard lock(mutex_);
   if (!known && !source_known_.contains(hash))
     throw std::invalid_argument("Unrecognized original EoR model resource hash");
@@ -121,7 +126,7 @@ LodDecision NativeWorldStream::Tick(double distance) {
   // Re-evaluate current camera demand BEFORE touching GPU memory. A fast
   // camera jump can make an in-flight read irrelevant; don't upload a stale
   // building model into VRAM, or let prefetch starve the needed near LOD.
-  const LodDecision needed = lod_.Update(distance);
+  const LodDecision needed = lod_ ? lod_->Update(distance) : LodDecision{};
   if (prepared) {
     const uint32_t hash = prepared->first;
     bool source_required=false;
@@ -145,9 +150,9 @@ LodDecision NativeWorldStream::Tick(double distance) {
         // necessarily player LOD-tier entries. ResidentLodSet explicitly
         // rejects unknown hashes: a valid original GPU upload must never
         // be mislabeled as a failed stream merely for not being a Hulk LOD.
-        for(const auto& tier:lod_.Tiers())
+        if(lod_)for(const auto& tier:lod_->Tiers())
           if(tier.original_model_hash==hash) {
-            lod_.SetResident(hash,true);
+            lod_->SetResident(hash,true);
             break;
           }
       } catch (...) {
@@ -165,10 +170,19 @@ LodDecision NativeWorldStream::Tick(double distance) {
     }
     wake_.notify_one();
   }
-  auto decision = lod_.Update(distance);
-  Queue(decision.request_model_hash, true);  // needed by this frame
-  Queue(decision.prefetch_model_hash, false); // can wait behind urgent loads
+  auto decision = lod_ ? lod_->Update(distance) : LodDecision{};
+  if(lod_) {
+    Queue(decision.request_model_hash, true);  // needed by this frame
+    Queue(decision.prefetch_model_hash, false); // can wait behind urgent loads
+  }
   return decision;
+}
+bool NativeWorldStream::TickSourceVerifiedModels() {
+  if(lod_)
+    throw std::logic_error("Source-only Tick requires no inferred camera/LOD tiers");
+  size_t before=gpu_.size();
+  (void)Tick(0.0); // no LOD policy exists; distance is never read or inferred
+  return gpu_.size()>before;
 }
 void NativeWorldStream::Worker() {
   for (;;) {
