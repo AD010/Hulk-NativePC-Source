@@ -2157,6 +2157,41 @@ native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(
                 auto completed=std::make_shared<VerifiedWorkerEorOwnerCatalog>(
                     *verified);
                 completed->source_models=std::move(world_stream);
+                // The offline HEORCND1 binary is only a fast cache for the
+                // already-authenticated original Xbox material census.
+                // Directly generate its SAME genuine model/surface/texture
+                // lookup from the user's pinned INDEX.IND + MODELS.ARC if
+                // the private sidecar is absent, stale or corrupt. No
+                // hand-written material/texture/PSO associations are used.
+                if(!completed->source_material_candidates) {
+                  auto candidates=
+                      std::make_shared<world::OriginalMaterialCandidateIndex>();
+                  std::filesystem::path private_cached_index;
+                  {
+                    std::lock_guard lock(g_mutex);
+                    private_cached_index=g_original_material_candidate_index;
+                  }
+                  bool preverified_cache=false;
+                  if(!private_cached_index.empty() &&
+                     std::filesystem::is_regular_file(private_cached_index)) {
+                    try {
+                      candidates->Load(private_cached_index);
+                      constexpr std::array<uint8_t,32> kSourceModelIndex{
+                          0x46u,0xe6u,0xc6u,0xecu,0x9fu,0x74u,0x28u,0xbau,
+                          0x3au,0x17u,0x37u,0xabu,0x7eu,0xbau,0xd5u,0x64u,
+                          0xc1u,0xb0u,0x27u,0xb0u,0x06u,0xc3u,0xe3u,0x51u,
+                          0x56u,0xd2u,0xe0u,0x36u,0xabu,0x8bu,0x28u,0x20u};
+                      preverified_cache=
+                          candidates->OriginalIndexDigest()==kSourceModelIndex &&
+                          candidates->LinkCount()==41745;
+                    } catch(...) {
+                      preverified_cache=false;
+                    }
+                  }
+                  if(!preverified_cache)
+                    candidates->LoadFromOriginalXboxArchive(index,models);
+                  completed->source_material_candidates=std::move(candidates);
+                }
                 verified=std::move(completed);
                 break;
               } catch(const std::exception&) {
