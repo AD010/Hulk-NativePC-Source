@@ -229,6 +229,13 @@ struct VerifiedWorkerEorOwnerCatalog {
   // Exact user's original Xbox MODELS.ARC source with persistent async I/O
   // and physical GPU model residency; retained across Present epochs.
   std::shared_ptr<world::NativeWorldStream> source_models;
+  // Original ShaderEffects and XDK Draw owner may publish a newly
+  // authenticated material pass while a streamed city mesh loads. This
+  // runs on the sole Vulkan worker, before scene preflight, and calls
+  // DiligentEorDirectBackend::AdoptVerifiedOriginalMaterialPasses using
+  // its own source-proven texture residency. No guessed material records.
+  std::function<void(gpu::DiligentEorDirectBackend&,const Frame&)>
+      publish_original_material_passes;
 };
 bool InstallVerifiedWorkerEorOwnerCatalog(
     std::shared_ptr<const VerifiedWorkerEorOwnerCatalog> catalog);

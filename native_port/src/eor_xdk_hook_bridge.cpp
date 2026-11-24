@@ -2045,6 +2045,21 @@ native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(
       // the PPC guest or submit a partial world-only Vulkan image.
     }
   }
+  // Populate newly source-authenticated material passes directly into
+  // the SAME production Vulkan backend before this frame's DrawIndexed.
+  // The original game can stream city textures and ShaderEffects after
+  // the GPU backend is first constructed, without rebuilding the window.
+  if(owner_catalog && owner_catalog->publish_original_material_passes) {
+    if(!owner_catalog->direct_gpu ||
+       owner_catalog->gpu.get()!=owner_catalog->direct_gpu.get())
+      return Result::kNotReady;
+    try {
+      owner_catalog->publish_original_material_passes(
+          *owner_catalog->direct_gpu,*source_snapshot);
+    } catch (...) {
+      return Result::kNotReady;
+    }
+  }
   // Request authentic world-model GPU residency for ONLY those source
   // catalog owners whose original XDK device/shader/declaration/target
   // bindings agree with this Present. The request is asynchronous: an
