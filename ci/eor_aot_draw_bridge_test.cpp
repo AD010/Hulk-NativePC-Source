@@ -195,6 +195,37 @@ int main(){
   // silently discarded every non-Draw XDK GPU command.
   xdk::RawDraw real_call{xdk::Kind::DrawIndexedVertices,
        0x8288E318u,0x8263BF50u,{0x40002880u,4,0,0,12,0,0,0}};
+  {
+    auto direct=real_call;
+    direct.observed_vs_matrices=xdk::OriginalVsMatrices{};
+    direct.observed_vs_matrices->original_guest_device=direct.gpr[0];
+    direct.captured_vertex_bindings=true;
+    direct.vertex_declaration=xdk::UsaVertexDeclaration{};
+    direct.observed_live_vertex_shader_header=OriginalLiveXdkShaderHeaderWitness{};
+    direct.observed_live_pixel_shader_header=OriginalLiveXdkShaderHeaderWitness{};
+    direct.observed_live_pixel_shader_header->pixel_sampling=OriginalPixelSamplerControls{};
+    direct.observed_live_eor_effect_pass=OriginalEffectPass{0x123u,0u};
+    auto constants=std::make_shared<xdk::OriginalShaderRegisters>();
+    constants->fixed_graphics_state=xdk::OriginalXdkFixedGraphicsState{};
+    constants->fixed_graphics_state->original_guest_device=direct.gpr[0];
+    direct.observed_shader_constants=constants;
+    assert(ProvesDirectXdkRuntimeBindings(direct,{},direct.gpr[0]));
+    assert(!ProvesDirectXdkRuntimeBindings(direct,{},direct.gpr[0]+4));
+    direct.observed_live_pixel_shader_header->pixel_sampling->sampled_slots=2u;
+    assert(!ProvesDirectXdkRuntimeBindings(direct,{},direct.gpr[0]));
+    direct.observed_vs_matrices->original_texture_guest_objects[1]=0x82004000u;
+    constants->valid_pixel_fetch=2u;
+    gpu::VerifiedEorSampler image{};
+    image.original_runtime_material=true;image.original_model_hash=direct.gpr[0];
+    image.original_effect_hash=0x123u;image.original_pass_index=0u;
+    image.original_fetch_register=1u;image.stage=gpu::OriginalSamplerStage::Pixel;
+    image.original_resolved_guest_object=0x82004000u;
+    assert(ProvesDirectXdkRuntimeBindings(direct,{&image,1},direct.gpr[0]));
+    image.original_texture_hash=0x1234u;
+    assert(!ProvesDirectXdkRuntimeBindings(direct,{&image,1},direct.gpr[0]));
+    image.original_texture_hash=0u;image.original_resolved_guest_object=0x82004004u;
+    assert(!ProvesDirectXdkRuntimeBindings(direct,{&image,1},direct.gpr[0]));
+  }
   xdk::RawCommand rt{xdk::CommandKind::SetRenderTarget,
        0x8287F2C0u,0x8263A000u,{0x40002880u,0,0x82001234u,0,0,0,0,0}};
   xdk::RawCommand clr{xdk::CommandKind::ClearF,
