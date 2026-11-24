@@ -47,6 +47,11 @@ if(HULK_DILIGENT_CORE)
     target_include_directories(hulk_original_ui_vulkan_test PRIVATE ../src)
     target_link_libraries(hulk_original_ui_vulkan_test PRIVATE
         Diligent-GraphicsEngineVk-static Diligent-GraphicsEngineVkInterface Diligent-Common)
+    add_test(NAME original_mixed_targets_vulkan COMMAND hulk_original_ui_vulkan_test --mixed-targets)
+    if(HULK_USA_SPIRV AND HULK_USA_EFFECTS)
+        add_test(NAME full_original_shader_bank_vulkan COMMAND hulk_original_ui_vulkan_test
+            --shader-bank "${HULK_USA_SPIRV}" "${HULK_USA_EFFECTS}")
+    endif()
     if(HULK_USA_SPIRV AND HULK_USA_EFFECTS AND HULK_USA_REFLECTION)
         add_test(NAME original_material_replay_vulkan COMMAND hulk_original_ui_vulkan_test
             --material-replay "${HULK_USA_SPIRV}" "${HULK_USA_EFFECTS}" "${HULK_USA_REFLECTION}")

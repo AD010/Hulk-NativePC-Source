@@ -255,6 +255,7 @@ static void VerifySequentialTargets(IRenderDevice* device,IDeviceContext* contex
   graph.extents={{2,{w/2,h/2}},{3,{w,h}},{4,{w/2,h/2}}};
   graph.color_formats={{2,gpu::NativeColorFormat::Rgba16Float},{3,gpu::NativeColorFormat::Rgba8},{4,gpu::NativeColorFormat::Rgba16Float}};
   graph.sample_counts={{2,4},{3,1},{4,1}};
+  graph.partial_msaa_sources.insert(2);
   graph.first_color=2;graph.final_color=3;graph.front_buffer=5;
   gpu::DiligentSceneTargets scene(device,context);
   eor::xdk::OriginalXdkClearF clear{};
@@ -264,9 +265,16 @@ static void VerifySequentialTargets(IRenderDevice* device,IDeviceContext* contex
      !scene.ClearVerifiedOriginalXdk(clear,{w/2,h/2}) ||
      scene.ResolveOriginalIntermediate(99) ||
      !scene.ResolveOriginalIntermediate(4) ||
-     !scene.IntermediateColorSRV(4) ||
-     !scene.SetOriginalColorTarget(3))
+     !scene.IntermediateColorSRV(4))
     throw std::runtime_error("Sequential native target initialization failed");
+  // Actual partial FP16 4x MSAA Resolve. Preserve red outside the
+  // destination region and update only its 16x8 bottom-right corner.
+  clear.color={0,0,1,1};
+  const eor::xdk::OriginalResolveRegion region{{0,0,16,8},{16,8}};
+  if(!scene.ClearVerifiedOriginalXdk(clear,{w/2,h/2}) ||
+     !scene.ResolveOriginalIntermediate(4,region) ||
+     !scene.SetOriginalColorTarget(3))
+    throw std::runtime_error("Partial FP16 MSAA Resolve failed");
   clear.color={0,0,1,1};
   if(!scene.ClearVerifiedOriginalXdk(clear,size) || !scene.ResolveScene())
     throw std::runtime_error("Sequential native target final resolve failed");
@@ -278,9 +286,13 @@ static void VerifySequentialTargets(IRenderDevice* device,IDeviceContext* contex
   const std::array red{std::byte{0},std::byte{0x3c},std::byte{0},std::byte{0},
                        std::byte{0},std::byte{0},std::byte{0},std::byte{0x3c}};
   const std::array blue{std::byte{0},std::byte{0},std::byte{255},std::byte{255}};
-  for(size_t i=0;i<first.size();i+=8)
-    if(!std::equal(red.begin(),red.end(),first.begin()+i))
-      throw std::runtime_error("Intermediate target contents changed");
+  const std::array blue16{std::byte{0},std::byte{0},std::byte{0},std::byte{0},
+                          std::byte{0},std::byte{0x3c},std::byte{0},std::byte{0x3c}};
+  for(uint32_t y=0;y<h/2;++y)for(uint32_t x=0;x<w/2;++x) {
+    const auto& expected=x>=16 && y>=8 ? blue16:red;
+    if(!std::equal(expected.begin(),expected.end(),first.begin()+(size_t(y)*(w/2)+x)*8))
+      throw std::runtime_error("Partial MSAA Resolve changed pixels outside exact region");
+  }
   for(size_t i=0;i<final.size();i+=4)
     if(!std::equal(blue.begin(),blue.end(),final.begin()+i))
       throw std::runtime_error("Final target contents changed");
@@ -916,7 +928,7 @@ static void VerifyFullOriginalShaderBank(IRenderDevice* device,const char* bank_
 
 int main(int argc,char** argv) {
   try {
-    if (argc!=3 && argc!=4 && argc!=5 && argc!=6 && argc!=7 && argc!=10) throw std::invalid_argument("Expected USA INDEX.IND and TEXTURES.ARC paths");
+    if (argc!=2 && argc!=3 && argc!=4 && argc!=5 && argc!=6 && argc!=7 && argc!=10) throw std::invalid_argument("Expected USA INDEX.IND and TEXTURES.ARC paths");
     auto* factory=LoadAndGetEngineFactoryVk();
     if (!factory) throw std::runtime_error("Diligent Vulkan factory unavailable");
     EngineVkCreateInfo ci{};
@@ -925,6 +937,10 @@ int main(int argc,char** argv) {
     factory->CreateDeviceAndContextsVk(ci,&device,&context);
     if (!device || !context) throw std::runtime_error("Vulkan device unavailable");
     std::cout<<device->GetAdapterInfo().Description<<'\n';
+    if(argc==2 && std::strcmp(argv[1],"--mixed-targets")==0) {
+      VerifySequentialTargets(device,context);
+      return 0;
+    }
     if(argc==4 && std::strcmp(argv[1],"--shader-bank")==0) {
       VerifyFullOriginalShaderBank(device,argv[2],argv[3]);
       return 0;
