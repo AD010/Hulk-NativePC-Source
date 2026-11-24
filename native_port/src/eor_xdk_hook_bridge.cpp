@@ -2159,21 +2159,6 @@ native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(
       // the PPC guest or submit a partial world-only Vulkan image.
     }
   }
-  // Populate newly source-authenticated material passes directly into
-  // the SAME production Vulkan backend before this frame's DrawIndexed.
-  // The original game can stream city textures and ShaderEffects after
-  // the GPU backend is first constructed, without rebuilding the window.
-  if(owner_catalog && owner_catalog->publish_original_material_passes) {
-    if(!owner_catalog->direct_gpu ||
-       owner_catalog->gpu.get()!=owner_catalog->direct_gpu.get())
-      return Result::kNotReady;
-    try {
-      owner_catalog->publish_original_material_passes(
-          *owner_catalog->direct_gpu,*source_snapshot);
-    } catch (...) {
-      return Result::kNotReady;
-    }
-  }
   // Source-derived texture hashes independently identify potential
   // archived mesh/material SURFACES even before a complete GPU witness
   // exists. Request only a narrowly bounded candidate set per live
@@ -2306,6 +2291,25 @@ native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(
       } else if(owner_catalog->advance_source_model_uploads)
         owner_catalog->advance_source_model_uploads();
     } catch (...) {return Result::kNotReady;}
+  }
+  // Source-verified GPU models are uploaded and adopted above. Build real
+  // original Vulkan ShaderEffects materials only NOW, after the current
+  // frame's stream tick; otherwise the material producer sees an empty
+  // GPU residency table and first world Draw can never become eligible.
+  // Populate newly source-authenticated material passes directly into
+  // the SAME production Vulkan backend before this frame's DrawIndexed.
+  // The original game can stream city textures and ShaderEffects after
+  // the GPU backend is first constructed, without rebuilding the window.
+  if(owner_catalog && owner_catalog->publish_original_material_passes) {
+    if(!owner_catalog->direct_gpu ||
+       owner_catalog->gpu.get()!=owner_catalog->direct_gpu.get())
+      return Result::kNotReady;
+    try {
+      owner_catalog->publish_original_material_passes(
+          *owner_catalog->direct_gpu,*source_snapshot);
+    } catch (...) {
+      return Result::kNotReady;
+    }
   }
   // Original EFontShader geometry is transient by design. Route the
   // ENTIRE original Present through the mixed native Vulkan batch rather
