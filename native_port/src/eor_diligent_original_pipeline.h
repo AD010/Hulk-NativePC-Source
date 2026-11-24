@@ -70,6 +70,7 @@ struct VerifiedOriginalGraphicsPass {
   // caller must bind the current reference and enable flag per Draw.
   bool original_scalar_alpha_test_verified=false;
   uint16_t original_xbox_cube_gamma_mask=0;
+  bool original_runtime_draw_verified=false;
 };
 struct OriginalVulkanPipeline {
   Diligent::RefCntAutoPtr<Diligent::IPipelineState> pipeline;

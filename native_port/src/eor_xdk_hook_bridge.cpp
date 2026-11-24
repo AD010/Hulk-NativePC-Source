@@ -896,8 +896,7 @@ void CapturePpcDraw(Kind kind, uint32_t guest, const PPCContext& ctx,
         sources, live.original_ps_guest_object, aot::Stage::Pixel,
         ReadGuest, guest_base, frame, ordinal);
     if(auto& pixel=draw.observed_live_pixel_shader_header;
-       pixel && REXCVAR_GET(hulk_eor_vulkan_replay) && draw.observed_shader_constants &&
-       draw.observed_shader_constants->valid_pixel_fetch) {
+       pixel && REXCVAR_GET(hulk_eor_vulkan_replay) && draw.observed_shader_constants) {
       try {
         if(const auto sha=sources.FindOriginalSource(pixel->exact_original_guest_virtual_header,
                                                      aot::Stage::Pixel)) {

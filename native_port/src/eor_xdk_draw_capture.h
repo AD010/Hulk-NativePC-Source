@@ -698,8 +698,9 @@ std::optional<VerticesXdkCall> DecodeOriginalFontVertices(const RawDraw& call);
 inline std::optional<uint32_t> VerifiedTriangleListCount(
     uint32_t primitive,uint32_t count) noexcept {
   if(primitive==4u && count>=3u && count%3u==0)return count;
-  if(primitive==6u && count>=3u && count-2u<=UINT32_MAX/3u)
+  if((primitive==5u || primitive==6u) && count>=3u && count-2u<=UINT32_MAX/3u)
     return 3u*(count-2u);
+  if(primitive==13u && count>=4u && !(count%4u) && count/4u<=UINT32_MAX/6u)return count/4u*6u;
   return std::nullopt;
 }
 inline uint32_t OriginalTriangleFanVertex(

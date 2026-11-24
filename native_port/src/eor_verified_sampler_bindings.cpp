@@ -11,6 +11,7 @@ void ValidateOriginalEorSamplers(std::span<const VerifiedEorSampler> slots) {
   std::set<std::pair<int,std::string>> used_names;
   std::set<std::pair<int,uint32_t>> used_fetches;
   uint32_t model=0,surface=UINT32_MAX,effect=0,pass=UINT32_MAX;
+  bool runtime=false;
   for(const auto& slot:slots) {
     if(!slot.original_model_hash ||
        slot.original_surface_ordinal==UINT32_MAX ||
@@ -33,10 +34,11 @@ void ValidateOriginalEorSamplers(std::span<const VerifiedEorSampler> slots) {
         throw std::invalid_argument("Unsafe original EoR shader variable name");
     if(!model) {
       model=slot.original_model_hash;
+      runtime=slot.original_runtime_material;
       surface=slot.original_surface_ordinal;
       effect=slot.original_effect_hash;
       pass=slot.original_pass_index;
-    } else if(model!=slot.original_model_hash ||
+    } else if(runtime!=slot.original_runtime_material || model!=slot.original_model_hash ||
               surface!=slot.original_surface_ordinal ||
               effect!=slot.original_effect_hash ||
               pass!=slot.original_pass_index) {

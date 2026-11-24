@@ -26,10 +26,21 @@ bool MatchesOriginalXdkDraw(
        recorded.original_ps_guest_object!=bound.original_ps_guest_object)
       return false;
   }
-  if(const auto indexed=xdk::DecodeOriginalIndexedXdkCall(source))
-    return !host.source_nonindexed_linearization_verified &&
+  if(host.original_runtime_draw) {
+    const auto& method=source.original_engine_shader_method;
+    if(!method || !method->original_pass_vs_ps_xdk_binding_verified ||
+       method->original_pass_material_context_guest!=host.original_model_hash ||
+       host.original_surface_ordinal!=draw.source_ordinal ||
+       host.original_mesh_header_offset!=SIZE_MAX || host.original_dynamic_font_draw)return false;
+  }
+  if(const auto indexed=xdk::DecodeOriginalIndexedXdkCall(source)) {
+    const auto expected=host.original_runtime_draw ?
+        xdk::VerifiedTriangleListCount(indexed->primitive,indexed->index_count) :
+        std::optional<uint32_t>(indexed->index_count);
+    return expected && !host.source_nonindexed_linearization_verified &&
            indexed->guest_device==draw.guest_vs_matrices->original_guest_device &&
-           indexed->index_count==draw.index_count;
+           *expected==draw.index_count;
+  }
   if(source.kind==xdk::Kind::EndVertices) {
     const auto glyphs=xdk::DecodeOriginalFontVertices(source);
     return glyphs && host.original_dynamic_font_draw &&
@@ -97,8 +108,8 @@ class ForwardingBackend final : public native::Backend {
       throw std::runtime_error("EoR Vulkan " + draw_context +
                                " rejected at " + stage);
     };
-    if(!target_.BindOriginalSurface(pair.original_model_hash,
-                                    pair.original_surface_ordinal))
+    if(!(pair.original_runtime_draw ? target_.BindOriginalRuntimeSurface(pair.original_model_hash,pair.original_surface_ordinal) :
+             target_.BindOriginalSurface(pair.original_model_hash,pair.original_surface_ordinal)))
       return reject("BindOriginalSurface");
     if(!target_.BindOriginalEffect(pair.effect_hash,pair.pass_index))
       return reject("BindOriginalEffect");
@@ -313,7 +324,8 @@ void ReplayAotScene(const native::FrameGeometry& frame,
       }
     }
     for (const auto& sampler : value.original_samplers) {
-      if (sampler.original_model_hash != value.original_model_hash ||
+      if (sampler.original_runtime_material!=value.original_runtime_draw ||
+          sampler.original_model_hash != value.original_model_hash ||
           sampler.original_surface_ordinal != value.original_surface_ordinal ||
           sampler.original_effect_hash != value.effect_hash ||
           sampler.original_pass_index != value.pass_index)

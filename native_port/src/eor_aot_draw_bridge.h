@@ -35,6 +35,10 @@ struct BoundIndexedDraw {
   // THIS real Draw and its original font resource/atlas. No invented
   // MODELS.ARC mesh offset may be required for this variant.
   bool original_dynamic_font_draw = false;
+  // In this variant original_model_hash is the exact live material context
+  // guest pointer, and original_surface_ordinal is the source Draw ordinal.
+  // It belongs to the transient runtime owner namespace, not MODELS.ARC.
+  bool original_runtime_draw=false;
   std::optional<OriginalPixelSamplerControls> original_pixel_sampling{};
 };
 // Real original guest VS register values at the exact source Draw.
@@ -81,6 +85,7 @@ class ShaderBindingBackend : public native::Backend {
   virtual bool ReplayOriginalXdkCommand(
       const xdk::RawCommand&) {return false;}
   // An effect/pass alone is NOT a material owner. Refuse anonymous Draws.
+  virtual bool BindOriginalRuntimeSurface(uint32_t,uint32_t) {return false;}
   virtual bool BindOriginalSurface(uint32_t, uint32_t) {
     return false;
   }

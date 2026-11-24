@@ -126,7 +126,7 @@ std::vector<HostAttribute> DecodeVerifiedAttribute(
     const NativeIndexedMesh& mesh, VerifiedAttributeLayout layout) {
   const uint32_t stride=mesh.original_vertex_stride;
   const uint32_t bytes=ComponentBytes(layout.encoding);
-  if(stride<12 || stride>192 || stride%4 ||
+  if(stride<4 || stride>192 || stride%4 ||
      !layout.components || layout.components>4 ||
      (layout.encoding==AttributeEncoding::BigArgb8 && layout.components!=4) ||
      layout.original_byte_offset>stride ||

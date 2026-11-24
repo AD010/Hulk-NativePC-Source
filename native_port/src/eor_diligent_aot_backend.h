@@ -67,11 +67,21 @@ struct NativeEorDrawBuffers {
   uint32_t original_font_draw_ordinal=UINT32_MAX;
   uint32_t original_font_atlas_hash=0;
   Diligent::RefCntAutoPtr<Diligent::IShaderResourceBinding> font_bindings;
+  bool original_runtime_draw_verified=false;
+  uint64_t original_runtime_frame=0;
+  uint32_t original_runtime_ordinal=UINT32_MAX;
 };
 // Build real immutable host XYZ/index buffer table from original uploaded
 // Xbox360 models. Other shader input slots must be independently decoded.
 std::vector<NativeEorDrawBuffers> PositionOnlyDrawBuffersFromOriginalModels(
     std::span<const model::UploadedOriginalModel* const> residents);
+struct DecodedRuntimeGeometry {
+  std::vector<std::vector<model::HostAttribute>> attributes;
+  std::vector<std::vector<std::array<uint32_t,4>>> integer_attributes;
+  std::vector<uint32_t> indices;
+  std::vector<Diligent::LayoutElement> layout;
+  uint32_t vertex_count=0;
+};
 class DiligentEorDirectBackend final : public aot::ShaderBindingBackend {
  public:
   // The callback receives the CURRENT source-proven Draw, its actual
@@ -148,6 +158,9 @@ class DiligentEorDirectBackend final : public aot::ShaderBindingBackend {
   // Call ONLY after the host GPU completion fence for completed_frame.
   // An in-flight font VB/IB is never destroyed just because source Present
   // advanced or a later game frame started.
+  aot::BoundIndexedDraw StageOriginalRuntimeDraw(const xdk::RawDraw& source,
+      uint64_t frame,uint32_t ordinal,const VerifiedNativeMaterialPass& material,
+      const DecodedRuntimeGeometry& geometry,DiligentOriginalTextureResidency& textures);
   void RetireCompletedOriginalFontDraws(uint64_t completed_frame) noexcept;
   // A rejected epoch whose GPU scene never began may discard its transient
   // staging immediately; unlike RetireCompleted this is NOT a completion
@@ -164,6 +177,7 @@ class DiligentEorDirectBackend final : public aot::ShaderBindingBackend {
   bool BeginScene(native::Size world,uint32_t samples) override;
   void AbortScene() noexcept override;
   bool BindOriginalSurface(uint32_t model,uint32_t ordinal) override;
+  bool BindOriginalRuntimeSurface(uint32_t material,uint32_t ordinal) override;
   bool BindOriginalEffect(uint32_t effect,uint32_t pass) override;
   bool BindOriginalConstants(const aot::ReflectedShader& vertex,
                              const aot::ReflectedShader& pixel) override;
@@ -180,6 +194,8 @@ class DiligentEorDirectBackend final : public aot::ShaderBindingBackend {
   bool ResolveScene(native::Size physical) override;
   bool Composite(native::Rect destination,native::Size backbuffer) override;
  private:
+  bool BindSurfaceImpl(uint32_t model,uint32_t ordinal,bool runtime);
+  void ReleaseRuntimeDraws(uint64_t frame,bool completed) noexcept;
   struct State;
   std::unique_ptr<State> state_;
 };
