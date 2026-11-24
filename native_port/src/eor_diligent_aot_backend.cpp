@@ -23,7 +23,7 @@
 
 namespace hulk::eor::gpu {
 namespace {
-using MaterialKey=std::tuple<uint32_t,uint32_t,uint32_t,uint32_t,bool>;
+using MaterialKey=std::tuple<uint32_t,uint32_t,uint32_t,uint32_t,bool,bool>;
 // Exact fixed-function variants of a single verified material. The source
 // register tuple includes every input of DeriveOriginalXdkGraphicsPipelineState;
 // it is intentionally not a lossy hash or the guest shader-object address.
@@ -42,7 +42,7 @@ std::optional<PipelineVariantKey> OriginalPipelineVariantKey(
   return key;
 }
 MaterialKey PassKey(uint32_t model,uint32_t surface,const VerifiedOriginalGraphicsPass& pass) {
-  return {model,surface,pass.original_effect_hash,pass.original_pass_index,pass.original_depth_unbound};
+  return {model,surface,pass.original_effect_hash,pass.original_pass_index,pass.original_depth_unbound,pass.original_runtime_draw_verified};
 }
 MaterialKey PassKey(const NativeEorPassResources& owner) {
   return PassKey(owner.original_model_hash,owner.original_surface_ordinal,owner.pipeline);
@@ -55,7 +55,7 @@ bool Same(native::Rect a,native::Rect b) {
          a.width==b.width && a.height==b.height;
 }
 bool Same(const VerifiedEorSampler& a,const VerifiedEorSampler& b) {
-  return a.original_model_hash==b.original_model_hash &&
+  return a.original_runtime_material==b.original_runtime_material && a.original_model_hash==b.original_model_hash &&
          a.original_surface_ordinal==b.original_surface_ordinal &&
          a.original_effect_hash==b.original_effect_hash &&
          a.original_pass_index==b.original_pass_index &&
@@ -142,6 +142,21 @@ uint32_t SourceFontSlotMask(
   }
   return mask==(1u<<slots.size())-1u ? mask:0u;
 }
+uint32_t SourceRuntimeSlotMask(std::span<const Diligent::LayoutElement> layout,
+                               std::span<const uint64_t> slots) {
+  if(layout.empty() || layout.size()!=slots.size() || slots.size()>16)return 0;
+  uint32_t mask=0,locations=0;
+  for(const auto& e:layout) {
+    if(e.BufferSlot>=slots.size() || !slots[e.BufferSlot] || e.InputIndex>=16u ||
+       (mask&(1u<<e.BufferSlot)) || (locations&(1u<<e.InputIndex)) ||
+       e.NumComponents!=4u || e.Stride!=16u || e.RelativeOffset!=0 ||
+       e.Frequency!=Diligent::INPUT_ELEMENT_FREQUENCY_PER_VERTEX ||
+       (e.ValueType!=Diligent::VT_FLOAT32 &&
+        !(e.ValueType==Diligent::VT_UINT32 && (e.InputIndex==1u || e.InputIndex==2u || e.InputIndex==9u))))return 0;
+    mask|=1u<<e.BufferSlot;locations|=1u<<e.InputIndex;
+  }
+  return (locations&1u)?mask:0u;
+}
 uint32_t SourceVertexSlotMask(
     std::span<const Diligent::LayoutElement> layout,
     std::span<const uint64_t> slots) {
@@ -176,7 +191,8 @@ std::vector<NativeEorPassResources> AcquireVerifiedNativeMaterialPasses(
     identifiers.reserve(p.original_images.size());
     for(const auto& image:p.original_images) {
       const auto& owner=image.original_binding;
-      if(owner.original_model_hash!=p.original_model_hash ||
+      if(owner.original_runtime_material!=pass.original_runtime_draw_verified ||
+         owner.original_model_hash!=p.original_model_hash ||
          owner.original_surface_ordinal!=p.original_surface_ordinal ||
          owner.original_effect_hash!=pass.original_effect_hash ||
          owner.original_pass_index!=pass.original_pass_index ||
@@ -279,6 +295,7 @@ struct DiligentEorDirectBackend::State {
   CompositeOutput composite;
   const NativeEorPassResources* selected=nullptr;
   uint32_t requested_model=0, requested_surface=UINT32_MAX;
+  bool requested_runtime=false;
   bool surface_ready=false;
   aot::ReflectedShader vertex{},pixel{};
   OriginalVulkanPipeline active{};
@@ -301,6 +318,14 @@ struct DiligentEorDirectBackend::State {
   // Keep exact immutable native float4/index32 allocations until the
   // host GPU fence has COMPLETED, never while its Draw may be in flight.
   std::map<DrawKey,ui::UploadedLiveFontGeometry> font_uploads;
+  struct RuntimeUpload {
+    DiligentMeshUploadBackend* gpu=nullptr;
+    std::vector<uint64_t> handles;
+    MaterialKey material{};
+    uint64_t position=0;
+    ~RuntimeUpload(){if(gpu)for(uint64_t h:handles)if(h)gpu->ReleaseBuffer(h);}
+  };
+  std::map<DrawKey,std::unique_ptr<RuntimeUpload>> runtime_uploads;
   struct PackedConstants {
     std::vector<float> vertex,pixel;
     FloatRegisterAbi vs_abi=FloatRegisterAbi::External,ps_abi=FloatRegisterAbi::External;
@@ -340,7 +365,7 @@ static void ValidateSourceOriginalMaterialPass(
     // Decoded attribute buffers keep a float4 per vertex even when the
     // shader consumes only XY or RGB. Resolve AUTO from the actual upload
     // before both layout validation and PSO creation.
-    if(!pass.original_dynamic_font_vertex_layout_verified) {
+    if(!pass.original_dynamic_font_vertex_layout_verified && !pass.original_runtime_draw_verified) {
       for(auto& element:pass.exact_host_input_layout) {
         if(element.Stride==Diligent::LAYOUT_ELEMENT_AUTO_STRIDE)
           element.Stride=element.BufferSlot==0 ? sizeof(model::NativePosition) : sizeof(model::HostAttribute);
@@ -364,7 +389,8 @@ static void ValidateSourceOriginalMaterialPass(
     if(!owner.original_model_hash || owner.original_surface_ordinal==UINT32_MAX)
       throw std::invalid_argument("Original EoR material surface provenance missing");
     for(const auto& texture:owner.original_textures)
-      if(texture.identity.original_model_hash!=owner.original_model_hash ||
+      if(texture.identity.original_runtime_material!=pass.original_runtime_draw_verified ||
+         texture.identity.original_model_hash!=owner.original_model_hash ||
          texture.identity.original_surface_ordinal!=owner.original_surface_ordinal ||
          texture.identity.original_effect_hash!=pass.original_effect_hash ||
          texture.identity.original_pass_index!=pass.original_pass_index)
@@ -437,6 +463,10 @@ static void ValidateSourceOriginalMaterialPass(
          !SourceFontSlotMask(layout,symbolic))
         throw std::invalid_argument(
             "Original font pass lacks proven HUD float4 input and clip semantics");
+    } else if(pass.original_runtime_draw_verified) {
+      std::vector<uint64_t> symbolic(pass.exact_host_input_layout.size(),1u);
+      if(!SourceRuntimeSlotMask(pass.exact_host_input_layout,symbolic))
+        throw std::invalid_argument("Runtime draw lacks verified separate float4/uint4 inputs");
     } else if(!HasVerifiedHostAttributeLayout(pass.exact_host_input_layout)) {
       throw std::invalid_argument(
           "EoR original vertex layout overruns or aliases actual host GPU attribute buffers");
@@ -490,7 +520,7 @@ DiligentEorDirectBackend::DiligentEorDirectBackend(
     const auto& slots=resident.host_vertex_slots;
     if(!position || resident.position_handle!=position ||
        !resident.original_model_hash ||
-       resident.original_dynamic_font_verified ||
+       resident.original_dynamic_font_verified || resident.original_runtime_draw_verified ||
        resident.original_mesh_header_offset==SIZE_MAX ||
        !resident.index_handle || resident.vertex_count<3 ||
        !resident.index_count || (resident.index_count%3)!=0 ||
@@ -641,7 +671,7 @@ std::size_t DiligentEorDirectBackend::AdoptVerifiedResidentWorldMeshes(
     const auto old=s.draw_buffers.find(draw.position_handle);
     if(old!=s.draw_buffers.end()) {
       const auto& existing=old->second;
-      if(existing.original_dynamic_font_verified ||
+      if(existing.original_dynamic_font_verified || existing.original_runtime_draw_verified ||
          existing.original_model_hash!=draw.original_model_hash ||
          existing.original_mesh_header_offset!=draw.original_mesh_header_offset ||
          existing.index_handle!=draw.index_handle ||
@@ -922,7 +952,7 @@ aot::BoundIndexedDraw DiligentEorDirectBackend::StageVerifiedOriginalFontDraw(
   auto cpu=ui::DecodeOriginalLiveFontDraw(call,layout,frame,ordinal);
   const MaterialKey material{
       original_font_resource_hash,surface_ordinal,
-      cpu.original_effect_hash,cpu.original_pass_index,!live.original_depth_guest_object};
+      cpu.original_effect_hash,cpu.original_pass_index,!live.original_depth_guest_object,false};
   const auto found=s.material_lookup.find(material);
   if(found==s.material_lookup.end())
     throw std::invalid_argument("Original EFont archive material/pass not resident");
@@ -1050,9 +1080,109 @@ aot::BoundIndexedDraw DiligentEorDirectBackend::StageVerifiedOriginalFontDraw(
     result.original_samplers.push_back(image.identity);
   return result;
 }
+aot::BoundIndexedDraw DiligentEorDirectBackend::StageOriginalRuntimeDraw(
+    const xdk::RawDraw& call,uint64_t frame,uint32_t ordinal,
+    const VerifiedNativeMaterialPass& material,const DecodedRuntimeGeometry& cpu,
+    DiligentOriginalTextureResidency& textures) {
+  if(!state_ || state_->scene_open || state_->frame_preflight_ready ||
+     !frame || ordinal==UINT32_MAX || !call.observed_vs_matrices ||
+     !call.observed_shader_constants || !call.original_engine_shader_method ||
+     !call.observed_live_eor_effect_pass || !material.original_pipeline.original_runtime_draw_verified ||
+     !call.original_engine_shader_method->original_pass_vs_ps_xdk_binding_verified ||
+     material.original_model_hash!=call.original_engine_shader_method->original_pass_material_context_guest ||
+     material.original_surface_ordinal!=ordinal || cpu.layout.size()!=cpu.attributes.size() ||
+     cpu.layout.size()!=cpu.integer_attributes.size() || !cpu.vertex_count || cpu.indices.empty() ||
+     cpu.indices.size()>UINT32_MAX || cpu.indices.size()%3)
+    throw std::invalid_argument("Incomplete original transient Draw owner");
+  auto& s=*state_;
+  const auto& live=*call.observed_vs_matrices;
+  const auto& pass=material.original_pipeline;
+  if(pass.original_effect_hash!=call.observed_live_eor_effect_pass->effect_hash ||
+     pass.original_pass_index!=call.observed_live_eor_effect_pass->pass_index ||
+     !s.effects.HasPair(pass.original_effect_hash,pass.original_pass_index,
+                        pass.original_vertex_shader_sha256,pass.original_pixel_shader_sha256) ||
+     !MatchesVerifiedOriginalXdkDrawTargets(live,s.format,!pass.original_depth_unbound) ||
+     pass.exact_host_input_layout.size()!=cpu.layout.size() ||
+     !std::all_of(cpu.indices.begin(),cpu.indices.end(),[&](uint32_t i){return i<cpu.vertex_count;}))
+    throw std::invalid_argument("Transient Draw source/PSO mismatch");
+  const auto key=PassKey(material.original_model_hash,ordinal,pass);
+  const State::DrawKey epoch{frame,ordinal};
+  if(s.runtime_uploads.contains(epoch) || s.material_lookup.contains(key))
+    throw std::invalid_argument("Transient Draw epoch already staged");
+  auto owner=std::make_unique<State::RuntimeUpload>();
+  owner->gpu=&s.meshes;owner->material=key;
+  owner->handles.reserve(cpu.layout.size()+1);
+  auto add=[&](uint64_t handle) {
+    if(!handle)throw std::runtime_error("Transient native Vulkan buffer allocation failed");
+    owner->handles.push_back(handle);return handle;
+  };
+  NativeEorDrawBuffers buffers{};
+  buffers.host_vertex_slots.resize(cpu.layout.size());
+  for(size_t i=0;i<cpu.layout.size();++i) {
+    const auto& e=cpu.layout[i];const auto& p=pass.exact_host_input_layout[i];
+    if(e.InputIndex!=p.InputIndex || e.BufferSlot!=p.BufferSlot ||
+       e.ValueType!=p.ValueType || e.NumComponents!=p.NumComponents ||
+       e.Stride!=p.Stride || e.RelativeOffset!=p.RelativeOffset ||
+       e.BufferSlot!=i)throw std::invalid_argument("Transient vertex layout changed");
+    if(e.InputIndex==9u && e.ValueType==Diligent::VT_UINT32) {
+      if(cpu.integer_attributes[i].size()!=cpu.vertex_count || !cpu.attributes[i].empty())
+        throw std::invalid_argument("Transient integer input incomplete");
+      buffers.host_vertex_slots[i]=add(s.meshes.UploadDecodedIntegerAttributes(cpu.integer_attributes[i]));
+    } else {
+      if(cpu.attributes[i].size()!=cpu.vertex_count || !cpu.integer_attributes[i].empty())
+        throw std::invalid_argument("Transient float input incomplete");
+      buffers.host_vertex_slots[i]=add(s.meshes.UploadDecodedAttributes(cpu.attributes[i]));
+    }
+  }
+  if(!SourceRuntimeSlotMask(cpu.layout,buffers.host_vertex_slots))
+    throw std::invalid_argument("Transient native vertex slot ABI invalid");
+  buffers.position_handle=owner->position=buffers.host_vertex_slots.front();
+  buffers.index_handle=add(s.meshes.UploadIndices(cpu.indices));
+  buffers.vertex_count=cpu.vertex_count;buffers.index_count=static_cast<uint32_t>(cpu.indices.size());
+  buffers.original_model_hash=material.original_model_hash;
+  buffers.original_mesh_header_offset=SIZE_MAX;
+  buffers.original_runtime_draw_verified=true;buffers.original_runtime_frame=frame;
+  buffers.original_runtime_ordinal=ordinal;
+  const auto position=buffers.position_handle,index=buffers.index_handle,count=buffers.index_count;
+  s.runtime_uploads.emplace(epoch,std::move(owner));
+  try {
+    AdoptVerifiedOriginalMaterialPasses({&material,1},textures);
+    if(!s.draw_buffers.emplace(position,std::move(buffers)).second)
+      throw std::logic_error("Transient native vertex handle collision");
+    aot::BoundIndexedDraw result{};
+    result.draw={position,index,live.original_vs_guest_object,live.original_ps_guest_object,
+      count,0,0,frame,ordinal,live,call.observed_shader_constants};
+    result.vertex_source_sha256=pass.original_vertex_shader_sha256;
+    result.pixel_source_sha256=pass.original_pixel_shader_sha256;
+    result.effect_hash=pass.original_effect_hash;result.pass_index=pass.original_pass_index;
+    result.original_model_hash=material.original_model_hash;result.original_surface_ordinal=ordinal;
+    result.original_mesh_header_offset=SIZE_MAX;result.original_runtime_draw=true;
+    result.source_nonindexed_linearization_verified=bool(xdk::DecodeOriginalVerticesXdkCall(call));
+    if(call.observed_live_pixel_shader_header)
+      result.original_pixel_sampling=call.observed_live_pixel_shader_header->pixel_sampling;
+    for(const auto& image:material.original_images)result.original_samplers.push_back(image.original_binding);
+    return result;
+  } catch (...) {ReleaseRuntimeDraws(frame,false);throw;}
+}
+void DiligentEorDirectBackend::ReleaseRuntimeDraws(uint64_t frame,bool completed) noexcept {
+  if(!state_ || state_->scene_open || !frame)return;
+  auto& s=*state_;
+  for(auto it=s.runtime_uploads.begin();it!=s.runtime_uploads.end();) {
+    if(completed ? it->first.first>frame : it->first.first!=frame){++it;continue;}
+    const auto& owner=*it->second;
+    s.draw_buffers.erase(owner.position);
+    s.material_lookup.erase(owner.material);
+    s.material_bindings.erase(owner.material);s.pipeline_cache.erase(owner.material);
+    for(auto p=s.pipeline_variants.begin();p!=s.pipeline_variants.end();)
+      if(p->first.first==owner.material)p=s.pipeline_variants.erase(p);else ++p;
+    s.streamed_passes.erase(owner.material);
+    it=s.runtime_uploads.erase(it);
+  }
+}
 void DiligentEorDirectBackend::DiscardUnsubmittedOriginalFontDraws(
     uint64_t rejected_frame) noexcept {
   if(!state_ || state_->scene_open || !rejected_frame)return;
+  ReleaseRuntimeDraws(rejected_frame,false);
   auto& s=*state_;
   for(auto it=s.font_uploads.lower_bound({rejected_frame,0u});
       it!=s.font_uploads.end() &&
@@ -1064,6 +1194,7 @@ void DiligentEorDirectBackend::DiscardUnsubmittedOriginalFontDraws(
 void DiligentEorDirectBackend::RetireCompletedOriginalFontDraws(
     uint64_t completed_frame) noexcept {
   if(!state_ || state_->scene_open || !completed_frame)return;
+  ReleaseRuntimeDraws(completed_frame,true);
   auto& s=*state_;
   // Caller must have observed the actual Vulkan completion fence, not
   // merely the next original guest Present or a CPU-side submission.
@@ -1116,7 +1247,7 @@ bool DiligentEorDirectBackend::PreflightOriginalScene(
       return false;
     if(!d.guest_vs_matrices)return false;
     const MaterialKey key{item.original_model_hash,item.original_surface_ordinal,
-                          item.effect_hash,item.pass_index,!d.guest_vs_matrices->original_depth_guest_object};
+                          item.effect_hash,item.pass_index,!d.guest_vs_matrices->original_depth_guest_object,item.original_runtime_draw};
     const auto owner=s.material_lookup.find(key);
     const NativeEorPassResources* selected=
         owner==s.material_lookup.end()?nullptr:owner->second;
@@ -1247,7 +1378,9 @@ bool DiligentEorDirectBackend::PreflightOriginalScene(
        mesh->second.index_handle!=d.index_buffer)
       return false;
     const bool is_font=mesh->second.original_dynamic_font_verified;
-    if(item.original_dynamic_font_draw!=is_font ||
+    const bool runtime=mesh->second.original_runtime_draw_verified;
+    if(runtime!=item.original_runtime_draw || runtime!=selected->pipeline.original_runtime_draw_verified ||
+       (runtime && is_font) || item.original_dynamic_font_draw!=is_font ||
        selected->pipeline.original_dynamic_font_vertex_layout_verified!=is_font)
       return false;
     if(is_font) {
@@ -1260,6 +1393,9 @@ bool DiligentEorDirectBackend::PreflightOriginalScene(
          mesh->second.original_font_draw_ordinal!=d.source_ordinal ||
          !mesh->second.original_font_atlas_hash || !mesh->second.font_bindings)
         return false;
+    } else if(runtime) {
+      if(item.original_mesh_header_offset!=SIZE_MAX || mesh->second.original_mesh_header_offset!=SIZE_MAX ||
+         mesh->second.original_runtime_frame!=d.source_frame || mesh->second.original_runtime_ordinal!=d.source_ordinal)return false;
     } else if(item.original_mesh_header_offset==SIZE_MAX ||
               mesh->second.original_mesh_header_offset!=
                   item.original_mesh_header_offset)
@@ -1268,6 +1404,7 @@ bool DiligentEorDirectBackend::PreflightOriginalScene(
          SourceFontSlotMask(
              selected->pipeline.exact_host_input_layout,
              mesh->second.host_vertex_slots) :
+         runtime ? SourceRuntimeSlotMask(selected->pipeline.exact_host_input_layout,mesh->second.host_vertex_slots) :
          SourceVertexSlotMask(
              selected->pipeline.exact_host_input_layout,
              mesh->second.host_vertex_slots)) ||
@@ -1279,7 +1416,7 @@ bool DiligentEorDirectBackend::PreflightOriginalScene(
     for(const auto& element:selected->pipeline.exact_host_input_layout) {
       const auto slot=element.BufferSlot;
       const bool integer_skin=element.InputIndex==9u && element.ValueType==Diligent::VT_UINT32;
-      const uint32_t kind=is_font ? 3u : slot==0u ? 0u : integer_skin ? 4u : 3u;
+      const uint32_t kind=is_font ? 3u : runtime ? (integer_skin?4u:3u) : slot==0u ? 0u : integer_skin ? 4u : 3u;
       if(slot>=mesh->second.host_vertex_slots.size() ||
          s.meshes.KindOf(mesh->second.host_vertex_slots[slot])!=kind)return false;
     }
@@ -1335,7 +1472,7 @@ bool DiligentEorDirectBackend::PreflightOriginalScene(
     for(const auto& item:draws) {
       if(item.original_dynamic_font_draw || !item.draw.source_frame)continue;
       const MaterialKey key{item.original_model_hash,item.original_surface_ordinal,
-                            item.effect_hash,item.pass_index,!item.draw.guest_vs_matrices->original_depth_guest_object};
+                            item.effect_hash,item.pass_index,!item.draw.guest_vs_matrices->original_depth_guest_object,item.original_runtime_draw};
       const auto& textures=s.material_lookup.at(key)->original_textures;
       auto& prepared=prepared_constants.at({item.draw.source_frame,item.draw.source_ordinal});
       auto* pipeline=s.pipeline_cache.at(key).pipeline.RawPtr();
@@ -1430,6 +1567,12 @@ void DiligentEorDirectBackend::AbortScene() noexcept {
   s.constants_ready=s.program_ready=s.textures_ready=false;
 }
 bool DiligentEorDirectBackend::BindOriginalSurface(uint32_t model,uint32_t ordinal) {
+  return BindSurfaceImpl(model,ordinal,false);
+}
+bool DiligentEorDirectBackend::BindOriginalRuntimeSurface(uint32_t model,uint32_t ordinal) {
+  return BindSurfaceImpl(model,ordinal,true);
+}
+bool DiligentEorDirectBackend::BindSurfaceImpl(uint32_t model,uint32_t ordinal,bool runtime) {
   auto& s=*state_;
   // Every Draw begins from an unbound PSO/constant/sampler state.
   s.selected=nullptr;s.active={};
@@ -1438,11 +1581,12 @@ bool DiligentEorDirectBackend::BindOriginalSurface(uint32_t model,uint32_t ordin
   if(!s.scene_open || s.finished || !model || ordinal==UINT32_MAX)return false;
   // A source model may own many effects, but the first keyed pass is
   // sufficient to prove that THIS exact model/surface is resident.
-  const auto item=s.material_lookup.lower_bound({model,ordinal,0u,0u,false});
-  if(item==s.material_lookup.end() ||
-     std::get<0>(item->first)!=model ||
-     std::get<1>(item->first)!=ordinal)return false;
-  s.requested_model=model;s.requested_surface=ordinal;
+  auto item=s.material_lookup.lower_bound({model,ordinal,0u,0u,false,false});
+  while(item!=s.material_lookup.end() && std::get<0>(item->first)==model &&
+        std::get<1>(item->first)==ordinal && std::get<5>(item->first)!=runtime)++item;
+  if(item==s.material_lookup.end() || std::get<0>(item->first)!=model ||
+     std::get<1>(item->first)!=ordinal || std::get<5>(item->first)!=runtime)return false;
+  s.requested_model=model;s.requested_surface=ordinal;s.requested_runtime=runtime;
   s.surface_ready=true;
   return true;
 }
@@ -1453,7 +1597,7 @@ bool DiligentEorDirectBackend::BindOriginalEffect(uint32_t effect,uint32_t pass)
   s.selected=nullptr;s.active={};
   s.constants_ready=s.program_ready=s.textures_ready=false;
   const auto item=s.material_lookup.find(
-      {s.requested_model,s.requested_surface,effect,pass,!s.scene.DepthBound()});
+      {s.requested_model,s.requested_surface,effect,pass,!s.scene.DepthBound(),s.requested_runtime});
   if(item==s.material_lookup.end())return false;
   s.selected=item->second;
   return true;
@@ -1550,6 +1694,10 @@ bool DiligentEorDirectBackend::DrawIndexed(const native::IndexedDraw& draw) {
   // Different passes of the same mesh may consume different streams.
   // Keep the original binding numbers even when a pass skips a slot.
   const bool is_font=resident.original_dynamic_font_verified;
+  const bool runtime=resident.original_runtime_draw_verified;
+  if(runtime!=s.selected->pipeline.original_runtime_draw_verified ||
+     (runtime && (resident.original_runtime_frame!=draw.source_frame ||
+                  resident.original_runtime_ordinal!=draw.source_ordinal)))return false;
   if(is_font &&
      (resident.original_font_frame!=draw.source_frame ||
       resident.original_font_draw_ordinal!=draw.source_ordinal ||
@@ -1557,7 +1705,7 @@ bool DiligentEorDirectBackend::DrawIndexed(const native::IndexedDraw& draw) {
     return false;
   const uint32_t used_slots=is_font ?
       SourceFontSlotMask(layout,slots) :
-      SourceVertexSlotMask(layout,slots);
+      runtime ? SourceRuntimeSlotMask(layout,slots) : SourceVertexSlotMask(layout,slots);
   if(!used_slots)return false;
   const auto binding_count=std::bit_width(used_slots);
   std::array<Diligent::IBuffer*,16> buffers{};
@@ -1567,7 +1715,7 @@ bool DiligentEorDirectBackend::DrawIndexed(const native::IndexedDraw& draw) {
     const bool integer_skin=std::any_of(layout.begin(),layout.end(),[&](const auto& e){
       return e.BufferSlot==i && e.InputIndex==9u && e.ValueType==Diligent::VT_UINT32;
     });
-    if(s.meshes.KindOf(slots[i])!=(is_font?3u:(i==0?0u:integer_skin?4u:3u)))
+    if(s.meshes.KindOf(slots[i])!=(is_font?3u:runtime?(integer_skin?4u:3u):(i==0?0u:integer_skin?4u:3u)))
       return false;
     buffers[i]=s.meshes.FindBuffer(slots[i]);
     if(!buffers[i])return false;
