@@ -94,6 +94,11 @@ void CheckBufferSnapshots() {
   assert(!buffers.Capture(object,address,bytes,ReadFake,&guest));
   assert(rewritten->bytes[0]==std::byte{0xAB}); // no in-place mutation
   assert(buffers.RetainedBytes()==2*bytes);
+  // A completely new buffer at a full budget must not perform guest I/O.
+  const auto no_read=[](void*,uint32_t,std::byte*,size_t) noexcept {
+    assert(false && "Impossible new buffer must not be read");return false;
+  };
+  assert(!buffers.Capture(object+4u,address,bytes,no_read,&guest));
   const auto failing=[](void*,uint32_t,std::byte* out,size_t) noexcept {
     out[0]=std::byte{0xFF};return false;
   };

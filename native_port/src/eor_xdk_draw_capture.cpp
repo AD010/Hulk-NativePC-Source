@@ -108,11 +108,15 @@ OriginalGuestBufferSnapshots::Capture(
   if(!object || !address || !reader || bytes<6 || bytes>(8u<<20) ||
      bytes>budget_ || uint64_t(address)+bytes>uint64_t(UINT32_MAX)+1u)
     return {};
+  const auto key=std::make_tuple(object,address,bytes);
+  const auto prior=latest_.find(key);
+  // A brand new allocation cannot reuse any retained version. Do not
+  // allocate scratch or read megabytes from guest memory when there
+  // is no budget left to retain this new allocation.
+  if(prior==latest_.end() && bytes>budget_-retained_bytes_)return {};
   scratch_.resize(bytes);
   // Failed/partial reads cannot fall back to an older cached revision.
   if(!reader(reader_state,address,scratch_.data(),bytes))return {};
-  const auto key=std::make_tuple(object,address,bytes);
-  const auto prior=latest_.find(key);
   if(prior!=latest_.end() && prior->second->bytes==scratch_)
     return prior->second;
   // Charge only LIVE immutable versions. A dynamic Xbox vertex/index

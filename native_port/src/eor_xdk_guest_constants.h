@@ -163,16 +163,28 @@ CaptureUsaFixedGraphicsState(uint32_t guest_device,ReadGuestBytes read,
   OriginalXdkFixedGraphicsState snapshot{};
   snapshot.original_guest_device=guest_device;
   size_t destination=0;
+  // All seven fixed-state groups occupy a single 496-byte device
+  // region. Read it once; the register groups still use their exact
+  // original offsets. A sparse diagnostic reader may require the old
+  // per-group fallback, so do not change the original acceptance rules.
+  constexpr auto first=OriginalXdkFixedGraphicsState::kGuestOffsets.front();
+  constexpr auto last=OriginalXdkFixedGraphicsState::kGuestOffsets.back()+
+      4u*OriginalXdkFixedGraphicsState::kCounts.back();
+  std::array<std::byte,last-first> combined{};
+  const bool bulk=uint64_t(guest_device)+last<=uint64_t(UINT32_MAX)+1u &&
+      read(state,guest_device+first,combined.data(),combined.size());
   for(size_t group=0;group<OriginalXdkFixedGraphicsState::kCounts.size();++group) {
     const size_t count=OriginalXdkFixedGraphicsState::kCounts[group];
     const uint64_t address=uint64_t(guest_device)+
         OriginalXdkFixedGraphicsState::kGuestOffsets[group];
     if(address+count*4u>uint64_t(UINT32_MAX)+1u)return std::nullopt;
     std::array<std::byte,38*4> bytes{};
-    if(!read(state,static_cast<uint32_t>(address),bytes.data(),count*4u))
+    if(!bulk && !read(state,static_cast<uint32_t>(address),bytes.data(),count*4u))
       return std::nullopt;
+    const auto* source=bulk ? combined.data()+
+        (OriginalXdkFixedGraphicsState::kGuestOffsets[group]-first) : bytes.data();
     for(size_t i=0;i<count;++i) {
-      const auto* w=bytes.data()+i*4;
+      const auto* w=source+i*4;
       snapshot.original_register_values[destination++]=
           uint32_t(std::to_integer<uint8_t>(w[0]))<<24 |
           uint32_t(std::to_integer<uint8_t>(w[1]))<<16 |
@@ -264,10 +276,12 @@ inline bool CaptureUsaAllShaderRegisters(
   if(vs_at+kBytes>uint64_t(UINT32_MAX)+1 ||
      ps_at+kBytes>uint64_t(UINT32_MAX)+1)return false;
   std::array<std::byte,2*kBytes> raw{};
-  if(!reader(reader_state,static_cast<uint32_t>(vs_at),
-             raw.data(),kBytes) ||
-     !reader(reader_state,static_cast<uint32_t>(ps_at),
-             raw.data()+kBytes,kBytes))
+  static_assert(kPsFloatOffset==kVsFloatOffset+kBytes);
+  // The original two banks are contiguous. One checked read avoids
+  // redundant Windows region queries on every admissible Draw.
+  if(!reader(reader_state,static_cast<uint32_t>(vs_at),raw.data(),raw.size()) &&
+     (!reader(reader_state,static_cast<uint32_t>(vs_at),raw.data(),kBytes) ||
+      !reader(reader_state,static_cast<uint32_t>(ps_at),raw.data()+kBytes,kBytes)))
     return false;
   const auto be32=[](const std::byte* p) noexcept -> uint32_t {
     return (uint32_t(std::to_integer<uint8_t>(p[0]))<<24) |
