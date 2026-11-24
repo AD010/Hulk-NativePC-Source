@@ -1017,6 +1017,9 @@ HRESULT STDMETHODCALLTYPE OnSampler(IDirect3DDevice9* dev,DWORD sampler,
           case D3DRTYPE_VOLUMETEXTURE: supported=currentCaps.VolumeTextureFilterCaps & D3DPTFILTERCAPS_MINFANISOTROPIC; break;
           default: break;
         }
+        // Preserve single-level UI atlases, render targets and depth textures.
+        // AF is intended for mipmapped scene textures, not screen-space passes.
+        if(bound->GetLevelCount() < 2) supported=0;
         bound->Release();
       }
       if(supported) {
