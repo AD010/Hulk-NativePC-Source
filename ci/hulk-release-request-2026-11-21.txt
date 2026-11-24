@@ -30,3 +30,5 @@ Retry 13: report exact C++ native EoR Draw test failed line/exception from real 
 Retry 14: correct MSVC Draw witness regression: restore original source VB after deliberately wrong XDK resource object; continue full private Windows Release compilation at latest main.
 
 Retry 15: use the exact one-shot marker accepted by ci/test_native_x_d140_dispatch.py; run latest main after source-only validation.
+
+2026-11-24: user explicitly requested Windows Release retry after EoR link coverage and runtime uint4 fixes.
