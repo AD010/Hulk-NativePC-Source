@@ -25,6 +25,10 @@ inline Digest OriginalShaderVirtualSha256(std::span<const uint8_t> bytes) noexce
 // must still match the authenticated source before admitting an alias.
 std::optional<Digest> OriginalPixelDebugHeaderKey(
     std::span<const uint8_t> header) noexcept;
+// Preserve every non-debug byte; rebase only the four source-proven
+// top-level size/offset fields if the UPDB record changed length.
+std::optional<Digest> OriginalPixelMetadataKey(
+    std::span<const uint8_t> header) noexcept;
 class OriginalVirtualShaderIdentity {
  public:
   // HEORVRT1 + [count:LE32, version:LE32] +
@@ -50,6 +54,7 @@ class OriginalVirtualShaderIdentity {
   const PixelDebugAlias* FindPixelDebugAlias(
       std::span<const uint8_t> header,std::span<const uint8_t> physical) const noexcept;
   size_t PixelDebugAliasCount() const noexcept {return pixel_alias_count_;}
+  size_t PixelMetadataAliasCount() const noexcept {return pixel_metadata_count_;}
   size_t size() const noexcept {return original_.size();}
   // Two independently loaded, fully authenticated HEORVRT1 catalogues
   // must compare by their original immutable SHA mappings, NOT the C++
@@ -58,14 +63,18 @@ class OriginalVirtualShaderIdentity {
   bool SameOriginalSources(const OriginalVirtualShaderIdentity& rhs) const noexcept {
     return original_==rhs.original_;
   }
-  void Clear() noexcept {original_.clear();pixel_debug_aliases_.clear();pixel_alias_count_=0;}
+  void Clear() noexcept {
+    original_.clear();pixel_debug_aliases_.clear();pixel_metadata_aliases_.clear();
+    pixel_alias_count_=pixel_metadata_count_=0;
+  }
  private:
   struct Entry {Digest full_source_sha{};Stage stage=Stage::Vertex;
                 uint32_t virtual_bytes=0;
                 bool operator==(const Entry&) const = default;};
   std::map<Digest,Entry> original_;
   std::map<Digest,std::vector<PixelDebugAlias>> pixel_debug_aliases_;
-  size_t pixel_alias_count_=0;
+  std::map<Digest,std::vector<PixelDebugAlias>> pixel_metadata_aliases_;
+  size_t pixel_alias_count_=0,pixel_metadata_count_=0;
 };
 // A live XDK shader object can be linked to a source SHA only when the
 // ORIGINAL guest object -> ShaderContainer header pointer ABI is proven,

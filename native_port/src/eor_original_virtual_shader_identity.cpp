@@ -158,7 +158,8 @@ void OriginalVirtualShaderIdentity::Load(
       throw std::invalid_argument("Original source virtual SHA identity collision");
   }
   original_.swap(next); // Failed generation leaves older verified bank unchanged.
-  pixel_debug_aliases_.clear();pixel_alias_count_=0;
+  pixel_debug_aliases_.clear();pixel_metadata_aliases_.clear();
+  pixel_alias_count_=pixel_metadata_count_=0;
 }
 
 std::optional<Digest> OriginalVirtualShaderIdentity::FindOriginalSource(
@@ -213,6 +214,37 @@ std::optional<Digest> OriginalPixelDebugHeaderKey(
     return ExactHeaderDigest(canonical);
   } catch (...) {return {};}
 }
+std::optional<Digest> OriginalPixelMetadataKey(
+    std::span<const uint8_t> header) noexcept {
+  // The pinned 2597 PS containers use this exact 36-byte directory.
+  // +4 virtual size, +12 UPDB, +16 CTAB, +20 optional definitions,
+  // +24 instruction descriptor; +28/+32 are zero in EVERY source.
+  // The CTAB and everything following it must remain byte-identical.
+  if(header.size()<36 || header.size()>(1u<<20) ||
+     Be32(header.data())!=0x102a1100u ||
+     Be32(header.data()+4)!=header.size() || !Be32(header.data()+8) ||
+     Be32(header.data()+28) || Be32(header.data()+32))return {};
+  const auto debug=Be32(header.data()+12),ctab=Be32(header.data()+16);
+  const auto defs=Be32(header.data()+20),desc=Be32(header.data()+24);
+  if(ctab<36u || ctab>header.size() || desc<ctab ||
+     uint64_t(desc)+24u>header.size() ||
+     (defs && (defs<ctab || defs>=desc)))return {};
+  if(debug==0u) {
+    if(ctab!=36u)return {};
+  } else if(debug!=36u || !OriginalPixelDebugHeaderKey(header))return {};
+  try {
+    const auto removed=ctab-36u;
+    std::vector<uint8_t> canonical(header.begin(),header.begin()+36);
+    canonical.insert(canonical.end(),header.begin()+ctab,header.end());
+    auto write=[&](size_t at,uint32_t value) {
+      for(unsigned i=0;i<4;++i)canonical[at+i]=uint8_t(value>>(24-8*i));
+    };
+    write(4,static_cast<uint32_t>(canonical.size()));
+    write(12,0u);write(16,36u);
+    write(20,defs?defs-removed:0u);write(24,desc-removed);
+    return ExactHeaderDigest(canonical);
+  } catch (...) {return {};}
+}
 size_t OriginalVirtualShaderIdentity::LoadOriginalPixelDebugAliases(
     const std::filesystem::path& root) noexcept {
   if(root.empty() || original_.size()!=5194u)return 0;
@@ -234,7 +266,7 @@ size_t OriginalVirtualShaderIdentity::LoadOriginalPixelDebugAliases(
       f.seekg(0);
       if(!f.read(reinterpret_cast<char*>(bytes.data()),bytes.size()) ||
          SourceSha256(bytes)!=archive_sha)continue;
-      std::map<Digest,std::vector<PixelDebugAlias>> next;
+      std::map<Digest,std::vector<PixelDebugAlias>> next,metadata;
       std::set<Digest> seen;
       for(size_t i=0;i+44<=bytes.size();++i) {
         if(Be32(bytes.data()+i)!=0x102a1100u)continue;
@@ -246,26 +278,34 @@ size_t OriginalVirtualShaderIdentity::LoadOriginalPixelDebugAliases(
         const auto source=FindOriginalSource(header,Stage::Pixel);
         if(!source || SourceSha256(std::span<const uint8_t>(bytes).subspan(i,v+p))!=*source)continue;
         const auto key=OriginalPixelDebugHeaderKey(header);
-        if(!key || !seen.insert(*source).second)return 0;
-        next[*key].push_back(PixelDebugAlias{*source,SourceSha256(physical),
-                                            {header.begin(),header.end()}});
+        const auto metadata_key=OriginalPixelMetadataKey(header);
+        if(!key || !metadata_key || !seen.insert(*source).second)return 0;
+        PixelDebugAlias entry{*source,SourceSha256(physical),
+                              {header.begin(),header.end()}};
+        next[*key].push_back(entry);
+        metadata[*metadata_key].push_back(std::move(entry));
         i+=size_t(v)+p-1;
       }
       if(seen.size()!=2597u)return 0;
       // Remove EVERY ambiguous source; no guessed effect, path, or ordinal
       // may select among programs with the same normalized metadata/code.
-      size_t admitted=0;
-      for(auto it=next.begin();it!=next.end();) {
-        std::map<Digest,size_t> counts;
-        for(const auto& row:it->second)++counts[row.physical_sha];
-        auto& entries=it->second;
-        entries.erase(std::remove_if(entries.begin(),entries.end(),
-           [&](const PixelDebugAlias& row){return counts.at(row.physical_sha)!=1;}),entries.end());
-        admitted+=entries.size();
-        if(entries.empty())it=next.erase(it);else ++it;
-      }
-      if(admitted!=2595u)return 0; // independently verified USA census
+      const auto unique_only=[](auto& candidates) {
+        size_t admitted=0;
+        for(auto it=candidates.begin();it!=candidates.end();) {
+          std::map<Digest,size_t> counts;
+          for(const auto& row:it->second)++counts[row.physical_sha];
+          auto& entries=it->second;
+          entries.erase(std::remove_if(entries.begin(),entries.end(),
+             [&](const PixelDebugAlias& row){return counts.at(row.physical_sha)!=1;}),entries.end());
+          admitted+=entries.size();
+          if(entries.empty())it=candidates.erase(it);else ++it;
+        }
+        return admitted;
+      };
+      const auto admitted=unique_only(next),metadata_admitted=unique_only(metadata);
+      if(admitted!=2595u || metadata_admitted!=1601u)return 0;
       pixel_debug_aliases_.swap(next);pixel_alias_count_=admitted;
+      pixel_metadata_aliases_.swap(metadata);pixel_metadata_count_=metadata_admitted;
       return admitted;
     }
   } catch (...) {}
@@ -274,25 +314,31 @@ size_t OriginalVirtualShaderIdentity::LoadOriginalPixelDebugAliases(
 bool OriginalVirtualShaderIdentity::HasPixelDebugCandidate(
     std::span<const uint8_t> header) const noexcept {
   if(pixel_debug_aliases_.empty())return false;
-  const auto key=OriginalPixelDebugHeaderKey(header);
-  return key && pixel_debug_aliases_.contains(*key);
+  if(const auto key=OriginalPixelDebugHeaderKey(header);key && pixel_debug_aliases_.contains(*key))return true;
+  const auto metadata=OriginalPixelMetadataKey(header);
+  return metadata && pixel_metadata_aliases_.contains(*metadata);
 }
 const OriginalVirtualShaderIdentity::PixelDebugAlias*
 OriginalVirtualShaderIdentity::FindPixelDebugAlias(
     std::span<const uint8_t> header,std::span<const uint8_t> physical) const noexcept {
-  if(pixel_debug_aliases_.empty() || header.size()<44 ||
+  if(pixel_debug_aliases_.empty() || header.size()<36 ||
      physical.empty() || physical.size()!=Be32(header.data()+8))return nullptr;
-  const auto key=OriginalPixelDebugHeaderKey(header);
-  if(!key)return nullptr;
-  const auto it=pixel_debug_aliases_.find(*key);
-  if(it==pixel_debug_aliases_.end())return nullptr;
   const auto digest=ExactHeaderDigest(physical);
-  const PixelDebugAlias* found=nullptr;
-  for(const auto& entry:it->second)if(entry.physical_sha==digest) {
-    if(found)return nullptr;
-    found=&entry;
-  }
-  return found;
+  const auto find=[&](const auto& candidates,const std::optional<Digest>& key)
+      ->const PixelDebugAlias* {
+    if(!key)return nullptr;
+    const auto it=candidates.find(*key);
+    if(it==candidates.end())return nullptr;
+    const PixelDebugAlias* found=nullptr;
+    for(const auto& entry:it->second)if(entry.physical_sha==digest) {
+      if(found)return nullptr;
+      found=&entry;
+    }
+    return found;
+  };
+  if(const auto* exact=find(pixel_debug_aliases_,OriginalPixelDebugHeaderKey(header)))
+    return exact;
+  return find(pixel_metadata_aliases_,OriginalPixelMetadataKey(header));
 }
 namespace {
 std::optional<uint32_t> UsaShaderHeaderAddress(uint32_t object, Stage stage) noexcept {

@@ -309,7 +309,8 @@ class IncredibleHulkApp : public rex::ReXApp {
     hulk::eor::xdk::InstallOriginalEorGameAssetRoot(eor_original_game_root_);
     if(eor_virtual_ids_) {
       const auto aliases=eor_virtual_ids_->LoadOriginalPixelDebugAliases(eor_original_game_root_);
-      REXLOG_INFO("[HULK/EOR-PS-ALIASES] {} exact physical-code/metadata candidates from private USA SHADEREF.ARC",aliases);
+      REXLOG_INFO("[HULK/EOR-PS-ALIASES] same_size={} relocated_or_removed_debug={} exact physical-code/metadata candidates from private USA SHADEREF.ARC",
+                  aliases,eor_virtual_ids_->PixelMetadataAliasCount());
     }
     if(eor_virtual_ids_ &&
        !hulk::eor::xdk::InstallOriginalShaderCaptureIndex(

@@ -70,6 +70,19 @@ int main() {
   assert(OriginalPixelDebugHeaderKey(debug)==debug_key);
   debug[75]=1;assert(OriginalPixelDebugHeaderKey(debug)!=debug_key);
   debug[75]=0;word(16,51);assert(!OriginalPixelDebugHeaderKey(debug));
+  word(16,52);word(20,56);word(24,72);
+  const auto metadata_key=OriginalPixelMetadataKey(debug);
+  assert(metadata_key);
+  auto stripped=debug;
+  stripped.erase(stripped.begin()+36,stripped.begin()+52);
+  auto strip_word=[&](size_t at,uint32_t value) {
+    for(unsigned i=0;i<4;++i)stripped[at+i]=uint8_t(value>>(24-8*i));
+  };
+  strip_word(4,static_cast<uint32_t>(stripped.size()));strip_word(12,0);
+  strip_word(16,36);strip_word(20,40);strip_word(24,56);
+  assert(OriginalPixelMetadataKey(stripped)==metadata_key);
+  stripped[68]=1;assert(OriginalPixelMetadataKey(stripped)!=metadata_key);
+  stripped[68]=0;strip_word(28,1);assert(!OriginalPixelMetadataKey(stripped));
   // Independent Python hashlib reference SHA256 for a 36-byte Xenos
   // virtual stage header; no source program was embedded in the test.
   const auto vs=SourceHeader(Stage::Vertex),ps=SourceHeader(Stage::Pixel);
