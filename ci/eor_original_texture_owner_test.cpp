@@ -3,7 +3,7 @@
 #include <cstring>
 using namespace hulk::eor::xdk;
 struct Memory {std::array<std::byte,1024> bytes{};};
-bool Read(void* p,uint32_t at,std::byte* out,size_t n) {
+bool Read(void* p,uint32_t at,std::byte* out,size_t n) noexcept {
   auto& b=static_cast<Memory*>(p)->bytes;
   if(at>b.size()||n>b.size()-at)return false;
   std::memcpy(out,b.data()+at,n);return true;
