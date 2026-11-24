@@ -265,7 +265,7 @@ bool InstallVerifiedWorkerEorCatalogFactory(
 // SHA-pinned USA original INDEX.IND and MODELS.ARC when it receives a
 // real source-authenticated Vulkan material/PSO owner catalogue.
 void InstallOriginalEorGameAssetRoot(
-    const std::filesystem::path& user's_original_game_root);
+    const std::filesystem::path& user_original_game_root);
 void ClearOriginalEorGameAssetRoot() noexcept;
 void InstallOriginalEorMaterialCandidateIndexPath(
     const std::filesystem::path& private_source_index);

@@ -54,6 +54,16 @@ ALLOWED_FAILURE_HINTS = {
     "out of memory": "out-of-memory",
     "no space left on device": "disk-full",
     "invalid syntax": "python-syntax",
+    "missing terminating": "unterminated-token",
+    "expected expression": "expected-expression",
+    "expected identifier": "expected-identifier",
+    "expected parameter declarator": "expected-parameter-declarator",
+    "expected ')'": "expected-close-paren",
+    "no member named": "missing-member",
+    "use of undeclared identifier": "undeclared-identifier",
+    "no matching function": "no-matching-function",
+    "too many arguments": "too-many-arguments",
+    "too few arguments": "too-few-arguments",
     "syntaxerror": "python-syntax",
     "could not resolve": "unresolved-dependency",
 }
@@ -152,6 +162,30 @@ def summarize(text: str, cap: int = 16) -> list[str]:
     return result
 
 
+
+# Only locations in checked-in public native_port/src or ci files. Never
+# publish generated PPC paths, source text, diagnostic message or arguments.
+PUBLIC_LOCATION = re.compile(
+    r"(?i)(?:^|[\\/])(?:native_port[\\/]src|ci)[\\/]"
+    r"([\w.-]+\.(?:cpp|c|h|hpp|py))"
+    r"(?::(\d{1,6})(?::\d{1,6})?|\((\d{1,6})(?:,\d{1,6})?\))"
+)
+
+def public_error_locations(log: str, cap: int = 16) -> list[str]:
+    locations = Counter()
+    for line in log.splitlines():
+        if not ERROR.search(line):
+            continue
+        match = PUBLIC_LOCATION.search(line)
+        if not match:
+            continue
+        name, clang_line, msvc_line = match.groups()
+        if PRIVATE.search(name) or SECRET.search(name):
+            continue
+        locations[f"{name}:{clang_line or msvc_line}"] += 1
+    return ["public_error_location=" + name + f" count={n}"
+            for name, n in locations.most_common(cap)]
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("log", type=Path)
@@ -159,7 +193,7 @@ def main() -> int:
     # Large build logs are fine; output is capped. Not a log redistributor.
     log = args.log.read_text(encoding="utf-8-sig", errors="replace")
     for item in (summarize(log) + stage_report(log) + hint_report(log) +
-                 failed_source_tests(log)):
+                 failed_source_tests(log) + public_error_locations(log)):
         print("[HULK/PRIVATE-COMPILER/REDACTED]", item)
     return 0
 

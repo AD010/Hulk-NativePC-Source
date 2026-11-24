@@ -1300,11 +1300,11 @@ bool InstallVerifiedSourceShaderPack(
   return true;
 }
 void InstallOriginalEorGameAssetRoot(
-    const std::filesystem::path& user's_original_game_root) {
+    const std::filesystem::path& user_original_game_root) {
   std::lock_guard lock(g_mutex);
   // This root contains only privately owned original game resources.
   // No public repo or packaged native executable embeds game archive data.
-  g_original_game_asset_root=user's_original_game_root;
+  g_original_game_asset_root=user_original_game_root;
 }
 void ClearOriginalEorGameAssetRoot() noexcept {
   std::lock_guard lock(g_mutex);

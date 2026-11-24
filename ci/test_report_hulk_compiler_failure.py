@@ -2,7 +2,7 @@
 """No Hulk game data needed for diagnostic redaction regression tests."""
 import unittest
 from report_hulk_compiler_failure import (
-    summarize, stage_report, hint_report, failed_source_tests,
+    summarize, stage_report, hint_report, failed_source_tests, public_error_locations,
 )
 
 class RedactionTests(unittest.TestCase):
@@ -74,6 +74,19 @@ class RedactionTests(unittest.TestCase):
         self.assertNotIn("AssertionError", out)
         self.assertIn("none-identified", " ".join(
             failed_source_tests("FAIL: private_name (sensitive)")))
+
+    def test_safe_public_error_locations(self):
+        raw = (
+            r"D:\private\native_port\src\eor_xdk_hook_bridge.h:268:19: error: expected ')'" + "\n"
+            r"D:\private\ci\sample.cpp(42,8): error C2220: secret data" + "\n"
+            r"D:\private\generated\hulk_recomp.13.cpp:19:2: error: secret data" + "\n"
+        )
+        out = "\n".join(public_error_locations(raw))
+        self.assertIn("eor_xdk_hook_bridge.h:268", out)
+        self.assertIn("sample.cpp:42", out)
+        self.assertNotIn("private", out)
+        self.assertNotIn("secret", out)
+        self.assertNotIn("hulk_recomp", out)
 
     def test_error_group_count_limit(self):
         raw = '\n'.join(f'file{i}.cpp: error C{i+1000}: private token' for i in range(50))
