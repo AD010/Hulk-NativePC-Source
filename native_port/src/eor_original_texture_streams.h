@@ -61,7 +61,7 @@ std::optional<OriginalLfxtStreamTable> ParseOriginalLfxtStreamTable(
 // storage-size FAMILY, not exact BC2/BC3/BC5 GPU format or physical 52-byte
 // envelope placement. The source decoder must never guess pixel byte offsets.
 enum class OriginalLfxtStorageFamily : uint8_t {
-  Unknown=0, BC_8ByteBlock, BC_16ByteBlock, Texel_8Byte, Texel_4Byte
+  Unknown=0, BC_8ByteBlock, BC_16ByteBlock, Texel_8Byte, Texel_4Byte, Texel_1Byte
 };
 struct OriginalLfxtMipLevel {
   uint32_t width=0, height=0, aligned_storage_bytes=0;

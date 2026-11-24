@@ -14,6 +14,7 @@ BlockInfo Info(XenosTextureFormat f) {
     case XenosTextureFormat::BC4: return {4,8,3};
     case XenosTextureFormat::BC5: return {4,16,4};
     case XenosTextureFormat::RGBA8: return {1,4,2};
+    case XenosTextureFormat::R8: return {1,1,0};
     case XenosTextureFormat::RGBA16F: return {1,8,3};
     default: throw std::invalid_argument("Unverified original Xenos GPU texture format");
   }
@@ -42,9 +43,9 @@ uint64_t OriginalTiled2DOffset(
     uint32_t x,uint32_t y,uint32_t pitch,uint32_t bpb) {
   if(!pitch || pitch>8192 || pitch%32 ||
      x>=pitch || y>=8192 ||
-     (bpb!=4 && bpb!=8 && bpb!=16))
+     (bpb!=1 && bpb!=4 && bpb!=8 && bpb!=16))
     throw std::invalid_argument("Invalid original Xenos 2D tile coordinates");
-  const uint32_t log_bpb=bpb==4?2:bpb==8?3:4;
+  const uint32_t log_bpb=bpb==1?0:bpb==4?2:bpb==8?3:4;
   // Same 32x32 macro/micro tile address as Xenia's BSD-licensed
   // gpu/texture_address.h::Tiled2D. Coordinates are PIXEL BLOCKS, not pixels.
   const uint64_t outer=(((uint64_t(y)>>5)*(pitch>>5))+(x>>5))<<6;

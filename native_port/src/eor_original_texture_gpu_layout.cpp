@@ -31,6 +31,7 @@ bool KnownDescriptor(std::span<const std::byte> full,
     case 0x14: fmt=XenosTextureFormat::BC3;break; // k_DXT4_5
     case 0x1d: fmt=XenosTextureFormat::RGBA16F;break; // k_16_16_16_16_EXPAND
     case 0x06: fmt=XenosTextureFormat::RGBA8;break; // k_8_8_8_8
+    case 0x02: fmt=XenosTextureFormat::R8;break; // k_8
     default:return false;
   }
   if(BE32(data,40)!=(id==0x1d ? 0x00000d11u :
@@ -51,7 +52,7 @@ uint32_t PaddedBlocks(uint32_t texels, uint32_t block) {
 std::optional<VerifiedOriginalXboxCube> DecodeOriginalStandaloneCube(
     std::span<const std::byte> lfxt,uint32_t original_hash,
     const OriginalLfxtInlineSection& section) {
-  // All ten source USA environment records are BC3, one mip, six faces.
+  // All eleven source USA environment records are BC3, one mip, six faces.
   // Validate the authentic header AND descriptor before exposing pixels.
   const auto verified=FindOriginalLfxtInlineSection(lfxt,original_hash);
   if(!verified || verified->inline_data_offset!=section.inline_data_offset ||
@@ -118,12 +119,17 @@ DecodeOriginalStandaloneMip(std::span<const std::byte> lfxt, uint32_t original_h
   const bool compressed=format==XenosTextureFormat::BC1 || format==XenosTextureFormat::BC3;
   const uint32_t block=compressed ? 4u : 1u;
   const uint32_t bytes=format==XenosTextureFormat::BC3 ? 16u :
-                       format==XenosTextureFormat::RGBA8 ? 4u : 8u;
+                       format==XenosTextureFormat::RGBA8 ? 4u :
+                       format==XenosTextureFormat::R8 ? 1u : 8u;
+  // The sole source-proven k_8 asset uses a complete 256x256 allocation.
+  // Smaller k_8 tiled images require different padded storage rules.
+  if(format==XenosTextureFormat::R8 && (width!=256u || height!=256u || (word0&1023u)!=2u))return {};
   const auto pitch=PaddedBlocks(width,block), rows=PaddedBlocks(height,block);
   if (((word0>>22)&511u)*32u!=pitch*block || uint64_t(pitch)*rows*bytes!=payload)
     return std::nullopt;
   const auto family=format==XenosTextureFormat::BC1 ? OriginalLfxtStorageFamily::BC_8ByteBlock :
                     format==XenosTextureFormat::BC3 ? OriginalLfxtStorageFamily::BC_16ByteBlock :
+                    format==XenosTextureFormat::R8 ? OriginalLfxtStorageFamily::Texel_1Byte :
                     OriginalLfxtStorageFamily::Texel_4Byte;
   OriginalLfxtMipPlan plan{family,width,height,{{width,height,static_cast<uint32_t>(payload),false}},true};
   SourceMipLayout level{};
@@ -154,7 +160,7 @@ std::optional<VerifiedOriginalXboxGpuMipChain> DecodeOriginalXboxGpuMips(
   uint32_t rw=0,rh=0,sw=0,sh=0;
   if(!KnownDescriptor(lfxt,resident_format,rw,rh) ||
      !KnownDescriptor(stream,stream_format,sw,sh) ||
-     resident_format!=stream_format ||
+     resident_format!=stream_format || resident_format==XenosTextureFormat::R8 ||
      rw!=plan.resident_width || rh!=plan.resident_height ||
      sw!=plan.levels.front().width || sh!=plan.levels.front().height)
     return std::nullopt;

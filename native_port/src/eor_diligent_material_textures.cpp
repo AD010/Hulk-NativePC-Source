@@ -43,6 +43,7 @@ void BindOriginalPixelImage2D(Diligent::IRenderDevice* device,
   // These four layouts are decoded by the USA LFXT asset loader. Validate
   // the live swizzle, exponent, signs and typed Vulkan SRV independently.
   const bool compatible=
+      (format==2 && image.Format==TEX_FORMAT_RGBA8_UNORM && (sampling&0x7ffffu)==0xd10u) ||
       (format==6 && image.Format==TEX_FORMAT_BGRA8_UNORM && (sampling&0x7ffffu)==0xc14u) ||
       (format==18 && image.Format==TEX_FORMAT_BC1_UNORM && (sampling&0x7ffffu)==0xd10u) ||
       (format==20 && image.Format==TEX_FORMAT_BC3_UNORM && (sampling&0x7ffffu)==0xd10u) ||

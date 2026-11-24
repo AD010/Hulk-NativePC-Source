@@ -34,6 +34,11 @@ Diligent::TEXTURE_FORMAT Convert(textures::XenosTextureFormat fmt,
       if(space!=OriginalTextureColorSpace::Linear)
         throw std::invalid_argument("Original HDR RGBA16F lightmap cannot be sRGB");
       return Diligent::TEX_FORMAT_RGBA16_FLOAT;
+    case XenosTextureFormat::R8:
+      if(space!=OriginalTextureColorSpace::Linear)throw std::invalid_argument("Original k_8 is linear");
+      // Xbox k_8 expands to RRRR, not Vulkan's default R001. The
+      // immutable upload below expands all four channels before filtering.
+      return Diligent::TEX_FORMAT_RGBA8_UNORM;
     case XenosTextureFormat::RGBA8:
       // The authenticated USA 0x06 descriptor has fetch word 3 = 0xC14.
       // Its four swizzle selectors (bits 1..12) are B,G,R,A.
@@ -57,6 +62,7 @@ textures::OriginalLfxtStorageFamily Family(textures::XenosTextureFormat fmt) {
     case XenosTextureFormat::BC5:return OriginalLfxtStorageFamily::BC_16ByteBlock;
     case XenosTextureFormat::RGBA16F:return OriginalLfxtStorageFamily::Texel_8Byte;
     case XenosTextureFormat::RGBA8:return OriginalLfxtStorageFamily::Texel_4Byte;
+    case XenosTextureFormat::R8:return OriginalLfxtStorageFamily::Texel_1Byte;
     default: return OriginalLfxtStorageFamily::Unknown;
   }
 }
@@ -146,7 +152,7 @@ UploadedEorTexture UploadExplicitOriginalTexture(
       original.original_bytes,original.original_stream_bytes,
       *original.original_inline_section,*original.original_mip_plan,
       format,layouts);
-  const auto image=textures::PrepareExplicitOriginalMips(
+  auto image=textures::PrepareExplicitOriginalMips(
       format,layouts,original.original_bytes,original.original_stream_bytes);
   if(image.mips.empty() || image.mips.size()>std::numeric_limits<Diligent::Uint32>::max())
     throw std::invalid_argument("Unverified host texture mip chain");
@@ -162,6 +168,15 @@ UploadedEorTexture UploadExplicitOriginalTexture(
         throw std::invalid_argument("Original 1D texture source has multiple rows");
   }
   const auto format_host=Convert(image.format,color_space);
+  if(image.format==textures::XenosTextureFormat::R8) {
+    for(auto& mip:image.mips) {
+      std::vector<std::byte> rgba(mip.blocks.size()*4u);
+      for(size_t i=0;i<mip.blocks.size();++i)
+        for(size_t c=0;c<4;++c)rgba[i*4+c]=mip.blocks[i];
+      mip.blocks=std::move(rgba);
+      mip.row_pitch_bytes*=4u;
+    }
+  }
   Diligent::TextureDesc desc;
   desc.Name="Original EoR verified Xbox texture";
   // A NativeX shader expects Texture2DArray for 2D fetches (including one

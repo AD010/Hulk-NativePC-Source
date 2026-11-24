@@ -10,7 +10,7 @@
 
 namespace hulk::eor::textures {
 enum class XenosTextureFormat : uint8_t {
-  Unknown=0, BC1, BC2, BC3, RGBA8, BC4, BC5, RGBA16F
+  Unknown=0, BC1, BC2, BC3, RGBA8, BC4, BC5, RGBA16F, R8
 };
 enum class XenosDataEndian : uint8_t {
   Unknown=0, NoSwap, Swap16, Swap32

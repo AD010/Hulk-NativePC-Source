@@ -19,6 +19,8 @@ BlockInfo Info(XenosTextureFormat f) {
       return {OriginalLfxtStorageFamily::BC_16ByteBlock,4,16};
     case XenosTextureFormat::RGBA8:
       return {OriginalLfxtStorageFamily::Texel_4Byte,1,4};
+    case XenosTextureFormat::R8:
+      return {OriginalLfxtStorageFamily::Texel_1Byte,1,1};
     case XenosTextureFormat::RGBA16F:
       return {OriginalLfxtStorageFamily::Texel_8Byte,1,8};
     default:
