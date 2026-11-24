@@ -9,6 +9,49 @@
 
 namespace hulk::eor::native {
 
+namespace {
+// Every mesh source contains its own 4-byte position/normal/UV/color
+// declarations, while the live XDK device exposes 12-byte declarations.
+// Compare ORIGINAL usage+index and ORIGINAL byte offsets of every
+// stream-zero live input. Do not invent a semantic from a shader name.
+bool MatchesOriginalGuestDeclaration(
+    const xdk::UsaVertexDeclaration& guest,
+    const model::UploadedNativeMesh& mesh) noexcept {
+  if(guest.elements.empty() || mesh.original_attribute_declarations.size()<2)
+    return false;
+  const auto source_byte=[](std::byte b) noexcept -> uint32_t {
+    return std::to_integer<uint8_t>(b);
+  };
+  size_t inputs=mesh.original_attribute_declarations.size()-1u;
+  std::vector<std::array<uint32_t,3>> declared;
+  declared.reserve(inputs);
+  uint32_t byte_offset=0;
+  for(size_t i=0;i<inputs;++i) {
+    const auto& entry=mesh.original_attribute_declarations[i];
+    const uint32_t next=source_byte(entry[3]);
+    if(next<=byte_offset || next>mesh.original_vertex_stride)return false;
+    declared.push_back({byte_offset,source_byte(entry[1]),source_byte(entry[2])});
+    byte_offset=next;
+  }
+  // Extra independent streams are checked by the already captured XDK
+  // allocation provenance. Only stream-zero has these packed archive bytes.
+  size_t stream_zero=0;
+  for(const auto& element:guest.elements) {
+    if(element.stream!=0)continue;
+    ++stream_zero;
+    const uint32_t usage=(element.original_packed_usage>>16)&255u;
+    const uint32_t index=(element.original_packed_usage>>8)&255u;
+    bool matched=false;
+    for(const auto& source:declared)
+      if(source[0]==element.byte_offset && source[1]==usage &&
+         source[2]==index) {
+        matched=true;break;
+      }
+    if(!matched)return false;
+  }
+  return stream_zero!=0;
+}
+}
 // A guest XDK resource is commonly a shared allocation containing MANY EoR
 // geometry objects. Never require its full byte length to equal one model
 // mesh. Recover the *exact contiguous* original mesh VB+IB windows, including
@@ -76,7 +119,10 @@ std::optional<ExactOriginalGuestMesh> IdentifyExactOriginalGuestMesh(
     for(const auto& mesh:model->meshes.meshes()) {
       const auto& source=mesh.original_source_vertex_bytes;
       const uint32_t stride=mesh.original_vertex_stride;
-      if(!stride || (draw.captured_vertex_bindings && binding->stride!=stride) || !mesh.vertex_count ||
+      if(!stride || (draw.captured_vertex_bindings && binding->stride!=stride) ||
+         (draw.vertex_declaration && !draw.vertex_declaration->elements.empty() &&
+          !MatchesOriginalGuestDeclaration(*draw.vertex_declaration,mesh)) ||
+         !mesh.vertex_count ||
          source.size()!=uint64_t(mesh.vertex_count)*stride ||
          source.size()>vb.bytes.size() ||
          mesh.host_indices.size()!=mesh.index_count ||

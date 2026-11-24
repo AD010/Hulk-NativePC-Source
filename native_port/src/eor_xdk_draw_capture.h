@@ -105,10 +105,18 @@ struct UsaIndexBufferBinding {
 };
 std::optional<UsaIndexBufferBinding> ReadUsaIndexBufferBinding(
     uint32_t object,ReadGuestBytes read,void* state) noexcept;
+struct UsaVertexElement {
+  uint16_t stream=0,byte_offset=0;
+  uint32_t original_packed_type=0,original_packed_usage=0;
+};
 struct UsaVertexDeclaration {
   uint32_t object=0;
   uint16_t streams=0;
   bool font_main_elements=false;
+  // The complete original XDK declaration, not merely a mask of streams.
+  // A source EoR model's 4-byte mesh semantics can be compared with the
+  // actual live guest element offsets before native vertex buffer binding.
+  std::vector<UsaVertexElement> elements;
 };
 std::optional<UsaVertexDeclaration> ReadUsaVertexDeclaration(
     uint32_t object,ReadGuestBytes read,void* state) noexcept;

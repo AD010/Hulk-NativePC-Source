@@ -57,10 +57,16 @@ std::optional<UsaVertexDeclaration> ReadUsaVertexDeclaration(
   constexpr std::array<uint32_t,9> font{
       0,0x2A23B9,0, 12,0x182886,0xA0000, 16,0x2C23A5,0x50000};
   UsaVertexDeclaration declaration{object,0,count==3};
+  declaration.elements.reserve(count);
   for(uint32_t i=0;i<count;++i) {
     const auto* entry=raw.data()+i*entry_bytes;
-    const uint32_t stream=SourceWord(entry)>>16;
+    const uint32_t stream_offset=SourceWord(entry);
+    const uint32_t stream=stream_offset>>16;
     if(stream>=16)return {};
+    declaration.elements.push_back(UsaVertexElement{
+        static_cast<uint16_t>(stream),
+        static_cast<uint16_t>(stream_offset),
+        SourceWord(entry+4),SourceWord(entry+8)});
     declaration.streams|=static_cast<uint16_t>(1u<<stream);
     if(declaration.font_main_elements)
       for(size_t word=0;word<3;++word)
