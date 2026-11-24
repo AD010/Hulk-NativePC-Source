@@ -396,7 +396,7 @@ uint32_t KnownUsaCommandAddress(CommandKind kind) noexcept {
   }
 }
 }
-void FrameCapture::Record(const RawDraw& call) {
+void FrameCapture::Record(RawDraw call) {
   if(!call.function)throw std::invalid_argument("Missing verified XDK address");
   if(calls_.size()>=kMaxDraws || commands_.size()>=kMaxCommands) {
     ++dropped_;
@@ -407,7 +407,7 @@ void FrameCapture::Record(const RawDraw& call) {
   if(!kind)throw std::invalid_argument("Unknown original XDK Draw kind");
   const RawCommand command{*kind,call.function,call.lr,
                            call.gpr,static_cast<uint32_t>(calls_.size())};
-  calls_.push_back(call);
+  calls_.push_back(std::move(call));
   try {
     commands_.push_back(command);
   } catch (...) {

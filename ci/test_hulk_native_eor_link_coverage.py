@@ -205,6 +205,15 @@ class NativeEorLinkCoverage(unittest.TestCase):
         self.assertIn("return e.BufferSlot==i && e.ValueType==Diligent::VT_UINT32;", draw)
         self.assertIn("runtime?(integer_skin?4u:3u)", draw)
 
+    def test_failed_shader_pair_skips_unusable_heavy_capture(self):
+        hook=(ROOT / "native_port/src/eor_xdk_hook_bridge.cpp").read_text()
+        capture=hook.split("void CapturePpcDraw(",1)[1].split("void CapturePpcCommand(",1)[0]
+        self.assertLess(capture.index("g_frame_shader_complete=false"),
+                        capture.index("CaptureUsaAllShaderRegisters("))
+        self.assertIn("diagnostic_mesh || (replay && g_frame_shader_complete)",capture)
+        self.assertIn("g_collector.Record(std::move(draw))",capture)
+        self.assertIn("g_frame_shader_complete=true;",hook.split("void EndPpcHook(",1)[1])
+
     def test_built_in_eor_claims_before_archive_and_target_work(self):
         hook=(ROOT / "native_port/src/eor_xdk_hook_bridge.cpp").read_text()
         worker=hook.split("native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(",1)[1]

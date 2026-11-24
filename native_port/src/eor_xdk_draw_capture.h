@@ -793,7 +793,7 @@ class FrameCapture {
   uint32_t NextDrawOrdinal() const noexcept {
     return static_cast<uint32_t>(calls_.size());
   }
-  void Record(const RawDraw& call);
+  void Record(RawDraw call);
   void RecordCommand(const RawCommand& command);
   Frame Finish();
   void Reset();

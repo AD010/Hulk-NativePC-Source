@@ -70,6 +70,11 @@ std::filesystem::file_time_type g_last_incremental_spirv_write{}; // guarded
 std::uintmax_t g_last_incremental_spirv_size=0; // guarded
 std::set<std::pair<uint32_t,uint32_t>> g_original_shader_aot_requests; // guarded
 FrameCapture g_collector;
+// Full native replay needs every original shader pair. Once a Draw in
+// this epoch is unresolvable, do not copy large VB/IB allocations for
+// later Draws which cannot possibly be submitted. Still observe identities.
+bool g_frame_shader_complete=true; // guarded by g_mutex
+uint32_t g_frame_heavy_capture_skipped=0; // guarded by g_mutex
 // Only full-source-hash-verified pixel policies are retained across draw
 // calls. Failed guest reads must be retried when streaming finishes.
 aot::OriginalPixelSamplerCache g_pixel_sampling;
@@ -773,25 +778,7 @@ void CapturePpcDraw(Kind kind, uint32_t guest, const PPCContext& ctx,
               all_source_slots_have_real_guest_textures;
         }
       }
-      // Only while explicit diagnostic capture is active. Store all
-      // 256 original vertex AND pixel float4 registers, not just camera:
-      // later source-proven native SPIR-V material declarations can read
-      // exact per-Draw shader parameters without another guest memory read.
-      try {
-        auto constants=std::make_shared<OriginalShaderRegisters>();
-        if(CaptureUsaAllShaderRegisters(ctx.r3.u32,ReadGuest,
-                                        guest_base,*constants)) {
-          if(REXCVAR_GET(hulk_eor_vulkan_replay)) {
-            CaptureUsaPixelFetches(ctx.r3.u32,ReadGuest,guest_base,*constants);
-            CaptureUsaBooleanRegisters(ctx.r3.u32,ReadGuest,guest_base,*constants);
-            constants->fixed_graphics_state=CaptureUsaFixedGraphicsState(
-                ctx.r3.u32,ReadGuest,guest_base);
-          }
-          draw.observed_shader_constants=std::move(constants);
-        }
-      } catch (const std::bad_alloc&) {
-        // Never crash game logic on a diagnostic snapshot allocation.
-      }
+
     }
   }
   // ORIGINAL USA Decal engine PPC (0x8265B420) directly calls XDK
@@ -896,6 +883,44 @@ void CapturePpcDraw(Kind kind, uint32_t guest, const PPCContext& ctx,
     draw.observed_live_pixel_shader_header = aot::ObserveOriginalBoundXdkShader(
         sources, live.original_ps_guest_object, aot::Stage::Pixel,
         ReadGuest, guest_base, frame, ordinal);
+    if (draw.observed_live_vertex_shader_header &&
+        draw.observed_live_pixel_shader_header && g_original_effect_capture_catalog)
+      draw.observed_live_eor_effect_pass = aot::ResolveOriginalLiveEorEffectPass(
+          sources, *g_original_effect_capture_catalog,
+          *draw.observed_live_vertex_shader_header, *draw.observed_live_pixel_shader_header,
+          live.original_vs_guest_object, live.original_ps_guest_object, frame, ordinal);
+  }
+  const bool replay=REXCVAR_GET(hulk_eor_vulkan_replay);
+  const bool diagnostic_mesh=REXCVAR_GET(hulk_eor_xdk_source_mesh_capture);
+  if(replay && (!draw.observed_live_vertex_shader_header ||
+                !draw.observed_live_pixel_shader_header ||
+                !draw.observed_live_eor_effect_pass))
+    g_frame_shader_complete=false;
+  const bool capture_heavy=!replay || diagnostic_mesh || g_frame_shader_complete;
+  if(replay && !capture_heavy)++g_frame_heavy_capture_skipped;
+  if(capture_heavy && draw.observed_vs_matrices) {
+      // Only while explicit diagnostic capture is active. Store all
+      // 256 original vertex AND pixel float4 registers, not just camera:
+      // later source-proven native SPIR-V material declarations can read
+      // exact per-Draw shader parameters without another guest memory read.
+      try {
+        auto constants=std::make_shared<OriginalShaderRegisters>();
+        if(CaptureUsaAllShaderRegisters(ctx.r3.u32,ReadGuest,
+                                        guest_base,*constants)) {
+          if(REXCVAR_GET(hulk_eor_vulkan_replay)) {
+            CaptureUsaPixelFetches(ctx.r3.u32,ReadGuest,guest_base,*constants);
+            CaptureUsaBooleanRegisters(ctx.r3.u32,ReadGuest,guest_base,*constants);
+            constants->fixed_graphics_state=CaptureUsaFixedGraphicsState(
+                ctx.r3.u32,ReadGuest,guest_base);
+          }
+          draw.observed_shader_constants=std::move(constants);
+        }
+      } catch (const std::bad_alloc&) {
+        // Never crash game logic on a diagnostic snapshot allocation.
+      }
+  }
+  if(replay && g_frame_shader_complete && g_original_shader_capture_index) {
+    const auto& sources=*g_original_shader_capture_index;
     if(auto& pixel=draw.observed_live_pixel_shader_header;
        pixel && REXCVAR_GET(hulk_eor_vulkan_replay) && draw.observed_shader_constants) {
       try {
@@ -906,17 +931,10 @@ void CapturePpcDraw(Kind kind, uint32_t guest, const PPCContext& ctx,
         }
       } catch(const std::bad_alloc&) { /* Missing source policy rejects only direct replay. */ }
     }
-    if (draw.observed_live_vertex_shader_header &&
-        draw.observed_live_pixel_shader_header && g_original_effect_capture_catalog)
-      draw.observed_live_eor_effect_pass = aot::ResolveOriginalLiveEorEffectPass(
-          sources, *g_original_effect_capture_catalog,
-          *draw.observed_live_vertex_shader_header, *draw.observed_live_pixel_shader_header,
-          live.original_vs_guest_object, live.original_ps_guest_object, frame, ordinal);
   }
   // Only a requested direct Vulkan render performs byte-exact guest
   // resource capture; diagnostics-only XDK observer is unaffected.
-  if((REXCVAR_GET(hulk_eor_vulkan_replay) ||
-      REXCVAR_GET(hulk_eor_xdk_source_mesh_capture)) &&
+  if((diagnostic_mesh || (replay && g_frame_shader_complete)) &&
      draw.observed_vs_matrices) {
     try {
       const auto& state=*draw.observed_vs_matrices;
@@ -957,7 +975,7 @@ void CapturePpcDraw(Kind kind, uint32_t guest, const PPCContext& ctx,
       draw.source_vertex_streams={};
     }
   }
-  g_collector.Record(draw);
+  g_collector.Record(std::move(draw));
 }
 void CapturePpcCommand(CommandKind kind,uint32_t guest,
                        const PPCContext& ctx,uint8_t* guest_base) {
@@ -988,9 +1006,13 @@ void EndPpcHook(native_x_renderer::Call kind) {
   Frame frame;
   std::vector<CallsiteEvidenceRecord> hot;
   uint64_t untracked=0;
+  uint32_t heavy_skipped=0;
   {
     std::lock_guard lock(g_mutex);
     frame = g_collector.Finish();
+    heavy_skipped=g_frame_heavy_capture_skipped;
+    g_frame_heavy_capture_skipped=0;
+    g_frame_shader_complete=true;
     g_original_buffers.Reset();
     g_callsite_evidence.Observe(frame);
     // This independent original PPC telemetry also works with the
@@ -1113,6 +1135,7 @@ void EndPpcHook(native_x_renderer::Call kind) {
                 frame.sequence,original_header_vs,original_header_ps,
                 original_header_pairs,original_effect_passes,
                 frame.calls.size());
+    REXLOG_INFO("[HULK/EOR-CAPTURE-COST] frame={} full_snapshot_skipped={} (missing original shader pair)",frame.sequence,heavy_skipped);
     for (const auto& site: hot) {
       REXLOG_INFO("[HULK/EOR-XDK-CALLSITE] XDK=0x{:08X} LR=0x{:08X} "
                   "kind={} draws={} frames={} first={} last={} "
