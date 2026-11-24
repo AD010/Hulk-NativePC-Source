@@ -248,6 +248,7 @@ struct DiligentEorDirectBackend::State {
   native::FrameGeometry frame;
   VerifiedSceneFormat format;
   std::vector<NativeEorPassResources> passes;
+  std::map<MaterialKey,std::unique_ptr<NativeEorPassResources>> streamed_passes;
   std::map<uint64_t,NativeEorDrawBuffers> draw_buffers;
   BindConstants bind_constants;
   CompositeOutput composite;
@@ -289,26 +290,12 @@ struct DiligentEorDirectBackend::State {
   // One source frame can authorize at most one physical host Present attempt.
   bool composite_attempted=false;
 };
-DiligentEorDirectBackend::DiligentEorDirectBackend(
-    Diligent::IRenderDevice* device,Diligent::IDeviceContext* context,
-    DiligentSceneTargets& scene,DiligentMeshUploadBackend& meshes,
-    DiligentAotShaderModules& shaders,const aot::ShaderBank& bank,
-    const aot::EffectCatalog& effects,native::FrameGeometry frame,
-    VerifiedSceneFormat formats,std::vector<NativeEorPassResources> passes,
-    std::vector<NativeEorDrawBuffers> buffers,BindConstants constants,
-    CompositeOutput composite)
-    :state_(device && context ? std::make_unique<State>(
-        device,context,scene,meshes,shaders,bank,effects,frame,formats,
-        std::move(passes),std::move(buffers),std::move(constants),
-        std::move(composite)) : nullptr) {
-  if(!state_ || device->GetDeviceInfo().Type != Diligent::RENDER_DEVICE_TYPE_VULKAN ||
-     !frame.direct_engine_path_ready || !state_->bind_constants ||
-     !state_->composite || !bank.size() ||
-     effects.ShaderCount()!=bank.expected() || state_->passes.empty())
-    throw std::invalid_argument("Original EoR engine Draw/constant/output Vulkan ABI not verified");
-  if(!formats.original_color_format_verified ||
-     !formats.original_depth_format_verified)
-    throw std::invalid_argument("Native EoR scene color and depth format not source-proven");
+// Startup and late-streamed original materials use the SAME render-state,
+// source shader SPIR-V, original sampler/image and input-layout proof.
+static void ValidateSourceOriginalMaterialPass(
+    NativeEorPassResources& owner,const aot::ShaderBank& bank,
+    const aot::EffectCatalog& effects,const native::FrameGeometry& frame,
+    const VerifiedSceneFormat& formats) {
   const Diligent::TEXTURE_FORMAT color =
       formats.color==NativeColorFormat::Rgba8 ?
           Diligent::TEX_FORMAT_RGBA8_UNORM :
@@ -319,13 +306,6 @@ DiligentEorDirectBackend::DiligentEorDirectBackend(
           Diligent::TEX_FORMAT_D24_UNORM_S8_UINT :
       formats.depth==NativeDepthFormat::D32Float ?
           Diligent::TEX_FORMAT_D32_FLOAT : Diligent::TEX_FORMAT_UNKNOWN;
-  if(color==Diligent::TEX_FORMAT_UNKNOWN || (formats.depth==NativeDepthFormat::None ?
-      (!formats.original_screen.exact_guest_to_native_targets_verified || !formats.original_screen.guest_device ||
-       !formats.original_screen.guest_rt0 || formats.original_screen.guest_depth) :
-      depth==Diligent::TEX_FORMAT_UNKNOWN))
-    throw std::invalid_argument("Unknown EoR native scene format");
-  for(size_t i=0;i<state_->passes.size();++i) {
-    auto& owner=state_->passes[i];
     auto& pass=owner.pipeline;
     // Decoded attribute buffers keep a float4 per vertex even when the
     // shader consumes only XY or RGB. Resolve AUTO from the actual upload
@@ -431,7 +411,45 @@ DiligentEorDirectBackend::DiligentEorDirectBackend(
       throw std::invalid_argument("Native EoR shader/pass provenance mismatched");
     // State::material_lookup already rejects duplicate material and attachment variants
     // in O(log N) per pass, before any Vulkan pipeline is allocated.
-  }
+}
+
+DiligentEorDirectBackend::DiligentEorDirectBackend(
+    Diligent::IRenderDevice* device,Diligent::IDeviceContext* context,
+    DiligentSceneTargets& scene,DiligentMeshUploadBackend& meshes,
+    DiligentAotShaderModules& shaders,const aot::ShaderBank& bank,
+    const aot::EffectCatalog& effects,native::FrameGeometry frame,
+    VerifiedSceneFormat formats,std::vector<NativeEorPassResources> passes,
+    std::vector<NativeEorDrawBuffers> buffers,BindConstants constants,
+    CompositeOutput composite)
+    :state_(device && context ? std::make_unique<State>(
+        device,context,scene,meshes,shaders,bank,effects,frame,formats,
+        std::move(passes),std::move(buffers),std::move(constants),
+        std::move(composite)) : nullptr) {
+  if(!state_ || device->GetDeviceInfo().Type != Diligent::RENDER_DEVICE_TYPE_VULKAN ||
+     !frame.direct_engine_path_ready || !state_->bind_constants ||
+     !state_->composite || !bank.size() ||
+     effects.ShaderCount()!=bank.expected())
+    throw std::invalid_argument("Original EoR engine Draw/constant/output Vulkan ABI not verified");
+  if(!formats.original_color_format_verified ||
+     !formats.original_depth_format_verified)
+    throw std::invalid_argument("Native EoR scene color and depth format not source-proven");
+  const Diligent::TEXTURE_FORMAT color =
+      formats.color==NativeColorFormat::Rgba8 ?
+          Diligent::TEX_FORMAT_RGBA8_UNORM :
+      formats.color==NativeColorFormat::Rgba16Float ?
+          Diligent::TEX_FORMAT_RGBA16_FLOAT : Diligent::TEX_FORMAT_UNKNOWN;
+  const Diligent::TEXTURE_FORMAT depth =
+      formats.depth==NativeDepthFormat::D24S8 ?
+          Diligent::TEX_FORMAT_D24_UNORM_S8_UINT :
+      formats.depth==NativeDepthFormat::D32Float ?
+          Diligent::TEX_FORMAT_D32_FLOAT : Diligent::TEX_FORMAT_UNKNOWN;
+  if(color==Diligent::TEX_FORMAT_UNKNOWN || (formats.depth==NativeDepthFormat::None ?
+      (!formats.original_screen.exact_guest_to_native_targets_verified || !formats.original_screen.guest_device ||
+       !formats.original_screen.guest_rt0 || formats.original_screen.guest_depth) :
+      depth==Diligent::TEX_FORMAT_UNKNOWN))
+    throw std::invalid_argument("Unknown EoR native scene format");
+  for(auto& owner:state_->passes)
+    ValidateSourceOriginalMaterialPass(owner,bank,effects,frame,formats);
   for(const auto& [position,resident]:state_->draw_buffers) {
     const auto& slots=resident.host_vertex_slots;
     if(!position || resident.position_handle!=position ||
@@ -469,6 +487,54 @@ DiligentEorDirectBackend::DiligentEorDirectBackend(
   (void)PrewarmResidentOriginalPipelines(64);
 }
 DiligentEorDirectBackend::~DiligentEorDirectBackend() noexcept {AbortScene();}
+std::size_t DiligentEorDirectBackend::AdoptVerifiedOriginalMaterialPasses(
+    std::span<const VerifiedNativeMaterialPass> original_passes,
+    DiligentOriginalTextureResidency& residency) {
+  if(!state_ || state_->scene_open || state_->frame_preflight_ready)
+    throw std::invalid_argument(
+        "Source EoR material cannot change during Vulkan GPU scene");
+  if(original_passes.empty())return 0;
+  auto incoming=AcquireVerifiedNativeMaterialPasses(original_passes,residency);
+  auto& s=*state_;
+  // Every new material passes the same strict shader image/PSO checks
+  // that the constructor requires of its initial original-source materials.
+  for(auto& pass:incoming)
+    ValidateSourceOriginalMaterialPass(pass,s.bank,s.effects,s.frame,s.format);
+  for(const auto& pass:incoming) {
+    const auto key=PassKey(pass);
+    const auto previous=s.material_lookup.find(key);
+    if(previous==s.material_lookup.end())continue;
+    const auto& old=*previous->second;
+    if(old.pipeline.original_vertex_shader_sha256!=
+           pass.pipeline.original_vertex_shader_sha256 ||
+       old.pipeline.original_pixel_shader_sha256!=
+           pass.pipeline.original_pixel_shader_sha256 ||
+       old.original_textures.size()!=pass.original_textures.size())
+      throw std::invalid_argument(
+          "Original material shader/image generation changed while resident");
+    for(size_t i=0;i<pass.original_textures.size();++i) {
+      const auto& a=old.original_textures[i];
+      const auto& b=pass.original_textures[i];
+      if(!Same(a.identity,b.identity) ||
+         a.required_view!=b.required_view ||
+         a.uploaded!=b.uploaded)
+        throw std::invalid_argument(
+            "Original material physical texture generation changed");
+    }
+  }
+  size_t added=0;
+  for(auto& pass:incoming) {
+    const auto key=PassKey(pass);
+    if(s.material_lookup.contains(key))continue;
+    auto resident=std::make_unique<NativeEorPassResources>(std::move(pass));
+    const auto* verified=resident.get();
+    s.streamed_passes.emplace(key,std::move(resident));
+    s.material_lookup.emplace(key,verified);
+    ++added;
+  }
+  if(added)(void)PrewarmResidentOriginalPipelines(16);
+  return added;
+}
 model::NativeMeshUploadBackend&
 DiligentEorDirectBackend::OriginalModelUploader() noexcept {
   return state_->meshes;
@@ -707,10 +773,10 @@ std::size_t DiligentEorDirectBackend::PrewarmResidentOriginalPipelines(
   // have no compiled SPIR-V variant yet. Skip an unsupported pass instead
   // of abandoning prewarming ALL the valid resident UI/world materials.
   const std::size_t attempt_budget=std::max(max_new,std::size_t{128});
-  for(const auto& owner:s.passes) {
+  for(const auto& [key,owner_ptr]:s.material_lookup) {
     if(warmed>=max_new || attempted>=attempt_budget)break;
+    const auto& owner=*owner_ptr;
     if(!resident_models.contains(owner.original_model_hash))continue;
-    const auto key=PassKey(owner);
     if(s.pipeline_cache.contains(key) &&
        s.material_bindings.contains(key))continue;
     ++attempted;

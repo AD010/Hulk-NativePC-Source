@@ -120,6 +120,11 @@ class DiligentEorDirectBackend final : public aot::ShaderBindingBackend {
   // more models can request further batches BEFORE the next GPU scene.
   // Returns the number of newly cached verified owner-specific pipelines.
   std::size_t PrewarmResidentOriginalPipelines(std::size_t max_new);
+  // Accept real streamed game material owners after initial Vulkan setup,
+  // preserving the existing shader caches, resident meshes and swapchain.
+  std::size_t AdoptVerifiedOriginalMaterialPasses(
+      std::span<const VerifiedNativeMaterialPass> original_passes,
+      DiligentOriginalTextureResidency& residency);
   // Adopt already uploaded, source-verified Xbox model GPU buffers before
   // this frame's Vulkan preflight. No new renderer, shader or geometry
   // conversion: preserve the resident model and the existing PSO cache.
