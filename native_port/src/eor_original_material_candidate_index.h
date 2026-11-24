@@ -56,9 +56,11 @@ class OriginalMaterialCandidateIndex {
       auto original=source.LoadWithMaterialsHash(item.hash);
       if(!original || original->model.original_resource_hash!=item.hash)
         throw std::invalid_argument("Missing authentic indexed original Xbox model");
-      for(const auto& surface:original->surfaces) {
+      for(size_t surface_index=0;surface_index<original->surfaces.size();
+          ++surface_index) {
+        const auto& surface=original->surfaces[surface_index];
         if(surface.ordinal>=original->surfaces.size() ||
-           surface.ordinal!=(&surface-original->surfaces.data()) ||
+           surface.ordinal!=surface_index ||
            surface.original_material_name.empty())
           throw std::invalid_argument("Original Xbox material surface order broken");
         ++total_surfaces;
