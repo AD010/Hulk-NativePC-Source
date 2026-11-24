@@ -7,6 +7,7 @@
 #include "eor_original_font_source.h"
 #include "eor_native_world_stream.h"
 #include "eor_native_archive_source.h"
+#include "eor_original_material_candidate_index.h"
 #include "device.h"
 #include "SwapChain.h"
 #include <rex/cvar.h>
@@ -53,6 +54,7 @@ std::atomic<uint64_t> g_eor_ready_backbuffers{0};
 std::atomic<uint64_t> g_eor_gpu_failures{0};
 OriginalEorSourceCoverage g_original_source_coverage; // guarded by g_mutex
 std::filesystem::path g_original_game_asset_root; // guarded by g_mutex
+std::filesystem::path g_original_material_candidate_index; // guarded by g_mutex
 FrameCapture g_collector;
 // Only full-source-hash-verified pixel policies are retained across draw
 // calls. Failed guest reads must be retried when streaming finishes.
@@ -1269,6 +1271,12 @@ void InstallOriginalEorGameAssetRoot(
 void ClearOriginalEorGameAssetRoot() noexcept {
   std::lock_guard lock(g_mutex);
   g_original_game_asset_root.clear();
+  g_original_material_candidate_index.clear();
+}
+void InstallOriginalEorMaterialCandidateIndexPath(
+    const std::filesystem::path& private_source_index) {
+  std::lock_guard lock(g_mutex);
+  g_original_material_candidate_index=private_source_index;
 }
 void ClearVerifiedSourceShaderPack() noexcept {
   std::lock_guard lock(g_mutex);
@@ -2014,6 +2022,48 @@ native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(
             }
           }
         }
+        // Preload a bounded reverse lookup of authentic MODELS.ARC
+        // surfaces and indexed Textures.ARC hashes. The owner's source
+        // index uses an independently verified USA INDEX layout: Models
+        // (4174) and Textures (6669) resource hashes, offsets and sizes
+        // match the independently SHA-pinned USA index used by
+        // ArchiveModelSource. It is a prefetch HINT, not a Draw witness.
+        if(verified && verified->source_models &&
+           !verified->source_material_candidates) {
+          if(owner_catalog && owner_catalog->source_material_candidates &&
+             owner_catalog->source_models==verified->source_models &&
+             owner_catalog->direct_gpu==verified->direct_gpu) {
+            auto completed=std::make_shared<VerifiedWorkerEorOwnerCatalog>(*verified);
+            completed->source_material_candidates=owner_catalog->source_material_candidates;
+            verified=std::move(completed);
+          } else {
+            std::filesystem::path candidate_path;
+            {
+              std::lock_guard lock(g_mutex);
+              candidate_path=g_original_material_candidate_index;
+            }
+            if(!candidate_path.empty() &&
+               std::filesystem::is_regular_file(candidate_path)) {
+              try {
+                auto index=std::make_shared<world::OriginalMaterialCandidateIndex>();
+                index->Load(candidate_path);
+                // This source-only catalog was built from the supplied,
+                // original complete Xbox USA 4174-model material census.
+                // Never accept another region or arbitrary hash mapping.
+                constexpr std::array<uint8_t,32> kPrivateSourceIndex{
+                    0x46u,0xe6u,0xc6u,0xecu,0x9fu,0x74u,0x28u,0xbau,0x3au,0x17u,0x37u,0xabu,0x7eu,0xbau,0xd5u,0x64u,0xc1u,0xb0u,0x27u,0xb0u,0x06u,0xc3u,0xe3u,0x51u,0x56u,0xd2u,0xe0u,0x36u,0xabu,0x8bu,0x28u,0x20u};
+                if(index->OriginalIndexDigest()!=kPrivateSourceIndex)
+                  throw std::invalid_argument("Wrong original USA material candidate index");
+                auto completed=std::make_shared<VerifiedWorkerEorOwnerCatalog>(*verified);
+                completed->source_material_candidates=std::move(index);
+                verified=std::move(completed);
+              } catch(const std::exception&) {
+                // A mismatched/corrupt private lookup never authorizes
+                // shader creation or Vulkan Draw and cannot poison fallback.
+              }
+            }
+          }
+        }
         // A source loader may return the same immutable catalogue on
         // successive 60-frame polls: do not discard expensive Vulkan PSOs
         // unless real owner/LOD/texture residency changed. Otherwise
@@ -2066,6 +2116,49 @@ native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(
           *owner_catalog->direct_gpu,*source_snapshot);
     } catch (...) {
       return Result::kNotReady;
+    }
+  }
+  // Source-derived texture hashes independently identify potential
+  // archived mesh/material SURFACES even before a complete GPU witness
+  // exists. Request only a narrowly bounded candidate set per live
+  // original EoR Draw; all subsequent guest VB/IB/effect/PSO validation
+  // remains unchanged. This unblocks on-demand city-model I/O instead of
+  // requiring a manually installed list of thousands of model hashes.
+  if(owner_catalog && owner_catalog->source_models &&
+     owner_catalog->source_material_candidates &&
+     owner_catalog->direct_gpu &&
+     owner_catalog->source_models->UsesGpuBackend(
+         owner_catalog->direct_gpu->OriginalModelUploader())) {
+    try {
+      std::set<uint32_t> candidate_hashes;
+      for(const auto& call:source_snapshot->calls) {
+        const auto& shader=call.original_engine_shader_method;
+        if(!shader || !shader->original_shader_method_vtable_verified ||
+           !shader->original_pass_vs_ps_xdk_binding_verified ||
+           !shader->original_pass_sampler_slots_verified ||
+           !shader->original_pass_live_texture_objects_present ||
+           !call.observed_live_eor_effect_pass ||
+           !call.observed_live_vertex_shader_header ||
+           !call.observed_live_pixel_shader_header ||
+           !call.observed_vs_matrices ||
+           !shader->original_pass_sampler_slot_mask)
+          continue;
+        const auto candidates=
+            owner_catalog->source_material_candidates->FindLiveSurfaceCandidates(
+                call.original_pixel_texture_keys,
+                shader->original_pass_sampler_slot_mask,0,12);
+        for(const auto& candidate:candidates)
+          candidate_hashes.insert(candidate.original_model_hash);
+        if(candidate_hashes.size()>96)break;
+      }
+      if(candidate_hashes.size()<=96 && !candidate_hashes.empty()) {
+        const std::vector<uint32_t> requests(
+            candidate_hashes.begin(),candidate_hashes.end());
+        owner_catalog->source_models->RequestSourceVerifiedModels(requests);
+      }
+    } catch (...) {
+      // An optional original archive texture prefetch hint cannot
+      // authorize or reject a genuine shader/material GPU Draw.
     }
   }
   // Request authentic world-model GPU residency for ONLY those source

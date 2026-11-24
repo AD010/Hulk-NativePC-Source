@@ -11,7 +11,7 @@
 #include <native_x_renderer/native_x_renderer.h>
 
 namespace hulk::eor::gpu {class DiligentEorDirectBackend;}
-namespace hulk::eor::world {class NativeWorldStream;}
+namespace hulk::eor::world {class NativeWorldStream;class OriginalMaterialCandidateIndex;}
 namespace hulk::eor::xdk {
 // Verified USA EoR script-VM global state_r (original guest 0x8264C798).
 // Its r3 argument is the authentic original VM call context; the
@@ -229,6 +229,9 @@ struct VerifiedWorkerEorOwnerCatalog {
   // Exact user's original Xbox MODELS.ARC source with persistent async I/O
   // and physical GPU model residency; retained across Present epochs.
   std::shared_ptr<world::NativeWorldStream> source_models;
+  // The original Xbox MODELS/Textures reverse hash index is a discovery
+  // hint, never a fabricated model/material/PSO verification flag.
+  std::shared_ptr<const world::OriginalMaterialCandidateIndex> source_material_candidates;
   // Original ShaderEffects and XDK Draw owner may publish a newly
   // authenticated material pass while a streamed city mesh loads. This
   // runs on the sole Vulkan worker, before scene preflight, and calls
@@ -257,6 +260,8 @@ bool InstallVerifiedWorkerEorCatalogFactory(
 void InstallOriginalEorGameAssetRoot(
     const std::filesystem::path& user's_original_game_root);
 void ClearOriginalEorGameAssetRoot() noexcept;
+void InstallOriginalEorMaterialCandidateIndexPath(
+    const std::filesystem::path& private_source_index);
 void ClearVerifiedWorkerEorCatalogFactory() noexcept;
 void ClearVerifiedWorkerEorOwnerCatalog() noexcept;
 void ClearVerifiedWorkerEorFrame() noexcept;

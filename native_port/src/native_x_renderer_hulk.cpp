@@ -320,6 +320,11 @@ bool NativeXInitialize(
     if(const char* custom=std::getenv("HULK_EOR_SOURCE_BANK_DIR");
        custom && *custom)
       original_source_root=std::filesystem::path(custom);
+    // This PRIVATE original model/surface candidate index is loaded on
+    // the same Vulkan worker. It only shortlists streamed models; it is
+    // never used to synthesize EoR material/PSO ownership.
+    hulk::eor::xdk::InstallOriginalEorMaterialCandidateIndexPath(
+        original_source_root/"HEORCND1.bin");
     if(hulk::eor::xdk::InstallVerifiedSourceShaderPackFromDirectory(
            original_source_root))
       REXLOG_INFO("[HULK/EOR-WORKER] source-authenticated HEORSPV1 "
