@@ -364,9 +364,10 @@ static void VerifyStagedGlyphReplay(IRenderDevice* device,IDeviceContext* contex
   reflection.Load(reflection_path);
   aot::OriginalVirtualShaderIdentity identities;
   identities.Load(virtual_path);
-  xdk::FrameCapture capture;
-  const auto sequence=capture.NextFrameSequence();
-  const auto ordinal=capture.NextDrawOrdinal();
+  const xdk::FrameCapture first_frame;
+  const auto sequence=first_frame.NextFrameSequence();
+  const auto ordinal=first_frame.NextDrawOrdinal();
+  std::optional<aot::OriginalPixelSamplerControls> pixel_sampling;
   auto shader_object=[&](const aot::Digest& digest,aot::Stage stage,uint32_t object) {
     std::string name;
     constexpr char hex[]="0123456789abcdef";
@@ -374,6 +375,8 @@ static void VerifyStagedGlyphReplay(IRenderDevice* device,IDeviceContext* contex
     std::ifstream file(std::filesystem::path(source_dir)/(name+".xenos.bin"),std::ios::binary);
     std::vector<uint8_t> container{std::istreambuf_iterator<char>(file),{}};
     if(aot::SourceSha256(container)!=digest)throw std::runtime_error("Font shader container SHA mismatch");
+    if(stage==aot::Stage::Pixel)
+      pixel_sampling=aot::ReadOriginalPixelSamplerControls(container,digest);
     const size_t header=object+(stage==aot::Stage::Vertex ? 872u : 40u);
     std::vector<uint8_t> memory(header+container.size());
     std::copy(container.begin(),container.end(),memory.begin()+header);
@@ -452,13 +455,46 @@ static void VerifyStagedGlyphReplay(IRenderDevice* device,IDeviceContext* contex
   xdk::RawCommand clear{Kind::ClearF,0x82888c40,0,{screen.guest_device,1}};
   clear.captured_clear=xdk::OriginalXdkClearF{};
   clear.captured_clear->flags=1;clear.captured_clear->has_color=true;clear.captured_clear->color={1,0,1,1};
-  capture.RecordCommand(clear);capture.Record(call);
-  capture.RecordCommand({Kind::Resolve,0x828897f8,0,{screen.guest_device,0,0,screen.guest_front_buffer}});
-  capture.RecordCommand({Kind::Present,0x82880778,0,{screen.guest_device,screen.guest_front_buffer}});
-  const auto timeline=capture.Finish();
-  aot::ReplayAotScene(frame,{&staged,1},bank,effects,reflection,backend,&timeline);
+  auto replay=[&](const xdk::RawDraw& source,const aot::BoundIndexedDraw& draw,gpu::DiligentEorDirectBackend& gpu_backend) {
+    xdk::FrameCapture commands;
+    commands.RecordCommand(clear);commands.Record(source);
+    commands.RecordCommand({Kind::Resolve,0x828897f8,0,{screen.guest_device,0,0,screen.guest_front_buffer}});
+    commands.RecordCommand({Kind::Present,0x82880778,0,{screen.guest_device,screen.guest_front_buffer}});
+    const auto timeline=commands.Finish();
+    aot::ReplayAotScene(frame,{&draw,1},bank,effects,reflection,gpu_backend,&timeline);
+  };
+  replay(call,staged,backend);
   if(composites!=1)throw std::runtime_error("Staged glyph replay did not complete exactly once");
   backend.RetireCompletedOriginalFontDraws(sequence); // ReadPixels waited for completion.
+  // Reuse the captured attributes as a controlled indexed mesh. The world
+  // uploader packs positions as float3, UV and color as separate float4 arrays.
+  // The original shader fetches only two components from the UV stream.
+  const auto decoded=eor::ui::DecodeUsaInlineGlyphPayload(glyphs);
+  std::vector<eor::model::NativePosition> xyz;
+  for(const auto& v:decoded.positions)xyz.push_back({v[0],v[1],v[2]});
+  const auto pos=meshes.UploadPositions(xyz);
+  const auto uv=meshes.UploadDecodedAttributes(decoded.texcoords);
+  const auto color=meshes.UploadDecodedAttributes(decoded.colors);
+  const auto ib=meshes.UploadIndices(decoded.triangle_indices);
+  gpu::NativeEorDrawBuffers buffers{pos,ib,static_cast<uint32_t>(xyz.size()),
+      static_cast<uint32_t>(decoded.triangle_indices.size()),{pos,uv,color},fixture_owner,0};
+  material.original_pipeline.original_dynamic_font_vertex_layout_verified=false;
+  gpu::DiligentEorDirectBackend world(device,context,scene,meshes,modules,bank,effects,frame,format,
+      gpu::AcquireVerifiedNativeMaterialPasses({&material,1},residency),{buffers},constants,output);
+  auto indexed=call;
+  indexed.kind=xdk::Kind::DrawIndexedVertices;indexed.function=0x8288e318;indexed.lr=0x8265b53c;
+  indexed.gpr={screen.guest_device,4,0,0,buffers.index_count};
+  indexed.inline_glyphs.reset();indexed.original_engine_shader_method.reset();
+  auto world_regs=std::make_shared<xdk::OriginalShaderRegisters>(*regs);
+  world_regs->pixel_fetch[0]=fetch;world_regs->valid_pixel_fetch=1;
+  indexed.observed_shader_constants=world_regs;
+  auto draw=staged;
+  draw.draw.vertex_buffer=pos;draw.draw.index_buffer=ib;draw.draw.guest_shader_constants=world_regs;
+  draw.original_mesh_header_offset=0;draw.original_dynamic_font_draw=false;
+  draw.source_nonindexed_linearization_verified=false;draw.original_pixel_sampling=pixel_sampling;
+  replay(indexed,draw,world);
+  if(composites!=2)throw std::runtime_error("Indexed mesh did not reproduce the captured glyph image");
+  std::cout<<"Native indexed XYZ/UV/color mesh matched the captured glyph reference\n";
   std::cout<<"Production Font_Main replay matched "<<size.width*size.height<<" pixels in one offscreen composite\n";
 }
 

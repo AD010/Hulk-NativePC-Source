@@ -330,8 +330,17 @@ DiligentEorDirectBackend::DiligentEorDirectBackend(
       depth==Diligent::TEX_FORMAT_UNKNOWN))
     throw std::invalid_argument("Unknown EoR native scene format");
   for(size_t i=0;i<state_->passes.size();++i) {
-    const auto& owner=state_->passes[i];
-    const auto& pass=owner.pipeline;
+    auto& owner=state_->passes[i];
+    auto& pass=owner.pipeline;
+    // Decoded attribute buffers keep a float4 per vertex even when the
+    // shader consumes only XY or RGB. Resolve AUTO from the actual upload
+    // before both layout validation and PSO creation.
+    if(!pass.original_dynamic_font_vertex_layout_verified) {
+      for(auto& element:pass.exact_host_input_layout) {
+        if(element.Stride==Diligent::LAYOUT_ELEMENT_AUTO_STRIDE)
+          element.Stride=element.BufferSlot==0 ? sizeof(model::NativePosition) : sizeof(model::HostAttribute);
+      }
+    }
     if(frame.widescreen_camera) {
       // A verified original main perspective may expand into the full
       // native viewport. The original screen-space HUD must remain at its
