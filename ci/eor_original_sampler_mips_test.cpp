@@ -26,7 +26,7 @@ int main() {
   assert(!PlanOriginalSamplerMipRange(256,128,9,true,true,16,0,false));
   for(uint32_t w=1;w<=8192;w*=2) {
     for(uint32_t h=1;h<=8192;h*=2) {
-      const auto levels=std::bit_width(std::max(w,h));
+      const auto levels=static_cast<uint32_t>(std::bit_width(std::max(w,h)));
       for(uint32_t base=0;base<levels;++base) {
         const auto gw=std::max(1u,w>>base),gh=std::max(1u,h>>base);
         const auto view=PlanOriginalMipWindow(w,h,levels,gw,gh);

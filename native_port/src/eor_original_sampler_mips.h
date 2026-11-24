@@ -15,7 +15,7 @@ inline std::optional<OriginalMipWindow> PlanOriginalMipWindow(
     uint32_t width,uint32_t height,uint32_t levels,
     uint32_t guest_width,uint32_t guest_height) noexcept {
   if(!width || !height || !guest_width || !guest_height ||
-     !levels || levels>std::bit_width(std::max(width,height)))return {};
+     !levels || levels>static_cast<uint32_t>(std::bit_width(std::max(width,height))))return {};
   for(uint32_t i=0;i<levels;++i)
     if(std::max(1u,width>>i)==guest_width &&
        std::max(1u,height>>i)==guest_height)
@@ -30,8 +30,8 @@ inline std::optional<OriginalSamplerMipRange> PlanOriginalSamplerMipRange(
     bool base_resident,bool mip_resident,uint32_t lo,uint32_t hi,
     bool mip_disabled) noexcept {
   if(!width || !height || !available_levels || lo>15 || hi>15 ||
-     available_levels>std::bit_width(std::max(width,height)))return {};
-  const auto last=std::bit_width(std::max(width,height))-1u;
+     available_levels>static_cast<uint32_t>(std::bit_width(std::max(width,height))))return {};
+  const auto last=static_cast<uint32_t>(std::bit_width(std::max(width,height)))-1u;
   if(mip_resident) {
     lo=std::min(lo,last);hi=std::max(lo,std::min(hi,last));
   } else lo=hi=0;
