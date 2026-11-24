@@ -7,6 +7,7 @@
 #include "eor_diligent_host_output.h"
 #include "eor_live_material_producer.h"
 #include "eor_live_projection.h"
+#include "eor_spirv_clip_position.h"
 #include "Buffer.h"
 #include "RenderDevice.h"
 #include "DeviceContext.h"
@@ -1695,7 +1696,8 @@ std::optional<AutomaticSceneContract> OriginalTargetContract(
         const auto* shader=pack.shaders->Find(*vs,aot::Stage::Vertex);
         const auto* reflection=pack.reflection->Find(*vs,aot::Stage::Vertex);
         if(!shader || !reflection ||
-           !aot::IdentifyLiveScalarProjection(*shader,*reflection,*draw.observed_shader_constants,1280.0/720.0))return {};
+           (!aot::ScalarPreservesClipXYW(shader->spirv) &&
+            !aot::IdentifyLiveScalarProjection(*shader,*reflection,*draw.observed_shader_constants,1280.0/720.0)))return {};
       }
     }
   }
@@ -1960,7 +1962,37 @@ struct AutomaticEorOwner {
           const auto projection=vertex && reflected && call.observed_shader_constants ?
               aot::IdentifyLiveScalarProjection(*vertex,*reflected,*call.observed_shader_constants,1280.0/720.0) :
               std::nullopt;
-          if(!projection)throw std::invalid_argument("Live perspective camera matrix not proven");
+          if(!projection) {
+            if(!vertex || !aot::ScalarPreservesClipXYW(vertex->spirv))
+              throw std::invalid_argument("Live perspective or clip-space camera matrix not proven");
+            // Geometry is already in clip coordinates. Preserve its original
+            // picture aspect unless this is a proven full-screen post pass.
+            pipeline.original_view_space=gpu::VerifiedOriginalViewSpace::OriginalAspectHud;
+            pipeline.original_view_space_verified=true;
+            pipeline.original_hud_clip_coordinates_verified=true;
+            const auto& live=*call.observed_vs_matrices;
+            const auto& raster=live.raster;
+            if(raster && raster->x==0 && raster->y==0 &&
+               raster->width==1280 && raster->height==720 && !raster->scissor_enabled &&
+               call.observed_live_pixel_shader_header &&
+               call.observed_live_pixel_shader_header->pixel_sampling) {
+              const auto sampled=call.observed_live_pixel_shader_header->pixel_sampling->sampled_slots;
+              bool resolved=false;
+              for(uint32_t slot=0;slot<16;++slot)
+                if((sampled&(1u<<slot)) && contract.format.original_graph.HasResolve(live.original_texture_guest_objects[slot]))
+                  resolved=true;
+              // A fullscreen post pass must actually cover the entire
+              // original viewport. Do not infer that from its effect name.
+              if(resolved && call.captured_vertex_bindings) {
+                try {
+                  const auto decoded=gpu::live::DecodeOriginalRuntimeGeometry(call,gpu::live::InspectScalarInterface(*vertex));
+                  if(gpu::live::CoversOriginalClipQuad(decoded))
+                    pipeline.original_view_space=gpu::VerifiedOriginalViewSpace::FullOutputPost;
+                } catch(const std::exception&) {}
+              }
+            }
+            return;
+          }
           pipeline.original_view_space=gpu::VerifiedOriginalViewSpace::MainPerspective;
           pipeline.original_view_space_verified=true;
           pipeline.source_main_view=gpu::VerifiedOriginalMainView{

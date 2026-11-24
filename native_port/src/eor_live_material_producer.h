@@ -564,6 +564,24 @@ inline DecodedRuntimeGeometry DecodeOriginalRuntimeGeometry(
   }
   return out;
 }
+// Two triangles with all four exact clip corners and a shared diagonal.
+// This is a conservative geometric coverage proof for full-output post.
+inline bool CoversOriginalClipQuad(const DecodedRuntimeGeometry& g) noexcept {
+  if(g.indices.size()!=6 || g.attributes.empty() || g.layout.empty() ||
+     g.layout.front().InputIndex!=0 || g.attributes.front().size()!=g.vertex_count)return false;
+  unsigned masks[2]{};
+  for(size_t i=0;i<6;++i) {
+    if(g.indices[i]>=g.vertex_count)return false;
+    const auto& v=g.attributes.front()[g.indices[i]];
+    if(!std::isfinite(v[3]) || v[3]<=0 ||
+       (v[0]!=v[3] && v[0]!=-v[3]) || (v[1]!=v[3] && v[1]!=-v[3]))return false;
+    const unsigned corner=(v[0]>0?1u:0u)|(v[1]>0?2u:0u);
+    if(masks[i/3]&(1u<<corner))return false;
+    masks[i/3]|=1u<<corner;
+  }
+  const auto shared=masks[0]&masks[1];
+  return (masks[0]|masks[1])==15u && (shared==9u || shared==6u);
+}
 struct ProducedRuntimeMaterial {
   VerifiedNativeMaterialPass material;
   DecodedRuntimeGeometry geometry;
