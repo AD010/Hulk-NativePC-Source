@@ -16,7 +16,7 @@ namespace {
 // stream-zero live input. Do not invent a semantic from a shader name.
 bool MatchesOriginalGuestDeclaration(
     const xdk::UsaVertexDeclaration& guest,
-    const model::UploadedNativeMesh& mesh) noexcept {
+    const model::UploadedNativeMesh& mesh) {
   if(guest.elements.empty() || mesh.original_attribute_declarations.size()<2)
     return false;
   const auto source_byte=[](std::byte b) noexcept -> uint32_t {
