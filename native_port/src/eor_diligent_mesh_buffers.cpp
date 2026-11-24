@@ -1,4 +1,5 @@
 #include "eor_diligent_mesh_buffers.h"
+#include "eor_immutable_buffer_cache.h"
 #include "RenderDevice.h"
 #include "Buffer.h"
 #include "RefCntAutoPtr.hpp"
@@ -31,6 +32,8 @@ struct DiligentMeshUploadBackend::State {
     std::vector<std::pair<uint32_t,uint32_t>> index_block_extrema;
   };
   std::map<uint64_t,Entry> live;
+  ImmutableBufferCache<Diligent::RefCntAutoPtr<Diligent::IBuffer>> immutable{
+      size_t{64}<<20,4096,size_t{1}<<20};
   uint64_t next_handle = 1;
 };
 DiligentMeshUploadBackend::DiligentMeshUploadBackend(Diligent::IRenderDevice* device)
@@ -55,8 +58,19 @@ uint64_t DiligentMeshUploadBackend::Create(const void* bytes, uint64_t length, u
   const Diligent::BufferData initial{bytes,length};
   try {
     Diligent::RefCntAutoPtr<Diligent::IBuffer> buffer;
-    state_->device->CreateBuffer(description,&initial,&buffer);
-    if (!buffer) return 0;
+    const auto payload=std::span<const std::byte>(
+        static_cast<const std::byte*>(bytes),static_cast<size_t>(length));
+    // Raw Xbox attribute buffers are deliberately not cached here.
+    // Only identical immutable host buffers of the same kind may share
+    // a native allocation; every Draw keeps its own source handle.
+    if(kind!=1u)
+      if(const auto* old=state_->immutable.Find(kind,payload))buffer=*old;
+    if(!buffer) {
+      state_->device->CreateBuffer(description,&initial,&buffer);
+      if(!buffer)return 0;
+      if(kind!=1u)try {state_->immutable.Remember(kind,payload,buffer);}
+                  catch (...) { /* cache is optional */ }
+    }
     const uint64_t handle=state_->next_handle;
     state_->live.emplace(handle,State::Entry{std::move(buffer),kind});
     ++state_->next_handle;
