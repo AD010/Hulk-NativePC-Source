@@ -118,6 +118,25 @@ class OriginalMaterialCandidateIndex {
     if(intersection.size()>max_matches)return {};
     return intersection;
   }
+  // ARCHIVE PREFETCH ONLY: a shared diffuse/normal texture can belong to
+  // hundreds of original buildings. The strict unique-owner resolver above
+  // must keep rejecting ambiguous ownership, but prefetching NO models
+  // made recovery of the original VB/IB owner impossible. Page through
+  // the real indexed model/surface matches; byte-exact guest geometry,
+  // ShaderEffects and current Draw still separately prove any GPU owner.
+  std::vector<OriginalSurfaceCandidate> PrefetchLiveSurfaceCandidatesPage(
+      const std::array<uint32_t,16>& live_source_textures,
+      uint16_t source_slots,size_t requested_page,size_t page_size=12) const {
+    if(!page_size || page_size>128 || entries_.empty())return {};
+    auto full=FindLiveSurfaceCandidates(live_source_textures,source_slots,0,
+                                        entries_.size());
+    if(full.empty())return {};
+    const size_t pages=1+(full.size()-1)/page_size;
+    const size_t from=(requested_page%pages)*page_size;
+    const size_t count=std::min(page_size,full.size()-from);
+    return std::vector<OriginalSurfaceCandidate>(
+        full.begin()+from,full.begin()+from+count);
+  }
  private:
   struct Link {
     uint32_t texture=0;

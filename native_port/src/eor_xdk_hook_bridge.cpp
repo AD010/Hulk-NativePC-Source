@@ -2272,10 +2272,17 @@ native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(
            !call.observed_vs_matrices ||
            !shader->original_pass_sampler_slot_mask)
           continue;
+        // Unique material *ownership* still requires full source evidence,
+        // but an ambiguous shared city texture is permitted to prefetch
+        // a small, rotating batch of REAL original model archive records.
+        // Do not starve first-frame GPU mesh residency when >12 models
+        // share exactly the same texture(s).
         const auto candidates=
-            owner_catalog->source_material_candidates->FindLiveSurfaceCandidates(
-                call.original_pixel_texture_keys,
-                shader->original_pass_sampler_slot_mask,0,12);
+            owner_catalog->source_material_candidates->
+                PrefetchLiveSurfaceCandidatesPage(
+                    call.original_pixel_texture_keys,
+                    shader->original_pass_sampler_slot_mask,
+                    static_cast<size_t>(source_sequence/60u),12);
         for(const auto& candidate:candidates)
           candidate_hashes.insert(candidate.original_model_hash);
         if(candidate_hashes.size()>96)break;
