@@ -14,7 +14,10 @@ uint32_t ComponentBytes(AttributeEncoding e) {
     case AttributeEncoding::BigFloat16:
     case AttributeEncoding::BigUNorm16:
     case AttributeEncoding::BigSNorm16:
+    case AttributeEncoding::BigSInt16:
     case AttributeEncoding::BigUInt16:return 2;
+    case AttributeEncoding::BigUInt10_10_10:
+    case AttributeEncoding::BigSNorm10_10_10:return 4;
     case AttributeEncoding::BigArgb8:
     case AttributeEncoding::UNorm8:
     case AttributeEncoding::SNorm8:
@@ -58,6 +61,11 @@ float Convert(const std::byte* p, AttributeEncoding e) {
     }
     case AttributeEncoding::UInt8:return float(std::to_integer<uint8_t>(*p));
     case AttributeEncoding::BigUInt16:return float(Read16(p));
+    case AttributeEncoding::BigSInt16: {
+      const auto v=Read16(p);return float((v&0x8000u)?int32_t(v)-65536:int32_t(v));
+    }
+    case AttributeEncoding::BigUInt10_10_10:
+    case AttributeEncoding::BigSNorm10_10_10:break; // packed as a whole DWORD below
   }
   throw std::invalid_argument("Unknown verified EoR vertex attribute encoding");
 }
@@ -126,11 +134,14 @@ std::vector<HostAttribute> DecodeVerifiedAttribute(
     const NativeIndexedMesh& mesh, VerifiedAttributeLayout layout) {
   const uint32_t stride=mesh.original_vertex_stride;
   const uint32_t bytes=ComponentBytes(layout.encoding);
+  const bool packed=layout.encoding==AttributeEncoding::BigUInt10_10_10 ||
+                    layout.encoding==AttributeEncoding::BigSNorm10_10_10;
   if(stride<4 || stride>192 || stride%4 ||
      !layout.components || layout.components>4 ||
      (layout.encoding==AttributeEncoding::BigArgb8 && layout.components!=4) ||
      layout.original_byte_offset>stride ||
-     uint32_t(layout.components)*bytes>stride-layout.original_byte_offset ||
+     (packed ? (layout.components!=3 || bytes>stride-layout.original_byte_offset) :
+      uint32_t(layout.components)*bytes>stride-layout.original_byte_offset) ||
      mesh.positions.size()>SIZE_MAX/stride ||
      mesh.original_vertex_stream.size()!=mesh.positions.size()*stride)
     throw std::invalid_argument("Unverified/out-of-range EoR vertex attribute layout");
@@ -139,6 +150,19 @@ std::vector<HostAttribute> DecodeVerifiedAttribute(
   for(size_t i=0;i<mesh.positions.size();++i) {
     HostAttribute value{};
     const std::byte* p=mesh.original_vertex_stream.data()+i*stride+layout.original_byte_offset;
+    if(packed) {
+      const uint32_t word=Read32(p);
+      for(uint32_t c=0;c<3;++c) {
+        const uint32_t raw=(word>>(c*10u))&1023u;
+        if(layout.encoding==AttributeEncoding::BigUInt10_10_10)value[c]=float(raw);
+        else {
+          const int32_t sn=(raw&512u)?int32_t(raw)-1024:int32_t(raw);
+          value[c]=std::max(-1.f,float(sn)/511.f);
+        }
+      }
+      out.push_back(value);
+      continue;
+    }
     for(uint32_t c=0;c<layout.components;++c) {
       // A big-endian D3DCOLOR word is A,R,G,B in memory. The XDK
       // declaration fetch presents R,G,B,A to the shader.

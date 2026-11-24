@@ -28,6 +28,21 @@ NativeIndexedMesh Mesh() {
 }
 }
 int main(){
+  {
+    NativeIndexedMesh mesh;
+    mesh.positions.resize(1);mesh.original_vertex_stride=4;
+    auto word=[&](uint32_t v){
+      mesh.original_vertex_stream.clear();U32(mesh.original_vertex_stream,v);
+    };
+    word(0x80007fffu);
+    auto shorts=DecodeVerifiedAttribute(mesh,{0,2,AttributeEncoding::BigSInt16});
+    assert(shorts.size()==1 && shorts[0][0]==-32768.f && shorts[0][1]==32767.f);
+    word(1023u | (512u<<10) | (511u<<20));
+    auto u=DecodeVerifiedAttribute(mesh,{0,3,AttributeEncoding::BigUInt10_10_10});
+    assert(u[0][0]==1023.f && u[0][1]==512.f && u[0][2]==511.f);
+    auto sn=DecodeVerifiedAttribute(mesh,{0,3,AttributeEncoding::BigSNorm10_10_10});
+    assert(sn[0][0]==-1.f/511.f && sn[0][1]==-1.f && sn[0][2]==1.f);
+  }
  const auto m=Mesh();
  auto uv=DecodeVerifiedAttribute(m,{12,2,AttributeEncoding::BigFloat32});
  assert(uv.size()==3 && uv[1][0]==0.25f && uv[1][1]==0.5f && uv[1][2]==0);

@@ -9,7 +9,8 @@
 namespace hulk::eor::model {
 enum class AttributeEncoding : uint8_t {
   BigFloat32, BigFloat16, BigUNorm16, BigSNorm16,
-  UNorm8, SNorm8, UInt8, BigUInt16, BigArgb8
+  UNorm8, SNorm8, UInt8, BigUInt16, BigArgb8,
+  BigSInt16, BigUInt10_10_10, BigSNorm10_10_10
 };
 struct VerifiedAttributeLayout {
   uint32_t original_byte_offset=0;

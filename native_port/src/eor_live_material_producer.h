@@ -455,6 +455,10 @@ inline std::optional<model::VerifiedAttributeLayout> RuntimeAttribute(
     case 0x1a2286u:n=4;encoding=E::UInt8;break;
     case 0x1a2086u:n=4;encoding=E::UNorm8;break;
     case 0x1a2186u:n=4;encoding=E::SNorm8;break;
+    case 0x2c2359u:n=2;encoding=E::BigSInt16;break;
+    case 0x1a235au:n=4;encoding=E::BigSInt16;break;
+    case 0x2a2287u:n=3;encoding=E::BigUInt10_10_10;break;
+    case 0x2a2187u:n=3;encoding=E::BigSNorm10_10_10;break;
     case 0x2c2159u:n=2;encoding=E::BigSNorm16;break;
     case 0x1a215au:n=4;encoding=E::BigSNorm16;break;
     case 0x2c2059u:n=2;encoding=E::BigUNorm16;break;
