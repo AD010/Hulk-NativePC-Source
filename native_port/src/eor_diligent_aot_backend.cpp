@@ -1,4 +1,5 @@
 #include "eor_diligent_aot_backend.h"
+#include "eor_live_projection.h"
 #include "eor_original_font_source.h"
 #include "eor_host_vertex_layout.h"
 #include "eor_spirv_texture_bindings.h"
@@ -539,7 +540,14 @@ std::size_t DiligentEorDirectBackend::AdoptVerifiedOriginalMaterialPasses(
        old.pipeline.original_pixel_shader_sha256!=
            pass.pipeline.original_pixel_shader_sha256 ||
        old.original_textures.size()!=pass.original_textures.size() ||
-       old.pipeline.exact_host_input_layout.size()!=pass.pipeline.exact_host_input_layout.size())
+       old.pipeline.exact_host_input_layout.size()!=pass.pipeline.exact_host_input_layout.size() ||
+       old.pipeline.original_view_space!=pass.pipeline.original_view_space ||
+       bool(old.pipeline.source_main_view)!=bool(pass.pipeline.source_main_view) ||
+       (old.pipeline.source_main_view && pass.pipeline.source_main_view &&
+        (old.pipeline.source_main_view->original_view_projection_first_register!=
+             pass.pipeline.source_main_view->original_view_projection_first_register ||
+         old.pipeline.source_main_view->source_proof.convention!=
+             pass.pipeline.source_main_view->source_proof.convention)))
       throw std::invalid_argument(
           "Original material shader/image generation changed while resident");
     // A surface may reference more than one mesh. A different vertex
@@ -1163,6 +1171,19 @@ bool DiligentEorDirectBackend::PreflightOriginalScene(
       if(s.frame.widescreen_camera &&
          pass.original_view_space==VerifiedOriginalViewSpace::MainPerspective && pass.source_main_view) {
         const auto& view=*pass.source_main_view;
+        if(view.live_scalar_matrix_proof) {
+          if(packed.vs_abi!=FloatRegisterAbi::Direct256)return false;
+          const auto* vertex=s.bank.Find(item.vertex_source_sha256,aot::Stage::Vertex);
+          if(!vertex || !item.draw.guest_shader_constants)return false;
+          // The current reflection is independent of the material's
+          // cached camera convention; require matching live matrix.
+          aot::ReflectedShader reflected;
+          reflected.stage=aot::Stage::Vertex;
+          reflected.view_projection={view.original_view_projection_first_register,4u};
+          packed.vertex=aot::AdaptLiveDirectScalarProjection(*vertex,reflected,
+              registers,view.original_guest_aspect,s.frame.world.width,s.frame.world.height,
+              view.original_view_projection_first_register,view.source_proof.convention);
+        } else {
         if(packed.vs_abi==FloatRegisterAbi::Unused || !pass.original_vs_float_layout ||
            pass.original_vs_float_layout->original_shader_sha256!=item.vertex_source_sha256)return false;
         const bool direct=packed.vs_abi==FloatRegisterAbi::Direct256;
@@ -1172,6 +1193,7 @@ bool DiligentEorDirectBackend::PreflightOriginalScene(
             view.original_view_projection_first_register,view.original_guest_aspect,
             s.frame.world.width,s.frame.world.height,view.source_proof,
             direct ? aot::FloatRegisterOrder::Original : aot::FloatRegisterOrder::Packed);
+        }
       }
       if(!prepared_constants.emplace(State::DrawKey{d.source_frame,
                         d.source_ordinal},std::move(packed)).second)

@@ -31,6 +31,9 @@ struct VerifiedOriginalMainView {
   camera::SourceCameraProof source_proof;
   uint32_t original_view_projection_first_register=UINT32_MAX;
   double original_guest_aspect=0.0;
+  // The direct256 scalar path proves its four original register loads
+  // and validates the actual perspective matrix each Draw.
+  bool live_scalar_matrix_proof=false;
 };
 struct VerifiedOriginalGraphicsPass {
   uint32_t original_effect_hash=0;

@@ -6,6 +6,7 @@
 #include "eor_diligent_aot_backend.h"
 #include "eor_diligent_host_output.h"
 #include "eor_live_material_producer.h"
+#include "eor_live_projection.h"
 #include "Buffer.h"
 #include "RenderDevice.h"
 #include "DeviceContext.h"
@@ -1660,17 +1661,42 @@ struct AutomaticSceneContract {
   gpu::VerifiedSceneFormat format;
 };
 std::optional<AutomaticSceneContract> OriginalSingleTargetContract(
-    const Frame& frame,native::Size backbuffer) {
+    const Frame& frame,native::Size backbuffer,const OfflineShaderPack& pack) {
   if(!ValidateOriginalCommandTimeline(frame))return {};
+  const bool aspect_change=uint64_t(backbuffer.width)*720u!=uint64_t(backbuffer.height)*1280u;
+  if(aspect_change && (!pack.shaders || !pack.reflection || !pack.effects || !pack.virtual_ids))return {};
   AutomaticSceneContract result{};
   uint32_t depth_object=0;
   bool full_source_viewport=false;
   uint32_t samples=0;
-  for(const auto& draw:frame.calls) {
+  for(size_t ordinal=0;ordinal<frame.calls.size();++ordinal) {
+    const auto& draw=frame.calls[ordinal];
     if(!draw.observed_vs_matrices || !draw.observed_shader_constants ||
        !draw.observed_shader_constants->fixed_graphics_state)return {};
     const auto& state=*draw.observed_vs_matrices;
     const auto& fixed=*draw.observed_shader_constants->fixed_graphics_state;
+    if(aspect_change) {
+      if(!draw.observed_live_vertex_shader_header || !draw.observed_live_pixel_shader_header ||
+         !draw.observed_live_eor_effect_pass)return {};
+      const auto vs=aot::ResolveOriginalLiveXdkShaderSource(*pack.virtual_ids,
+          *draw.observed_live_vertex_shader_header,state.original_vs_guest_object,
+          aot::Stage::Vertex,frame.sequence,static_cast<uint32_t>(ordinal));
+      const auto ps=aot::ResolveOriginalLiveXdkShaderSource(*pack.virtual_ids,
+          *draw.observed_live_pixel_shader_header,state.original_ps_guest_object,
+          aot::Stage::Pixel,frame.sequence,static_cast<uint32_t>(ordinal));
+      const auto effect=*draw.observed_live_eor_effect_pass;
+      if(!vs || !ps || !pack.effects->HasPair(effect.effect_hash,effect.pass_index,*vs,*ps))return {};
+      if(ui::MatchesOriginalUsaFontMainProgram(effect.effect_hash,effect.pass_index,*vs,*ps)) {
+        const auto font=draw.kind==Kind::EndVertices ? ui::ResolveUsaInlineFontLayout(draw) :
+                                                      ui::ResolveUsaBufferedFontLayout(draw);
+        if(!font)return {};
+      } else {
+        const auto* shader=pack.shaders->Find(*vs,aot::Stage::Vertex);
+        const auto* reflection=pack.reflection->Find(*vs,aot::Stage::Vertex);
+        if(!shader || !reflection ||
+           !aot::IdentifyLiveScalarProjection(*shader,*reflection,*draw.observed_shader_constants,1280.0/720.0))return {};
+      }
+    }
     const auto original=gpu::ResolveOriginalXdkSurfaceFormats(state,fixed);
     if(!original || original->format.color!=gpu::NativeColorFormat::Rgba8 ||
        !state.raster)return {};
@@ -1768,8 +1794,9 @@ std::optional<AutomaticSceneContract> OriginalSingleTargetContract(
   setup.engine_draw_hook_verified=true;
   setup.offline_shader_cache_verified=true;
   setup.samples=samples;
-  // The USA perspective matrix ABI is not established by this single-RT
-  // contract. PlanFrame deliberately rejects other aspects, never stretch.
+  // Every source Draw has authenticated either a live perspective matrix
+  // or the exact original Font_Main clip-space HUD before allowing expansion.
+  setup.projection_hook_verified=aspect_change;
   result.output=native::PlanFrame(setup);
   if(!result.output.direct_engine_path_ready)return {};
   return result;
@@ -1998,6 +2025,20 @@ struct AutomaticEorOwner {
         auto produced=gpu::live::ProduceOriginalIndexedMaterial(call,frame.sequence,ordinal,
             borrowed,*pack.shaders,*pack.effects,*pack.virtual_ids,*pack.samplers,
             contract.format,textures);
+        if(contract.output.widescreen_camera) {
+          const auto& digest=produced.draw.vertex_source_sha256;
+          const auto* vertex=pack.shaders->Find(digest,aot::Stage::Vertex);
+          const auto* reflected=pack.reflection->Find(digest,aot::Stage::Vertex);
+          const auto projection=vertex && reflected ?
+              aot::IdentifyLiveScalarProjection(*vertex,*reflected,*call.observed_shader_constants,1280.0/720.0) :
+              std::nullopt;
+          if(!projection)throw std::invalid_argument("Live perspective camera matrix not proven");
+          auto& pipeline=produced.material.original_pipeline;
+          pipeline.original_view_space=gpu::VerifiedOriginalViewSpace::MainPerspective;
+          pipeline.original_view_space_verified=true;
+          pipeline.source_main_view=gpu::VerifiedOriginalMainView{
+              projection->proof,projection->registers.index,1280.0/720.0,true};
+        }
         backend->AdoptVerifiedOriginalMaterialPasses({&produced.material,1},textures);
         auto draw=native::BindVerifiedGeometryDraws({&produced.draw,1},borrowed,*pack.effects);
         if(draw.size()!=1u)throw std::runtime_error("Original material did not produce exactly one Draw");
@@ -2028,7 +2069,7 @@ std::shared_ptr<const VerifiedWorkerEorOwnerCatalog> BuildAutomaticOriginalOwner
   const native::Size backbuffer{swap.Width,swap.Height};
   if(previous && previous->device==&host && previous->accepts_live_source &&
      previous->accepts_live_source(*source,backbuffer))return previous;
-  const auto contract=OriginalSingleTargetContract(*source,backbuffer);
+  const auto contract=OriginalSingleTargetContract(*source,backbuffer,pack);
   if(!contract)return {};
   const auto paths=FindAutomaticArchives(root);
   if(!paths)return {};
@@ -2045,7 +2086,7 @@ std::shared_ptr<const VerifiedWorkerEorOwnerCatalog> BuildAutomaticOriginalOwner
     return owned->Prepare(frame,retained);
   };
   catalog->accepts_live_source=[owned](const Frame& frame,native::Size size) {
-    const auto live=OriginalSingleTargetContract(frame,size);
+    const auto live=OriginalSingleTargetContract(frame,size,owned->pack);
     return live && SameAutomaticScene(owned->contract,*live);
   };
   return catalog;
