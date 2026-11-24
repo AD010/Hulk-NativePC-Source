@@ -2,6 +2,7 @@
 #include "eor_spirv_texture_bindings.h"
 #include <bit>
 #include <stdexcept>
+#include <string>
 #include <map>
 #include <vector>
 
@@ -83,16 +84,34 @@ class ForwardingBackend final : public native::Backend {
     if(!vs || !ps || !vr || !pr)
       throw std::logic_error("Unknown original Xenos shader or constant layout");
     // Missing original shader/reflection evidence must not replay GPU events.
-    if(!ReplayBeforeDraw(draw))return false;
+    const auto draw_context=
+        "batch draw " + std::to_string(position_) +
+        " (source frame " + std::to_string(draw.source_frame) +
+        ", ordinal " + std::to_string(draw.source_ordinal) + ")";
+    if(!ReplayBeforeDraw(draw))
+      throw std::runtime_error("Original XDK timeline rejected " + draw_context);
     ++position_;
-    return target_.BindOriginalSurface(pair.original_model_hash,
-                                       pair.original_surface_ordinal) &&
-           target_.BindOriginalEffect(pair.effect_hash,pair.pass_index) &&
-           target_.BindOriginalConstants(*vr,*pr) &&
-           target_.BindVerifiedProgramPair(pair.vertex_source_sha256,*vs,
-                                           pair.pixel_source_sha256,*ps) &&
-           target_.BindOriginalSamplers(pair.original_samplers) &&
-           target_.DrawIndexed(draw);
+    // Preserve the exact first failed binding stage instead of reporting
+    // only a generic native Draw submission failure after frame rollback.
+    const auto reject=[&](const char* stage)->bool {
+      throw std::runtime_error("EoR Vulkan " + draw_context +
+                               " rejected at " + stage);
+    };
+    if(!target_.BindOriginalSurface(pair.original_model_hash,
+                                    pair.original_surface_ordinal))
+      return reject("BindOriginalSurface");
+    if(!target_.BindOriginalEffect(pair.effect_hash,pair.pass_index))
+      return reject("BindOriginalEffect");
+    if(!target_.BindOriginalConstants(*vr,*pr))
+      return reject("BindOriginalConstants");
+    if(!target_.BindVerifiedProgramPair(pair.vertex_source_sha256,*vs,
+                                        pair.pixel_source_sha256,*ps))
+      return reject("BindVerifiedProgramPair");
+    if(!target_.BindOriginalSamplers(pair.original_samplers))
+      return reject("BindOriginalSamplers");
+    if(!target_.DrawIndexed(draw))
+      return reject("DrawIndexed");
+    return true;
   }
   bool ResolveScene(native::Size size) override {
     if(position_!=draws_.size())

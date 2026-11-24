@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstdint>
 #include <stdexcept>
+#include <string>
 
 namespace hulk::eor::native {
 namespace {
@@ -138,9 +139,14 @@ void ReplayNativeScene(const FrameGeometry& frame,
   } rollback{backend};
   if (!backend.BeginScene(frame.world, frame.samples))
     throw std::runtime_error("Cannot allocate native scene attachments");
-  for (const auto& draw : draws) {
+  for (size_t batch_index=0;batch_index<draws.size();++batch_index) {
+    const auto& draw=draws[batch_index];
     if (!backend.DrawIndexed(draw))
-      throw std::runtime_error("Native indexed draw submission failed");
+      throw std::runtime_error(
+          "Native indexed draw submission failed at batch index " +
+          std::to_string(batch_index) + " (source frame " +
+          std::to_string(draw.source_frame) + ", ordinal " +
+          std::to_string(draw.source_ordinal) + ")");
   }
   // Physical MSAA Resolve: target is the same pixel size as the world.
   // Do not blit to a 720p guest texture and then upscale the result.

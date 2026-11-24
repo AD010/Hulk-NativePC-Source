@@ -236,7 +236,18 @@ int main() {
   assert(b.samples == 4 && b.rectangle.width == 2560);
   assert(b.aborts == 0);
   FakeBackend failed_draw; failed_draw.fail_draw_at = 2;
-  MustThrow([&] { ReplayNativeScene(native, real, failed_draw); });
+  auto labeled_draws=real;
+  labeled_draws[0].source_frame=71;labeled_draws[0].source_ordinal=0;
+  labeled_draws[1].source_frame=71;labeled_draws[1].source_ordinal=1;
+  bool located_failed_draw=false;
+  try { ReplayNativeScene(native, labeled_draws, failed_draw); }
+  catch (const std::runtime_error& error) {
+    const std::string diagnostic=error.what();
+    located_failed_draw=diagnostic.find("batch index 1")!=std::string::npos &&
+        diagnostic.find("source frame 71")!=std::string::npos &&
+        diagnostic.find("ordinal 1")!=std::string::npos;
+  }
+  assert(located_failed_draw);
   assert(failed_draw.aborts == 1 && failed_draw.draw_number == 2);
   FakeBackend failed_begin; failed_begin.fail_begin = true;
   MustThrow([&] { ReplayNativeScene(native, real, failed_begin); });
