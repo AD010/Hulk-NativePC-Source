@@ -5,6 +5,13 @@
 #include <stdexcept>
 #include <utility>
 #include <vector>
+#include <cstdio>
+#include <cstdlib>
+
+#undef assert
+#define assert(check) do { if (!(check)) { \
+  std::fprintf(stderr,"[HULK/TEST] %s:%d: %s\n",__FILE__,__LINE__,#check); \
+  std::fflush(stderr); std::abort(); } } while(false)
 using namespace hulk::eor::model;
 namespace {
 struct Fake final : NativeMeshUploadBackend {
@@ -32,9 +39,11 @@ LoadedNativeGeometry Model() {
  surf.indexed_texture_references.push_back(tex);
  src.original_surfaces.push_back(surf);
  NativeIndexedMesh mesh;
- mesh.source_header_offset=10;mesh.source_indices_offset=37;mesh.source_vertices_offset=43;
- mesh.original_vertex_stride=24;mesh.original_attribute_count=3;
- mesh.original_attribute_declarations.resize(3);
+ mesh.source_header_offset=10;mesh.source_indices_offset=33;mesh.source_vertices_offset=39;
+ mesh.original_vertex_stride=24;mesh.original_attribute_count=2;
+ mesh.original_attribute_declarations={
+        {std::byte{2},std::byte{0},std::byte{0},std::byte{12}},
+        {std::byte{0},std::byte{5},std::byte{0},std::byte{0}}};
  mesh.positions={{0,0,0},{1,0,0},{0,1,0}};
  mesh.triangle_list_indices={0,1,2};
  mesh.original_vertex_stream.resize(72);
@@ -57,9 +66,14 @@ int main(){
  assert((backend.freed==std::vector<uint64_t>{3,2,1}));
  Fake with_uv;
  {
-  std::vector<std::vector<VerifiedAttributeLayout>> uv{
-    {{12,2,AttributeEncoding::BigUNorm16}}};
-  auto a=UploadOriginalModel(Model(),with_uv,uv);
+  auto source=Model();
+   auto& mesh=source.decoded_meshes[0];
+   mesh.original_attribute_count=3;
+   mesh.original_attribute_declarations.insert(mesh.original_attribute_declarations.begin()+1,
+       std::array<std::byte,4>{std::byte{0x2e},std::byte{5},std::byte{0},std::byte{20}});
+   mesh.original_attribute_declarations.back()[2]=std::byte{1};
+   mesh.source_indices_offset=37;mesh.source_vertices_offset=43;
+   auto a=UploadOriginalModel(std::move(source),with_uv);
   assert(a.meshes.meshes()[0].decoded_attribute_buffers[0]==4);
  }
  assert((with_uv.freed==std::vector<uint64_t>{4,3,2,1}));
@@ -72,5 +86,7 @@ int main(){
  Rejected([&]{(void)UploadOriginalModel(std::move(bad),invalid);});
  bad=Model();bad.model.source.surface_records=2;
  Rejected([&]{(void)UploadOriginalModel(std::move(bad),invalid);});
- assert(invalid.allocated==0 && invalid.freed.empty());
+ bad=Model();bad.decoded_meshes[0].original_attribute_declarations[0]={};
+  Rejected([&]{(void)UploadOriginalModel(std::move(bad),invalid);});
+  assert(invalid.allocated==0 && invalid.freed.empty());
 }

@@ -44,9 +44,11 @@ model::LoadedNativeGeometry MakeModel() {
   surf.indexed_texture_references.push_back({0xBEEFu,56u,{0xBEEFu,512u,64u,0u}});
   m.original_surfaces.push_back(surf);
   model::NativeIndexedMesh mesh;
-  mesh.source_header_offset=40;mesh.source_indices_offset=67;
-  mesh.source_vertices_offset=79;mesh.original_vertex_stride=24;
-  mesh.original_attribute_count=3;mesh.original_attribute_declarations.resize(3);
+  mesh.source_header_offset=40;mesh.source_indices_offset=63;
+  mesh.source_vertices_offset=75;mesh.original_vertex_stride=24;
+  mesh.original_attribute_count=2;mesh.original_attribute_declarations={
+        {std::byte{2},std::byte{0},std::byte{0},std::byte{12}},
+        {std::byte{0},std::byte{5},std::byte{0},std::byte{0}}};
   mesh.positions={{0,0,0},{1,0,0},{0,1,0},
                   {2,0,0},{3,0,0},{2,1,0}};
   mesh.triangle_list_indices={0,1,2,3,4,5};

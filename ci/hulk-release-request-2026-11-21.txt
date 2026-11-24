@@ -38,3 +38,5 @@ Retry 15: use the exact one-shot marker accepted by ci/test_native_x_d140_dispat
 2026-11-24: retry after correcting D140 regression counting diagnostic labels as duplicate test calls; exactly one real invocation remains.
 
 2026-11-24: retry after MSVC C4389 optional uint32 assertion fix; report all independent C++ compile/test failures, retain /W4 /WX.
+
+2026-11-24: repair five native preflight blockers, two MSVC narrowing warnings and stale synthetic original vertex declarations; preserve validation.

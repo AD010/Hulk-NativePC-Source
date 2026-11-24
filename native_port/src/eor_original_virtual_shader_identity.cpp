@@ -269,7 +269,7 @@ std::optional<OriginalPixelSamplerControls> CaptureOriginalPixelSamplerControls(
        !std::equal(header.begin(),header.end(),saved.begin()))return {};
     std::array<uint8_t,1024> chunk;
     for(uint32_t offset=0;offset<size;) {
-      const auto n=std::min<uint32_t>(size-offset,chunk.size());
+      const auto n=std::min<uint32_t>(size-offset,static_cast<uint32_t>(chunk.size()));
       if(!read(state,gpu_address+offset,reinterpret_cast<std::byte*>(chunk.data()),n) ||
          !std::equal(chunk.begin(),chunk.begin()+n,saved.begin()+header.size()+offset))return {};
       offset+=n;

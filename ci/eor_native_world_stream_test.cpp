@@ -13,6 +13,13 @@
 #include <stdexcept>
 #include <thread>
 #include <vector>
+#include <cstdio>
+#include <cstdlib>
+
+#undef assert
+#define assert(check) do { if (!(check)) { \
+  std::fprintf(stderr,"[HULK/TEST] %s:%d: %s\n",__FILE__,__LINE__,#check); \
+  std::fflush(stderr); std::abort(); } } while(false)
 using namespace hulk::eor;
 using namespace hulk::eor::world;
 namespace {
@@ -35,11 +42,13 @@ class Source final : public ModelSource {
     src.original_surfaces.push_back(surf);
     model::NativeIndexedMesh mesh;
     mesh.source_header_offset=10;
-    mesh.source_indices_offset=37;
-    mesh.source_vertices_offset=43;
+    mesh.source_indices_offset=33;
+    mesh.source_vertices_offset=39;
     mesh.original_vertex_stride=24;
-    mesh.original_attribute_count=3;
-    mesh.original_attribute_declarations.resize(3);
+    mesh.original_attribute_count=2;
+    mesh.original_attribute_declarations={
+        {std::byte{2},std::byte{0},std::byte{0},std::byte{12}},
+        {std::byte{0},std::byte{5},std::byte{0},std::byte{0}}};
     mesh.positions={{0,0,0},{1,0,0},{0,1,0}};
     mesh.triangle_list_indices={0,1,2};
     mesh.original_vertex_stream.resize(72);
