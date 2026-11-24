@@ -44,5 +44,39 @@
     "original_fog_far": 2000,
     "original_fog_near": 0,
     "far_plane_matched": true
-  }
+  },
+  "original_lod_distance_records": [
+    {
+      "name": "cityblock",
+      "resource_hash": "79b2c4be",
+      "offset": 9437140,
+      "bytes": 648,
+      "field_offset": 602,
+      "fnv1a64": "4050f81ffff70154",
+      "retail_value": 200,
+      "trial_value": 600
+    },
+    {
+      "name": "p_city_roofstructuree_unbroken",
+      "resource_hash": "7046b6ed",
+      "offset": 9097777,
+      "bytes": 238,
+      "field_offset": 136,
+      "fnv1a64": "f3fa0da3de4e767e",
+      "retail_value": 300,
+      "trial_value": 900
+    },
+    {
+      "name": "p_city_roofstructurec_unbroken",
+      "resource_hash": "7d58c6aa",
+      "offset": 9655909,
+      "bytes": 238,
+      "field_offset": 136,
+      "fnv1a64": "066bad8a4aab32b1",
+      "retail_value": 500,
+      "trial_value": 1500
+    }
+  ],
+  "original_lod_distance_hash": "e499ed46",
+  "original_lod_distance_type": 102
 }

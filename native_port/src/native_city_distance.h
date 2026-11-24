@@ -102,4 +102,44 @@ inline bool ApplySkyFogToRead(std::span<uint8_t> returned,std::size_t offset,
     }
   return true;
 }
+// Exact typed EoR LODDistance fields from the original city block base
+// and two original rooftop structure prototypes. All other object fields
+// (destruction, collision, mission and sky state) remain unchanged.
+struct LodRecord {
+  std::size_t offset,size,field;
+  uint64_t fingerprint;
+  float original_distance;
+};
+inline constexpr std::array<LodRecord,3> kLodRecords{{
+    {9437140u,648u,602u,0x4050f81ffff70154ull,200.0f},
+    {9097777u,238u,136u,0xf3fa0da3de4e767eull,300.0f},
+    {9655909u,238u,136u,0x66bad8a4aab32b1ull,500.0f}}};
+inline constexpr std::size_t kMaxLodRecordBytes=648u;
+inline const LodRecord* FindLodRead(std::size_t offset,std::size_t bytes) noexcept {
+  for(const auto& record:kLodRecords)
+    if(Intersects(offset,bytes,record.offset+record.field))return &record;
+  return nullptr;
+}
+inline bool ApplyLodToRead(std::span<uint8_t> returned,std::size_t offset,
+                           std::span<const uint8_t> source,
+                           const LodRecord& record,float scale) noexcept {
+  if(source.size()!=record.size || Fingerprint(source)!=record.fingerprint ||
+     !std::isfinite(scale) || scale<1.0f || scale>5.0f ||
+     record.field>source.size() || source.size()-record.field<4u ||
+     !Intersects(offset,returned.size(),record.offset+record.field))return false;
+  const auto original=BigFloat(record.original_distance);
+  const auto replacement=BigFloat(record.original_distance*scale);
+  for(std::size_t i=0;i<4;++i) {
+    if(source[record.field+i]!=original[i])return false;
+    const auto absolute=record.offset+record.field+i;
+    if(absolute>=offset && absolute-offset<returned.size() &&
+       returned[absolute-offset]!=original[i])return false;
+  }
+  for(std::size_t i=0;i<4;++i) {
+    const auto absolute=record.offset+record.field+i;
+    if(absolute>=offset && absolute-offset<returned.size())
+      returned[absolute-offset]=replacement[i];
+  }
+  return true;
+}
 } // namespace hulk::city

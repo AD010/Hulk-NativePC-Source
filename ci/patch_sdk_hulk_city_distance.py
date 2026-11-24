@@ -14,6 +14,8 @@ CVAR_NEW = '''REXCVAR_DEFINE_DOUBLE(hulk_city_far_plane, 6000.0, "Hulk/World",
                      "Original USA city camera far clip (2000 = retail)").range(2000.0, 10000.0);
 REXCVAR_DEFINE_DOUBLE(hulk_city_zone_buffer, 300.0, "Hulk/World",
                      "Original USA city streaming buffer (50 = retail)").range(50.0, 750.0);
+REXCVAR_DEFINE_DOUBLE(hulk_city_lod_multiplier, 3.0, "Hulk/World",
+                     "Original city block and rooftop LODDistance multiplier").range(1.0, 5.0);
 
 ''' + CVAR_ANCHOR
 READ = '  const bool ok = file_handle_->Read(byte_offset, buffer.data(), buffer.size(), out_bytes_read);\n'
@@ -21,10 +23,12 @@ READ_NEW = READ + '''  // HULK/CITY-DISTANCE: the original indexed Levels record
   // shader fog guesses or global magic-number replacement.
   const auto far=static_cast<float>(REXCVAR_GET(hulk_city_far_plane));
   const auto zone=static_cast<float>(REXCVAR_GET(hulk_city_zone_buffer));
+  const auto lod=static_cast<float>(REXCVAR_GET(hulk_city_lod_multiplier));
   if(ok && entry_ && out_bytes_read && *out_bytes_read<=buffer.size() &&
-     (far!=hulk::city::kOriginalFarPlane || zone!=hulk::city::kOriginalZoneBuffer) &&
+     (far!=hulk::city::kOriginalFarPlane || zone!=hulk::city::kOriginalZoneBuffer || lod!=1.0f) &&
      (hulk::city::IsTargetRead(byte_offset,*out_bytes_read) ||
-      hulk::city::IsSkyFogRead(byte_offset,*out_bytes_read))) {
+      hulk::city::IsSkyFogRead(byte_offset,*out_bytes_read) ||
+      hulk::city::FindLodRead(byte_offset,*out_bytes_read))) {
     std::string name=entry_->name();
     std::transform(name.begin(),name.end(),name.begin(),
                    [](unsigned char c){return static_cast<char>(std::toupper(c));});
@@ -38,16 +42,31 @@ READ_NEW = READ + '''  // HULK/CITY-DISTANCE: the original indexed Levels record
         if(!logged.exchange(true,std::memory_order_relaxed))
           REXLOG_INFO("[HULK/CITY-DISTANCE] original USA Levels city far={} zone_buffer={} (runtime only)",far,zone);
       }
-    } else if(name=="OBJECTS.ARC" && far!=hulk::city::kOriginalFarPlane &&
-              hulk::city::IsSkyFogRead(byte_offset,*out_bytes_read)) {
-      std::array<uint8_t,hulk::city::kSkyBytes> original{};
-      size_t read=0;
-      if(file_handle_->Read(hulk::city::kSkyOffset,original.data(),original.size(),&read) &&
-         read==original.size() &&
-         hulk::city::ApplySkyFogToRead(buffer.first(*out_bytes_read),byte_offset,original,far)) {
-        static std::atomic<bool> logged{false};
-        if(!logged.exchange(true,std::memory_order_relaxed))
-          REXLOG_INFO("[HULK/CITY-DISTANCE] original SkyManager day/night FogFar={} (runtime only)",far);
+    } else if(name=="OBJECTS.ARC") {
+      if(far!=hulk::city::kOriginalFarPlane &&
+         hulk::city::IsSkyFogRead(byte_offset,*out_bytes_read)) {
+        std::array<uint8_t,hulk::city::kSkyBytes> original{};
+        size_t read=0;
+        if(file_handle_->Read(hulk::city::kSkyOffset,original.data(),original.size(),&read) &&
+           read==original.size() &&
+           hulk::city::ApplySkyFogToRead(buffer.first(*out_bytes_read),byte_offset,original,far)) {
+          static std::atomic<bool> logged{false};
+          if(!logged.exchange(true,std::memory_order_relaxed))
+            REXLOG_INFO("[HULK/CITY-DISTANCE] original SkyManager day/night FogFar={} (runtime only)",far);
+        }
+      }
+      // A bulk read can contain more than one real prototype; patch each
+      // separately rather than stopping at the first match.
+      if(lod!=1.0f)for(const auto& record:hulk::city::kLodRecords) {
+        if(!hulk::city::Intersects(byte_offset,*out_bytes_read,record.offset+record.field))continue;
+        std::array<uint8_t,hulk::city::kMaxLodRecordBytes> original{};
+        size_t read=0;
+        if(file_handle_->Read(record.offset,original.data(),record.size,&read) &&
+           read==record.size &&
+           hulk::city::ApplyLodToRead(buffer.first(*out_bytes_read),byte_offset,
+                std::span<const uint8_t>(original.data(),record.size),record,lod))
+          REXLOG_INFO("[HULK/CITY-LOD] original resource offset={} LODDistance={} -> {}",
+                       record.offset,record.original_distance,record.original_distance*lod);
       }
     }
   }

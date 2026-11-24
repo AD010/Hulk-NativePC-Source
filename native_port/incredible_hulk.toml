@@ -65,6 +65,7 @@ hulk_world_stream_trace = false
 # Original values: 2000 and 50. No original archive is written.
 hulk_city_far_plane = 6000.0
 hulk_city_zone_buffer = 300.0
+hulk_city_lod_multiplier = 3.0
 hulk_frame_probe = false
 native_x_renderer_pipeline_storage = true
 native_x_renderer_hulk_serial_driver_creation = true
