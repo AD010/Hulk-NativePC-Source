@@ -218,7 +218,7 @@ def main():
             if a.observed_passes:
                 requested.update(_observed_original_passes(
                     a.observed_passes,a.max_observed_passes))
-            if not requested:
+            if not requested and not a.effect_hash:
                 if not a.watch:
                     raise ValueError("No authentic live XDK ShaderEffects passes supplied")
             elif not a.watch or tuple(sorted(requested))!=previously_seen:
