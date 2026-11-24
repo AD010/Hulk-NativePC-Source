@@ -773,9 +773,13 @@ void CapturePpcDraw(Kind kind, uint32_t guest, const PPCContext& ctx,
       kind, guest, static_cast<uint32_t>(ctx.lr),
       {ctx.r3.u32, ctx.r4.u32, ctx.r5.u32, ctx.r6.u32,
        ctx.r7.u32, ctx.r8.u32, ctx.r9.u32, ctx.r10.u32}};
-  if(REXCVAR_GET(hulk_eor_vulkan_replay) &&
-     !REXCVAR_GET(hulk_eor_xdk_source_mesh_capture) &&
-     !g_frame_shader_complete.load(std::memory_order_relaxed)) {
+  // Direct rendering takes priority over the separate research-only full
+  // buffer dump. A persisted diagnostic checkbox must not force megabytes
+  // of copies for each Draw in a frame already rejected by the shader gate.
+  const bool replay=REXCVAR_GET(hulk_eor_vulkan_replay);
+  const bool diagnostic_mesh=!replay &&
+      REXCVAR_GET(hulk_eor_xdk_source_mesh_capture);
+  if(replay && !g_frame_shader_complete.load(std::memory_order_relaxed)) {
     std::lock_guard lock(g_mutex);
     // Present may have advanced on a different PPC thread. Recheck
     // under the same lock that resets and owns the collector.
@@ -967,17 +971,17 @@ void CapturePpcDraw(Kind kind, uint32_t guest, const PPCContext& ctx,
      draw.observed_vs_matrices->original_guest_device==draw.gpr[0])
     ObserveBoundShaderIdentity(draw,draw.observed_vs_matrices->original_vs_guest_object,
                                draw.observed_vs_matrices->original_ps_guest_object,guest_base);
-  const bool replay=REXCVAR_GET(hulk_eor_vulkan_replay);
-  const bool diagnostic_mesh=REXCVAR_GET(hulk_eor_xdk_source_mesh_capture);
   if(replay && (!draw.observed_live_vertex_shader_header ||
                 !draw.observed_live_pixel_shader_header ||
                 !draw.observed_live_eor_effect_pass))
     g_frame_shader_complete=false;
-  const bool capture_heavy=!replay || diagnostic_mesh || g_frame_shader_complete;
+  const bool capture_heavy=diagnostic_mesh ||
+      (replay && g_frame_shader_complete);
   if(replay && !capture_heavy)++g_frame_heavy_capture_skipped;
   if(capture_heavy && draw.observed_vs_matrices) {
-      // Only while explicit diagnostic capture is active. Store all
-      // 256 original vertex AND pixel float4 registers, not just camera:
+      // Store the full register bank only for a viable replay frame or
+      // explicit mesh research. The lightweight identity observer does
+      // not need 256 original vertex AND pixel float4 registers:
       // later source-proven native SPIR-V material declarations can read
       // exact per-Draw shader parameters without another guest memory read.
       try {
@@ -2533,12 +2537,22 @@ native_x_renderer::HulkEorPresentResult ReplayVerifiedMixedOriginalFrame(
 // XenosRecomp/DXC build without scanning/compiling all 5194 programs.
 void RecordObservedOriginalAotPairDemand(const Frame& snapshot) noexcept {
   if(!snapshot.sequence || snapshot.dropped || snapshot.dropped_commands)return;
+  {
+    std::lock_guard lock(g_mutex);
+    // A complete authenticated bank needs no more disk-backed AOT hints.
+    if(g_offline_shader_pack && g_offline_shader_pack->shaders &&
+       g_offline_shader_pack->shaders->expected() &&
+       g_offline_shader_pack->shaders->size()==g_offline_shader_pack->shaders->expected())
+      return;
+  }
   std::set<std::pair<uint32_t,uint32_t>> observed;
   for(const auto& draw:snapshot.calls) {
     if(!draw.observed_live_eor_effect_pass ||
        !draw.observed_live_vertex_shader_header ||
-       !draw.observed_live_pixel_shader_header ||
-       !draw.observed_vs_matrices)continue;
+       !draw.observed_live_pixel_shader_header)continue;
+    // The identity-only fast path authenticated both live bound shader
+    // headers and their effect at this exact Draw ordinal. Its AOT request
+    // must survive even without a full matrix/geometry snapshot.
     const auto& effect=*draw.observed_live_eor_effect_pass;
     if(effect.effect_hash && effect.pass_index!=UINT32_MAX)
       observed.emplace(effect.effect_hash,effect.pass_index);
@@ -2715,6 +2729,12 @@ native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(
   // exact VS+PS for private offline AOT even if the full material owner is
   // not yet assembled and the current frame uses the renderer fallback.
   RecordObservedOriginalAotPairDemand(*source_snapshot);
+  // The built-in factory cannot construct its first native target graph
+  // from an invalid original timeline. Avoid archive/PSO work on such
+  // frames; keep an existing owner eligible for legitimate streaming.
+  if(built_in_source && !owner_catalog &&
+     !ValidateOriginalCommandTimeline(*source_snapshot))
+    return Result::kNotReady;
   // A valid captured Draw alone is not a complete GPU catalogue.
   // Without a registered source-authenticated material/mesh factory or an
   // already-installed owner, the worker cannot possibly reach Vulkan Present.
