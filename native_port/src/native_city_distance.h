@@ -15,6 +15,12 @@ inline constexpr std::size_t kFarPlaneInLevels=0x1b4u;
 inline constexpr uint64_t kOriginalLevelsFingerprint=0x91814db56ecea4d9ull;
 inline constexpr float kOriginalFarPlane=2000.0f;
 inline constexpr float kOriginalZoneBuffer=50.0f;
+// Original SkyManager day/night nested EoR float properties, authenticated
+// independently from Levels. No map UI or other environment is replaced.
+inline constexpr std::size_t kSkyOffset=21411907u;
+inline constexpr std::size_t kSkyBytes=4973u;
+inline constexpr uint64_t kOriginalSkyFingerprint=0xc640d45951f76361ull;
+inline constexpr std::array<std::size_t,2> kFogFarInSky{0xdb4u,0x123bu};
 
 inline uint64_t Fingerprint(std::span<const uint8_t> bytes) noexcept {
   uint64_t hash=0xcbf29ce484222325ull;
@@ -67,6 +73,32 @@ inline bool ApplyToRead(std::span<uint8_t> returned,std::size_t offset,
       const auto absolute=kLevelsOffset+fields[f]+i;
       if(absolute>=offset && absolute-offset<returned.size())
         returned[absolute-offset]=values[f][i];
+    }
+  return true;
+}
+inline bool IsSkyFogRead(std::size_t offset,std::size_t bytes) noexcept {
+  for(auto field:kFogFarInSky)
+    if(Intersects(offset,bytes,kSkyOffset+field))return true;
+  return false;
+}
+inline bool ApplySkyFogToRead(std::span<uint8_t> returned,std::size_t offset,
+                             std::span<const uint8_t> source,float far) noexcept {
+  if(source.size()!=kSkyBytes || Fingerprint(source)!=kOriginalSkyFingerprint ||
+     !std::isfinite(far) || far<kOriginalFarPlane || far>10000.0f ||
+     !IsSkyFogRead(offset,returned.size()))return false;
+  const auto old=BigFloat(kOriginalFarPlane),next=BigFloat(far);
+  for(auto field:kFogFarInSky)
+    for(std::size_t i=0;i<4;++i) {
+      if(source[field+i]!=old[i])return false;
+      const auto absolute=kSkyOffset+field+i;
+      if(absolute>=offset && absolute-offset<returned.size() &&
+         returned[absolute-offset]!=old[i])return false;
+    }
+  for(auto field:kFogFarInSky)
+    for(std::size_t i=0;i<4;++i) {
+      const auto absolute=kSkyOffset+field+i;
+      if(absolute>=offset && absolute-offset<returned.size())
+        returned[absolute-offset]=next[i];
     }
   return true;
 }

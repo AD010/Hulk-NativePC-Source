@@ -16,6 +16,8 @@ class TestCityDistance(unittest.TestCase):
         self.assertEqual(patch(result),(result,False))
         self.assertIn('buffer.first(*out_bytes_read)',result)
         self.assertIn('name=="QUICKDAT.ARC"',result)
+        self.assertIn('name=="OBJECTS.ARC"',result)
+        self.assertIn('ApplySkyFogToRead',result)
         self.assertIn('file_handle_->Read(hulk::city::kLevelsOffset',result)
     def test_reject_unpatched_or_partial(self):
         with self.assertRaises(ValueError):

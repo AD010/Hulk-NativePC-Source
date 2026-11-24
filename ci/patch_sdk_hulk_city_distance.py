@@ -23,11 +23,12 @@ READ_NEW = READ + '''  // HULK/CITY-DISTANCE: the original indexed Levels record
   const auto zone=static_cast<float>(REXCVAR_GET(hulk_city_zone_buffer));
   if(ok && entry_ && out_bytes_read && *out_bytes_read<=buffer.size() &&
      (far!=hulk::city::kOriginalFarPlane || zone!=hulk::city::kOriginalZoneBuffer) &&
-     hulk::city::IsTargetRead(byte_offset,*out_bytes_read)) {
+     (hulk::city::IsTargetRead(byte_offset,*out_bytes_read) ||
+      hulk::city::IsSkyFogRead(byte_offset,*out_bytes_read))) {
     std::string name=entry_->name();
     std::transform(name.begin(),name.end(),name.begin(),
                    [](unsigned char c){return static_cast<char>(std::toupper(c));});
-    if(name=="QUICKDAT.ARC") {
+    if(name=="QUICKDAT.ARC" && hulk::city::IsTargetRead(byte_offset,*out_bytes_read)) {
       std::array<uint8_t,hulk::city::kLevelsBytes> original{};
       size_t read=0;
       if(file_handle_->Read(hulk::city::kLevelsOffset,original.data(),original.size(),&read) &&
@@ -36,6 +37,17 @@ READ_NEW = READ + '''  // HULK/CITY-DISTANCE: the original indexed Levels record
         static std::atomic<bool> logged{false};
         if(!logged.exchange(true,std::memory_order_relaxed))
           REXLOG_INFO("[HULK/CITY-DISTANCE] original USA Levels city far={} zone_buffer={} (runtime only)",far,zone);
+      }
+    } else if(name=="OBJECTS.ARC" && far!=hulk::city::kOriginalFarPlane &&
+              hulk::city::IsSkyFogRead(byte_offset,*out_bytes_read)) {
+      std::array<uint8_t,hulk::city::kSkyBytes> original{};
+      size_t read=0;
+      if(file_handle_->Read(hulk::city::kSkyOffset,original.data(),original.size(),&read) &&
+         read==original.size() &&
+         hulk::city::ApplySkyFogToRead(buffer.first(*out_bytes_read),byte_offset,original,far)) {
+        static std::atomic<bool> logged{false};
+        if(!logged.exchange(true,std::memory_order_relaxed))
+          REXLOG_INFO("[HULK/CITY-DISTANCE] original SkyManager day/night FogFar={} (runtime only)",far);
       }
     }
   }

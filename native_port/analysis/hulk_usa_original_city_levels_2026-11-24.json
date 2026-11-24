@@ -26,5 +26,23 @@
   "pc_comparator_same_field_offsets_and_original_values": true,
   "default_trial_far_plane": 6000,
   "default_trial_zone_buffer": 300,
-  "game_runtime_verified": false
+  "game_runtime_verified": false,
+  "original_objects_sha256": "35c9a1d502f62a0fd4e3ef73da204195ead4598f132f21763f66d168d7801815",
+  "sky_manager": {
+    "resource_hash": "ff0a24d7",
+    "offset": 21411907,
+    "bytes": 4973,
+    "sha256": "87b44b9fa5224efaa7f773cd60e112d63b29d86465f546184001971c14f86521",
+    "fnv1a64": "c640d45951f76361",
+    "fog_far_field_hash": "acb35820",
+    "fog_near_field_hash": "cff78d64",
+    "day_parent_hash": "1babd8c1",
+    "night_parent_hash": "d62a5b69",
+    "float_type": 102,
+    "day_fog_far_record_offset": 3508,
+    "night_fog_far_record_offset": 4667,
+    "original_fog_far": 2000,
+    "original_fog_near": 0,
+    "far_plane_matched": true
+  }
 }
