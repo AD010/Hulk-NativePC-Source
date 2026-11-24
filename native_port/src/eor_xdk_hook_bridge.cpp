@@ -2051,17 +2051,28 @@ native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(
           }
           if(!game_root.empty()) {
             const auto base=game_root/"DATA"/"XENON";
-            const std::array<std::filesystem::path,3> indexes={
-                base/"INDEX.IND",
-                base/"USENGLISH"/"INDEX.IND",
-                base/"UKENGLISH"/"INDEX.IND"};
-            for(const auto& index:indexes) {
+            using SourcePath=std::pair<std::filesystem::path,std::filesystem::path>;
+            const std::array<SourcePath,8> sources{{
+                {base/"INDEX.IND",base/"MODELS.ARC"},
+                {base/"indexXBOX360.ind",base/"MODELS.ARC"},
+                {base/"USENGLISH"/"INDEX.IND",base/"MODELS.ARC"},
+                {base/"UKENGLISH"/"INDEX.IND",base/"MODELS.ARC"},
+                // The owner's extracted original source archive may live
+                // beside the original game's default.xex. Both accepted
+                // USA model indices are individually SHA-256 pinned.
+                {game_root/"indexXBOX360.ind",game_root/"MODELS.ARC"},
+                {game_root/"INDEX.IND",game_root/"MODELS.ARC"},
+                {game_root/"index(1).ind",game_root/"MODELS.ARC"},
+                {game_root/"Data"/"Xenon"/"INDEX.IND",
+                 game_root/"Data"/"Xenon"/"MODELS.ARC"},
+            }};
+            for(const auto& [index,models]:sources) {
               if(!std::filesystem::is_regular_file(index) ||
-                 !std::filesystem::is_regular_file(base/"MODELS.ARC"))
+                 !std::filesystem::is_regular_file(models))
                 continue;
               try {
                 auto source=std::make_unique<world::ArchiveModelSource>(
-                    index,base/"MODELS.ARC");
+                    index,models);
                 auto world_stream=std::make_shared<world::NativeWorldStream>(
                     std::move(source),
                     verified->direct_gpu->OriginalModelUploader(),
