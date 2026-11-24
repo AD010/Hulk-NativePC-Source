@@ -1,5 +1,6 @@
 #include "eor_diligent_spirv_shaders.h"
 #include "eor_spirv_cube_gamma.h"
+#include "eor_original_pipeline_key.h"
 #include <tuple>
 #include "RenderDevice.h"
 #include "DeviceContext.h"
@@ -60,6 +61,15 @@ struct DiligentAotShaderModules::State {
   Diligent::RefCntAutoPtr<Diligent::IRenderDevice> device;
   struct Module { Diligent::RefCntAutoPtr<Diligent::IShader> shader; FloatRegisterAbi floats; };
   std::map<std::tuple<aot::Digest,aot::Stage,uint16_t>,Module> modules;
+  struct CachedGraphics {
+    OriginalGraphicsPipelineKey key;
+    Diligent::RefCntAutoPtr<Diligent::IPipelineState> pipeline;
+  };
+  // The shader pointers are owned by modules for this whole GPU generation.
+  // Never share a mutable SRB: texture/constant state remains per Draw.
+  std::map<std::pair<Diligent::IShader*,Diligent::IShader*>,
+           std::vector<CachedGraphics>> graphics;
+  size_t graphics_count=0;
   Diligent::RefCntAutoPtr<Diligent::IBuffer> vertex_floats,pixel_floats;
 };
 DiligentAotShaderModules::DiligentAotShaderModules(Diligent::IRenderDevice* device)
@@ -119,6 +129,41 @@ Diligent::IShader* DiligentAotShaderModules::GetOrCreate(
   if(!added)throw std::logic_error("Duplicate native EoR shader cache key");
   return it->second.shader.RawPtr();
 }
+void DiligentAotShaderModules::CreateOrReuseOriginalGraphicsPipeline(
+    Diligent::IShader* vertex,Diligent::IShader* pixel,
+    const Diligent::GraphicsPipelineDesc& graphics,Diligent::IPipelineState** result) {
+  using namespace Diligent;
+  if(!result || *result || !vertex || !pixel || graphics.pRenderPass ||
+     !graphics.InputLayout.NumElements || !graphics.InputLayout.LayoutElements ||
+     graphics.InputLayout.NumElements>DILIGENT_MAX_LAYOUT_ELEMENTS)
+    throw std::invalid_argument("Invalid original graphics pipeline request");
+  const auto pair=std::make_pair(vertex,pixel);
+  const auto found=state_->graphics.find(pair);
+  if(found!=state_->graphics.end())for(const auto& entry:found->second) {
+    if(!entry.key.Matches(graphics))continue;
+    *result=entry.pipeline.RawPtr();
+    (*result)->AddRef();
+    return;
+  }
+  GraphicsPipelineStateCreateInfo ci{};
+  ci.PSODesc.Name="EoR original source-verified Vulkan effect";
+  ci.PSODesc.PipelineType=PIPELINE_TYPE_GRAPHICS;
+  ci.PSODesc.ResourceLayout.DefaultVariableType=SHADER_RESOURCE_VARIABLE_TYPE_MUTABLE;
+  ci.pVS=vertex;ci.pPS=pixel;ci.GraphicsPipeline=graphics;
+  RefCntAutoPtr<IPipelineState> pipeline;
+  state_->device->CreateGraphicsPipelineState(ci,&pipeline);
+  if(!pipeline)return;
+  // Bounded generation cache. Overflow uses the normal uncached creation
+  // path, not a weaker shader/state key or a forced device synchronization.
+  if(state_->graphics_count<4096u &&
+     (found==state_->graphics.end() || found->second.size()<32u)) {
+    try {
+      state_->graphics[pair].push_back({OriginalGraphicsPipelineKey(graphics),pipeline});
+      ++state_->graphics_count;
+    } catch (...) { /* Optional cache allocation must not lose a valid PSO. */ }
+  }
+  *result=pipeline.Detach();
+}
 FloatRegisterAbi DiligentAotShaderModules::GetFloatRegisterAbi(
     const aot::ShaderBank& bank,const aot::Digest& digest,aot::Stage stage) {
   GetOrCreate(bank,digest,stage);
@@ -146,6 +191,8 @@ std::size_t DiligentAotShaderModules::ModuleCount() const noexcept {
 }
 void DiligentAotShaderModules::Clear() noexcept {
   if(state_) {
+    state_->graphics.clear();
+    state_->graphics_count=0;
     state_->modules.clear();
     state_->vertex_floats.Release();
     state_->pixel_floats.Release();

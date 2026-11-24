@@ -257,17 +257,10 @@ OriginalVulkanPipeline CreateOriginalVulkanPipeline(
   auto* pixel=shaders.GetOrCreate(bank,pass.original_pixel_shader_sha256,aot::Stage::Pixel,pass.original_xbox_cube_gamma_mask);
   if(!vertex || !pixel)
     throw std::logic_error("Original EoR Vulkan shader module missing");
-  Diligent::GraphicsPipelineStateCreateInfo ci{};
-  ci.PSODesc.Name="EoR original source-verified Vulkan effect";
-  ci.PSODesc.PipelineType=Diligent::PIPELINE_TYPE_GRAPHICS;
-  ci.PSODesc.ResourceLayout.DefaultVariableType=
-      Diligent::SHADER_RESOURCE_VARIABLE_TYPE_MUTABLE;
-  ci.pVS=vertex;
-  ci.pPS=pixel;
-  ci.GraphicsPipeline=state;
+  auto graphics=state;
   // XDK always clips against the source viewport. MapOriginalRasterWindow
   // additionally intersects the source scissor only when the game enables it.
-  ci.GraphicsPipeline.RasterizerDesc.ScissorEnable=true;
+  graphics.RasterizerDesc.ScissorEnable=true;
   // Font attributes are uploaded in separate arrays of float4. An
   // automatic stride for FLOAT3/FLOAT2 would advance by 12/8 bytes on
   // Vulkan, fetching part of the preceding glyph vertex on every step.
@@ -279,11 +272,11 @@ OriginalVulkanPipeline CreateOriginalVulkanPipeline(
       element.Stride=16;
     }
   }
-  ci.GraphicsPipeline.InputLayout.NumElements=
+  graphics.InputLayout.NumElements=
       static_cast<Diligent::Uint32>(pass.exact_host_input_layout.size());
-  ci.GraphicsPipeline.InputLayout.LayoutElements=layout.data();
+  graphics.InputLayout.LayoutElements=layout.data();
   OriginalVulkanPipeline out{};
-  device->CreateGraphicsPipelineState(ci,&out.pipeline);
+  shaders.CreateOrReuseOriginalGraphicsPipeline(vertex,pixel,graphics,&out.pipeline);
   if(!out.pipeline)
     throw std::runtime_error("Vulkan rejected original EoR source-verified PSO");
   out.pipeline->CreateShaderResourceBinding(&out.bindings, true);

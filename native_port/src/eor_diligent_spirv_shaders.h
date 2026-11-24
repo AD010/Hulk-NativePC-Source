@@ -9,6 +9,8 @@
 namespace Diligent {
 struct IRenderDevice;
 struct IShader;
+struct IPipelineState;
+struct GraphicsPipelineDesc;
 struct IDeviceContext;
 struct IShaderResourceBinding;
 }
@@ -29,6 +31,11 @@ class DiligentAotShaderModules final {
   Diligent::IShader* GetOrCreate(const aot::ShaderBank& bank,
                                 const aot::Digest& original_source_sha256,
                                 aot::Stage stage,uint16_t xbox_cube_gamma_mask=0);
+  // Immutable GPU PSOs may be shared by exact shader-module and graphics
+  // state identity. The caller must allocate a fresh mutable SRB per owner.
+  void CreateOrReuseOriginalGraphicsPipeline(Diligent::IShader* vertex,
+      Diligent::IShader* pixel,const Diligent::GraphicsPipelineDesc& graphics,
+      Diligent::IPipelineState** result);
   FloatRegisterAbi GetFloatRegisterAbi(const aot::ShaderBank& bank,
       const aot::Digest& digest,aot::Stage stage);
   // Immediately before CommitShaderResources, rename the stage's dynamic
