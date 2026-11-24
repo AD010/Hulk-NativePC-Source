@@ -1095,9 +1095,18 @@ void CapturePpcCommand(CommandKind kind,uint32_t guest,
                    UINT32_MAX};
   // Copy original guest data while ClearF's pointers still refer to
   // the actual command arguments. No guest memory writes or RT guessing.
-  if(kind==CommandKind::ClearF)
+  if(kind==CommandKind::ClearF) {
     event.captured_clear=CaptureOriginalXdkClearF(
         event.gpr,ctx.f1.f64,ReadGuest,guest_base);
+    if(event.captured_clear && REXCVAR_GET(hulk_eor_vulkan_replay)) {
+      auto targets=CaptureUsaVsMatrices(event.gpr[0],ReadGuest,guest_base);
+      auto fixed=CaptureUsaFixedGraphicsState(event.gpr[0],ReadGuest,guest_base);
+      if(targets && fixed) {
+        event.captured_clear_targets=std::move(targets);
+        event.captured_clear_fixed=std::move(fixed);
+      }
+    }
+  }
   if(kind==CommandKind::Resolve) {
     event.captured_resolve=CaptureOriginalColorResolveRegion(event.gpr,ReadGuest,guest_base);
     if(event.captured_resolve && (event.gpr[2] || event.gpr[4])) {

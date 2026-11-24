@@ -185,7 +185,9 @@ std::optional<OriginalXdkClearF> CaptureOriginalXdkClearF(
     if(out.rect[2]<=out.rect[0] || out.rect[3]<=out.rect[1])
       return std::nullopt;
   }
-  if(gpr[3]) {
+  // The color pointer is not an input to a depth/stencil-only clear.
+  // Never reject that operation based on an unused r6 value.
+  if((out.flags&0x0fu) && gpr[3]) {
     if(gpr[3]&3u || uint64_t(gpr[3])+16>uint64_t(UINT32_MAX)+1)
       return std::nullopt;
     std::array<std::byte,16> raw{};

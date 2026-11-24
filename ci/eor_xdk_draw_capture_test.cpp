@@ -489,6 +489,13 @@ int main() {
   invalid_args=clear_args;
   invalid_args[1]=0x100u;
   assert(!CaptureOriginalXdkClearF(invalid_args,0.625,ReadFake,&guest));
+  auto depth_only=clear_args;
+  depth_only[1]=0x30u;
+  depth_only[3]=0x7ffffff1u; // unused color argument
+  const auto ds=CaptureOriginalXdkClearF(depth_only,0.625,ReadFake,&guest);
+  assert(ds && !ds->has_color && ds->depth==0.625f && ds->stencil==0x37u);
+  depth_only[1]=0x31u;
+  assert(!CaptureOriginalXdkClearF(depth_only,0.625,ReadFake,&guest));
   assert(!CaptureOriginalXdkClearF(clear_args,1.5,ReadFake,&guest));
   W(guest,clear_color,std::bit_cast<uint32_t>(
       std::numeric_limits<float>::quiet_NaN()));

@@ -210,23 +210,21 @@ inline std::optional<OriginalSourceTargetFormat> PlanOriginalNativeTargets(
     const auto [it,inserted]=graph.color_formats.emplace(id,format);
     return inserted || it->second==format;
   };
-  for(const auto& draw:source.calls) {
-    if(!draw.observed_vs_matrices || !draw.observed_shader_constants ||
-       !draw.observed_shader_constants->fixed_graphics_state)return {};
-    const auto& state=*draw.observed_vs_matrices;
-    const auto& fixed=*draw.observed_shader_constants->fixed_graphics_state;
+  const auto register_targets=[&](const xdk::OriginalVsMatrices& state,
+      const xdk::OriginalXdkFixedGraphicsState& fixed,bool draw) {
     const auto format=ResolveOriginalXdkSurfaceFormats(state,fixed);
     const auto mask=fixed.ReadOriginalXenosRegister(0x2104u);
     const auto surface=fixed.ReadOriginalXenosRegister(0x2000u);
-    if(!format || !mask || (*mask&~15u) || !surface ||
-       !state.original_color_extent || !state.raster ||
+    if(!format || !surface || (draw && (!mask || (*mask&~15u))) ||
+       !state.original_color_extent ||
        !register_extent(state.original_rt0_guest_object,*state.original_color_extent))
-      return {};
+      return false;
     const auto extent=*state.original_color_extent;
     if((*surface&0x3fffu)<extent.width ||
-       !native::MapOriginalRasterWindow(*state.raster,{extent.width,extent.height},
-                                              {0,0,extent.width,extent.height}))
-      return {};
+       (draw && (!state.raster ||
+        !native::MapOriginalRasterWindow(*state.raster,{extent.width,extent.height},
+                                               {0,0,extent.width,extent.height}))))
+      return false;
     if(!output.samples) {
       output.samples=format->samples;output.format.color=format->format.color;
       output.format.depth=NativeDepthFormat::None;
@@ -236,15 +234,32 @@ inline std::optional<OriginalSourceTargetFormat> PlanOriginalNativeTargets(
     }
     if(screen.guest_device!=state.original_guest_device ||
        !register_samples(state.original_rt0_guest_object,format->samples) ||
-       !register_color(state.original_rt0_guest_object,format->format.color))return {};
+       !register_color(state.original_rt0_guest_object,format->format.color))return false;
     colors.insert(state.original_rt0_guest_object);
     if(state.original_depth_guest_object) {
       if(format->format.depth!=NativeDepthFormat::D24S8 ||
          !state.original_depth_extent || *state.original_depth_extent!=extent ||
          !register_extent(state.original_depth_guest_object,*state.original_depth_extent) ||
-         !register_samples(state.original_depth_guest_object,format->samples))return {};
+         !register_samples(state.original_depth_guest_object,format->samples))return false;
       depths.insert(state.original_depth_guest_object);
       output.format.depth=NativeDepthFormat::D24S8;
+    }
+    return true;
+  };
+  // Chronological first binding can be a Clear-only pass rather than
+  // the first Draw. Learn only independently captured target identities.
+  for(const auto& cmd:source.commands) {
+    if(cmd.draw_ordinal!=UINT32_MAX) {
+      const auto& draw=source.calls[cmd.draw_ordinal];
+      if(!draw.observed_vs_matrices || !draw.observed_shader_constants ||
+         !draw.observed_shader_constants->fixed_graphics_state ||
+         !register_targets(*draw.observed_vs_matrices,
+                           *draw.observed_shader_constants->fixed_graphics_state,true))return {};
+    } else if(cmd.kind==xdk::CommandKind::ClearF &&
+              (cmd.captured_clear_targets || cmd.captured_clear_fixed)) {
+      if(!cmd.captured_clear_targets || !cmd.captured_clear_fixed ||
+         cmd.captured_clear_targets->original_guest_device!=cmd.gpr[0] ||
+         !register_targets(*cmd.captured_clear_targets,*cmd.captured_clear_fixed,false))return {};
     }
   }
   if(!output.samples || colors.empty() ||
@@ -255,11 +270,12 @@ inline std::optional<OriginalSourceTargetFormat> PlanOriginalNativeTargets(
   std::optional<uint32_t> active_depth=graph.first_depth;
   // Do not infer a binding backwards across an explicit earlier rebind.
   for(const auto& cmd:source.commands) {
-    if(cmd.draw_ordinal!=UINT32_MAX)break;
+    if(cmd.draw_ordinal!=UINT32_MAX ||
+       (cmd.kind==xdk::CommandKind::ClearF && cmd.captured_clear_targets))break;
     if(cmd.kind==xdk::CommandKind::SetRenderTarget)active_color=0;
     if(cmd.kind==xdk::CommandKind::SetDepthStencilSurface)active_depth.reset();
   }
-  std::set<uint32_t> initialized_color,initialized_depth,initialized_stencil,drawn;
+  std::set<uint32_t> initialized_color,initialized_depth,initialized_stencil;
   std::set<uint32_t> declared_resolves,completed_resolves;
   for(const auto& cmd:source.commands)
     if(cmd.kind==xdk::CommandKind::Resolve && cmd.gpr[3]!=front)
@@ -300,7 +316,6 @@ inline std::optional<OriginalSourceTargetFormat> PlanOriginalNativeTargets(
           if(colors.contains(texture) || depths.contains(texture))return {};
         }
       }
-      drawn.insert(active_color);
       continue;
     }
     switch(cmd.kind) {
@@ -313,6 +328,10 @@ inline std::optional<OriginalSourceTargetFormat> PlanOriginalNativeTargets(
       case xdk::CommandKind::ClearF: {
         if(final_resolved || !cmd.captured_clear || !active_color ||
            !graph.extents.contains(active_color))return {};
+        if(cmd.captured_clear_targets &&
+           (cmd.captured_clear_targets->original_rt0_guest_object!=active_color ||
+            !active_depth ||
+            cmd.captured_clear_targets->original_depth_guest_object!=*active_depth))return {};
         const auto extent=graph.extents.at(active_color);
         if(active_depth && *active_depth && (graph.extents.at(*active_depth)!=extent || graph.sample_counts.at(*active_depth)!=graph.sample_counts.at(active_color)))return {};
         if(!xdk::IsOriginalFullTargetClear(*cmd.captured_clear,extent.width,extent.height) ||
@@ -332,7 +351,10 @@ inline std::optional<OriginalSourceTargetFormat> PlanOriginalNativeTargets(
       }
       case xdk::CommandKind::Resolve: {
         const auto dest=cmd.gpr[3];
-        if(final_resolved || !drawn.contains(active_color) || !dest ||
+        // A full original color clear initializes the entire image even
+        // when the pass contains no visible geometry. Such a Resolve is
+        // real source content, not an invented or uninitialized texture.
+        if(final_resolved || !initialized_color.contains(active_color) || !dest ||
            colors.contains(dest) || depths.contains(dest))return {};
         const auto extent=graph.extents.at(active_color);
         const auto region=xdk::DecodeOriginalColorResolveRegion(cmd,extent.width,extent.height);

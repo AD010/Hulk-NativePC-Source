@@ -90,6 +90,10 @@ struct RawCommand {
   std::optional<OriginalResolveRegion> captured_resolve;
   std::optional<OriginalRasterWindow> captured_resolve_raster;
   uint32_t captured_resolve_color_owner=0;
+  // Clear-only passes may have no Draw from which to learn their surface.
+  // Snapshot the real bound device and RB format state at ClearF entry.
+  std::optional<OriginalVsMatrices> captured_clear_targets;
+  std::optional<OriginalXdkFixedGraphicsState> captured_clear_fixed;
 };
 std::optional<OriginalResolveRegion> CaptureOriginalColorResolveRegion(
     const std::array<uint32_t,8>& gpr,ReadGuestBytes read,void* state) noexcept;
