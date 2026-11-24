@@ -23,6 +23,18 @@ void Put(xdk::OriginalShaderRegisters& data,xdk::OriginalShaderStage stage,
 }
 }
 int main() {
+  {
+    using namespace hulk::eor::xdk;
+    OriginalShaderRegisters original{};
+    assert(!PackOriginalScalarBooleans(original));
+    std::array<uint32_t,8> words{};
+    words[0]=0xabcda55au;words[4]=0x12345678u;
+    original.original_boolean_words=words;
+    assert(PackOriginalScalarBooleans(original)==0x5678a55au);
+    words[0]=0;words[4]=0x4001;
+    original.original_boolean_words=words;
+    assert(PackOriginalScalarBooleans(original)==0x40010000u);
+  }
   xdk::OriginalShaderRegisters captured;
   Put(captured,xdk::OriginalShaderStage::Vertex,7,7.f);
   Put(captured,xdk::OriginalShaderStage::Vertex,11,11.f);

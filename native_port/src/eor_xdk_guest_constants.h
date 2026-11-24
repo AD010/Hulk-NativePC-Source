@@ -175,7 +175,39 @@ struct OriginalShaderRegisters {
   bool complete_float_banks=false;
   // Live source fixed raster/depth/blend state sampled at this exact Draw.
   std::optional<OriginalXdkFixedGraphicsState> fixed_graphics_state;
+  // XDK boolean constants: 128 VS bits followed by 128 PS bits.
+  std::optional<std::array<uint32_t,8>> original_boolean_words;
 };
+// Original USA AOT DrawIndexedVertices 0x8288E318 uploads registers
+// SQ_BOOL_CONST_0 (0x4900) from device+0x2780. The original setters
+// 0x82873D28 and 0x82873D88 index words at +0x2780 and +0x2790,
+// respectively, by (logical index >> 5), and set (index & 31).
+inline void CaptureUsaBooleanRegisters(uint32_t device,ReadGuestBytes read,void* state,
+                                       OriginalShaderRegisters& registers) noexcept {
+  registers.original_boolean_words.reset();
+  constexpr uint32_t offset=0x2780u;
+  std::array<std::byte,32> bytes{};
+  if(!device || !read || uint64_t(device)+offset+bytes.size()>(uint64_t{1}<<32) ||
+     !read(state,device+offset,bytes.data(),bytes.size()))return;
+  std::array<uint32_t,8> result{};
+  for(size_t i=0;i<result.size();++i) {
+    const auto* p=bytes.data()+i*4;
+    result[i]=(uint32_t(std::to_integer<uint8_t>(p[0]))<<24) |
+              (uint32_t(std::to_integer<uint8_t>(p[1]))<<16) |
+              (uint32_t(std::to_integer<uint8_t>(p[2]))<<8) |
+              uint32_t(std::to_integer<uint8_t>(p[3]));
+  }
+  registers.original_boolean_words=result;
+}
+// Pinned XenosRecomp scalar ABI defines each CTAB bool as 1 << index
+// for VS and 1 << (index + 16) for PS. The complete original words are
+// retained; only the represented logical 16 bits of each stage are packed.
+inline std::optional<uint32_t> PackOriginalScalarBooleans(
+    const OriginalShaderRegisters& registers) noexcept {
+  if(!registers.original_boolean_words)return {};
+  return ((*registers.original_boolean_words)[0]&0xffffu) |
+         (((*registers.original_boolean_words)[4]&0xffffu)<<16);
+}
 inline void CaptureUsaPixelFetches(uint32_t device,ReadGuestBytes read,void* state,
                                   OriginalShaderRegisters& registers) noexcept {
   registers.valid_pixel_fetch=0;

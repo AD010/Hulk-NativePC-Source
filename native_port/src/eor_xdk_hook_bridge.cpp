@@ -782,6 +782,7 @@ void CapturePpcDraw(Kind kind, uint32_t guest, const PPCContext& ctx,
                                         guest_base,*constants)) {
           if(REXCVAR_GET(hulk_eor_vulkan_replay)) {
             CaptureUsaPixelFetches(ctx.r3.u32,ReadGuest,guest_base,*constants);
+            CaptureUsaBooleanRegisters(ctx.r3.u32,ReadGuest,guest_base,*constants);
             constants->fixed_graphics_state=CaptureUsaFixedGraphicsState(
                 ctx.r3.u32,ReadGuest,guest_base);
           }
@@ -1812,6 +1813,7 @@ struct AutomaticEorOwner {
       const auto alpha=gpu::ResolveOriginalScalarAlpha(*registers.fixed_graphics_state);
       if(!alpha)return false;
       std::array<uint32_t,8> shared{};
+      if(const auto bits=PackOriginalScalarBooleans(registers))shared[0]=*bits;
       shared[4]=std::bit_cast<uint32_t>(alpha->threshold);
       shared[5]=alpha->flags;
       void* mapped=nullptr;

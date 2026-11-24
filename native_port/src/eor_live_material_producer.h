@@ -111,7 +111,8 @@ inline ScalarInterface InspectScalarInterface(const aot::Blob& shader) {
     }
     if(!out.shared_members)out.supported=false;
   }
-  if(out.shared_members&1u)out.supported=false;
+  // Boolean member 0 is allowed only when the producer has captured the
+  // original XDK boolean register file for this exact Draw.
   std::sort(out.inputs.begin(),out.inputs.end(),[](auto a,auto b){return a.location<b.location;});
   return out;
 }
@@ -359,7 +360,11 @@ inline ProducedWorldMaterial ProduceOriginalWorldMaterial(
   const auto* pixel=bank.Find(*ps,aot::Stage::Pixel);
   if(!vertex || !pixel)throw std::invalid_argument("Original indexed AOT pair missing");
   const auto vertex_interface=InspectScalarInterface(*vertex);
-  if(!vertex_interface.supported || !InspectScalarInterface(*pixel).supported)
+  const auto pixel_interface=InspectScalarInterface(*pixel);
+  if(((vertex_interface.shared_members|pixel_interface.shared_members)&1u) &&
+     (!call.observed_shader_constants || !xdk::PackOriginalScalarBooleans(*call.observed_shader_constants)))
+    throw std::invalid_argument("Missing original boolean register file");
+  if(!vertex_interface.supported || !pixel_interface.supported)
     throw std::invalid_argument("Unsupported original shared constants or MRT shader");
   const auto exact=native::IdentifyExactOriginalGuestMesh(call,residents);
   if(!exact)throw std::invalid_argument("Original indexed VB/IB has no unique archived mesh");
@@ -399,7 +404,6 @@ inline ProducedWorldMaterial ProduceOriginalWorldMaterial(
   pass=OriginalScalarPass(call,*vs,*ps,format);
   pass.exact_host_input_layout=OriginalScalarMeshLayout(call,*mesh,vertex_interface);
   pass.original_host_vertex_layout_verified=true;
-  const auto pixel_interface=InspectScalarInterface(*pixel);
   pass.original_scalar_alpha_test_verified=pixel_interface.has_kill &&
       (pixel_interface.shared_members&24u)==24u;
   const auto alpha=ResolveOriginalScalarAlpha(*call.observed_shader_constants->fixed_graphics_state);
