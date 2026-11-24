@@ -2545,9 +2545,13 @@ native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(
         // material factory generation and shader-bank owner.
         {
           std::lock_guard lock(g_mutex);
-          if(g_frames_for_native.MissedSinceTake() ||
-             !g_frames_for_native.Peek() ||
-             g_frames_for_native.Peek()->sequence!=source_sequence)
+          // The built-in archive owner is persistent, not a draw witness.
+          // Keep it if loading spans a Present; actual replay still requires
+          // a fresh source contract and an exact mailbox epoch.
+          if(!verified->prepare_live_original_draws &&
+             (g_frames_for_native.MissedSinceTake() ||
+              !g_frames_for_native.Peek() ||
+              g_frames_for_native.Peek()->sequence!=source_sequence))
             verified.reset();
         }
         // If the factory already authenticated the original GPU material
