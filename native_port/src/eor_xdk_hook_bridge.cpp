@@ -73,7 +73,7 @@ FrameCapture g_collector;
 // Full native replay needs every original shader pair. Once a Draw in
 // this epoch is unresolvable, do not copy large VB/IB allocations for
 // later Draws which cannot possibly be submitted. Still observe identities.
-bool g_frame_shader_complete=true; // guarded by g_mutex
+std::atomic<bool> g_frame_shader_complete{true}; // writes serialized by g_mutex
 uint32_t g_frame_heavy_capture_skipped=0; // guarded by g_mutex
 // Only full-source-hash-verified pixel policies are retained across draw
 // calls. Failed guest reads must be retried when streaming finishes.
@@ -728,6 +728,29 @@ bool ReplayNextVerifiedPpcFrame(
     return false;
   }
 }
+// Caller holds g_mutex, so the recorded header belongs to this exact
+// Present and Draw ordinal in either the full or identity-only path.
+static void ObserveBoundShaderIdentity(RawDraw& draw,uint32_t vertex,
+                                      uint32_t pixel,uint8_t* guest_base) {
+  if (g_original_shader_capture_index &&
+      g_collector.NextDrawOrdinal() < FrameCapture::kMaxDraws) {
+    const auto& sources = *g_original_shader_capture_index;
+    const uint64_t frame = g_collector.NextFrameSequence();
+    const uint32_t ordinal = g_collector.NextDrawOrdinal();
+    draw.observed_live_vertex_shader_header = aot::ObserveOriginalBoundXdkShader(
+        sources, vertex, aot::Stage::Vertex,
+        ReadGuest, guest_base, frame, ordinal);
+    draw.observed_live_pixel_shader_header = aot::ObserveOriginalBoundXdkShader(
+        sources, pixel, aot::Stage::Pixel,
+        ReadGuest, guest_base, frame, ordinal);
+    if (draw.observed_live_vertex_shader_header &&
+        draw.observed_live_pixel_shader_header && g_original_effect_capture_catalog)
+      draw.observed_live_eor_effect_pass = aot::ResolveOriginalLiveEorEffectPass(
+          sources, *g_original_effect_capture_catalog,
+          *draw.observed_live_vertex_shader_header, *draw.observed_live_pixel_shader_header,
+          vertex, pixel, frame, ordinal);
+  }
+}
 void CapturePpcDraw(Kind kind, uint32_t guest, const PPCContext& ctx,
                     uint8_t* guest_base) {
   if (!CaptureEnabled()) return;
@@ -735,6 +758,20 @@ void CapturePpcDraw(Kind kind, uint32_t guest, const PPCContext& ctx,
       kind, guest, static_cast<uint32_t>(ctx.lr),
       {ctx.r3.u32, ctx.r4.u32, ctx.r5.u32, ctx.r6.u32,
        ctx.r7.u32, ctx.r8.u32, ctx.r9.u32, ctx.r10.u32}};
+  if(REXCVAR_GET(hulk_eor_vulkan_replay) &&
+     !REXCVAR_GET(hulk_eor_xdk_source_mesh_capture) &&
+     !g_frame_shader_complete.load(std::memory_order_relaxed)) {
+    std::lock_guard lock(g_mutex);
+    // Present may have advanced on a different PPC thread. Recheck
+    // under the same lock that resets and owns the collector.
+    if(!g_frame_shader_complete.load(std::memory_order_relaxed)) {
+      if(const auto bindings=CaptureUsaShaderObjects(ctx.r3.u32,ReadGuest,guest_base))
+        ObserveBoundShaderIdentity(draw,bindings->vertex,bindings->pixel,guest_base);
+      ++g_frame_heavy_capture_skipped;
+      g_collector.Record(std::move(draw));
+      return;
+    }
+  }
   // The engine shader virtual method was entered with its actual PPC
   // this object, and its first word matched the original USA vtable.
   // Preserve the CALLER of this inner original XDK draw. No new witness
@@ -870,26 +907,10 @@ void CapturePpcDraw(Kind kind, uint32_t guest, const PPCContext& ctx,
   std::lock_guard lock(g_mutex);
   // Read both objects from this Draw's device shadow. UI, intro and world
   // Draws can bind shaders outside an observed engine shader-method scope.
-  if (g_original_shader_capture_index && draw.observed_vs_matrices &&
-      draw.observed_vs_matrices->original_guest_device == draw.gpr[0] &&
-      g_collector.NextDrawOrdinal() < FrameCapture::kMaxDraws) {
-    const auto& sources = *g_original_shader_capture_index;
-    const auto& live = *draw.observed_vs_matrices;
-    const uint64_t frame = g_collector.NextFrameSequence();
-    const uint32_t ordinal = g_collector.NextDrawOrdinal();
-    draw.observed_live_vertex_shader_header = aot::ObserveOriginalBoundXdkShader(
-        sources, live.original_vs_guest_object, aot::Stage::Vertex,
-        ReadGuest, guest_base, frame, ordinal);
-    draw.observed_live_pixel_shader_header = aot::ObserveOriginalBoundXdkShader(
-        sources, live.original_ps_guest_object, aot::Stage::Pixel,
-        ReadGuest, guest_base, frame, ordinal);
-    if (draw.observed_live_vertex_shader_header &&
-        draw.observed_live_pixel_shader_header && g_original_effect_capture_catalog)
-      draw.observed_live_eor_effect_pass = aot::ResolveOriginalLiveEorEffectPass(
-          sources, *g_original_effect_capture_catalog,
-          *draw.observed_live_vertex_shader_header, *draw.observed_live_pixel_shader_header,
-          live.original_vs_guest_object, live.original_ps_guest_object, frame, ordinal);
-  }
+  if(draw.observed_vs_matrices &&
+     draw.observed_vs_matrices->original_guest_device==draw.gpr[0])
+    ObserveBoundShaderIdentity(draw,draw.observed_vs_matrices->original_vs_guest_object,
+                               draw.observed_vs_matrices->original_ps_guest_object,guest_base);
   const bool replay=REXCVAR_GET(hulk_eor_vulkan_replay);
   const bool diagnostic_mesh=REXCVAR_GET(hulk_eor_xdk_source_mesh_capture);
   if(replay && (!draw.observed_live_vertex_shader_header ||

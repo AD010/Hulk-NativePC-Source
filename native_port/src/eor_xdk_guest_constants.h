@@ -43,6 +43,10 @@ struct OriginalVsMatrices {
   std::optional<OriginalRasterWindow> raster;
   std::optional<OriginalSurfaceExtent> original_color_extent,original_depth_extent;
 };
+// Read only the two source-proven shader object bindings for an epoch
+// that is already ineligible for native replay. This is not a matrix,
+// raster, material or geometry witness and cannot authorize a Draw.
+struct OriginalShaderObjects {uint32_t vertex=0,pixel=0;};
 struct MatrixRegisters {
   uint32_t original_first_register=0;
   uint32_t original_register_count=0;
@@ -52,6 +56,20 @@ struct MatrixRegisters {
 // never logs/publishes original game data. Reader MUST check committed guest
 // memory; this function never dereferences a guessed original guest pointer.
 using ReadGuestBytes=bool (*)(void*,uint32_t,std::byte*,size_t) noexcept;
+inline std::optional<OriginalShaderObjects> CaptureUsaShaderObjects(
+    uint32_t device,ReadGuestBytes read,void* state) noexcept {
+  constexpr uint32_t offset=12692u;
+  if(!device || !read || uint64_t(device)+offset+8u>(uint64_t{1}<<32))return {};
+  std::array<std::byte,8> bytes{};
+  if(!read(state,device+offset,bytes.data(),bytes.size()))return {};
+  const auto word=[](const std::byte* p) noexcept {
+    return uint32_t(std::to_integer<uint8_t>(p[0]))<<24 |
+           uint32_t(std::to_integer<uint8_t>(p[1]))<<16 |
+           uint32_t(std::to_integer<uint8_t>(p[2]))<<8 |
+           uint32_t(std::to_integer<uint8_t>(p[3]));
+  };
+  return OriginalShaderObjects{word(bytes.data()+4),word(bytes.data())};
+}
 // Source AOT ClearF (USA guest 0x82888C40, host 0x141FEC5A0)
 // reads the currently bound color or depth object at device+12440/+12456.
 // At host 0x141FEC6DD..0x141FEC736 it reads BE object+36, extracts

@@ -527,6 +527,10 @@ int main() {
   W(guest,device+6016+127*16,std::bit_cast<uint32_t>(2.5f));
   W(guest,device+6016+255*16,std::bit_cast<uint32_t>(99.0f));
   OriginalShaderRegisters complete;
+  const auto shader_objects=CaptureUsaShaderObjects(device,ReadFake,&guest);
+  assert(shader_objects && shader_objects->vertex==matrix->original_vs_guest_object &&
+         shader_objects->pixel==matrix->original_ps_guest_object);
+  assert(!CaptureUsaShaderObjects(UINT32_MAX,ReadFake,&guest));
   assert(CaptureUsaAllShaderRegisters(device,ReadFake,&guest,complete));
   assert(complete.complete_float_banks);
   const uint32_t fetch0=device+1152,fetch15=fetch0+15*24;
