@@ -2,6 +2,7 @@
 // Keep original PPC call-through and memory untouched. Opt-in audit only.
 #pragma once
 #include "eor_xdk_guest_constants.h"
+#include "eor_usa_material_textures.h"
 #include "eor_original_resolve_region.h"
 #include "eor_original_virtual_shader_identity.h"
 #include <array>
@@ -542,6 +543,9 @@ struct RawDraw {
   // from an unrelated shader class or adjacent EoR archive record.
   std::optional<aot::OriginalEffectPass> observed_live_eor_effect_pass;
   std::array<uint32_t,16> original_pixel_texture_keys{};
+  // Captured actual ERTexture identity at this Draw, including bindings
+  // outside a material scope. A bare archive hash cannot authorize it.
+  OriginalTextureOwners original_pixel_texture_owners{};
   std::optional<OriginalInlineGlyphBatch> inline_glyphs;
   // Pixel fetch constant s0, copied at the same Font_Main Draw as its atlas.
   std::optional<std::array<uint32_t,6>> original_font_fetch;

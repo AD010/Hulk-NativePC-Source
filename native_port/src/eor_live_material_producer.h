@@ -615,8 +615,13 @@ inline ProducedRuntimeMaterial ProduceOriginalRuntimeMaterial(
   if(!material_context) {
     for(uint32_t slot=0;slot<16;++slot)
       if((sampling->sampled_slots&(1u<<slot)) &&
-         !format.original_graph.HasResolve(live.original_texture_guest_objects[slot]))
-        throw std::invalid_argument("Unowned direct XDK archive texture");
+         !format.original_graph.HasResolve(live.original_texture_guest_objects[slot])) {
+        const auto& owner=call.original_pixel_texture_owners[slot];
+        if(!owner.asset || !owner.wrapper ||
+           owner.xdk!=live.original_texture_guest_objects[slot] ||
+           !owner.hash || owner.hash!=call.original_pixel_texture_keys[slot])
+          throw std::invalid_argument("Unowned direct XDK archive texture");
+      }
   }
   const auto vs=aot::ResolveOriginalLiveXdkShaderSource(identities,
       *call.observed_live_vertex_shader_header,live.original_vs_guest_object,aot::Stage::Vertex,frame,ordinal);

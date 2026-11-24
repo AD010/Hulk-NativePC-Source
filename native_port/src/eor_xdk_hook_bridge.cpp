@@ -115,6 +115,7 @@ thread_local uint8_t g_source_shader_method_depth=0;
 thread_local uint32_t g_source_shader_rejected_nesting=0;
 // A nested shader or completed render item may change device bindings.
 thread_local UsaAppliedMaterial g_applied_item_material{};
+OriginalTextureOwnerCache g_original_texture_owners; // guarded by g_mutex
 // ReXGlue's guest base is NOT directly an original Xbox VA; use the same
 // guest high-memory padding convention as native_camera_direct.cpp, and
 // reject inaccessible ranges without reading unverified game memory.
@@ -877,14 +878,15 @@ void CapturePpcDraw(Kind kind, uint32_t guest, const PPCContext& ctx,
       draw.original_pixel_texture_keys=ReadUsaMaterialPixelTextures(
           owner.original_decal_material_context_guest,owner.original_decal_material_word0,
           owner.original_decal_material_word8,draw.observed_vs_matrices->original_texture_guest_objects,
-          ReadGuest,guest_base);
+          ReadGuest,guest_base,&draw.original_pixel_texture_owners);
     } else if (owner.original_engine_item_abi_verified &&
                owner.original_engine_item_material_source_verified &&
                owner.original_pass_vs_ps_xdk_binding_verified) {
       draw.original_pixel_texture_keys=ReadUsaItemPixelTextures(
           g_applied_item_material,owner.original_pass_material_context_guest,
           owner.original_engine_render_item_material_guest,
-          draw.observed_vs_matrices->original_texture_guest_objects,ReadGuest,guest_base);
+          draw.observed_vs_matrices->original_texture_guest_objects,ReadGuest,guest_base,
+          &draw.original_pixel_texture_owners);
     } else if (owner.original_pass_vs_ps_xdk_binding_verified &&
                owner.original_pass_sampler_slots_verified &&
                g_applied_item_material.context &&
@@ -906,11 +908,12 @@ void CapturePpcDraw(Kind kind, uint32_t guest, const PPCContext& ctx,
           owner.original_pass_material_context_guest,
           g_applied_item_material.selector,g_applied_item_material.parameters,
           draw.observed_vs_matrices->original_texture_guest_objects,
-          ReadGuest,guest_base);
-      for(uint32_t slot=0;slot<current.size();++slot)
-        if(owner.original_pass_sampler_slot_mask &
-           (uint16_t(1u)<<slot))
+          ReadGuest,guest_base,&draw.original_pixel_texture_owners);
+      for(uint32_t slot=0;slot<current.size();++slot) {
+        if(owner.original_pass_sampler_slot_mask & (uint16_t(1u)<<slot))
           draw.original_pixel_texture_keys[slot]=current[slot];
+        else draw.original_pixel_texture_owners[slot]={};
+      }
     }
   }
   if(draw.original_pixel_texture_keys[0] && draw.original_engine_shader_method &&
@@ -964,6 +967,21 @@ void CapturePpcDraw(Kind kind, uint32_t guest, const PPCContext& ctx,
               aot::Stage::Pixel,g_collector.NextFrameSequence(),g_collector.NextDrawOrdinal())) {
           pixel->pixel_sampling=aot::CaptureOriginalPixelSamplerControls(
               *pixel,*sha,ReadGuest,guest_base,g_pixel_sampling,&sources);
+          if(pixel->pixel_sampling) {
+            const auto& live=*draw.observed_vs_matrices;
+            for(uint32_t slot=0;slot<16u;++slot) {
+              if(!(pixel->pixel_sampling->sampled_slots&(1u<<slot)))continue;
+              auto& witness=draw.original_pixel_texture_owners[slot];
+              if(witness.asset && witness.hash==draw.original_pixel_texture_keys[slot])
+                g_original_texture_owners.Remember(witness,ReadGuest,guest_base);
+              else if(!draw.original_pixel_texture_keys[slot])
+                if(const auto owner=g_original_texture_owners.Find(
+                     live.original_texture_guest_objects[slot],ReadGuest,guest_base)) {
+                  witness=*owner;
+                  draw.original_pixel_texture_keys[slot]=owner->hash;
+                }
+            }
+          }
         }
       } catch(const std::bad_alloc&) { /* Missing source policy rejects only direct replay. */ }
     }
@@ -1388,6 +1406,7 @@ void InstallOriginalEorGameAssetRoot(
 void ClearOriginalEorGameAssetRoot() noexcept {
   std::lock_guard lock(g_mutex);
   g_original_game_asset_root.clear();
+  g_original_texture_owners.Reset();
   g_original_material_candidate_index.clear();
   g_original_shader_aot_demand_path.clear();
   g_original_shader_aot_requests.clear();

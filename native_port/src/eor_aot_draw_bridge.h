@@ -44,8 +44,9 @@ struct BoundIndexedDraw {
 };
 // A UI/post-process draw can bind original programs outside the engine's
 // observed material method. The exact device+Draw ordinal is then a
-// transient owner, not an archive hash. Admit ONLY untextured Draws and
-// exact original Resolve inputs, never guessed static archive textures.
+// transient owner, not an archive hash. Admit only exact original
+// Resolve inputs or an independently observed and revalidated ERTexture
+// -> wrapper -> current bound XDK texture identity.
 inline bool ProvesDirectXdkRuntimeBindings(const xdk::RawDraw& source,
     std::span<const gpu::VerifiedEorSampler> samplers,uint32_t owner) noexcept {
   if(!source.observed_vs_matrices || !source.observed_shader_constants ||
@@ -64,12 +65,21 @@ inline bool ProvesDirectXdkRuntimeBindings(const xdk::RawDraw& source,
   for(const auto& image:samplers) {
     if(image.stage!=gpu::OriginalSamplerStage::Pixel || image.original_fetch_register>=16u ||
        !image.original_runtime_material || image.original_model_hash!=owner ||
-       image.original_texture_hash || !image.original_resolved_guest_object ||
        image.original_effect_hash!=source.observed_live_eor_effect_pass->effect_hash ||
-       image.original_pass_index!=source.observed_live_eor_effect_pass->pass_index ||
-       live.original_texture_guest_objects[image.original_fetch_register]!=image.original_resolved_guest_object)
+       image.original_pass_index!=source.observed_live_eor_effect_pass->pass_index)
       return false;
-    const auto bit=uint16_t(1u<<image.original_fetch_register);
+    const auto slot=image.original_fetch_register;
+    const auto bound=live.original_texture_guest_objects[slot];
+    if(!bound || bool(image.original_texture_hash)==bool(image.original_resolved_guest_object))return false;
+    if(image.original_resolved_guest_object) {
+      if(bound!=image.original_resolved_guest_object)return false;
+    } else {
+      const auto& witness=source.original_pixel_texture_owners[slot];
+      if(!witness.asset || !witness.wrapper || witness.xdk!=bound ||
+         witness.hash!=image.original_texture_hash ||
+         source.original_pixel_texture_keys[slot]!=witness.hash)return false;
+    }
+    const auto bit=uint16_t(1u<<slot);
     if((seen&bit) || !(source.observed_shader_constants->valid_pixel_fetch&bit))return false;
     seen|=bit;
   }

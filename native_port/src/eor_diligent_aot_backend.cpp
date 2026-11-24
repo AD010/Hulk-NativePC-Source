@@ -1125,7 +1125,8 @@ aot::BoundIndexedDraw DiligentEorDirectBackend::StageOriginalRuntimeDraw(
   if(pass.original_direct_xdk_runtime) {
     std::vector<VerifiedEorSampler> bindings;
     for(const auto& image:material.original_images) {
-      if(!s.format.original_graph.HasResolve(image.original_binding.original_resolved_guest_object))
+      if(image.original_binding.original_resolved_guest_object &&
+         !s.format.original_graph.HasResolve(image.original_binding.original_resolved_guest_object))
         throw std::invalid_argument("Direct XDK texture is not a resident source Resolve");
       bindings.push_back(image.original_binding);
     }
