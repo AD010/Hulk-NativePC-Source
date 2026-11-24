@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cstring>
+#include <exception>
 #include <filesystem>
 #include <cstdint>
 #include <limits>
@@ -679,11 +680,21 @@ bool ReplayNextVerifiedPpcFrame(
                                           reached_gpu);
     return true;
   } catch (...) {
-    // The caller retains sole-presenter ownership; failure is never a
-    // license for a second Xenos/NativeX Present on this swapchain.
-    if(delivered->frame.sequence<=5 || delivered->frame.sequence%600==0)
-      REXLOG_WARN("[HULK/EOR-REPLAY] frame={} rejected native replay; "
-                  "no verified Vulkan image claimed",delivered->frame.sequence);
+    // Keep the FIRST actual replay failure visible in NativeX's existing
+    // log. Previously the original Draw/stage diagnostic was discarded
+    // here, leaving only a generic "no Vulkan image" message.
+    if(delivered->frame.sequence<=5 || delivered->frame.sequence%120==0) {
+      try { throw; }
+      catch(const std::exception& error) {
+        REXLOG_WARN("[HULK/EOR-REPLAY] frame={} rejected native replay: {}; "
+                    "no verified Vulkan image claimed",
+                    delivered->frame.sequence,error.what());
+      } catch (...) {
+        REXLOG_WARN("[HULK/EOR-REPLAY] frame={} rejected native replay "
+                    "(unknown exception); no verified Vulkan image claimed",
+                    delivered->frame.sequence);
+      }
+    }
     return false;
   }
 }
@@ -1802,6 +1813,19 @@ native_x_renderer::HulkEorPresentResult ReplayVerifiedMixedOriginalFrame(
     g_eor_ready_backbuffers.fetch_add(1,std::memory_order_relaxed);
     return Result::kBackbufferReady;
   } catch (...) {
+    // Surface the original shader/material/Draw rejection from the mixed
+    // world+Font_Main path. Keep it throttled on a high-FPS guest, but do
+    // not silently eat the only available cause of a missing first frame.
+    if(source_sequence<=5 || source_sequence%120==0) {
+      try { throw; }
+      catch(const std::exception& error) {
+        REXLOG_WARN("[HULK/EOR-MIXED] source frame={} Vulkan replay failed "
+                    "(began_gpu={}): {}",source_sequence,began_gpu,error.what());
+      } catch (...) {
+        REXLOG_WARN("[HULK/EOR-MIXED] source frame={} Vulkan replay failed "
+                    "(began_gpu={}, unknown exception)",source_sequence,began_gpu);
+      }
+    }
     if(began_gpu) {
       staged.active=false;
       try {
