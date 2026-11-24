@@ -39,6 +39,12 @@ class NativeWorldStream {
   // Unlike Tick(distance), this never invents camera distance or LOD.
   // Returns true when a staged real original Xbox model became GPU-resident.
   bool TickSourceVerifiedModels();
+  // The last original model GPU upload is owned by THIS persistent
+  // stream and uses exactly the same Diligent Vulkan device as the
+  // active direct renderer. Only access on the render thread directly
+  // after TickSourceVerifiedModels() returned true.
+  std::shared_ptr<const model::UploadedOriginalModel>
+  LastUploadedOriginalSourceModel() const noexcept;
   // The game world can reference many real EoR models per frame, not just
   // the three camera-distance LOD tiers. Supply hashes identified by the
   // independently authenticated CURRENT XDK Draw->MODELS.ARC witness.
@@ -65,6 +71,7 @@ class NativeWorldStream {
   model::NativeMeshUploadBackend& backend_; // outlives this object
   std::optional<ResidentLodSet> lod_;
   std::map<uint32_t,std::shared_ptr<model::UploadedOriginalModel>> gpu_; // GPU buffers shared with submitted frames
+  uint32_t last_uploaded_original_model_hash_=0; // render thread only
   std::unique_ptr<ModelSource> source_;
   mutable std::mutex mutex_;
   std::condition_variable wake_;

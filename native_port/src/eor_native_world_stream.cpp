@@ -35,6 +35,12 @@ NativeWorldStream::ResidentShared(uint32_t hash) const noexcept {
   const auto it = gpu_.find(hash);
   return it == gpu_.end() ? nullptr : it->second;
 }
+std::shared_ptr<const model::UploadedOriginalModel>
+NativeWorldStream::LastUploadedOriginalSourceModel() const noexcept {
+  return last_uploaded_original_model_hash_ ?
+      ResidentShared(last_uploaded_original_model_hash_) :
+      std::shared_ptr<const model::UploadedOriginalModel>{};
+}
 bool NativeWorldStream::Failed(uint32_t hash) const {
   std::lock_guard lock(mutex_);
   return failed_.contains(hash);
@@ -115,6 +121,7 @@ void NativeWorldStream::RequestSourceVerifiedModels(
   }
 }
 LodDecision NativeWorldStream::Tick(double distance) {
+  last_uploaded_original_model_hash_=0;
   // Invalid camera data must not consume a prepared asset or queue new work.
   if (!(distance >= 0.0) || !std::isfinite(distance))
     throw std::invalid_argument("Invalid native world-stream camera distance");
@@ -146,6 +153,7 @@ LodDecision NativeWorldStream::Tick(double distance) {
             model::UploadOriginalModel(std::move(prepared->second),backend_));
         if (!gpu_.emplace(hash,std::move(uploaded)).second)
           throw std::logic_error("Original EoR GPU model already resident");
+        last_uploaded_original_model_hash_=hash;
         // World buildings, civilians, vehicles and UI models are NOT
         // necessarily player LOD-tier entries. ResidentLodSet explicitly
         // rejects unknown hashes: a valid original GPU upload must never
