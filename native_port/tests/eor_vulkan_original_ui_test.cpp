@@ -236,6 +236,31 @@ static void VerifyFillRectRegisters(IRenderDevice* device,IDeviceContext* contex
   std::cout<<"Original FillRect PS c21 matched both draws and all 2048 pixels\n";
 }
 
+// Controlled XDK state for the original shader integration fixture only.
+// Production Draws read these words from the real USA device shadow.
+static eor::xdk::OriginalXdkFixedGraphicsState FixtureFixedState(
+    uint32_t device,uint32_t color_mask=15,uint32_t samples=0) {
+  using State=eor::xdk::OriginalXdkFixedGraphicsState;
+  State result{};
+  result.original_guest_device=device;
+  const auto set=[&](uint32_t reg,uint32_t value) {
+    size_t base=0;
+    for(size_t g=0;g<State::kCounts.size();++g) {
+      const auto first=State::kRegisterBases[g];
+      if(reg>=first && reg-first<State::kCounts[g]) {
+        result.original_register_values[base+reg-first]=value;
+        return;
+      }
+      base+=State::kCounts[g];
+    }
+    throw std::runtime_error("Fixture XDK register outside captured groups");
+  };
+  set(0x2000,samples<<16); // RGBA8/D24S8, exact sample count
+  set(0x2104,color_mask);
+  set(0x2201,1u|(1u<<16)); // opaque: ONE/ZERO, ADD for color and alpha
+  return result;
+}
+
 // Original FillRect programs and reflection, controlled XDK commands and mesh.
 // Drive the production material lookup, scene preflight, DrawIndexed and Resolve.
 static void VerifyMaterialReplay(IRenderDevice* device,IDeviceContext* context,
@@ -251,7 +276,7 @@ static void VerifyMaterialReplay(IRenderDevice* device,IDeviceContext* context,
   constexpr uint32_t width=320,height=200;
   const eor::native::Size size{width,height};
   eor::native::FrameGeometry frame{size,size,{0,0,width,height},1,false,true,size};
-  gpu::VerifiedSceneFormat format{gpu::NativeColorFormat::Rgba8,gpu::NativeDepthFormat::D32Float,
+  gpu::VerifiedSceneFormat format{gpu::NativeColorFormat::Rgba8,gpu::NativeDepthFormat::D24S8,
       true,true,{1,2,3,4,true,true,false}};
   const auto& screen=format.original_screen;
   const std::array<eor::model::NativePosition,3> triangle{{{-1,-1,0},{3,-1,0},{-1,3,0}}};
@@ -261,6 +286,11 @@ static void VerifyMaterialReplay(IRenderDevice* device,IDeviceContext* context,
   gpu::NativeEorDrawBuffers buffers{pos,ib,3,3,{pos},model,0};
   auto pass=FillRectPass();
   pass.exact_host_input_layout={{0,0,3,VT_FLOAT32,False}};
+  pass.exact_render_state.DSVFormat=TEX_FORMAT_D24_UNORM_S8_UINT;
+  const auto base_state=gpu::DeriveOriginalXdkGraphicsPipelineState(
+      FixtureFixedState(screen.guest_device),pass.exact_render_state);
+  if(!base_state)throw std::runtime_error("Fixture base XDK state was rejected");
+  pass.exact_render_state=*base_state;
   auto overlay=pass;
   overlay.original_depth_unbound=true;
   overlay.exact_render_state.DSVFormat=TEX_FORMAT_UNKNOWN;
@@ -304,6 +334,7 @@ static void VerifyMaterialReplay(IRenderDevice* device,IDeviceContext* context,
         {left,0,left+int(width/2),int(height)}};
     auto regs=std::make_shared<xdk::OriginalShaderRegisters>();
     regs->complete_float_banks=true;
+    regs->fixed_graphics_state=FixtureFixedState(screen.guest_device);
     regs->pixel[21*4+i]=regs->pixel[21*4+3]=1;
     call.observed_vs_matrices=live; call.observed_shader_constants=regs;
     auto& item=draws[i];
@@ -343,6 +374,36 @@ static void VerifyMaterialReplay(IRenderDevice* device,IDeviceContext* context,
   eor::aot::ReplayAotScene(frame,draws,bank,effects,reflection,backend,&timeline);
   if(composites!=2 || pixels!=separate_surfaces)
     throw std::runtime_error("Depth switch changed output when both draws shared one surface and effect");
+  // The same model/surface/effect and attachment now uses a different
+  // live color-write mask. Only green is writable on the second Draw,
+  // leaving the blue clear channel intact; a stale PSO would write green.
+  auto changed=draws;
+  auto changed_regs=std::make_shared<xdk::OriginalShaderRegisters>(
+      *changed[1].draw.guest_shader_constants);
+  changed_regs->fixed_graphics_state=FixtureFixedState(screen.guest_device,2);
+  changed[1].draw.guest_shader_constants=changed_regs;
+  auto changed_timeline=timeline;
+  changed_timeline.calls[1].observed_shader_constants=changed_regs;
+  auto invalid=changed;
+  auto invalid_regs=std::make_shared<xdk::OriginalShaderRegisters>(*changed_regs);
+  invalid_regs->fixed_graphics_state=FixtureFixedState(screen.guest_device,2,1);
+  invalid[1].draw.guest_shader_constants=invalid_regs;
+  if(backend.PreflightOriginalScene(invalid))
+    throw std::runtime_error("PSO variant changed the scene MSAA contract");
+  eor::aot::ReplayAotScene(frame,changed,bank,effects,reflection,backend,&changed_timeline);
+  if(composites!=3 || pixels.size()!=width*height*4)
+    throw std::runtime_error("Live PSO variant failed to composite");
+  for(size_t i=0;i<pixels.size();i+=4) {
+    const bool left=(i/4)%width<width/2;
+    const std::array expected{std::byte(left?255:0),std::byte(left?0:255),
+                              std::byte(left?0:255),std::byte{255}};
+    if(!std::equal(expected.begin(),expected.end(),pixels.begin()+i))
+      throw std::runtime_error("Live PSO variant failed to preserve masked blue channel");
+  }
+  // Switching back must not reuse the last variant's pipeline/SRB.
+  eor::aot::ReplayAotScene(frame,draws,bank,effects,reflection,backend,&timeline);
+  if(composites!=4 || pixels!=separate_surfaces)
+    throw std::runtime_error("Base PSO was contaminated by the live state variant");
   std::cout<<"Depth-bound and color-only draws shared the same material, all 64000 pixels matched\n";
   std::cout<<"Direct EoR backend replayed two fixture surfaces with original FillRect shaders, "
              "64000 pixels matched in one offscreen composite\n";
