@@ -28,10 +28,13 @@ bool MatchesOriginalXdkDraw(
   }
   if(host.original_runtime_draw) {
     const auto& method=source.original_engine_shader_method;
-    if(!method || !method->original_pass_vs_ps_xdk_binding_verified ||
-       method->original_pass_material_context_guest!=host.original_model_hash ||
-       host.original_surface_ordinal!=draw.source_ordinal ||
+    if(host.original_surface_ordinal!=draw.source_ordinal ||
        host.original_mesh_header_offset!=SIZE_MAX || host.original_dynamic_font_draw)return false;
+    if(host.original_direct_xdk_runtime) {
+      if(!ProvesDirectXdkRuntimeBindings(source,host.original_samplers,host.original_model_hash) ||
+         source.observed_live_pixel_shader_header->pixel_sampling->source!=host.pixel_source_sha256)return false;
+    } else if(!method || !method->original_pass_vs_ps_xdk_binding_verified ||
+       method->original_pass_material_context_guest!=host.original_model_hash)return false;
   }
   if(const auto indexed=xdk::DecodeOriginalIndexedXdkCall(source)) {
     const auto expected=host.original_runtime_draw ?

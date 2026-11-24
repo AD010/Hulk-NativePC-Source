@@ -72,6 +72,7 @@ struct VerifiedOriginalGraphicsPass {
   uint16_t original_xbox_cube_gamma_mask=0;
   bool original_runtime_draw_verified=false;
   uint32_t original_color_owner=0; // exact target graph owner, zero for legacy single-target fixtures
+  bool original_direct_xdk_runtime=false;
 };
 struct OriginalVulkanPipeline {
   Diligent::RefCntAutoPtr<Diligent::IPipelineState> pipeline;

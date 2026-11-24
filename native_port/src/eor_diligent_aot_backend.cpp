@@ -1113,10 +1113,8 @@ aot::BoundIndexedDraw DiligentEorDirectBackend::StageOriginalRuntimeDraw(
     DiligentOriginalTextureResidency& textures) {
   if(!state_ || state_->scene_open || state_->frame_preflight_ready ||
      !frame || ordinal==UINT32_MAX || !call.observed_vs_matrices ||
-     !call.observed_shader_constants || !call.original_engine_shader_method ||
+     !call.observed_shader_constants ||
      !call.observed_live_eor_effect_pass || !material.original_pipeline.original_runtime_draw_verified ||
-     !call.original_engine_shader_method->original_pass_vs_ps_xdk_binding_verified ||
-     material.original_model_hash!=call.original_engine_shader_method->original_pass_material_context_guest ||
      material.original_surface_ordinal!=ordinal || cpu.layout.size()!=cpu.attributes.size() ||
      cpu.layout.size()!=cpu.integer_attributes.size() || !cpu.vertex_count || cpu.indices.empty() ||
      cpu.indices.size()>UINT32_MAX || cpu.indices.size()%3)
@@ -1124,6 +1122,19 @@ aot::BoundIndexedDraw DiligentEorDirectBackend::StageOriginalRuntimeDraw(
   auto& s=*state_;
   const auto& live=*call.observed_vs_matrices;
   const auto& pass=material.original_pipeline;
+  if(pass.original_direct_xdk_runtime) {
+    std::vector<VerifiedEorSampler> bindings;
+    for(const auto& image:material.original_images) {
+      if(!s.format.original_graph.HasResolve(image.original_binding.original_resolved_guest_object))
+        throw std::invalid_argument("Direct XDK texture is not a resident source Resolve");
+      bindings.push_back(image.original_binding);
+    }
+    if(!aot::ProvesDirectXdkRuntimeBindings(call,bindings,material.original_model_hash))
+      throw std::invalid_argument("Direct XDK material owner mismatch");
+  } else if(!call.original_engine_shader_method ||
+            !call.original_engine_shader_method->original_pass_vs_ps_xdk_binding_verified ||
+            material.original_model_hash!=call.original_engine_shader_method->original_pass_material_context_guest)
+    throw std::invalid_argument("Transient original material context mismatch");
   if(pass.original_effect_hash!=call.observed_live_eor_effect_pass->effect_hash ||
      pass.original_pass_index!=call.observed_live_eor_effect_pass->pass_index ||
      !s.effects.HasPair(pass.original_effect_hash,pass.original_pass_index,
@@ -1185,6 +1196,7 @@ aot::BoundIndexedDraw DiligentEorDirectBackend::StageOriginalRuntimeDraw(
     result.effect_hash=pass.original_effect_hash;result.pass_index=pass.original_pass_index;
     result.original_model_hash=material.original_model_hash;result.original_surface_ordinal=ordinal;
     result.original_mesh_header_offset=SIZE_MAX;result.original_runtime_draw=true;
+    result.original_direct_xdk_runtime=pass.original_direct_xdk_runtime;
     result.source_nonindexed_linearization_verified=bool(xdk::DecodeOriginalVerticesXdkCall(call));
     if(call.observed_live_pixel_shader_header)
       result.original_pixel_sampling=call.observed_live_pixel_shader_header->pixel_sampling;
@@ -1283,6 +1295,7 @@ bool DiligentEorDirectBackend::PreflightOriginalScene(
     if(!selected ||
        selected->pipeline.original_vertex_shader_sha256!=item.vertex_source_sha256 ||
        selected->pipeline.original_pixel_shader_sha256!=item.pixel_source_sha256 ||
+       selected->pipeline.original_direct_xdk_runtime!=item.original_direct_xdk_runtime ||
        selected->original_textures.size()!=item.original_samplers.size())
       return false;
     // The exact per-Draw XDK device shadow is independent of the

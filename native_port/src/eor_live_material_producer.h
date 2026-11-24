@@ -598,20 +598,26 @@ inline ProducedRuntimeMaterial ProduceOriginalRuntimeMaterial(
     DiligentOriginalTextureResidency& residency) {
   if(!call.observed_vs_matrices || !call.observed_shader_constants ||
      !call.observed_live_vertex_shader_header || !call.observed_live_pixel_shader_header ||
-     !call.observed_live_eor_effect_pass || !call.original_engine_shader_method ||
+     !call.observed_live_eor_effect_pass ||
      !xdk::ValidOriginalEorSourceRenderItem(call) || !xdk::ValidOriginalDecalGeometryBinding(call) ||
      !xdk::ValidOriginalDecalItemMaterialBinding(call) || !xdk::ValidOriginalShaderPassStageBinding(call) ||
      !xdk::ValidOriginalShaderPassSamplerStateAtDraw(call))
     throw std::invalid_argument("Transient engine Draw is not source proven");
-  const auto& method=*call.original_engine_shader_method;
+  const auto& method=call.original_engine_shader_method;
   const auto& live=*call.observed_vs_matrices;
   const auto& sampling=call.observed_live_pixel_shader_header->pixel_sampling;
-  if(!method.original_shader_method_vtable_verified ||
-     !method.original_pass_vs_ps_xdk_binding_verified ||
-     !method.original_pass_material_context_guest || !sampling ||
-     (sampling->sampled_slots && (!method.original_pass_sampler_slots_verified ||
-                                  !method.original_pass_live_texture_objects_present)))
-    throw std::invalid_argument("Transient material context is not source proven");
+  if(!sampling)throw std::invalid_argument("Transient source sampler program absent");
+  const bool material_context=method && method->original_shader_method_vtable_verified &&
+     method->original_pass_vs_ps_xdk_binding_verified &&
+     method->original_pass_material_context_guest &&
+     (!sampling->sampled_slots || (method->original_pass_sampler_slots_verified &&
+                                  method->original_pass_live_texture_objects_present));
+  if(!material_context) {
+    for(uint32_t slot=0;slot<16;++slot)
+      if((sampling->sampled_slots&(1u<<slot)) &&
+         !format.original_graph.HasResolve(live.original_texture_guest_objects[slot]))
+        throw std::invalid_argument("Unowned direct XDK archive texture");
+  }
   const auto vs=aot::ResolveOriginalLiveXdkShaderSource(identities,
       *call.observed_live_vertex_shader_header,live.original_vs_guest_object,aot::Stage::Vertex,frame,ordinal);
   const auto ps=aot::ResolveOriginalLiveXdkShaderSource(identities,
@@ -630,25 +636,32 @@ inline ProducedRuntimeMaterial ProduceOriginalRuntimeMaterial(
   ProducedRuntimeMaterial out;
   out.geometry=DecodeOriginalRuntimeGeometry(call,vi);
   auto& material=out.material;
-  material.original_model_hash=method.original_pass_material_context_guest;
+  material.original_model_hash=material_context?method->original_pass_material_context_guest:live.original_guest_device;
   material.original_surface_ordinal=ordinal;
   auto& pass=material.original_pipeline;
   pass=OriginalScalarPass(call,*vs,*ps,format);
   pass.exact_host_input_layout=out.geometry.layout;
   pass.original_host_vertex_layout_verified=true;
   pass.original_runtime_draw_verified=true;
+  pass.original_direct_xdk_runtime=!material_context;
   pass.original_scalar_alpha_test_verified=pi.has_kill && (pi.shared_members&24u)==24u;
   const auto alpha=ResolveOriginalScalarAlpha(*call.observed_shader_constants->fixed_graphics_state);
   if(!alpha || (alpha->flags && !pass.original_scalar_alpha_test_verified))
     throw std::invalid_argument("Transient alpha-test shader unsupported");
   material.original_images=OriginalScalarImages(call,*vs,*ps,bank,samplers,
-    material.original_model_hash,ordinal,method.original_pass_sampler_slot_mask,residency,format);
+    material.original_model_hash,ordinal,material_context?method->original_pass_sampler_slot_mask:sampling->sampled_slots,residency,format);
   for(auto& image:material.original_images) {
     image.original_binding.original_runtime_material=true;
     const auto slot=image.original_binding.original_fetch_register;
     if(image.shader_reflected_view==OriginalTextureViewKind::NativeCube &&
        (call.observed_shader_constants->pixel_fetch[slot][0]&1023u)==254u)
       pass.original_xbox_cube_gamma_mask|=uint16_t(1u<<slot);
+  }
+  if(pass.original_direct_xdk_runtime) {
+    std::vector<VerifiedEorSampler> bindings;
+    for(const auto& image:material.original_images)bindings.push_back(image.original_binding);
+    if(!aot::ProvesDirectXdkRuntimeBindings(call,bindings,material.original_model_hash))
+      throw std::invalid_argument("Direct XDK runtime bindings not source proven");
   }
   pass.material_pass_verified=true;
   return out;

@@ -40,7 +40,41 @@ struct BoundIndexedDraw {
   // It belongs to the transient runtime owner namespace, not MODELS.ARC.
   bool original_runtime_draw=false;
   std::optional<OriginalPixelSamplerControls> original_pixel_sampling{};
+  bool original_direct_xdk_runtime=false;
 };
+// A UI/post-process draw can bind original programs outside the engine's
+// observed material method. The exact device+Draw ordinal is then a
+// transient owner, not an archive hash. Admit ONLY untextured Draws and
+// exact original Resolve inputs, never guessed static archive textures.
+inline bool ProvesDirectXdkRuntimeBindings(const xdk::RawDraw& source,
+    std::span<const gpu::VerifiedEorSampler> samplers,uint32_t owner) noexcept {
+  if(!source.observed_vs_matrices || !source.observed_shader_constants ||
+     !source.observed_shader_constants->fixed_graphics_state ||
+     !source.observed_live_vertex_shader_header || !source.observed_live_pixel_shader_header ||
+     !source.observed_live_eor_effect_pass ||
+     !source.observed_live_pixel_shader_header->pixel_sampling ||
+     !source.captured_vertex_bindings || !source.vertex_declaration ||
+     !owner || owner!=source.gpr[0] ||
+     owner!=source.observed_vs_matrices->original_guest_device ||
+     (!xdk::DecodeOriginalVerticesXdkCall(source) && !xdk::DecodeOriginalIndexedXdkCall(source)))
+    return false;
+  const auto& live=*source.observed_vs_matrices;
+  const auto& controls=*source.observed_live_pixel_shader_header->pixel_sampling;
+  uint16_t seen=0;
+  for(const auto& image:samplers) {
+    if(image.stage!=gpu::OriginalSamplerStage::Pixel || image.original_fetch_register>=16u ||
+       !image.original_runtime_material || image.original_model_hash!=owner ||
+       image.original_texture_hash || !image.original_resolved_guest_object ||
+       image.original_effect_hash!=source.observed_live_eor_effect_pass->effect_hash ||
+       image.original_pass_index!=source.observed_live_eor_effect_pass->pass_index ||
+       live.original_texture_guest_objects[image.original_fetch_register]!=image.original_resolved_guest_object)
+      return false;
+    const auto bit=uint16_t(1u<<image.original_fetch_register);
+    if((seen&bit) || !(source.observed_shader_constants->valid_pixel_fetch&bit))return false;
+    seen|=bit;
+  }
+  return seen==controls.sampled_slots;
+}
 // Real original guest VS register values at the exact source Draw.
 // These are NOT automatically a Vulkan UBO or a 16:10 camera update:
  // the backend must still prove its own shader variable byte layout.
