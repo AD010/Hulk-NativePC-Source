@@ -307,6 +307,10 @@ class IncredibleHulkApp : public rex::ReXApp {
     // Make the user's existing authentic Xbox asset root available to the
     // sole Vulkan worker; no manual model archive path/sidecar is needed.
     hulk::eor::xdk::InstallOriginalEorGameAssetRoot(eor_original_game_root_);
+    if(eor_virtual_ids_) {
+      const auto aliases=eor_virtual_ids_->LoadOriginalPixelDebugAliases(eor_original_game_root_);
+      REXLOG_INFO("[HULK/EOR-PS-ALIASES] {} exact physical-code/metadata candidates from private USA SHADEREF.ARC",aliases);
+    }
     if(eor_virtual_ids_ &&
        !hulk::eor::xdk::InstallOriginalShaderCaptureIndex(
            eor_virtual_ids_,eor_effects_))

@@ -945,10 +945,11 @@ void CapturePpcDraw(Kind kind, uint32_t guest, const PPCContext& ctx,
     if(auto& pixel=draw.observed_live_pixel_shader_header;
        pixel && REXCVAR_GET(hulk_eor_vulkan_replay) && draw.observed_shader_constants) {
       try {
-        if(const auto sha=sources.FindOriginalSource(pixel->exact_original_guest_virtual_header,
-                                                     aot::Stage::Pixel)) {
+        if(const auto sha=aot::ResolveOriginalLiveXdkShaderSource(
+              sources,*pixel,draw.observed_vs_matrices->original_ps_guest_object,
+              aot::Stage::Pixel,g_collector.NextFrameSequence(),g_collector.NextDrawOrdinal())) {
           pixel->pixel_sampling=aot::CaptureOriginalPixelSamplerControls(
-              *pixel,*sha,ReadGuest,guest_base,g_pixel_sampling);
+              *pixel,*sha,ReadGuest,guest_base,g_pixel_sampling,&sources);
         }
       } catch(const std::bad_alloc&) { /* Missing source policy rejects only direct replay. */ }
     }
@@ -1267,6 +1268,12 @@ bool InstallVerifiedSourceShaderPackFromDirectory(
     samplers->Load(source_file("hulk_sampler_bank.bin","HEORSMP1.bin"));
     virtual_ids->Load(source_file(
         "hulk_shader_virtual_fingerprints.bin","HEORVRT1.bin"));
+    std::filesystem::path game_root;
+    {
+      std::lock_guard lock(g_mutex);
+      game_root=g_original_game_asset_root;
+    }
+    (void)virtual_ids->LoadOriginalPixelDebugAliases(game_root);
     // The source-identity ledgers must cover the complete original USA
     // ShaderEffects archive, but HEORSPV1 may contain only the original
     // VS/PS programs actually compiled so far. Each real frame still
@@ -1327,6 +1334,11 @@ bool InstallVerifiedSourceShaderPack(
      effects!=g_original_effect_capture_catalog &&
      !effects->SameOriginalSources(*g_original_effect_capture_catalog))
     return false;
+  // Retain the authenticated archive alias index when a cumulative
+  // shader-bank refresh loaded the same HEORVRT1 but no archive path.
+  if(virtual_ids && g_original_shader_capture_index &&
+     g_original_shader_capture_index->PixelDebugAliasCount()>virtual_ids->PixelDebugAliasCount())
+    virtual_ids=g_original_shader_capture_index;
   // A new ShaderEffects generation invalidates source-bound material PSOs,
   // live shader identities and every reusable source owner catalogue.
   // Register the new owner catalogue after installing the new shader pack.

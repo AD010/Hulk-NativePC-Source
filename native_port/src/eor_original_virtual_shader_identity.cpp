@@ -158,6 +158,7 @@ void OriginalVirtualShaderIdentity::Load(
       throw std::invalid_argument("Original source virtual SHA identity collision");
   }
   original_.swap(next); // Failed generation leaves older verified bank unchanged.
+  pixel_debug_aliases_.clear();pixel_alias_count_=0;
 }
 
 std::optional<Digest> OriginalVirtualShaderIdentity::FindOriginalSource(
@@ -177,6 +178,121 @@ std::optional<Digest> OriginalVirtualShaderIdentity::FindOriginalSource(
      it->second.virtual_bytes!=exact_header.size())
     return std::nullopt;
   return it->second.full_source_sha;
+}
+std::optional<Digest> OriginalPixelDebugHeaderKey(
+    std::span<const uint8_t> header) noexcept {
+  // All 2,597 original USA pixel containers have this exact UPDB record
+  // layout: +12 -> debug record, +16 -> next section; record flags and
+  // filename length are BE32, followed by the filename and zero padding.
+  // Only filename payload bytes may differ. Offsets, length, padding,
+  // CTAB, instruction descriptors and all other fields remain significant.
+  if(header.size()<44 || header.size()>(1u<<20) ||
+     Be32(header.data())!=0x102a1100u ||
+     Be32(header.data()+4)!=header.size() || !Be32(header.data()+8) ||
+     Be32(header.data()+12)!=36u || Be32(header.data()+36)!=0u)return {};
+  const auto next=Be32(header.data()+16),length=Be32(header.data()+40);
+  if(next>header.size() || next<44 || !length || length>next-44u ||
+     next-44u-length>3u)return {};
+  const auto filename=header.subspan(44,length);
+  const auto padding=header.subspan(44u+length,next-44u-length);
+  if(!std::all_of(padding.begin(),padding.end(),[](uint8_t x){return x==0;}))return {};
+  const bool cleared=std::all_of(filename.begin(),filename.end(),[](uint8_t x){return x==0;});
+  if(!cleared) {
+    if(length<5u || !std::all_of(filename.begin(),filename.end(),
+                    [](uint8_t x){return x>=32u && x<127u;}))return {};
+    constexpr char ext[]=".updb";
+    for(size_t i=0;i<5;++i) {
+      auto c=filename[length-5+i];
+      if(c>='A' && c<='Z')c=uint8_t(c+32u);
+      if(c!=uint8_t(ext[i]))return {};
+    }
+  }
+  try {
+    std::vector<uint8_t> canonical(header.begin(),header.end());
+    std::fill_n(canonical.begin()+44,length,uint8_t{0});
+    return ExactHeaderDigest(canonical);
+  } catch (...) {return {};}
+}
+size_t OriginalVirtualShaderIdentity::LoadOriginalPixelDebugAliases(
+    const std::filesystem::path& root) noexcept {
+  if(root.empty() || original_.size()!=5194u)return 0;
+  if(pixel_alias_count_)return pixel_alias_count_;
+  // Original USA ShaderEffects archive SHA-256 (private owner source).
+  constexpr Digest archive_sha{
+      0xc3,0x35,0xe0,0xad,0x39,0xbe,0x45,0x5e,
+      0x34,0xdc,0xf6,0xe0,0x2d,0xfb,0xca,0xc7,
+      0x4d,0x17,0x18,0x4c,0x6a,0x39,0xce,0xb3,
+      0x84,0x11,0xcf,0x9b,0xe4,0x2e,0x89,0xdd};
+  try {
+    for(const auto& file:{root/"DATA"/"XENON"/"SHADEREF.ARC",
+        root/"XENON"/"SHADEREF.ARC",root/"SHADEREF.ARC",
+        root/"DATA"/"XENON"/"USENGLISH"/"SHADEREF.ARC",
+        root/"USENGLISH"/"SHADEREF.ARC"}) {
+      std::ifstream f(file,std::ios::binary|std::ios::ate);
+      if(!f || f.tellg()!=5913920)continue;
+      std::vector<uint8_t> bytes(5913920u);
+      f.seekg(0);
+      if(!f.read(reinterpret_cast<char*>(bytes.data()),bytes.size()) ||
+         SourceSha256(bytes)!=archive_sha)continue;
+      std::map<Digest,std::vector<PixelDebugAlias>> next;
+      std::set<Digest> seen;
+      for(size_t i=0;i+44<=bytes.size();++i) {
+        if(Be32(bytes.data()+i)!=0x102a1100u)continue;
+        const auto v=Be32(bytes.data()+i+4),p=Be32(bytes.data()+i+8);
+        if(v<44 || v>(1u<<20) || !p || p>(1u<<20) ||
+           uint64_t(i)+v+p>bytes.size())continue;
+        const auto header=std::span<const uint8_t>(bytes).subspan(i,v);
+        const auto physical=std::span<const uint8_t>(bytes).subspan(i+v,p);
+        const auto source=FindOriginalSource(header,Stage::Pixel);
+        if(!source || SourceSha256(std::span<const uint8_t>(bytes).subspan(i,v+p))!=*source)continue;
+        const auto key=OriginalPixelDebugHeaderKey(header);
+        if(!key || !seen.insert(*source).second)return 0;
+        next[*key].push_back(PixelDebugAlias{*source,SourceSha256(physical),
+                                            {header.begin(),header.end()}});
+        i+=size_t(v)+p-1;
+      }
+      if(seen.size()!=2597u)return 0;
+      // Remove EVERY ambiguous source; no guessed effect, path, or ordinal
+      // may select among programs with the same normalized metadata/code.
+      size_t admitted=0;
+      for(auto it=next.begin();it!=next.end();) {
+        std::map<Digest,size_t> counts;
+        for(const auto& row:it->second)++counts[row.physical_sha];
+        auto& entries=it->second;
+        entries.erase(std::remove_if(entries.begin(),entries.end(),
+           [&](const PixelDebugAlias& row){return counts.at(row.physical_sha)!=1;}),entries.end());
+        admitted+=entries.size();
+        if(entries.empty())it=next.erase(it);else ++it;
+      }
+      if(admitted!=2595u)return 0; // independently verified USA census
+      pixel_debug_aliases_.swap(next);pixel_alias_count_=admitted;
+      return admitted;
+    }
+  } catch (...) {}
+  return 0;
+}
+bool OriginalVirtualShaderIdentity::HasPixelDebugCandidate(
+    std::span<const uint8_t> header) const noexcept {
+  if(pixel_debug_aliases_.empty())return false;
+  const auto key=OriginalPixelDebugHeaderKey(header);
+  return key && pixel_debug_aliases_.contains(*key);
+}
+const OriginalVirtualShaderIdentity::PixelDebugAlias*
+OriginalVirtualShaderIdentity::FindPixelDebugAlias(
+    std::span<const uint8_t> header,std::span<const uint8_t> physical) const noexcept {
+  if(pixel_debug_aliases_.empty() || header.size()<44 ||
+     physical.empty() || physical.size()!=Be32(header.data()+8))return nullptr;
+  const auto key=OriginalPixelDebugHeaderKey(header);
+  if(!key)return nullptr;
+  const auto it=pixel_debug_aliases_.find(*key);
+  if(it==pixel_debug_aliases_.end())return nullptr;
+  const auto digest=ExactHeaderDigest(physical);
+  const PixelDebugAlias* found=nullptr;
+  for(const auto& entry:it->second)if(entry.physical_sha==digest) {
+    if(found)return nullptr;
+    found=&entry;
+  }
+  return found;
 }
 namespace {
 std::optional<uint32_t> UsaShaderHeaderAddress(uint32_t object, Stage stage) noexcept {
@@ -220,11 +336,29 @@ ObserveOriginalBoundXdkShader(
     if(!reader(original_guest_base,header_address,
                reinterpret_cast<std::byte*>(header.data()),header.size()))
       return std::nullopt;
-    if(!identities.FindOriginalSource(header,stage))
-      return std::nullopt;
-    return OriginalLiveXdkShaderHeaderWitness{
+    if(identities.FindOriginalSource(header,stage))
+      return OriginalLiveXdkShaderHeaderWitness{
+          object,header_address,true,std::move(header),
+          exact_frame_sequence,exact_call_ordinal};
+    // XDK variants can retain the executable program while rewriting the
+    // filename in their debug record. Require the exact live metadata
+    // outside that record AND the complete live physical byte digest.
+    // This does not accept unknown, stripped, or edited program code.
+    if(stage!=Stage::Pixel || physical_bytes>(1u<<20) ||
+       !identities.HasPixelDebugCandidate(header))return {};
+    std::array<uint8_t,4> pointer{};
+    if(!reader(original_guest_base,object+24u,
+               reinterpret_cast<std::byte*>(pointer.data()),pointer.size()))return {};
+    const auto physical_at=Be32(pointer.data());
+    if(!physical_at || uint64_t(physical_at)+physical_bytes>(uint64_t{1}<<32))return {};
+    std::vector<uint8_t> physical(physical_bytes);
+    if(!reader(original_guest_base,physical_at,reinterpret_cast<std::byte*>(physical.data()),physical.size()) ||
+       !identities.FindPixelDebugAlias(header,physical))return {};
+    OriginalLiveXdkShaderHeaderWitness result{
         object,header_address,true,std::move(header),
         exact_frame_sequence,exact_call_ordinal};
+    result.alias_live_physical=std::move(physical);
+    return result;
   } catch (...) {
     // A guest read, allocation or checksum error is never gameplay-fatal.
     return std::nullopt;
@@ -280,12 +414,31 @@ std::optional<OriginalPixelSamplerControls> ReadOriginalPixelSamplerControls(
 
 std::optional<OriginalPixelSamplerControls> CaptureOriginalPixelSamplerControls(
     const OriginalLiveXdkShaderHeaderWitness& witness,const Digest& source,
-    ReadOriginalGuestShaderBytes read,void* state,OriginalPixelSamplerCache& cache) {
+    ReadOriginalGuestShaderBytes read,void* state,OriginalPixelSamplerCache& cache,
+    const OriginalVirtualShaderIdentity* identities) {
   const auto& header=witness.exact_original_guest_virtual_header;
   const uint32_t object=witness.original_xdk_shader_guest_object;
   if(!read || !witness.original_object_to_header_abi_verified || header.size()<36 ||
      header.size()>(1u<<20) || !object || UsaShaderHeaderAddress(object,Stage::Pixel)!=
         witness.original_virtual_header_guest_address)return {};
+  if(!witness.alias_live_physical.empty()) {
+    const auto* alias=identities ?
+        identities->FindPixelDebugAlias(header,witness.alias_live_physical):nullptr;
+    if(!alias || alias->full_source_sha!=source)return {};
+    if(const auto known=cache.find(source);known!=cache.end()) {
+      const auto& saved=known->second.container;
+      if(saved.size()!=alias->original_header.size()+witness.alias_live_physical.size() ||
+         !std::equal(alias->original_header.begin(),alias->original_header.end(),saved.begin()) ||
+         !std::equal(witness.alias_live_physical.begin(),witness.alias_live_physical.end(),
+                     saved.begin()+alias->original_header.size()))return {};
+      return known->second.controls;
+    }
+    auto original=alias->original_header;
+    original.insert(original.end(),witness.alias_live_physical.begin(),witness.alias_live_physical.end());
+    const auto controls=ReadOriginalPixelSamplerControls(original,source);
+    if(controls)cache.emplace(source,VerifiedPixelSamplerProgram{*controls,std::move(original)});
+    return controls;
+  }
   const auto size=Be32(header.data()+8);
   std::array<uint8_t,4> address{};
   // USA 82876EA0 copies the virtual part from object+40 and the physical
@@ -335,8 +488,13 @@ std::optional<Digest> ResolveOriginalLiveXdkShaderSource(
      uint64_t(source.original_virtual_header_guest_address)+
          source.exact_original_guest_virtual_header.size()>uint64_t(UINT32_MAX)+1u)
     return std::nullopt;
-  return identities.FindOriginalSource(
-      source.exact_original_guest_virtual_header,expected_stage);
+  if(const auto direct=identities.FindOriginalSource(
+      source.exact_original_guest_virtual_header,expected_stage))return direct;
+  if(expected_stage==Stage::Pixel && !source.alias_live_physical.empty())
+    if(const auto* alias=identities.FindPixelDebugAlias(
+         source.exact_original_guest_virtual_header,source.alias_live_physical))
+      return alias->full_source_sha;
+  return {};
 }
 
 std::optional<OriginalEffectPass> ResolveOriginalLiveEorEffectPass(

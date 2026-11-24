@@ -53,6 +53,23 @@ int main() {
       0xb0,0x03,0x61,0xa3,0x96,0x17,0x7a,0x9c,
       0xb4,0x10,0xff,0x61,0xf2,0x00,0x15,0xad};
   assert(OriginalShaderVirtualSha256(abc)==abc_sha);
+  // Synthetic layout matching the source-authenticated UPDB record.
+  // The filename alone can change; any other byte changes the key.
+  std::vector<uint8_t> debug(96);
+  auto word=[&](size_t at,uint32_t value) {
+    for(unsigned i=0;i<4;++i)debug[at+i]=uint8_t(value>>(24-8*i));
+  };
+  word(0,0x102a1100);word(4,96);word(8,36);
+  word(12,36);word(16,52);word(40,8);
+  const std::string filename="abc.updb";
+  std::copy(filename.begin(),filename.end(),debug.begin()+44);
+  const auto debug_key=OriginalPixelDebugHeaderKey(debug);
+  assert(debug_key);
+  debug[44]='z';assert(OriginalPixelDebugHeaderKey(debug)==debug_key);
+  std::fill(debug.begin()+44,debug.begin()+52,0);
+  assert(OriginalPixelDebugHeaderKey(debug)==debug_key);
+  debug[75]=1;assert(OriginalPixelDebugHeaderKey(debug)!=debug_key);
+  debug[75]=0;word(16,51);assert(!OriginalPixelDebugHeaderKey(debug));
   // Independent Python hashlib reference SHA256 for a 36-byte Xenos
   // virtual stage header; no source program was embedded in the test.
   const auto vs=SourceHeader(Stage::Vertex),ps=SourceHeader(Stage::Pixel);
