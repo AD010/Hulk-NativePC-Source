@@ -16,12 +16,30 @@
 #include <set>
 #include <tuple>
 #include <limits>
+#include <optional>
 #include <stdexcept>
 #include <utility>
 
 namespace hulk::eor::gpu {
 namespace {
 using MaterialKey=std::tuple<uint32_t,uint32_t,uint32_t,uint32_t,bool>;
+// Exact fixed-function variants of a single verified material. The source
+// register tuple includes every input of DeriveOriginalXdkGraphicsPipelineState;
+// it is intentionally not a lossy hash or the guest shader-object address.
+using PipelineVariantKey=std::pair<MaterialKey,std::array<uint32_t,9>>;
+std::optional<PipelineVariantKey> OriginalPipelineVariantKey(
+    const MaterialKey& material,const xdk::OriginalXdkFixedGraphicsState& source) {
+  constexpr std::array<uint32_t,9> registers{
+      0x2000u,0x2001u,0x2002u,0x2104u,0x2200u,0x2201u,0x2202u,0x2204u,0x2205u};
+  PipelineVariantKey key{};
+  key.first=material;
+  for(size_t i=0;i<registers.size();++i) {
+    const auto value=source.ReadOriginalXenosRegister(registers[i]);
+    if(!value)return std::nullopt;
+    key.second[i]=*value;
+  }
+  return key;
+}
 MaterialKey PassKey(uint32_t model,uint32_t surface,const VerifiedOriginalGraphicsPass& pass) {
   return {model,surface,pass.original_effect_hash,pass.original_pass_index,pass.original_depth_unbound};
 }
@@ -263,6 +281,9 @@ struct DiligentEorDirectBackend::State {
   // vertex input state. Sharing a PSO keyed by technique alone was unsafe.
   std::map<MaterialKey,const NativeEorPassResources*> material_lookup;
   std::map<MaterialKey,OriginalVulkanPipeline> pipeline_cache;
+  // The SAME authenticated surface/effect can legitimately change cull,
+  // color write, depth and blend state between original Draw calls.
+  std::map<PipelineVariantKey,OriginalVulkanPipeline> pipeline_variants;
   // Each original pass owns a unique mutable Vulkan descriptor binding.
   std::map<MaterialKey,Diligent::RefCntAutoPtr<Diligent::IShaderResourceBinding>>
       material_bindings;
@@ -277,6 +298,8 @@ struct DiligentEorDirectBackend::State {
     std::vector<float> vertex,pixel;
     FloatRegisterAbi vs_abi=FloatRegisterAbi::External,ps_abi=FloatRegisterAbi::External;
     native::HostRasterWindow raster{};
+    std::optional<PipelineVariantKey> variant;
+    Diligent::RefCntAutoPtr<Diligent::IPipelineState> variant_pipeline;
     Diligent::RefCntAutoPtr<Diligent::IShaderResourceBinding> draw_bindings;
   };
   std::map<DrawKey,PackedConstants> packed_constants;
@@ -1002,6 +1025,7 @@ bool DiligentEorDirectBackend::PreflightOriginalScene(
   if(draws.empty())return false;
   std::map<State::DrawKey,State::PackedConstants> prepared_constants;
   std::set<MaterialKey> needed_materials;
+  std::map<PipelineVariantKey,VerifiedOriginalGraphicsPass> needed_variants;
   std::set<std::pair<uint64_t,uint32_t>> captured_calls;
   uint64_t captured_frame=0;
   uint32_t next_original_ordinal=0;
@@ -1076,10 +1100,28 @@ bool DiligentEorDirectBackend::PreflightOriginalScene(
       // check was able to render the correct mesh with the WRONG pipeline.
       if(!registers.fixed_graphics_state ||
          registers.fixed_graphics_state->original_guest_device!=
-             d.guest_vs_matrices->original_guest_device ||
-         !MatchesOriginalXdkGraphicsState(
-             pass,*registers.fixed_graphics_state))
+             d.guest_vs_matrices->original_guest_device)
         return false;
+      const auto& live_state=*registers.fixed_graphics_state;
+      if(!MatchesOriginalXdkGraphicsState(pass,live_state)) {
+        // A streamed material owns the shader pair, vertex layout and
+        // images, but fixed-function state belongs to the actual Draw.
+        // Derive an additional PSO only from that immutable XDK snapshot.
+        // EFont's separately staged SRB still requires its exact base PSO.
+        if(pass.original_dynamic_font_vertex_layout_verified ||
+           !pass.original_render_state_verified)return false;
+        const auto derived=DeriveOriginalXdkGraphicsPipelineState(
+            live_state,pass.exact_render_state);
+        const auto variant=OriginalPipelineVariantKey(key,live_state);
+        if(!derived || !variant)return false;
+        auto verified_variant=pass;
+        verified_variant.exact_render_state=*derived;
+        if(!MatchesOriginalXdkGraphicsState(verified_variant,live_state))
+          return false;
+        packed.variant=*variant;
+        if(!s.pipeline_variants.contains(*variant))
+          needed_variants.try_emplace(*variant,std::move(verified_variant));
+      }
       auto prepare=[&](aot::Stage stage,const aot::Digest& source,
                        const std::optional<aot::VerifiedOriginalFloatLayout>& layout,
                        std::vector<float>& values) {
@@ -1189,11 +1231,33 @@ bool DiligentEorDirectBackend::PreflightOriginalScene(
                                        original->original_textures);
       s.material_bindings.emplace(key,std::move(binding));
     }
+    // Only now, after all original Draws pass source validation, compile
+    // additional state variants. Their own SRB is required even when
+    // the shader bytecode and original image ownership are identical.
+    for(const auto& [key,pass]:needed_variants) {
+      if(s.pipeline_variants.contains(key))continue;
+      const auto owner=s.material_lookup.find(key.first);
+      if(owner==s.material_lookup.end())return false;
+      auto pipeline=CreateOriginalVulkanPipeline(
+          s.device.RawPtr(),s.shaders,s.bank,s.effects,pass);
+      BindVerifiedOriginalEorTextures(pipeline.bindings.RawPtr(),
+                                     owner->second->original_textures);
+      s.pipeline_variants.emplace(key,std::move(pipeline));
+    }
     for(const auto& item:draws) {
       if(item.original_dynamic_font_draw || !item.draw.source_frame)continue;
       const MaterialKey key{item.original_model_hash,item.original_surface_ordinal,
                             item.effect_hash,item.pass_index,!item.draw.guest_vs_matrices->original_depth_guest_object};
       const auto& textures=s.material_lookup.at(key)->original_textures;
+      auto& prepared=prepared_constants.at({item.draw.source_frame,item.draw.source_ordinal});
+      auto* pipeline=s.pipeline_cache.at(key).pipeline.RawPtr();
+      if(prepared.variant) {
+        const auto& variant=s.pipeline_variants.at(*prepared.variant);
+        if(!variant.pipeline || !variant.bindings)return false;
+        prepared.variant_pipeline=variant.pipeline;
+        prepared.draw_bindings=variant.bindings;
+        pipeline=variant.pipeline.RawPtr();
+      }
       const bool scalar=std::any_of(textures.begin(),textures.end(),[](const auto& texture) {
         return aot::DecodeFixedAotImageSlot(texture.identity.exact_shader_variable_name).has_value();
       });
@@ -1202,8 +1266,12 @@ bool DiligentEorDirectBackend::PreflightOriginalScene(
         return false;
       const auto& controls=*item.original_pixel_sampling;
       const auto& captured=*item.draw.guest_shader_constants;
-      auto& binding=prepared_constants.at({item.draw.source_frame,item.draw.source_ordinal}).draw_bindings;
-      s.pipeline_cache.at(key).pipeline->CreateShaderResourceBinding(&binding,true);
+      auto& binding=prepared.draw_bindings;
+      // A scalar AOT image needs its own live sampler state for this Draw.
+      // Release any shared variant SRB before creating a per-Draw one.
+      binding.Release();
+      pipeline->CreateShaderResourceBinding(&binding,true);
+      if(!binding)return false;
       uint16_t bound=0;
       for(const auto& texture:textures) {
         const auto& id=texture.identity;
@@ -1441,7 +1509,10 @@ bool DiligentEorDirectBackend::DrawIndexed(const native::IndexedDraw& draw) {
                            s.frame.world.width,s.frame.world.height);
     s.context->SetScissorRects(1,&original_scissor,
                               s.frame.world.width,s.frame.world.height);
-    s.context->SetPipelineState(s.active.pipeline.RawPtr());
+    // A variant was built and bound before BeginScene from this exact
+    // original frame/ordinal; never bind its SRB with the base PSO.
+    s.context->SetPipelineState(constants.variant_pipeline ?
+        constants.variant_pipeline.RawPtr() : s.active.pipeline.RawPtr());
     s.context->CommitShaderResources(resources,
         Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
     s.context->SetVertexBuffers(0,binding_count,
