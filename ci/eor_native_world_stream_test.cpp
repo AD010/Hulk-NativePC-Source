@@ -184,6 +184,25 @@ void CheckRapidCameraJump() {
   }
   assert(gpu.freed.size()==3);
 }
+void CheckSourceReadAheadAndBoundedUpload() {
+  FakeGpu gpu;
+  NativeWorldStream stream(std::make_unique<Source>(),gpu,{});
+  const std::array<uint32_t,5> requested{71u,72u,73u,74u,75u};
+  const auto before=calls.load();
+  stream.RequestSourceVerifiedModels(requested);
+  // The real I/O worker must be able to prepare four distinct city
+  // assets without a GPU tick. Upload still happens on the render thread.
+  RetryUntil([&]{return calls.load()>=before+4;});
+  assert(gpu.serial==0u);
+  std::this_thread::sleep_for(std::chrono::milliseconds(20));
+  assert(calls.load()==before+4);
+  for(const auto hash:requested) {
+    RetryUntil([&]{return stream.TickSourceVerifiedModels();});
+    assert(stream.LastUploadedOriginalSourceModel()->original_resource_hash==hash);
+  }
+  for(const auto hash:requested)assert(stream.Resident(hash));
+  assert(gpu.serial==15u);
+}
 int main() {
   FakeGpu gpu;
   {
@@ -213,4 +232,5 @@ int main() {
   CheckRapidCameraJump();
   CheckSharedGpuResidentLifetime();
   CheckSourceVerifiedWorldModels();
+  CheckSourceReadAheadAndBoundedUpload();
 }

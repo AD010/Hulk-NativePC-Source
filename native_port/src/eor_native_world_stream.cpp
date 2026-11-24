@@ -128,8 +128,14 @@ LodDecision NativeWorldStream::Tick(double distance) {
   std::optional<std::pair<uint32_t, model::LoadedNativeGeometry>> prepared;
   {
     std::lock_guard lock(mutex_);
-    if (staged_) prepared.swap(staged_);
+    if (!staged_.empty()) {
+      prepared.emplace(std::move(staged_.front()));
+      staged_.pop_front();
+    }
   }
+  // Release the CPU staging slot before GPU buffer creation, so source
+  // I/O overlaps the renderer rather than idling for the entire upload.
+  if(prepared)wake_.notify_one();
   // Re-evaluate current camera demand BEFORE touching GPU memory. A fast
   // camera jump can make an in-flight read irrelevant; don't upload a stale
   // building model into VRAM, or let prefetch starve the needed near LOD.
@@ -197,7 +203,8 @@ void NativeWorldStream::Worker() {
     uint32_t hash=0;
     {
       std::unique_lock lock(mutex_);
-      wake_.wait(lock,[this]{return stopping_ || (!requests_.empty() && !staged_);});
+      wake_.wait(lock,[this]{return stopping_ ||
+          (!requests_.empty() && staged_.size()<(lod_?1u:kSourceReadAhead));});
       if (stopping_) return;
       hash=requests_.front();requests_.pop_front();
     }
@@ -208,14 +215,16 @@ void NativeWorldStream::Worker() {
       if (stopping_) return;
       // A malformed or allocation-failing geometry move must not escape
       // the worker thread and terminate the entire game process.
+      bool staged=false;
       if (raw) {
         try {
-          staged_.emplace(hash, std::move(*raw));
+          staged_.emplace_back(hash, std::move(*raw));
+          staged=true;
         } catch (...) {
           raw.reset();
         }
       }
-      if (!staged_) {
+      if (!staged) {
         failed_.insert(hash);
         queued_.erase(hash);
         // An absent/corrupt original asset cannot permanently consume

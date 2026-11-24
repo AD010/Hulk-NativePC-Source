@@ -84,7 +84,11 @@ class NativeWorldStream {
   // Persistent provenance: a failed world-model load remains retryable even
   // after it is removed from the active request window.
   std::set<uint32_t> source_known_;
-  std::optional<std::pair<uint32_t,model::LoadedNativeGeometry>> staged_;
+  // Source-only city streaming can read ahead while the render thread
+  // prepares the current frame. The camera-driven tier path remains a
+  // single slot so speculative tiers cannot delay an urgent near LOD.
+  std::deque<std::pair<uint32_t,model::LoadedNativeGeometry>> staged_;
+  static constexpr size_t kSourceReadAhead=4;
   bool stopping_ = false;
   std::thread worker_;
 };
