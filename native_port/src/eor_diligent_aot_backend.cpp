@@ -60,6 +60,7 @@ bool Same(const VerifiedEorSampler& a,const VerifiedEorSampler& b) {
          a.original_effect_hash==b.original_effect_hash &&
          a.original_pass_index==b.original_pass_index &&
          a.original_texture_hash==b.original_texture_hash &&
+         a.original_resolved_guest_object==b.original_resolved_guest_object &&
          a.original_fetch_register==b.original_fetch_register &&
          a.stage==b.stage &&
          a.exact_shader_variable_name==b.exact_shader_variable_name &&
@@ -395,8 +396,12 @@ static void ValidateSourceOriginalMaterialPass(
              texture.identity.exact_shader_variable_name==image.exact_variable_name) {
             const auto fixed=aot::DecodeFixedAotImageSlot(image.exact_variable_name);
             if((fixed && fixed->slot!=texture.identity.original_fetch_register) ||
-               texture.required_view!=view || !texture.uploaded ||
-               texture.uploaded->view_kind!=view)
+               texture.required_view!=view ||
+               (texture.identity.original_resolved_guest_object ?
+                 (view!=OriginalTextureViewKind::Native2D ||
+                  stage!=aot::Stage::Pixel ||
+                  !formats.original_graph.HasResolve(texture.identity.original_resolved_guest_object)) :
+                 (!texture.uploaded || texture.uploaded->view_kind!=view)))
               throw std::invalid_argument("EoR original texture view disagrees with actual SPIR-V image type");
             ++matches;
           }
@@ -1356,8 +1361,18 @@ bool DiligentEorDirectBackend::PreflightOriginalScene(
         const auto bit=static_cast<uint16_t>(1u<<image->slot);
         if(!(controls.sampled_slots&bit) || !(captured.valid_pixel_fetch&bit) || (bound&bit))
           return false;
-        BindOriginalPixelImage2D(s.device,binding,*texture.uploaded,image->slot,
-                                 captured.pixel_fetch[image->slot],(controls.point_slots&bit)!=0);
+        if(id.original_resolved_guest_object) {
+          if(image->dimension!=1u || !s.format.original_graph.HasResolve(id.original_resolved_guest_object) ||
+             item.draw.guest_vs_matrices->original_texture_guest_objects[image->slot]!=id.original_resolved_guest_object)
+            return false;
+          PrepareOriginalResolvedPixelSampler(s.device,binding,image->slot,captured.pixel_fetch[image->slot],
+              (controls.point_slots&bit)!=0,s.frame.original_guest.width,s.frame.original_guest.height,
+              s.format.color==NativeColorFormat::Rgba16Float);
+        } else {
+          if(!texture.uploaded)return false;
+          BindOriginalPixelImage2D(s.device,binding,*texture.uploaded,image->slot,
+                                   captured.pixel_fetch[image->slot],(controls.point_slots&bit)!=0);
+        }
         bound|=bit;
       }
       if(bound!=controls.sampled_slots)return false;
@@ -1600,6 +1615,17 @@ bool DiligentEorDirectBackend::DrawIndexed(const native::IndexedDraw& draw) {
         if(!reference)return false;
         s.context->SetStencilRef(*reference&255u);
       }
+    }
+    // Dynamic resolved textures have no archive hash and no SRV before
+    // their actual native Resolve. Bind only the graph-owned completed image.
+    for(const auto& image:s.selected->original_textures) {
+      const auto guest=image.identity.original_resolved_guest_object;
+      if(!guest)continue;
+      auto* srv=s.scene.IntermediateColorSRV(guest);
+      auto* variable=resources->GetVariableByName(Diligent::SHADER_TYPE_PIXEL,
+          image.identity.exact_shader_variable_name.c_str());
+      if(!srv || !variable)return false;
+      variable->Set(srv,Diligent::SET_SHADER_RESOURCE_FLAG_ALLOW_OVERWRITE);
     }
     s.context->CommitShaderResources(resources,
         Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);

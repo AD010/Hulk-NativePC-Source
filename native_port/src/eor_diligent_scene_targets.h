@@ -182,6 +182,10 @@ inline std::optional<OriginalSourceTargetFormat> PlanOriginalNativeTargets(
     if(cmd.kind==xdk::CommandKind::SetDepthStencilSurface)active_depth.reset();
   }
   std::set<uint32_t> initialized_color,initialized_depth,initialized_stencil,drawn;
+  std::set<uint32_t> declared_resolves,completed_resolves;
+  for(const auto& cmd:source.commands)
+    if(cmd.kind==xdk::CommandKind::Resolve && cmd.gpr[3]!=front)
+      declared_resolves.insert(cmd.gpr[3]);
   bool final_resolved=false;
   for(const auto& cmd:source.commands) {
     if(cmd.gpr[0]!=screen.guest_device)return {};
@@ -197,6 +201,18 @@ inline std::optional<OriginalSourceTargetFormat> PlanOriginalNativeTargets(
       if(!control ||
          ((*control&2u) && !initialized_depth.contains(*active_depth)) ||
          ((*control&1u) && !initialized_stencil.contains(*active_depth)))return {};
+      // Read-after-write is tied to the exact sampled XDK object. A stale
+      // SRV from an earlier source frame may not authorize this Draw.
+      if(draw.observed_live_pixel_shader_header &&
+         draw.observed_live_pixel_shader_header->pixel_sampling) {
+        const auto mask=draw.observed_live_pixel_shader_header->pixel_sampling->sampled_slots;
+        for(uint32_t slot=0;slot<16;++slot) {
+          if(!(mask&(1u<<slot)))continue;
+          const auto texture=gpu.original_texture_guest_objects[slot];
+          if(declared_resolves.contains(texture) && !completed_resolves.contains(texture))return {};
+          if(colors.contains(texture) || depths.contains(texture))return {};
+        }
+      }
       drawn.insert(active_color);
       continue;
     }
@@ -227,7 +243,7 @@ inline std::optional<OriginalSourceTargetFormat> PlanOriginalNativeTargets(
            colors.contains(dest) || depths.contains(dest))return {};
         if(dest==front) {
           graph.final_color=active_color;graph.front_buffer=dest;final_resolved=true;
-        } else resolve_destinations.insert(dest);
+        } else {resolve_destinations.insert(dest);completed_resolves.insert(dest);}
         break;
       }
       case xdk::CommandKind::Present:

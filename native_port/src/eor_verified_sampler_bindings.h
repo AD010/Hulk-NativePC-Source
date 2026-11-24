@@ -20,6 +20,9 @@ struct VerifiedEorSampler {
   bool original_material_ownership_verified=false;
   bool original_shader_fetch_slot_verified=false;
   bool original_texture_format_and_mips_verified=false;
+  // A source Resolve produces a new runtime image, not a MODELS.ARC or
+  // TEXTURES.ARC resource hash. Exactly one of these two identities is set.
+  uint32_t original_resolved_guest_object=0;
 };
 // Rejects incomplete/ambiguous original texture ownership before touching GPU.
 // These explicit evidentiary flags must originate in a real EoR runtime/Shader

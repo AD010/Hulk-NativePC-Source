@@ -1850,7 +1850,11 @@ struct AutomaticEorOwner {
          !call.observed_live_pixel_shader_header->pixel_sampling ||
          !parent->original_pass_sampler_slots_verified)
         throw std::invalid_argument("Original material source sampler mask unavailable");
-      const auto mask=call.observed_live_pixel_shader_header->pixel_sampling->sampled_slots;
+      auto mask=call.observed_live_pixel_shader_header->pixel_sampling->sampled_slots;
+      if(call.observed_vs_matrices)
+        for(uint32_t slot=0;slot<16;++slot)
+          if(contract.format.original_graph.HasResolve(call.observed_vs_matrices->original_texture_guest_objects[slot]))
+            mask&=static_cast<uint16_t>(~(1u<<slot));
       if(!mask || (mask&~parent->original_pass_sampler_slot_mask))
         throw std::invalid_argument("Original material lacks unique indexed texture proof");
       const auto surfaces=candidates->FindLiveSurfaceCandidates(
@@ -1925,7 +1929,7 @@ struct AutomaticEorOwner {
         pass.original_view_space=gpu::VerifiedOriginalViewSpace::OriginalAspectHud;
         pass.original_view_space_verified=pass.original_hud_clip_coordinates_verified=true;
         material.original_images=gpu::live::OriginalScalarImages(call,*vs,*ps,
-            *pack.shaders,*pack.samplers,atlas,0,1u,textures);
+            *pack.shaders,*pack.samplers,atlas,0,1u,textures,contract.format);
         pass.material_pass_verified=true;
         backend->AdoptVerifiedOriginalMaterialPasses({&material,1},textures);
         ordered.push_back(backend->StageVerifiedOriginalFontDraw(

@@ -226,7 +226,7 @@ inline std::vector<VerifiedNativeMaterialImage> OriginalScalarImages(
     const xdk::RawDraw& call,const aot::Digest& vs,const aot::Digest& ps,
     const aot::ShaderBank& bank,const aot::OriginalXdkShaderSamplers& samplers,
     uint32_t model,uint32_t surface,uint16_t source_mask,
-    DiligentOriginalTextureResidency& residency) {
+    DiligentOriginalTextureResidency& residency,const VerifiedSceneFormat& scene) {
   const auto* v=bank.Find(vs,aot::Stage::Vertex);
   const auto* p=bank.Find(ps,aot::Stage::Pixel);
   if(!v || !p || !call.observed_vs_matrices || !call.observed_shader_constants ||
@@ -248,7 +248,6 @@ inline std::vector<VerifiedNativeMaterialImage> OriginalScalarImages(
     const auto bit=static_cast<uint16_t>(1u<<slot->slot);
     const auto& captured=*call.observed_shader_constants;
     if((used&bit) || !(sampling.sampled_slots&bit) || !(captured.valid_pixel_fetch&bit) ||
-       !call.original_pixel_texture_keys[slot->slot] ||
        !call.observed_vs_matrices->original_texture_guest_objects[slot->slot])
       throw std::invalid_argument("Unverified scalar live XDK texture slot");
     const auto& declarations=*samplers.Find(ps,aot::Stage::Pixel);
@@ -260,7 +259,18 @@ inline std::vector<VerifiedNativeMaterialImage> OriginalScalarImages(
     // formats only. Do not silently convert signed/gamma fetches.
     if((captured.pixel_fetch[slot->slot][0]&1023u)!=2u)
       throw std::invalid_argument("Unsupported original scalar color space");
+    const auto guest=call.observed_vs_matrices->original_texture_guest_objects[slot->slot];
+    if(scene.original_graph.HasResolve(guest)) {
+      if(slot->dimension!=1u)throw std::invalid_argument("Original resolved image must be 2D");
+      VerifiedEorSampler binding{model,surface,call.observed_live_eor_effect_pass->effect_hash,
+        call.observed_live_eor_effect_pass->pass_index,0u,slot->slot,OriginalSamplerStage::Pixel,
+        image.exact_variable_name,true,true,true,guest};
+      out.push_back({std::move(binding),OriginalTextureColorSpace::Linear,OriginalTextureViewKind::Native2D});
+      used|=bit;
+      continue;
+    }
     const auto hash=call.original_pixel_texture_keys[slot->slot];
+    if(!hash)throw std::invalid_argument("Original static sampled image has no archive identity");
     const auto view=slot->dimension==3u ? OriginalTextureViewKind::NativeCube :
                    slot->dimension==0u ? OriginalTextureViewKind::Native1D :
                                          OriginalTextureViewKind::Native2D;
@@ -364,7 +374,11 @@ inline ProducedWorldMaterial ProduceOriginalWorldMaterial(
   const auto sampling=call.observed_live_pixel_shader_header->pixel_sampling;
   if(!sampling || !sampling->sampled_slots)
     throw std::invalid_argument("Untextured surface requires original engine material ID");
-  const auto surface=native::IdentifyLiveOriginalXdkMaterialSurface(*owner,call,sampling->sampled_slots);
+  uint16_t archive_mask=sampling->sampled_slots;
+  for(uint32_t slot=0;slot<16;++slot)
+    if(format.original_graph.HasResolve(live.original_texture_guest_objects[slot]))
+      archive_mask&=static_cast<uint16_t>(~(1u<<slot));
+  const auto surface=native::IdentifyLiveOriginalXdkMaterialSurface(*owner,call,archive_mask);
   if(!surface || *surface>=owner->original_surface_candidates.size())
     throw std::invalid_argument("Original material surface is ambiguous");
   LinearizedOriginalDraw host_draw;
@@ -393,7 +407,7 @@ inline ProducedWorldMaterial ProduceOriginalWorldMaterial(
   out.material.original_model_hash=owner->original_resource_hash;
   out.material.original_surface_ordinal=*surface;
   out.material.original_images=OriginalScalarImages(call,*vs,*ps,bank,samplers,
-      owner->original_resource_hash,*surface,method.original_pass_sampler_slot_mask,residency);
+      owner->original_resource_hash,*surface,method.original_pass_sampler_slot_mask,residency,format);
   pass.material_pass_verified=true;
   auto& d=out.draw;
   d.original_model_hash=owner->original_resource_hash;

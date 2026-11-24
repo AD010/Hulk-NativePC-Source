@@ -16,7 +16,8 @@ void ValidateOriginalEorSamplers(std::span<const VerifiedEorSampler> slots) {
        slot.original_surface_ordinal==UINT32_MAX ||
        !slot.original_effect_hash ||
        slot.original_pass_index==UINT32_MAX ||
-       !slot.original_texture_hash ||
+       (bool(slot.original_texture_hash)==bool(slot.original_resolved_guest_object)) ||
+       (slot.original_resolved_guest_object && slot.stage!=OriginalSamplerStage::Pixel) ||
        slot.original_fetch_register==UINT32_MAX ||
        slot.original_fetch_register>=128 ||
        (slot.stage!=OriginalSamplerStage::Vertex &&

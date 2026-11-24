@@ -29,6 +29,13 @@ void BindUsaFontMainAtlas(Diligent::IRenderDevice* device,
 void BindOriginalPixelImage2D(Diligent::IRenderDevice* device,
     Diligent::IShaderResourceBinding* bindings,const UploadedEorTexture& texture,
     uint32_t slot,const std::array<uint32_t,6>& fetch,bool force_point);
+// Prepare a single-level, identity-swizzled source Resolve sampler BEFORE
+// scene submission. Its actual SRV is populated only after the recorded
+// source Resolve has executed in the native target graph.
+void PrepareOriginalResolvedPixelSampler(Diligent::IRenderDevice* device,
+    Diligent::IShaderResourceBinding* bindings,uint32_t slot,
+    const std::array<uint32_t,6>& fetch,bool force_point,
+    uint32_t source_width,uint32_t source_height,bool fp16);
 // Resolve all shader variables before mutating the binding. Never invent
 // variable names, register numbers, or bind a fallback/magenta texture.
 // An empty list is valid only when the calling shader uses no textures;

@@ -302,17 +302,22 @@ std::optional<uint32_t> IdentifyOriginalMaterialSurface(
     std::span<const gpu::VerifiedEorSampler> samplers) noexcept {
   if(!model.original_resource_hash || samplers.empty())
     return std::nullopt;
-  for(const auto& sampler:samplers)
+  bool has_archive_sampler=false;
+  for(const auto& sampler:samplers) {
     if(sampler.original_model_hash!=model.original_resource_hash ||
-       !sampler.original_texture_hash ||
+       (bool(sampler.original_texture_hash)==bool(sampler.original_resolved_guest_object)) ||
        !sampler.original_material_ownership_verified ||
        !sampler.original_shader_fetch_slot_verified ||
        !sampler.original_texture_format_and_mips_verified)
       return std::nullopt;
+    has_archive_sampler|=sampler.original_texture_hash!=0;
+  }
+  if(!has_archive_sampler)return std::nullopt;
   std::optional<uint32_t> unique;
   for(const auto& surface:model.original_surface_candidates) {
     bool all_found=true;
     for(const auto& sampler:samplers) {
+      if(sampler.original_resolved_guest_object)continue;
       bool found=false;
       for(const auto& indexed:surface.indexed_texture_references)
         if(indexed.original_texture_hash==sampler.original_texture_hash &&

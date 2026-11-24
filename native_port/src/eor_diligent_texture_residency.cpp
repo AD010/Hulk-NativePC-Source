@@ -80,9 +80,15 @@ DiligentOriginalTextureResidency::BindMaterial(
     OriginalDiligentSampler sampler;
     sampler.identity=entry.original_binding;
     sampler.required_view=entry.shader_reflected_view;
-    sampler.uploaded=Acquire(entry.original_binding.original_texture_hash,
-                             entry.source_proven_color_space,
-                             entry.shader_reflected_view);
+    if(entry.original_binding.original_resolved_guest_object) {
+      if(entry.shader_reflected_view!=OriginalTextureViewKind::Native2D ||
+         entry.source_proven_color_space!=OriginalTextureColorSpace::Linear)
+        throw std::invalid_argument("Original full Resolve must use native linear 2D SRV");
+    } else {
+      sampler.uploaded=Acquire(entry.original_binding.original_texture_hash,
+                               entry.source_proven_color_space,
+                               entry.shader_reflected_view);
+    }
     result.push_back(std::move(sampler));
   }
   return result;

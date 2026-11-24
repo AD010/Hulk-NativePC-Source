@@ -123,6 +123,50 @@ void BindOriginalPixelImage2D(Diligent::IRenderDevice* device,
   sampler->Set(native);
 }
 
+void PrepareOriginalResolvedPixelSampler(Diligent::IRenderDevice* device,
+    Diligent::IShaderResourceBinding* bindings,uint32_t slot,
+    const std::array<uint32_t,6>& fetch,bool force_point,
+    uint32_t width,uint32_t height,bool fp16) {
+  using namespace Diligent;
+  if(!device || !bindings || slot>=16 || !width || !height ||
+     (fetch[0]&1023u)!=2u || (fetch[1]&(1u<<10)) ||
+     (fetch[1]&63u)!=(fp16?29u:6u) ||
+     (fetch[5]>>9&3u)!=1u || (fetch[2]>>26) ||
+     (fetch[2]&8191u)+1u!=width || ((fetch[2]>>13)&8191u)+1u!=height ||
+     (fetch[3]&0x7ffffu)!=(fp16?0xd11u:0xd10u) ||
+     (fetch[4]>>2&255u) || (fetch[3]>>28) ||
+     !(fetch[1]>>12&0xfffffu))
+    throw std::invalid_argument("Original full Resolve texture fetch contract differs from native image");
+  auto address=[](uint32_t value) {
+    switch(value) {
+      case 0:return TEXTURE_ADDRESS_WRAP;
+      case 1:return TEXTURE_ADDRESS_MIRROR;
+      case 2:return TEXTURE_ADDRESS_CLAMP;
+      default:throw std::invalid_argument("Unsupported original Resolve address mode");
+    }
+  };
+  auto filter=[](uint32_t value) {
+    if(value>1u)throw std::invalid_argument("Unsupported original Resolve filter");
+    return value?FILTER_TYPE_LINEAR:FILTER_TYPE_POINT;
+  };
+  if((fetch[3]>>25&7u)>1u)throw std::invalid_argument("Original Resolve anisotropy unsupported");
+  SamplerDesc desc{};
+  desc.AddressU=address(fetch[0]>>10&7u);
+  desc.AddressV=address(fetch[0]>>13&7u);
+  desc.AddressW=TEXTURE_ADDRESS_CLAMP;
+  desc.MinFilter=force_point?FILTER_TYPE_POINT:filter(fetch[3]>>21&3u);
+  desc.MagFilter=force_point?FILTER_TYPE_POINT:filter(fetch[3]>>19&3u);
+  desc.MipFilter=FILTER_TYPE_POINT;
+  desc.MinLOD=desc.MaxLOD=0;
+  const auto suffix=std::to_string(slot);
+  auto* image=bindings->GetVariableByName(SHADER_TYPE_PIXEL,("HulkTexture2D_s"+suffix).c_str());
+  auto* sampler=bindings->GetVariableByName(SHADER_TYPE_PIXEL,("HulkSampler_s"+suffix).c_str());
+  if(!image || !sampler)throw std::invalid_argument("Missing native Resolve SRB variables");
+  RefCntAutoPtr<ISampler> native;
+  device->CreateSampler(desc,&native);
+  if(!native)throw std::runtime_error("Original Resolve sampler allocation failed");
+  sampler->Set(native);
+}
 void BindVerifiedOriginalEorTextures(
     Diligent::IShaderResourceBinding* srb,
     std::span<const OriginalDiligentSampler> samplers) {
@@ -135,10 +179,11 @@ void BindVerifiedOriginalEorTextures(
   std::vector<Diligent::IShaderResourceVariable*> variables;
   variables.reserve(samplers.size());
   for(const auto& sampler:samplers) {
-    if(!sampler.uploaded ||
+    if(!sampler.identity.original_resolved_guest_object &&
+       (!sampler.uploaded ||
        sampler.uploaded->original_texture_hash!=sampler.identity.original_texture_hash ||
        sampler.uploaded->view_kind!=sampler.required_view ||
-       !sampler.uploaded->original_mip_levels || !sampler.uploaded->SRV())
+       !sampler.uploaded->original_mip_levels || !sampler.uploaded->SRV()))
       throw std::invalid_argument("Original EoR sampler has no matching resident GPU texture");
     auto* var=srb->GetVariableByName(
        Stage(sampler.identity.stage),
@@ -148,6 +193,7 @@ void BindVerifiedOriginalEorTextures(
     variables.push_back(var);
   }
   for(size_t i=0;i<samplers.size();++i)
-    variables[i]->Set(samplers[i].uploaded->SRV());
+    if(!samplers[i].identity.original_resolved_guest_object)
+      variables[i]->Set(samplers[i].uploaded->SRV());
 }
 } // namespace hulk::eor::gpu
