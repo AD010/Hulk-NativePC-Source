@@ -6,6 +6,7 @@
 #include "RefCntAutoPtr.hpp"
 #include <cmath>
 #include <limits>
+#include <map>
 #include <stdexcept>
 #include <utility>
 namespace hulk::eor::gpu {
@@ -31,6 +32,9 @@ struct DiligentSceneTargets::State {
   Diligent::RefCntAutoPtr<Diligent::IRenderDevice> device;
   Diligent::RefCntAutoPtr<Diligent::IDeviceContext> context;
   Diligent::RefCntAutoPtr<Diligent::ITexture> color,depth,resolved;
+  std::map<uint32_t,Diligent::RefCntAutoPtr<Diligent::ITexture>> colors,depths,intermediates;
+  std::set<uint32_t> completed_intermediates;
+  uint32_t active_color=0,active_depth=0;
   native::Size physical{};
   VerifiedSceneFormat formats{};
   uint32_t samples=0;
@@ -50,11 +54,14 @@ void DiligentSceneTargets::AbortScene() noexcept {
   }
   state_->ready=false;
   state_->prepared=false;
+  state_->completed_intermediates.clear();
 }
 void DiligentSceneTargets::Reset() noexcept {
   if(!state_)return;
   AbortScene();
   state_->resolved.Release();state_->depth.Release();state_->color.Release();
+  state_->colors.clear();state_->depths.clear();state_->intermediates.clear();
+  state_->active_color=state_->active_depth=0;
   state_->physical={};state_->formats={};state_->samples=0;
 }
 bool DiligentSceneTargets::Prepare(const native::FrameGeometry& frame,
@@ -65,6 +72,14 @@ bool DiligentSceneTargets::Prepare(const native::FrameGeometry& frame,
   // Never allow BeginScene after Prepare fails or returns an old allocation.
   state_->prepared=false;
   state_->ready=false;
+  state_->completed_intermediates.clear();
+  const auto& graph=verified.original_graph;
+  if(graph.active() &&
+     (!graph.HasColor(graph.first_color) || !graph.HasColor(graph.final_color) ||
+      !graph.HasDepth(graph.first_depth) || graph.final_color!=verified.original_screen.guest_rt0 ||
+      graph.front_buffer!=verified.original_screen.guest_front_buffer ||
+      graph.colors.size()>16 || graph.depths.size()>16 || graph.resolves.size()>16))
+    return false;
   if(!frame.direct_engine_path_ready || !verified.original_color_format_verified ||
      !verified.original_depth_format_verified ||
      Color(verified.color)==Diligent::TEX_FORMAT_UNKNOWN ||
@@ -83,18 +98,27 @@ bool DiligentSceneTargets::Prepare(const native::FrameGeometry& frame,
     return false;
   if(Same(state_->physical,frame.world) && state_->samples==frame.samples &&
      state_->formats.color==verified.color && state_->formats.depth==verified.depth &&
-     state_->color && (state_->depth || verified.depth==NativeDepthFormat::None) && state_->resolved) {
+     state_->color && (state_->depth || verified.depth==NativeDepthFormat::None ||
+                      graph.active()) && state_->resolved &&
+     state_->formats.original_graph==graph) {
     // Native attachment storage is reusable at the same extent/format,
     // but the verified Xbox RT0/depth/front-buffer *owner* can change
     // after a menu transition, loading screen or resource recreation.
     // Never retain last Present's source identity with the new frame.
     state_->formats=verified;
+    if(graph.active()) {
+      state_->active_color=graph.first_color;state_->active_depth=graph.first_depth;
+      state_->color=state_->colors.at(graph.first_color);
+      if(graph.first_depth)state_->depth=state_->depths.at(graph.first_depth);
+      else state_->depth.Release();
+    }
     state_->prepared=true;
     return true;
   }
   // Transactional attachment allocation: a failure keeps the preceding
   // complete target set, rather than presenting an empty/half-size image.
   Diligent::RefCntAutoPtr<Diligent::ITexture> new_color,new_depth,new_resolved;
+  decltype(state_->colors) new_colors,new_depths,new_intermediates;
   Diligent::TextureDesc desc;
   desc.Name="EoR verified host color MSAA";
   desc.Type=Diligent::RESOURCE_DIM_TEX_2D;
@@ -109,12 +133,34 @@ bool DiligentSceneTargets::Prepare(const native::FrameGeometry& frame,
   try {
     state_->device->CreateTexture(desc,nullptr,&new_color);
     if(!new_color || !new_color->GetDefaultView(Diligent::TEXTURE_VIEW_RENDER_TARGET))return false;
+    if(graph.active()) {
+      new_colors.emplace(graph.final_color,new_color);
+      for(uint32_t guest:graph.colors) {
+        if(guest==graph.final_color)continue;
+        Diligent::RefCntAutoPtr<Diligent::ITexture> color;
+        desc.Name="EoR independent sequential host color";
+        state_->device->CreateTexture(desc,nullptr,&color);
+        if(!color || !color->GetDefaultView(Diligent::TEXTURE_VIEW_RENDER_TARGET))return false;
+        if(!new_colors.emplace(guest,std::move(color)).second)return false;
+      }
+    }
     if(verified.depth!=NativeDepthFormat::None) {
       desc.Name="EoR verified host depth";
       desc.Format=Depth(verified.depth);
       desc.BindFlags=Diligent::BIND_DEPTH_STENCIL;
       state_->device->CreateTexture(desc,nullptr,&new_depth);
       if(!new_depth || !new_depth->GetDefaultView(Diligent::TEXTURE_VIEW_DEPTH_STENCIL))return false;
+      if(graph.active()) {
+        if(graph.depths.empty())return false;
+        new_depths.emplace(graph.depths.front(),new_depth);
+        for(size_t i=1;i<graph.depths.size();++i) {
+          Diligent::RefCntAutoPtr<Diligent::ITexture> depth;
+          desc.Name="EoR independent sequential host depth";
+          state_->device->CreateTexture(desc,nullptr,&depth);
+          if(!depth || !depth->GetDefaultView(Diligent::TEXTURE_VIEW_DEPTH_STENCIL))return false;
+          if(!new_depths.emplace(graph.depths[i],std::move(depth)).second)return false;
+        }
+      }
     }
     if(frame.samples!=1) {
       desc.Name="EoR resolved host scene color";
@@ -126,10 +172,31 @@ bool DiligentSceneTargets::Prepare(const native::FrameGeometry& frame,
       new_resolved=new_color;
       if(!new_resolved->GetDefaultView(Diligent::TEXTURE_VIEW_SHADER_RESOURCE))return false;
     }
+    if(graph.active()) {
+      desc.Name="EoR original intermediate Resolve image";
+      desc.SampleCount=1;desc.Format=Color(verified.color);
+      desc.BindFlags=Diligent::BIND_SHADER_RESOURCE;
+      for(uint32_t guest:graph.resolves) {
+        Diligent::RefCntAutoPtr<Diligent::ITexture> target;
+        state_->device->CreateTexture(desc,nullptr,&target);
+        if(!target || !target->GetDefaultView(Diligent::TEXTURE_VIEW_SHADER_RESOURCE) ||
+           !new_intermediates.emplace(guest,std::move(target)).second)return false;
+      }
+    }
   } catch (...) {return false;}
   state_->color=std::move(new_color);
   state_->depth=std::move(new_depth);
   state_->resolved=std::move(new_resolved);
+  state_->colors=std::move(new_colors);
+  state_->depths=std::move(new_depths);
+  state_->intermediates=std::move(new_intermediates);
+  state_->active_color=state_->active_depth=0;
+  if(graph.active()) {
+    state_->active_color=graph.first_color;state_->active_depth=graph.first_depth;
+    state_->color=state_->colors.at(graph.first_color);
+    if(graph.first_depth)state_->depth=state_->depths.at(graph.first_depth);
+    else state_->depth.Release();
+  }
   state_->physical=frame.world;
   state_->formats=verified;
   state_->samples=frame.samples;
@@ -141,7 +208,8 @@ bool DiligentSceneTargets::BeginScene() {
   state_->ready=false;
   try {
     auto* rtv=state_->color->GetDefaultView(Diligent::TEXTURE_VIEW_RENDER_TARGET);
-    state_->depth_bound=state_->formats.depth!=NativeDepthFormat::None;
+    state_->depth_bound=state_->formats.original_graph.active() ?
+        state_->active_depth!=0 : state_->formats.depth!=NativeDepthFormat::None;
     auto* dsv=state_->depth ? state_->depth->GetDefaultView(Diligent::TEXTURE_VIEW_DEPTH_STENCIL) : nullptr;
     if(!rtv || (state_->depth_bound && !dsv))return false;
     // A driver may bind the target and then throw (device loss/resize).
@@ -176,6 +244,75 @@ bool DiligentSceneTargets::SetDepthBound(bool bind) {
     state_->depth_bound=bind;
     return true;
   } catch (...) {AbortScene();return false;}
+}
+bool DiligentSceneTargets::SetOriginalColorTarget(uint32_t guest) {
+  if(!state_ || !state_->bound || !state_->formats.original_graph.active())return false;
+  const auto it=state_->colors.find(guest);
+  if(it==state_->colors.end())return false;
+  if(guest==state_->active_color)return true;
+  auto* rtv=it->second->GetDefaultView(Diligent::TEXTURE_VIEW_RENDER_TARGET);
+  auto* dsv=state_->depth_bound && state_->depth ?
+      state_->depth->GetDefaultView(Diligent::TEXTURE_VIEW_DEPTH_STENCIL) : nullptr;
+  if(!rtv || (state_->depth_bound && !dsv))return false;
+  try {
+    state_->context->SetRenderTargets(1,&rtv,dsv,Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+    state_->color=it->second;state_->active_color=guest;
+    return true;
+  } catch (...) {AbortScene();return false;}
+}
+bool DiligentSceneTargets::SetOriginalDepthTarget(uint32_t guest) {
+  if(!state_ || !state_->bound || !state_->formats.original_graph.active())return false;
+  if(guest==state_->active_depth)return true;
+  const auto it=state_->depths.find(guest);
+  if(guest && it==state_->depths.end())return false;
+  auto* rtv=state_->color->GetDefaultView(Diligent::TEXTURE_VIEW_RENDER_TARGET);
+  auto* dsv=guest ? it->second->GetDefaultView(Diligent::TEXTURE_VIEW_DEPTH_STENCIL) : nullptr;
+  if(!rtv || (guest && !dsv))return false;
+  try {
+    state_->context->SetRenderTargets(1,&rtv,dsv,Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+    if(guest)state_->depth=it->second;else state_->depth.Release();
+    state_->active_depth=guest;state_->depth_bound=guest!=0;
+    return true;
+  } catch (...) {AbortScene();return false;}
+}
+bool DiligentSceneTargets::ResolveOriginalIntermediate(uint32_t guest) {
+  using namespace Diligent;
+  if(!state_ || !state_->bound || !state_->color ||
+     !state_->formats.original_graph.active())return false;
+  const auto it=state_->intermediates.find(guest);
+  if(it==state_->intermediates.end() || !it->second)return false;
+  auto* rtv=state_->color->GetDefaultView(TEXTURE_VIEW_RENDER_TARGET);
+  auto* dsv=state_->depth_bound && state_->depth ?
+      state_->depth->GetDefaultView(TEXTURE_VIEW_DEPTH_STENCIL) : nullptr;
+  if(!rtv || (state_->depth_bound && !dsv))return false;
+  try {
+    // Each original Resolve captures the active host color contents at
+    // this exact chronology point. A separate texture remains readable
+    // while the source RT is rebound for subsequent original draws.
+    state_->context->SetRenderTargets(0,nullptr,nullptr,RESOURCE_STATE_TRANSITION_MODE_NONE);
+    if(state_->samples>1) {
+      ResolveTextureSubresourceAttribs args{};
+      args.Format=Color(state_->formats.color);
+      args.SrcTextureTransitionMode=RESOURCE_STATE_TRANSITION_MODE_TRANSITION;
+      args.DstTextureTransitionMode=RESOURCE_STATE_TRANSITION_MODE_TRANSITION;
+      state_->context->ResolveTextureSubresource(state_->color,it->second,args);
+    } else {
+      CopyTextureAttribs args{};
+      args.pSrcTexture=state_->color;args.pDstTexture=it->second;
+      args.SrcTextureTransitionMode=RESOURCE_STATE_TRANSITION_MODE_TRANSITION;
+      args.DstTextureTransitionMode=RESOURCE_STATE_TRANSITION_MODE_TRANSITION;
+      state_->context->CopyTexture(args);
+    }
+    state_->context->SetRenderTargets(1,&rtv,dsv,RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+    state_->completed_intermediates.insert(guest);
+    return true;
+  } catch (...) {AbortScene();return false;}
+}
+Diligent::ITextureView* DiligentSceneTargets::IntermediateColorSRV(uint32_t guest) const noexcept {
+  if(!state_ || !state_->completed_intermediates.contains(guest))return nullptr;
+  const auto it=state_->intermediates.find(guest);
+  return it!=state_->intermediates.end() && it->second ?
+      it->second->GetDefaultView(Diligent::TEXTURE_VIEW_SHADER_RESOURCE) : nullptr;
 }
 bool DiligentSceneTargets::ClearVerifiedOriginalXdk(
     const xdk::OriginalXdkClearF& source,native::Size guest) {
@@ -222,6 +359,8 @@ bool DiligentSceneTargets::ClearVerifiedOriginalXdk(
 }
 bool DiligentSceneTargets::ResolveScene() {
   if(!state_ || !state_->prepared || !state_->bound || !state_->color || !state_->resolved)return false;
+  const auto& graph=state_->formats.original_graph;
+  if(graph.active() && state_->active_color!=graph.final_color)return false;
   try {
     state_->context->SetRenderTargets(0,nullptr,nullptr,Diligent::RESOURCE_STATE_TRANSITION_MODE_NONE);
     state_->bound=false;
