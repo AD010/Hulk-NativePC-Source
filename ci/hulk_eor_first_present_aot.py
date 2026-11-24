@@ -13,6 +13,7 @@ import os
 from pathlib import Path
 import tempfile
 import zipfile
+import time
 from hulk_xenos_aot import (_entries, _private, _source_shaders_for_effects,
                             _source_shaders_for_passes, compile_bank)
 
@@ -180,36 +181,70 @@ def main():
     p.add_argument("--dxc",type=Path,required=True)
     p.add_argument("--common",type=Path,required=True)
     p.add_argument("--workers",type=int,default=0)
+    p.add_argument("--watch",action="store_true",
+                   help="Keep compiling newly observed original XDK passes; "
+                        "game/Vulkan worker hot-loads the cumulative HEORSPV1")
+    p.add_argument("--watch-interval",type=float,default=2.0,
+                   help="Seconds between private original shader requests, 1-60")
     a=p.parse_args()
+    if not 1.0<=a.watch_interval<=60.0:
+        p.error("Private shader watch interval must be 1-60 seconds")
+    if a.watch and not a.observed_passes:
+        p.error("--watch requires the private HEORREQ1.txt from the live XDK worker")
     def parse_pair(item:str)->tuple[int,int]:
         raw=item.split(":")
         if len(raw)!=2:raise ValueError("Pass must be effect:ordinal")
         return (int(raw[0],0),int(raw[1],0))
     selected={parse_pair(item) for item in a.effect_pass}
-    if a.observed_passes:
-        selected.update(_observed_original_passes(
-            a.observed_passes,a.max_observed_passes))
+    # Unpack original source at MOST ONCE per invocation. Every later
+    # private worker request is compiled against this identical manifest,
+    # with strict SHA-256 reuse of the existing HEORSPV1 checkpoints.
+    original=( _private(a.bank,a.public_repository) if a.bank else
+        prepare_original_bank(a.source_zip,
+            _private(a.work,a.public_repository)/"original_source_bank",
+            a.public_repository) )
     if a.bank:
-        # Private original Xenos shader directory is ALREADY extracted.
-        # Revalidate identities without copying or extracting any source.
-        from hulk_xenos_aot import _entries, _private
-        bank=_private(a.bank,a.public_repository)
-        manifest,all_sources=_entries(bank)
+        manifest,all_sources=_entries(original)
         if (manifest.get("original_effects")!=233 or
             len(all_sources)!=5194 or
             manifest.get("xenos_vertex_shaders")!=2597 or
             manifest.get("xenos_pixel_shaders")!=2597):
-            raise ValueError("Existing original Xbox ShaderEffects bank is incomplete")
-        result=compile_prepared_bank(
-            bank,a.work,a.install,a.public_repository,
-            tuple(a.effect_hash),a.xenosrecomp,a.dxc,a.common,
-            a.workers,tuple(sorted(selected)))
-    else:
-        result=compile_and_install(
-            a.source_zip,a.work,a.install,a.public_repository,
-            tuple(a.effect_hash),a.xenosrecomp,a.dxc,a.common,
-            a.workers,tuple(sorted(selected)))
-    print(json.dumps(result,indent=2))
+            raise ValueError("Existing original Xbox ShaderEffects bank incomplete")
+    previously_seen:tuple[tuple[int,int],...]=()
+    last_failure_message=None
+    while True:
+        requested=set(selected)
+        try:
+            if a.observed_passes:
+                requested.update(_observed_original_passes(
+                    a.observed_passes,a.max_observed_passes))
+            if not requested:
+                if not a.watch:
+                    raise ValueError("No authentic live XDK ShaderEffects passes supplied")
+            elif not a.watch or tuple(sorted(requested))!=previously_seen:
+                result=compile_prepared_bank(
+                    original,a.work,a.install,a.public_repository,
+                    tuple(a.effect_hash),a.xenosrecomp,a.dxc,a.common,
+                    a.workers,tuple(sorted(requested)))
+                previously_seen=tuple(sorted(requested))
+                last_failure_message=None
+                print(json.dumps(result,indent=2),flush=True)
+        except (ValueError,RuntimeError,OSError,KeyError) as error:
+            # The live guest can start BEFORE its first ShaderEffects Draw
+            # or write a temporary incomplete request file. Never install a
+            # synthetic shader or discard previously completed real SPIR-V.
+            if not a.watch:
+                raise
+            message=f"{type(error).__name__}: {error}"
+            if message!=last_failure_message:
+                print(f"[HEORSPV1] {message}",flush=True)
+                last_failure_message=message
+        if not a.watch:
+            break
+        try:
+            time.sleep(a.watch_interval)
+        except KeyboardInterrupt:
+            return
 
 
 if __name__=="__main__":
