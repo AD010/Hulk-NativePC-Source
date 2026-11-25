@@ -20,10 +20,17 @@ class DualCodegenTests(unittest.TestCase):
         self.assertIn("Refusing to overwrite existing private EU TU1 source analysis", script)
         self.assertIn("ci/run_hulk_tu1_dual_codegen.py", script)
         self.assertIn("decoded_overrides=True", stage)
-        self.assertLess(script.index("if ($EuTu1Analysis) {"),
-                        script.index("foreach ($cmd in @('git', 'cmake', 'ninja', 'clang++', 'python'))"))
-        self.assertLess(script.index("exit 0", script.index("if ($EuTu1Analysis) {")),
-                        script.index("foreach ($cmd in @('git', 'cmake', 'ninja', 'clang++', 'python'))"))
+        # Validate the actual USA tool gate, not a frozen literal list:
+        # adding ctest must not accidentally make EU analysis enter USA build.
+        import re
+        gate = re.search(r"(?m)^\s*foreach \(\$cmd in @\(([^\n]+)\)\) \{ Require-Command \$cmd \}", script)
+        self.assertIsNotNone(gate, "USA build tool gate missing")
+        self.assertTrue({"git", "cmake", "ctest", "ninja", "clang++", "python"}
+                        <= set(re.findall(r"'([^']+)'", gate.group(1))))
+        entry = script.index("if ($EuTu1Analysis) {")
+        self.assertLess(entry, gate.start())
+        self.assertLess(script.index("exit 0", entry), gate.start())
+        self.assertLess(gate.start(), script.index("$ExpectedUsaXex ="))
 
     def test_manifest_never_uses_usa_function_hints(self):
         value = manifest_text()

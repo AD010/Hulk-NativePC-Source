@@ -145,7 +145,17 @@ class TestHulkPcMenu(unittest.TestCase):
         self.assertIn("VK_F10", window)
         self.assertIn("NativeInputReleaseCapture()", window)
         inputcode = (ROOT/"native_port/src/launcher/native_input_win.cpp").read_text()
-        self.assertIn("if (focused && !PcMenuIsOpen())", inputcode)
+        # The shared predicate must protect both live input and the held
+        # right-stick impulse; opening F10 also clears queued mouse/wheel input.
+        self.assertIn("const bool gameplay_input = focused && !PcMenuIsOpen();", inputcode)
+        self.assertIn("if (gameplay_input) {", inputcode)
+        self.assertIn("if (!direct_camera && g_capture.load() && gameplay_input)", inputcode)
+        self.assertIn("if (!NativeInputCapturing() || PcMenuIsOpen()) return;", inputcode)
+        self.assertIn("if (!NativeInputCapturing() || !steps || PcMenuIsOpen()) return;", inputcode)
+        self.assertIn("g_held_dx = g_held_dy = 0;", inputcode)
+        self.assertIn("g_mouse_hold_until = 0;", inputcode)
+        self.assertIn("g_pending_wheel = g_wheel_dir = 0;", inputcode)
+        self.assertRegex(inputcode, r"else \{\s*// Do not replay a held look delta[^\n]*\n[^\n]*\n\s*ClearPendingMouseInput\(\);")
         self.assertIn("hulk_guest_swap_fps_cap", menu)
         self.assertNotIn('"gpu_guest_fps_limit"', menu)
         self.assertIn("HULK/PC-GRAPHICS", menu)
