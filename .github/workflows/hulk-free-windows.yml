@@ -848,6 +848,23 @@ jobs:
           $shortSha = $env:GITHUB_SHA.Substring(0, 12)
           $versioned = "artifacts/Hulk-NativePC-Vulkan-PresentFix-$shortSha.zip"
           Copy-Item -LiteralPath 'artifacts/Hulk-NativePC-Vulkan.zip' -Destination $versioned -Force
+          # The old flat ZIP gate excluded all EoR shader banks. Append only
+          # the exact authenticated owner pack AFTER the source-free ZIP audit,
+          # and only to this PRIVATE release asset. Never expose it publicly.
+          $assetJson = gh release view hulk-ci-input-on-publish --repo AD010/hulk-cloud --json assets
+          if ($LASTEXITCODE -ne 0) { throw 'Private release asset listing failed' }
+          $assetList = ($assetJson | ConvertFrom-Json).assets
+          $packName = 'Hulk-EoR-Offline-USA.zip'
+          if ($assetList | Where-Object { $_.name -eq $packName }) {
+            $packDir = Join-Path $env:RUNNER_TEMP 'hulk-private-eor-pack'
+            New-Item -ItemType Directory -Path $packDir -Force | Out-Null
+            gh release download hulk-ci-input-on-publish --repo AD010/hulk-cloud --pattern $packName --dir $packDir --clobber
+            if ($LASTEXITCODE -ne 0) { throw 'Private EoR pack download failed' }
+            python ci/stage_hulk_private_eor_pack.py $versioned (Join-Path $packDir $packName)
+            if ($LASTEXITCODE -ne 0) { throw 'Private EoR pack validation/merge failed' }
+          } else {
+            Write-Warning '[HULK/PRIVATE-PACK] Owner pack absent: compatibility-only ZIP, independent EoR unavailable until eor_offline is installed.'
+          }
           gh release upload hulk-ci-input-on-publish $versioned --repo AD010/hulk-cloud
           if ($LASTEXITCODE -ne 0) { throw 'Unable to upload versioned ZIP to PRIVATE release; requires Contents read/write.' }
           $digest = (Get-FileHash -LiteralPath $versioned -Algorithm SHA256).Hash
