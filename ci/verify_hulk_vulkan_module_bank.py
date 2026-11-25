@@ -40,7 +40,7 @@ def check(result, operation):
     if result != 0:
         raise RuntimeError(f'{operation}: VkResult {result}')
 
-def run(archive: Path):
+def run(archive: Path, pipelines=False, start=0, stop=2597):
     if C.sizeof(Ptr) != 8:
         raise RuntimeError('This Vulkan probe requires a 64-bit Python process')
     vk = C.WinDLL('vulkan-1.dll') if sys.platform == 'win32' else C.CDLL('libvulkan.so.1')
@@ -112,6 +112,10 @@ def run(archive: Path):
                 destroy_module(device, module, None)
                 counts[filename.split('.')[-2]] += 1
         with zipfile.ZipFile(archive) as z:
+            if pipelines:
+                from verify_hulk_all_pipelines_vulkan import verify_all
+                verify_all(vk, device, z, start, stop)
+                return
             from verify_hulk_fillrect_vulkan import verify
             verify(vk, device, z)
         if counts != {'vs': 2597, 'ps': 2597}:
@@ -126,4 +130,8 @@ def run(archive: Path):
 if __name__ == '__main__':
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('archive', type=Path, help='private original AOT ZIP')
-    run(p.parse_args().archive)
+    p.add_argument('--pipelines', action='store_true', help='create original graphics pairs instead of only modules')
+    p.add_argument('--start', type=int, default=0)
+    p.add_argument('--stop', type=int, default=2597)
+    args=p.parse_args()
+    run(args.archive,args.pipelines,args.start,args.stop)
