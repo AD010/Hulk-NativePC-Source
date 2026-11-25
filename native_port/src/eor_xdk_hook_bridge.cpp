@@ -196,6 +196,7 @@ REX_EXTERN(sub_825B8270);
 REX_EXTERN(sub_825B9528);
 REX_EXTERN(sub_825B9D98);
 REX_EXTERN(sub_8271D340);
+REX_EXTERN(sub_8271AA60);
 namespace {
 #ifdef _WIN32
 struct PcMenuGuestScratch {
@@ -229,6 +230,7 @@ struct PcMenuGuestScratch {
       case 0x825B9528u:fn=&sub_825B9528;break;
       case 0x825B9D98u:fn=&sub_825B9D98;break;
       case 0x8271D340u:fn=&sub_8271D340;break;
+      case 0x8271AA60u:fn=&sub_8271AA60;break;
       default:return {};
     }
     PPCContext child=original;
@@ -251,6 +253,45 @@ struct PcMenuGuestScratch {
     if(Invoke(0x825B9D98u,args)!=1u || text[0]>1u)return {};
     return text[0]!=0;
   }
+  // Original dispatcher writes context+20 before VM invocation.
+  // Do the same only for an already authenticated, live PC event.
+  bool BindOwner(uint32_t context,uint32_t owner) {
+    if(!context || (context&3u) || context>0xdfffffe8u || !owner || (owner&3u) ||
+       uint64_t(context)+24u>UINTPTR_MAX-uintptr_t(base))return false;
+    auto* dst=reinterpret_cast<uint8_t*>(uintptr_t(base)+context+20u);
+    MEMORY_BASIC_INFORMATION info{};
+    if(VirtualQuery(dst,&info,sizeof(info))!=sizeof(info) || info.State!=MEM_COMMIT ||
+       (info.Protect&PAGE_GUARD))return false;
+    const auto protection=info.Protect&0xffu;
+    if(protection!=PAGE_READWRITE && protection!=PAGE_WRITECOPY &&
+       protection!=PAGE_EXECUTE_READWRITE && protection!=PAGE_EXECUTE_WRITECOPY)return false;
+    const auto begin=uintptr_t(info.BaseAddress),at=uintptr_t(dst);
+    if(at<begin || at-begin>info.RegionSize || info.RegionSize-(at-begin)<4u)return false;
+    for(unsigned i=0;i<4;++i)dst[i]=uint8_t(owner>>(24u-8u*i));
+    return true;
+  }
+  template<class Read>
+  bool PaintWide(uint32_t object,std::span<const uint16_t> label,Read& read) {
+    if(!stack || label.size()>255u || ui::WidgetWord(object,0,read)!=ui::kOriginalPcTextVtable)return false;
+    if(std::find(label.begin(),label.end(),0u)!=label.end())return false;
+    for(size_t i=0;i<label.size();++i){text[2*i]=uint8_t(label[i]>>8);text[2*i+1]=uint8_t(label[i]);}
+    text[2*label.size()]=text[2*label.size()+1]=0;
+    const std::array<uint32_t,2> args{object,stack-640u};
+    if(!Invoke(0x8271D340u,args))return false;
+    const auto actual=ui::ReadOriginalPcText(object,read);
+    return actual && std::equal(label.begin(),label.end(),actual->begin(),actual->end());
+  }
+  template<class Read>
+  bool SetTextHidden(uint32_t object,bool hidden,Read& read) {
+    const auto id=ui::ReadOriginalWidget(object,read);
+    const auto table=ui::WidgetWord(object,0,read);
+    if(!id || !table || !ui::IsOriginalPcTextType(id->definition,*table))return false;
+    const auto before=ui::ReadOriginalPcTextHidden(object,read);
+    if(!before)return false;
+    if(*before==hidden)return true;
+    const std::array<uint32_t,3> args{object,uint32_t(hidden),1u};
+    return Invoke(0x8271AA60u,args).has_value() && ui::ReadOriginalPcTextHidden(object,read)==hidden;
+  }
   template<class Api>
   bool Paint(Api& api,uint32_t row,std::string_view label) {
     if(!stack || label.empty() || label.size()>255u)return false;
@@ -262,6 +303,7 @@ struct PcMenuGuestScratch {
   }
 };
 thread_local ui::OriginalPcStorageMenu g_original_pc_storage_menu;
+thread_local ui::OriginalPcNativePageView g_original_pc_page_view;
 thread_local bool g_pc_menu_dispatching=false;
 #endif
 } // namespace
@@ -284,14 +326,30 @@ void DispatchOriginalPcMenu(PPCContext& ctx,uint8_t* base,PPCFunc* original) {
         ui::OriginalWidgetApi api(read,invoke);
         if(!api.Verified())return false;
         const auto row=api.Find(event->root,ui::WidgetSymbol("StorageOption"));
+        // StorageOption has no required Hidden field in either retail page.
+        // Missing field is not hidden; exact Selector.Hidden gates activation.
         if(!row || row->definition!=ui::kMenuItemTemplate ||
-           scratch.Hidden(row->object,read)!=std::optional<bool>{false})return false;
-        const auto paint=[&](std::string_view value){return scratch.Paint(api,row->object,value);};
+           scratch.Hidden(row->object,read)==std::optional<bool>{true})return false;
+        auto find=[&](uint32_t p,uint32_t sym){return api.Find(p,sym);};
+        auto paint_text=[&](uint32_t obj,std::span<const uint16_t> v){return scratch.PaintWide(obj,v,read);};
+        auto hide=[&](uint32_t obj,bool v){return scratch.SetTextHidden(obj,v,read);};
+        auto paint=[&](const ui::PcMenuVisual& frame){
+          if(!frame.count) {
+            if(g_original_pc_page_view.Active() && !g_original_pc_page_view.Restore(event->root,read,paint_text,hide))return false;
+            return scratch.Paint(api,row->object,frame.title);
+          }
+          if(g_original_pc_page_view.Show(event->root,frame,read,find,paint_text,hide))
+            return scratch.Paint(api,row->object,frame.title);
+          // A complete native row census is required for the expanded view.
+          // Keep the existing single-row PC interface when the live layout differs.
+          if(g_original_pc_page_view.Active() && !g_original_pc_page_view.Restore(event->root,read,paint_text,hide))return false;
+          return scratch.Paint(api,row->object,frame.compact);
+        };
         if(entering)return g_original_pc_storage_menu.Enter(event->root,row->object,paint);
         if(!g_original_pc_storage_menu.Owns(event->root,row->object))return false;
         const std::array<uint32_t,2> lookup{event->root,event->context};
         const auto method=scratch.Invoke(0x825B9528u,lookup);
-        if(!method || !*method)return false;
+        if(!method || !*method || !scratch.BindOwner(event->context,event->root))return false;
         const auto selector=api.Find(row->object,ui::kSelectorChild);
         const bool focused=selector && scratch.Hidden(selector->object,read)==std::optional<bool>{false};
         return g_original_pc_storage_menu.Handle(event->root,row->object,event->event,focused,
@@ -303,6 +361,17 @@ void DispatchOriginalPcMenu(PPCContext& ctx,uint8_t* base,PPCFunc* original) {
       };
       if(event->event==ui::PcEvent::Enter) {
         g_original_pc_storage_menu.Leave();
+        // The original StateEnter reconstructs page state; restore any
+        // still-owned text before it executes, never write to a new owner.
+        if(g_original_pc_page_view.Active()) {
+          PcMenuGuestScratch scratch(ctx,base);
+          if(scratch.stack && ui::VerifyOriginalPcPageTextAbi(read)) {
+            auto paint=[&](uint32_t obj,std::span<const uint16_t> v){return scratch.PaintWide(obj,v,read);};
+            auto hide=[&](uint32_t obj,bool v){return scratch.SetTextHidden(obj,v,read);};
+            try{(void)g_original_pc_page_view.Restore(event->root,read,paint,hide);}catch(...){}
+          }
+          g_original_pc_page_view.Discard();
+        }
         (*original)(ctx,base);
         if(ctx.r3.u32==1u)try{(void)apply(true);}catch(...){}
         return;

@@ -34,8 +34,8 @@ PINNED_SOURCE_HOOKS = frozenset((
     0x82339C18, 0x82339C90, 0x82338AE8, 0x82338B20,
     # Havok scheduler's actual floor helper, pinned at LR 0x8261187C.
     0x82738B58,
-    # Original settings dispatcher and four widget/property call targets.
-    0x825BAAC8, 0x825B8270, 0x825B9528, 0x825B9D98, 0x8271D340,
+    # Original settings dispatcher and five widget/property call targets.
+    0x825BAAC8, 0x825B8270, 0x825B9528, 0x825B9D98, 0x8271D340, 0x8271AA60,
 ))
 
 FUNCTION = re.compile(r"(?m)^0x([0-9a-fA-F]{8})\s*=\s*\{\s*\}\s*$")
@@ -65,7 +65,7 @@ def required_hook_targets(root: pathlib.Path) -> tuple[int, ...]:
             raise ValueError(f"Invalid renderer hook address: {raw!r}")
         requested.add(int(part, 16))
     if 0x825BAAC8 in requested:
-        requested.update((0x825B8270,0x825B9528,0x825B9D98,0x8271D340))
+        requested.update((0x825B8270,0x825B9528,0x825B9D98,0x8271D340,0x8271AA60))
     input_source = input_path.read_text(encoding="utf-8-sig")
     input_hooks = re.findall(r"\b(?:REX_HOOK_RAW|HULK_LOCKED_INPUT)\s*\(\s*sub_([0-9a-fA-F]{8})\s*\)", input_source)
     if not input_hooks:

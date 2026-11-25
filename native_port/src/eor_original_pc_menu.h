@@ -1,7 +1,7 @@
 #pragma once
 // PC-only settings in an existing genuine EoR MenuItemTxt. The original
 // console storage row supplies layout, focus and native text rendering.
-#include "eor_original_widget_api.h"
+#include "eor_original_pc_page_view.h"
 #include "native_pc_menu_rows.h"
 #include <charconv>
 #include <map>
@@ -44,6 +44,9 @@ bool VerifySettingsEventAbi(Read& read) {
 struct PcSettingsEvent { uint32_t root=0, context=0, definition=0; PcEvent event=PcEvent::None; };
 template<class Read>
 std::optional<PcSettingsEvent> CapturePcSettingsEvent(uint32_t root,uint32_t context,Read& read) {
+  // 825BAAC8 refuses a disabled owner (PPC bit 2).
+  const auto flags=WidgetWord(root,16,read);
+  if(!flags || (*flags&0x20000000u) || !WidgetWord(context,20,read))return {};
   const auto symbol=WidgetWord(context,0,read);
   if(!symbol)return {};
   const auto event=OriginalSettingsEvent(*symbol);
@@ -133,19 +136,19 @@ class OriginalPcStorageMenu {
   }
   template<class Paint>
   bool Enter(uint32_t owner,uint32_t row,Paint&& paint) {
-    Leave();if(!owner || !row || !paint(kPcEntryText))return false;
+    Leave();if(!owner || !row || !PaintPcMenuEntry(paint,kPcEntryText))return false;
     owner_=owner;row_=row;return true;
   }
   template<class Paint,class ReadValue,class Commit>
   bool Handle(uint32_t owner,uint32_t row,PcEvent event,bool focused,
       Paint&& paint,ReadValue&& read_value,Commit&& commit) {
     if(!Owns(owner,row))return false;
-    if(!focused) {if(mode_) {mode_=0;cursor_=0;(void)paint(kPcEntryText);}return false;}
+    if(!focused) {if(mode_) {mode_=0;cursor_=0;(void)PaintPcMenuEntry(paint,kPcEntryText);}return false;}
     if(!mode_) {
       if(event!=PcEvent::Select)return false;
       mode_=1;cursor_=0;
     } else if(event==PcEvent::Back) {
-      if(!paint(kPcEntryText))return false;
+      if(!PaintPcMenuEntry(paint,kPcEntryText))return false;
       mode_=0;cursor_=0;return true;
     } else if(event==PcEvent::Select) {
       mode_=mode_==1?2:1;cursor_=0;
@@ -178,7 +181,23 @@ class OriginalPcStorageMenu {
     text+=selected.label;text+=" = ";text+=value;
     if(failed)text+=" (save failed)";
     else if(pending_.contains(selected.key))text+=" (restart)";
-    if(paint(text))return true;
+    PcMenuVisual frame;frame.compact=text;
+    const size_t start=(cursor_/kNativePcPageRows)*kNativePcPageRows;
+    frame.count=std::min(kNativePcPageRows,rows.size()-start);
+    frame.title=mode_==1?"Graphics ":"Controls ";
+    frame.title+=std::to_string(start/kNativePcPageRows+1)+"/"+
+        std::to_string((rows.size()+kNativePcPageRows-1)/kNativePcPageRows);
+    for(size_t i=0;i<frame.count;++i) {
+      const auto& r=*rows[start+i];
+      const auto p=pending_.find(r.key);
+      const bool active=start+i==cursor_;
+      frame.rows[i]=active?"> ":"  ";
+      frame.rows[i]+=r.label;frame.rows[i]+=" = ";
+      frame.rows[i]+=active?value:(p==pending_.end()?read_value(r.key):p->second);
+      if(active && failed)frame.rows[i]+=" (save failed)";
+      else if(p!=pending_.end())frame.rows[i]+=" (restart)";
+    }
+    if(PaintPcMenuVisual(paint,frame))return true;
     // Never let the original action run after a persistent PC change.
     // A vanished widget ends the session before another event can apply.
     Leave();return committed;
