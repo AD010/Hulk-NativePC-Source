@@ -46,3 +46,5 @@ Retry 15: use the exact one-shot marker accepted by ci/test_native_x_d140_dispat
 2026-11-24: requested Release test of portable AOT pack, static shader analysis, model read-ahead, immutable frame claim and automatic EoR startup.
 
 2026-11-25: owner explicitly requests one test Release with all accumulated main changes since successful validation 179, including new EoR shader pairs, native core, Havok, camera/menu and source-pinned PPC seeding fix. Use existing private ZIP delivery; do not overwrite earlier builds. Owner already has the matching eor_offline package locally; it is not currently a private-release asset.
+
+2026-11-25: owner explicitly requests immediate retry of the corrected Windows Release after job 139492516966 failed public preflight; include c67ac6c0, preserve all checks and the private ZIP delivery. One launch only.
