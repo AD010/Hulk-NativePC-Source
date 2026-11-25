@@ -2,6 +2,7 @@
 #include "eor_fsb4_pcm.h"
 #ifdef _WIN32
 #include <xaudio2.h>
+#include <objbase.h>
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -32,6 +33,8 @@ struct NativeXAudio2Mixer::State {
   };
   IXAudio2* engine=nullptr;
   IXAudio2MasteringVoice* master=nullptr;
+  bool com_owned=false;
+  DWORD owner_thread_id=0;
   std::vector<std::unique_ptr<Voice>> voices;
   std::array<float,3> bus_volumes{1.f,1.f,1.f};
   bool muted=false;
@@ -39,6 +42,11 @@ struct NativeXAudio2Mixer::State {
     voices.clear();
     if(master)master->DestroyVoice();
     if(engine)engine->Release();
+    // XAudio2's COM initialization is paired on the owning game thread.
+    // The mixer is a single-thread-owner audio service, not an apartment-
+    // transferable pointer.
+    if(com_owned && GetCurrentThreadId()==owner_thread_id)
+      CoUninitialize();
   }
   void UpdateVolume(Voice& voice) noexcept {
     if(voice.source)
@@ -48,6 +56,10 @@ struct NativeXAudio2Mixer::State {
 };
 NativeXAudio2Mixer::NativeXAudio2Mixer() {
   auto next=std::make_unique<State>();
+  next->owner_thread_id=GetCurrentThreadId();
+  const auto hr=CoInitializeEx(nullptr,COINIT_MULTITHREADED);
+  if(SUCCEEDED(hr))next->com_owned=true;
+  else if(hr!=RPC_E_CHANGED_MODE)return; // another existing COM mode
   if(FAILED(XAudio2Create(&next->engine,0,XAUDIO2_DEFAULT_PROCESSOR)) ||
      !next->engine ||
      FAILED(next->engine->CreateMasteringVoice(&next->master)) ||
