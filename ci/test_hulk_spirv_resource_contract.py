@@ -107,6 +107,22 @@ class NativeImageResourceContract(unittest.TestCase):
             validate_named_spirv_images(words_to_bytes(
                 HEADER + NAME + BINDINGS + image))
 
+    def test_truncated_image_type_fails(self):
+        malformed = [0x00020019, 2] + IMAGE[9:]
+        with self.assertRaisesRegex(ValueError, "declaration length"):
+            validate_named_spirv_images(words_to_bytes(
+                HEADER + NAME + BINDINGS + malformed))
+
+    def test_duplicate_variable_id_fails(self):
+        with self.assertRaisesRegex(ValueError, "duplicate SPIR-V variable"):
+            validate_named_spirv_images(words_to_bytes(
+                HEADER + NAME + BINDINGS + IMAGE + IMAGE[-4:]))
+
+    def test_extra_descriptor_operand_fails(self):
+        with self.assertRaisesRegex(ValueError, "decoration length"):
+            validate_named_spirv_images(words_to_bytes(
+                HEADER + NAME + IMAGE + [0x00050047, 4, 33, 2, 0] + BINDINGS[4:]))
+
     def test_invalid_instruction_extent_fails(self):
         with self.assertRaises(ValueError):
             validate_named_spirv_images(words_to_bytes(HEADER + [0]))

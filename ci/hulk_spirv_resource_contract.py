@@ -11,8 +11,10 @@ from __future__ import annotations
 import struct
 
 MAGIC = 0x07230203
-_SAMPLED_RESOURCES = {25, 26, 27}  # OpTypeImage / OpTypeSampler / OpTypeSampledImage
-_ALIAS = {28, 29, 32}  # array/runtime array/pointer
+_SAMPLED_RESOURCES = {25, 26}  # OpTypeImage / OpTypeSampler
+_ALIAS = {27, 28, 29, 32}  # sampled image/array/runtime array/pointer
+_TYPE_WORD_COUNTS = {25: (9, 10), 26: (2,), 27: (3,),
+                     28: (4,), 29: (3,), 32: (4,)}
 
 
 def validate_named_spirv_images(data: bytes) -> int:
@@ -30,6 +32,7 @@ def validate_named_spirv_images(data: bytes) -> int:
     sets: dict[int, int] = {}
     bindings: dict[int, int] = {}
     uniform_constants: list[tuple[int, int]] = []
+    variable_ids: set[int] = set()
     cursor = 5
     while cursor < len(words):
         header = words[cursor]
@@ -38,8 +41,10 @@ def validate_named_spirv_images(data: bytes) -> int:
             raise ValueError("Truncated native EoR SPIR-V instruction")
         args = words[cursor + 1:cursor + count]
         if op in _SAMPLED_RESOURCES | _ALIAS:
-            if len(args) < (2 if op in (27, 28, 29) else 3 if op == 32 else 1):
-                raise ValueError("Truncated SPIR-V image type declaration")
+            if count not in _TYPE_WORD_COUNTS[op]:
+                raise ValueError("Invalid SPIR-V image type declaration length")
+            if op == 25 and (args[4] > 1 or args[5] > 1):
+                raise ValueError("Malformed SPIR-V image shape")
             ident = args[0]
             if not 0 < ident < bound or ident in sampled_resource_types or ident in aliases:
                 raise ValueError("Duplicate/out-of-bounds SPIR-V resource type")
@@ -50,11 +55,12 @@ def validate_named_spirv_images(data: bytes) -> int:
                 if op in (28, 29):
                     array_types.add(ident)
         elif op == 59:  # OpVariable(result type, result ID, storage class)
-            if len(args) < 3:
-                raise ValueError("Truncated SPIR-V variable")
+            if count not in (4, 5):
+                raise ValueError("Invalid SPIR-V variable length")
+            if not 0 < args[0] < bound or not 0 < args[1] < bound or args[1] in variable_ids:
+                raise ValueError("Invalid or duplicate SPIR-V variable ID")
+            variable_ids.add(args[1])
             if args[2] == 0:
-                if not 0 < args[1] < bound:
-                    raise ValueError("Invalid SPIR-V UniformConstant ID")
                 uniform_constants.append((args[0], args[1]))
         elif op == 5:  # OpName(target, ASCII bytes with NUL)
             if len(args) < 2 or not 0 < args[0] < bound or args[0] in names:
@@ -71,7 +77,11 @@ def validate_named_spirv_images(data: bytes) -> int:
             # used by the native EoR Diligent resource-binding interface.
             names[args[0]] = raw
         elif op == 71:  # OpDecorate(target, decoration, literal)
-            if len(args) >= 3 and args[1] in (33, 34):
+            if len(args) < 2:
+                raise ValueError("Truncated SPIR-V decoration")
+            if args[1] in (33, 34):
+                if count != 4:
+                    raise ValueError("Invalid SPIR-V descriptor decoration length")
                 target = bindings if args[1] == 33 else sets
                 if not 0 < args[0] < bound or args[0] in target:
                     raise ValueError("Ambiguous SPIR-V descriptor decoration")

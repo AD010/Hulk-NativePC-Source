@@ -111,6 +111,16 @@ int main() {
   arr_name.insert(arr_name.end(),arr_text.begin(),arr_text.end());
   Add(array_descriptor,5,arr_name);
   Reject([&]{(void)InspectSpirvImageResources(array_descriptor);});
+  auto truncated=shader;
+  truncated[5]=0x00020019;
+  truncated.erase(truncated.begin()+7,truncated.begin()+14);
+  Reject([&]{(void)InspectSpirvImageResources(truncated);});
+  auto duplicate_id=shader;
+  Add(duplicate_id,59,{3,4,0});
+  Reject([&]{(void)InspectSpirvImageResources(duplicate_id);});
+  auto extra_operand=shader;
+  Add(extra_operand,71,{9,33,2,0});
+  Reject([&]{(void)InspectSpirvImageResources(extra_operand);});
   auto bad=shader;bad[0]=0;
   Reject([&]{(void)InspectSpirvImageResources(bad);});
   bad=shader;bad[5]=0;

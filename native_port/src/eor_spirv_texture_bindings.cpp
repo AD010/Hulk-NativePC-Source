@@ -69,6 +69,7 @@ std::vector<SpirvImageResource> InspectSpirvImageResources(
   std::map<uint32_t,std::span<const uint32_t>> names;
   std::map<uint32_t,uint32_t> sets,bindings;
   std::vector<Variable> vars;
+  std::set<uint32_t> variable_ids;
   for(size_t pos=5;pos<shader.size();) {
     const uint32_t instruction=shader[pos];
     const size_t words=instruction>>16;
@@ -80,6 +81,9 @@ std::vector<SpirvImageResource> InspectSpirvImageResources(
       return shader[pos+i];
     };
     if(op==25 || op==26 || op==27 || op==28 || op==29 || op==32) {
+      const size_t required=op==25?9u:op==26?2u:op==27||op==29?3u:4u;
+      if(words!=required && !(op==25 && words==10))
+        throw std::invalid_argument("Invalid SPIR-V resource type declaration length");
       const auto id=operand(1);
       if(!id || id>=shader[3] || types.contains(id))
         throw std::invalid_argument("Duplicate/unbounded original SPIR-V type id");
@@ -99,7 +103,9 @@ std::vector<SpirvImageResource> InspectSpirvImageResources(
       }
     } else if(op==59) { // OpVariable: result type, result id, storage class.
       const uint32_t ptr=operand(1),id=operand(2),storage=operand(3);
-      if(!id || id>=shader[3])throw std::invalid_argument("Unbounded shader resource ID");
+      if((words!=4 && words!=5) || !ptr || ptr>=shader[3] ||
+         !id || id>=shader[3] || !variable_ids.insert(id).second)
+        throw std::invalid_argument("Invalid or duplicate SPIR-V variable ID/length");
       if(storage==0)vars.push_back({ptr,id}); // UniformConstant.
     } else if(op==5) { // OpName: target ID, NUL-terminated ASCII.
       const auto id=operand(1);
@@ -110,7 +116,7 @@ std::vector<SpirvImageResource> InspectSpirvImageResources(
       const auto id=operand(1),kind=operand(2);
       if(kind==33 || kind==34) {
         const uint32_t value=operand(3);
-        if(!id || id>=shader[3] ||
+        if(words!=4 || !id || id>=shader[3] ||
            !(kind==33?bindings:sets).emplace(id,value).second)
           throw std::invalid_argument("Duplicate/invalid SPIR-V descriptor decoration");
       }
