@@ -11,6 +11,7 @@
 #include "ShaderResourceBinding.h"
 #include "TextureView.h"
 #include "RefCntAutoPtr.hpp"
+#include <rex/cvar.h>
 #include <algorithm>
 #include <array>
 #include <bit>
@@ -1586,9 +1587,14 @@ bool DiligentEorDirectBackend::PreflightOriginalScene(
               s.format.original_graph.ColorFormat(id.original_resolved_guest_object,s.format.color)==NativeColorFormat::Rgba16Float);
         } else {
           if(!texture.uploaded)return false;
+          const auto& pass=s.material_lookup.at(key)->pipeline;
+          const bool world=pass.original_view_space_verified &&
+              pass.original_view_space==VerifiedOriginalViewSpace::MainPerspective &&
+              pass.source_main_view.has_value();
           BindOriginalPixelImage2D(s.device,binding,*texture.uploaded,image->slot,
                                    captured.pixel_fetch[image->slot],(controls.point_slots&bit)!=0,
-                                   (s.material_lookup.at(key)->pipeline.original_xbox_cube_gamma_mask&bit)!=0);
+                                   (pass.original_xbox_cube_gamma_mask&bit)!=0,
+                                   world?rex::cvar::Query<int32_t>("anisotropic_override"):-1);
         }
         bound|=bit;
       }

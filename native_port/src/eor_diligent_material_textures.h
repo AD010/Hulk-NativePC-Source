@@ -28,7 +28,8 @@ void BindUsaFontMainAtlas(Diligent::IRenderDevice* device,
 // shader's authenticated instruction override and the matching live sN fetch.
 void BindOriginalPixelImage2D(Diligent::IRenderDevice* device,
     Diligent::IShaderResourceBinding* bindings,const UploadedEorTexture& texture,
-    uint32_t slot,const std::array<uint32_t,6>& fetch,bool force_point,bool xbox_gamma_lowered=false);
+    uint32_t slot,const std::array<uint32_t,6>& fetch,bool force_point,bool xbox_gamma_lowered=false,
+    int32_t world_anisotropy=-1);
 // Prepare a single-level, identity-swizzled source Resolve sampler BEFORE
 // scene submission. Its actual SRV is populated only after the recorded
 // source Resolve has executed in the native target graph.

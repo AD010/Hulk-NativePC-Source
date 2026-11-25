@@ -42,6 +42,9 @@ bool Allowed(std::string_view key, std::string_view value) {
       key == "hulk_eor_xdk_source_mesh_capture" ||
       key == "hulk_mouse_invert_x" || key == "hulk_mouse_invert_y")
     return value == "true" || value == "false";
+  if (key == "anisotropic_override")
+    return value=="-1" || value=="0" || value=="1" || value=="2" ||
+           value=="3" || value=="4" || value=="5";
   if (key == "hulk_original_subtitles")
     return value == "-1" || value == "0" || value == "1";
   if (key == "hulk_guest_swap_fps_cap")

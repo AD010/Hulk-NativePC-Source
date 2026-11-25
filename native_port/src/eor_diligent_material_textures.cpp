@@ -1,5 +1,6 @@
 #include "eor_diligent_material_textures.h"
 #include "eor_original_sampler_mips.h"
+#include "eor_world_anisotropy.h"
 #include "ShaderResourceBinding.h"
 #include "ShaderResourceVariable.h"
 #include "TextureView.h"
@@ -30,7 +31,8 @@ void BindUsaFontMainAtlas(Diligent::IRenderDevice* device,
 }
 void BindOriginalPixelImage2D(Diligent::IRenderDevice* device,
     Diligent::IShaderResourceBinding* bindings,const UploadedEorTexture& texture,
-    uint32_t slot,const std::array<uint32_t,6>& fetch,bool force_point,bool xbox_gamma_lowered) {
+    uint32_t slot,const std::array<uint32_t,6>& fetch,bool force_point,bool xbox_gamma_lowered,
+    int32_t world_anisotropy) {
   using namespace Diligent;
   if(!device || !bindings || slot>=16 || !texture.host_texture || !texture.SRV() ||
      (texture.view_kind!=OriginalTextureViewKind::Native2D &&
@@ -96,13 +98,22 @@ void BindOriginalPixelImage2D(Diligent::IRenderDevice* device,
   if((fetch[4]>>22)!=0 && (hi!=lo || desc.MinFilter!=desc.MagFilter))
     throw std::invalid_argument("Original gradient adjustment affects texture filtering");
   const auto aniso=sampling>>25&7u;
+  uint32_t original_aniso=1;
+  const bool linear=desc.MinFilter==FILTER_TYPE_LINEAR && desc.MagFilter==FILTER_TYPE_LINEAR;
   if(aniso>1u) {
-    if(aniso>5u || desc.MinFilter!=FILTER_TYPE_LINEAR || desc.MagFilter!=FILTER_TYPE_LINEAR ||
-       desc.MipFilter!=FILTER_TYPE_LINEAR || (fetch[5]>>5&15u))
+    if(aniso>5u || !linear || desc.MipFilter!=FILTER_TYPE_LINEAR || (fetch[5]>>5&15u))
       throw std::invalid_argument("Original anisotropic filter combination unsupported");
-    desc.MaxAnisotropy=1u<<(aniso-1u);
-    if(desc.MaxAnisotropy>device->GetAdapterInfo().Sampler.MaxAnisotropy)
+    original_aniso=1u<<(aniso-1u);
+    if(original_aniso>device->GetAdapterInfo().Sampler.MaxAnisotropy)
       throw std::invalid_argument("Native device cannot reproduce original anisotropy");
+  }
+  const auto effective=NativeWorldAnisotropy(world_anisotropy,original_aniso,
+      device->GetAdapterInfo().Sampler.MaxAnisotropy,world_anisotropy>=0,
+      !cube && !one_dimensional,linear,mip!=2u,hi>lo,
+      (fetch[1]>>12&0x1ffffu)!=0,(fetch[4]>>22)!=0 || (fetch[5]>>5&15u)!=0,
+      force_point);
+  if(effective>1u) {
+    desc.MaxAnisotropy=effective;
     desc.MinFilter=desc.MagFilter=desc.MipFilter=FILTER_TYPE_ANISOTROPIC;
   }
   const auto suffix=std::to_string(slot);

@@ -326,6 +326,12 @@ jobs:
             & $audioOptionsTest
             if ($LASTEXITCODE -ne 0) { $cppFailures.Add('Native audio option ranges regression failed') }
           }
+          $anisoTest = Join-Path $env:RUNNER_TEMP 'hulk-eor-world-aniso-test.exe'
+          & cl.exe /nologo /std:c++20 /EHsc /W4 /WX /utf-8 "/Fe:$anisoTest" ci/eor_world_anisotropy_test.cpp
+          if ($LASTEXITCODE -ne 0) { $cppFailures.Add('Original world anisotropy compile failed') } else {
+            & $anisoTest
+            if ($LASTEXITCODE -ne 0) { $cppFailures.Add('Original world anisotropy isolation regression failed') }
+          }
           # EoR-only fixed-step clock and motion-vector math; no guest Havok claim.
           $temporalTest = Join-Path $env:RUNNER_TEMP 'hulk-eor-fixed-temporal-test.exe'
           $temporalArgs = @('/nologo','/std:c++20','/EHsc','/W4','/WX','/utf-8',

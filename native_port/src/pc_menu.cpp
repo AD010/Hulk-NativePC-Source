@@ -621,8 +621,16 @@ class PcMenu final : public rex::ui::ImGuiDialog {
           ImGui::Separator();
           ImGui::Text("Vulkan NativeXRenderer: %s",
               rex::cvar::Query<bool>("native_x_renderer") ? "Enabled" : "Disabled");
-          ImGui::Text("Anisotropic override: %d",
-              rex::cvar::Query<int32_t>("anisotropic_override"));
+          const auto af=PendingInt("anisotropic_override");
+          ImGui::TextUnformatted("World texture filtering (restart)");
+          static constexpr const char* labels[]={"Original","Off","1x","2x","4x","8x","16x"};
+          const auto selected=std::clamp(af+1,0,6);
+          if(ImGui::BeginCombo("Anisotropic filtering",labels[selected])) {
+            for(int i=0;i<7;++i)if(ImGui::Selectable(labels[i],i==selected))
+              Change("anisotropic_override",std::to_string(i-1));
+            ImGui::EndCombo();
+          }
+          ImGui::TextWrapped("Native EoR applies the override only to verified world-space mipmapped images.");
           ImGui::Text("Persistent pipeline cache: %s",
               rex::cvar::Query<bool>("native_x_renderer_pipeline_storage")
                   ? "Enabled" : "Disabled");
