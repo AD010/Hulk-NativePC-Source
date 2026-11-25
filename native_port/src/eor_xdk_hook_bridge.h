@@ -262,6 +262,9 @@ struct VerifiedWorkerEorOwnerCatalog {
       const Frame&,std::vector<std::shared_ptr<const model::UploadedOriginalModel>>&)>
       prepare_live_original_draws;
   std::function<bool(const Frame&,native::Size)> accepts_live_source;
+  // A valid live target graph differs from this scene, e.g. entering or
+  // leaving the original pause menu. Do not wait a normal refresh period.
+  std::function<bool()> needs_target_rebuild;
 };
 bool InstallVerifiedWorkerEorOwnerCatalog(
     std::shared_ptr<const VerifiedWorkerEorOwnerCatalog> catalog);

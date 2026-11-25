@@ -2249,6 +2249,9 @@ struct AutomaticEorOwner {
   std::shared_ptr<world::OriginalMaterialCandidateIndex> candidates;
   std::unique_ptr<gpu::DiligentEorDirectBackend> backend;
   gpu::live::ScalarAnalysisCache& scalar_analysis;
+  uint64_t checked_sequence=0;
+  native::Size checked_size{};
+  bool checked_accepts=false,checked_rebuild=false;
 
   AutomaticEorOwner(native_x_renderer::Device& host,
       std::shared_ptr<AutomaticEorResources> source,AutomaticSceneContract source_contract)
@@ -2295,6 +2298,26 @@ struct AutomaticEorOwner {
         contract.output,contract.format,std::vector<gpu::NativeEorPassResources>{},
         std::vector<gpu::NativeEorDrawBuffers>{},std::move(bind),
         gpu::BindNativeEorVulkanBackbuffer(host_output));
+  }
+  bool Accepts(const Frame& frame,native::Size size) {
+    // A claimed source frame is immutable. Factory refresh, early worker
+    // validation and final submission must not repeatedly decode its full
+    // Draw/Resolve graph and inspect all source projection shaders.
+    if(checked_sequence && checked_sequence==frame.sequence &&
+       checked_size.width==size.width && checked_size.height==size.height)
+      return checked_accepts;
+    checked_sequence=frame.sequence;
+    checked_size=size;
+    checked_accepts=false;
+    checked_rebuild=false;
+    const auto live=OriginalTargetContract(frame,size,pack);
+    if(!live)return false;
+    checked_rebuild=!SameAutomaticScene(contract,*live);
+    if(checked_rebuild || !backend->RebindOriginalFrontBuffer(live->format))
+      return false;
+    contract=*live;
+    checked_accepts=true;
+    return true;
   }
   std::vector<aot::BoundIndexedDraw> Prepare(const Frame& frame,
       std::vector<std::shared_ptr<const model::UploadedOriginalModel>>& retained) {
@@ -2540,23 +2563,24 @@ std::shared_ptr<const VerifiedWorkerEorOwnerCatalog> BuildAutomaticOriginalOwner
   catalog->device=&host;catalog->output=contract->output;
   catalog->direct_gpu=std::shared_ptr<gpu::DiligentEorDirectBackend>(owned,owned->backend.get());
   catalog->gpu=catalog->direct_gpu;
-  catalog->source_models=owned->source_models;
+  // A retained stream is an alias of the shared GPU/archive generation,
+  // not a separate shared_ptr that could outlive its mesh upload backend.
+  catalog->source_models=std::shared_ptr<world::NativeWorldStream>(
+      resources,resources->source_models.get());
   catalog->source_material_candidates=owned->candidates;
   catalog->prepare_live_original_draws=[owned](const Frame& frame,
       std::vector<std::shared_ptr<const model::UploadedOriginalModel>>& retained) {
     return owned->Prepare(frame,retained);
   };
   catalog->accepts_live_source=[owned](const Frame& frame,native::Size size) {
-    try {
-      auto live=OriginalTargetContract(frame,size,owned->pack);
-      if(!live || !SameAutomaticScene(owned->contract,*live) ||
-         !owned->backend->RebindOriginalFrontBuffer(live->format))return false;
-      // The live source contract is established for this exact immutable
-      // frame, never from the previous Present or a guessed swapchain index.
-      owned->contract=std::move(*live);
-      return true;
-    } catch (...) {return false;}
+    try {return owned->Accepts(frame,size);}
+    catch (...) {return false;}
   };
+  catalog->needs_target_rebuild=[owned] {return owned->checked_rebuild;};
+  // The new backend was constructed against this exact source contract.
+  owned->checked_sequence=source->sequence;
+  owned->checked_size=backbuffer;
+  owned->checked_accepts=true;
   g_automatic_resources=resources;
   return catalog;
 }
@@ -3100,19 +3124,32 @@ native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(
   // No source factory => existing renderer remains sole presenter.
   // Recheck generation under lock and never hold the original XDK capture
   // mutex while loading, uploading or compiling any GPU resources.
+  bool target_transition=false;
+  if(built_in_source && owner_catalog && owner_catalog->device==&host &&
+     owner_catalog->accepts_live_source && owner_catalog->needs_target_rebuild &&
+     host.swap_chain()) {
+    const auto& swap=host.swap_chain()->GetDesc();
+    try {
+      if(!owner_catalog->accepts_live_source(*source_snapshot,{swap.Width,swap.Height}))
+        target_transition=owner_catalog->needs_target_rebuild();
+    } catch (...) {}
+  }
   std::shared_ptr<const VerifiedWorkerEorCatalogFactory> factory;
   std::optional<OfflineShaderPack> factory_shader_generation;
   {
     std::lock_guard lock(g_mutex);
     // A renderer can stream more original EoR models/materials after the
     // first city/intro frame. Refresh a genuine source catalogue at most
-    // once per 60 completed Present epochs. A returned same shared_ptr
-    // means no change, so it never destroys cached GPU pipelines.
+    // once per 60 completed Present epochs in a stable scene. A verified
+    // RT-graph change (pause menu, loading, native resize) needs prompt
+    // rebuilding, while failed allocations are still bounded to one
+    // attempt per four source epochs. A same pointer preserves its PSOs.
     if(g_worker_catalog_factory && g_offline_shader_pack &&
        g_offline_shader_pack->virtual_ids &&
        (!g_worker_catalog_factory_last_attempt ||
         (source_sequence>g_worker_catalog_factory_last_attempt &&
-         source_sequence-g_worker_catalog_factory_last_attempt>=60))) {
+         source_sequence-g_worker_catalog_factory_last_attempt>=
+             (target_transition?4u:60u)))) {
       factory=g_worker_catalog_factory;
       factory_shader_generation=*g_offline_shader_pack;
       g_worker_catalog_factory_last_attempt=source_sequence;
