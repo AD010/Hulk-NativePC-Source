@@ -47,6 +47,7 @@ class EffectCatalog {
     using Pair = std::pair<Digest, Digest>;
     std::map<uint32_t, std::vector<Pair>> next;
     std::map<Pair,OriginalEffectPass> reverse;
+    std::map<Digest,std::optional<Digest>> vertex_by_pixel;
     // An original shader may be reused by many effects / passes.
     // Only conflicting VS/PS stage assignments are ambiguous.
     std::map<Digest,Stage> unique;
@@ -75,9 +76,15 @@ class EffectCatalog {
       slots.emplace_back(vs, ps);
       if(!reverse.emplace(Pair{vs,ps},OriginalEffectPass{effect,pass}).second)
         throw std::invalid_argument("Duplicate original ShaderContainer pass identity");
+      // Compute reverse alias uniqueness once from the immutable original
+      // ledger. Missing live VS witnesses are common during city draws;
+      // scanning all 2,597 pairs on every PS lookup wastes CPU time.
+      auto [alias,inserted]=vertex_by_pixel.try_emplace(ps,vs);
+      if(!inserted && alias->second!=vs)alias->second.reset();
     }
     sources_.swap(next); // Failure leaves previous valid catalog untouched.
     reverse_.swap(reverse);
+    vertex_by_pixel_.swap(vertex_by_pixel);
     pair_count_ = count;
     unique_shader_count_ = unique.size();
   }
@@ -107,14 +114,8 @@ class EffectCatalog {
   // Reverse recovery is allowed only when the independently authenticated
   // pixel program identifies exactly one original vertex program.
   std::optional<Digest> UniqueVertexForPixel(const Digest& ps) const noexcept {
-    std::optional<Digest> result;
-    for(const auto& [pair,pass]:reverse_) {
-      (void)pass;
-      if(pair.second!=ps)continue;
-      if(result && *result!=pair.first)return {};
-      result=pair.first;
-    }
-    return result;
+    const auto it=vertex_by_pixel_.find(ps);
+    return it==vertex_by_pixel_.end()?std::nullopt:it->second;
   }
   // Compare every original SHA pair/ordinal, not only the 233/5194
   // census. A different ShaderEffects generation may have the same counts.
@@ -137,5 +138,6 @@ class EffectCatalog {
   size_t unique_shader_count_ = 0;
   std::map<uint32_t, std::vector<std::pair<Digest, Digest>>> sources_;
   std::map<std::pair<Digest,Digest>,OriginalEffectPass> reverse_;
+  std::map<Digest,std::optional<Digest>> vertex_by_pixel_;
 };
 } // namespace hulk::eor::aot

@@ -43,6 +43,7 @@ int main() {
   hulk::eor::aot::Digest vs{},ps{};vs.fill(0x11);ps.fill(0x22);
   assert(catalog.HasPair(0x111,0,vs,ps));
   assert(catalog.UniquePixelForVertex(vs)==ps);
+  assert(catalog.UniqueVertexForPixel(ps)==vs);
   const auto first_original_pass=catalog.FindOriginalPass(vs,ps);
   assert(first_original_pass && first_original_pass->effect_hash==0x111 &&
          first_original_pass->pass_index==0);
@@ -61,6 +62,8 @@ int main() {
   reused_vs.fill(0x11);reused_ps.fill(0x66);
   assert(catalog.HasPair(0x222,1,reused_vs,reused_ps));
   assert(!catalog.UniquePixelForVertex(reused_vs)); // reused VS must not choose an alias
+  assert(!catalog.UniqueVertexForPixel(reused_ps)); // shared PS also stays ambiguous
+  assert(catalog.UniqueVertexForPixel(ps)==vs);
   assert(catalog.UniquePixelForVertex(vs)==ps);
   const auto shared_original_pass=catalog.FindOriginalPass(reused_vs,reused_ps);
   assert(shared_original_pass && shared_original_pass->effect_hash==0x222 &&
@@ -87,6 +90,14 @@ int main() {
   try {catalog.Load(path);}catch(const std::invalid_argument&){stage_failed=true;}
   assert(stage_failed && catalog.PairCount()==4 &&
          catalog.HasPair(0x222,1,reused_vs,reused_ps));
+  assert(!catalog.UniqueVertexForPixel(reused_ps));
+  assert(catalog.UniqueVertexForPixel(ps)==vs);
+  // A valid replacement ledger must clear the old ambiguity index.
+  data=verified_shared;data.resize(16+3*72);data[8]=3;write();catalog.Load(path);
+  hulk::eor::aot::Digest original_vs{};original_vs.fill(0x55);
+  assert(catalog.UniqueVertexForPixel(reused_ps)==original_vs);
+  data=verified_shared;write();catalog.Load(path);
+  assert(!catalog.UniqueVertexForPixel(reused_ps));
   data=verified_shared;
   data[16+72+4]=2;write();
   bool failed=false;try {catalog.Load(path);}catch(const std::invalid_argument&){failed=true;}
