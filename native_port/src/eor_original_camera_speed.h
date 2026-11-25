@@ -40,7 +40,7 @@ std::optional<CameraSpeedEvent> CaptureCameraSpeed(uint32_t method,uint32_t lr,
   if(!pin(spec->method,spec->length,spec->body_hash) ||
      !pin(spec->thunk,16,spec->thunk_hash))return {};
   auto page=ResolveNativeOwner(lr,vm,dispatcher_vm,descriptor,context,read,spec->thunk).page;
-  if(page!=PausePage::Settings && page!=PausePage::GameSettings && page!=PausePage::CameraSettings)return {};
+  if(!IsOriginalSettingsRoot(page) && page!=PausePage::GameSettings && page!=PausePage::CameraSettings)return {};
   const auto frame=CameraSpeedWord(vm,0,read);
   if(!frame)return {};
   if(spec->setter) {

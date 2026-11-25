@@ -28,6 +28,7 @@ inline constexpr uint32_t kTextChild=0x8A901DCFu;
 inline constexpr uint32_t kSelectorChild=0x50A17E11u;
 inline constexpr uint32_t kSettingsDefinition=0xD7A9E027u;
 inline constexpr uint32_t kGameSettingsDefinition=0x04AA3A30u;
+inline constexpr uint32_t kFrontendSettingsDefinition=0x30FE31F3u;
 
 inline constexpr uint32_t WidgetSymbol(std::string_view name) noexcept {
   uint32_t crc=0xffffffffu;
@@ -100,7 +101,8 @@ class OriginalWidgetApi {
     if(!verified_ || !symbol || !orientation || (orientation&15u) ||
        uint64_t(orientation)+64>uint64_t(UINT32_MAX)+1u)return {};
     const auto root=ReadOriginalWidget(page,read_);
-    if(!root || (root->definition!=kSettingsDefinition && root->definition!=kGameSettingsDefinition))return {};
+    if(!root || (root->definition!=kSettingsDefinition && root->definition!=kGameSettingsDefinition &&
+                 root->definition!=kFrontendSettingsDefinition))return {};
     auto owner=ReadOriginalWidget(parent,read_);
     if(!owner || (parent!=page && owner->parent!=page))return {};
     std::array<uint8_t,64> matrix{};

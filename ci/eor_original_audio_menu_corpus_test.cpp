@@ -69,6 +69,14 @@ int main(int argc,char** argv){
   check(!PlanDeferredVolumeRestore(*change,{101,-1,20},read));
   volume(deferred,1,60);
   check(!PlanDeferredVolumeRestore(*change,{70,-1,20},read));
+  put(def+12,0x30fe31f3u);
+  const std::string_view frontend="UIWidget_Frontend_Settings";
+  std::fill_n(heap.data()+name,32,0);std::copy(frontend.begin(),frontend.end(),heap.data()+name);
+  for(unsigned ch=0;ch<3;++ch) {
+    const auto entry=kAudioMenuMethods[ch];put(desc,entry.thunk);put(arg+12,50);
+    check(CaptureAudioMenuChange(entry.method,0x825ea158,vm,vm,desc,ctx,read).has_value());
+  }
+  put(desc,spec.thunk);
   // A valid callback with the wrong real page owner is not an audio event.
   put(def+12,0x141ed2a4u);
   const std::string_view camera="UIPage_Pause_CameraSettings";

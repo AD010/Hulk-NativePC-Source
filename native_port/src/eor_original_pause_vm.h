@@ -8,7 +8,10 @@
 #include <string_view>
 
 namespace hulk::eor::vm {
-enum class PausePage : uint8_t { Unknown, Settings, GameSettings, AudioSettings, CameraSettings };
+enum class PausePage : uint8_t { Unknown, Settings, GameSettings, AudioSettings, CameraSettings, FrontendSettings };
+inline constexpr bool IsOriginalSettingsRoot(PausePage page) noexcept {
+  return page==PausePage::Settings || page==PausePage::FrontendSettings;
+}
 struct NativeOwner {
   uint32_t object=0, definition=0, key=0;
   PausePage page=PausePage::Unknown;
@@ -56,9 +59,11 @@ NativeOwner ResolveNativeOwner(uint32_t lr,uint32_t vm,uint32_t dispatcher_vm,
   if(!definition || !*definition)return result;
   const auto vtable=word(*definition,0),key=word(*definition,12);
   if(!vtable || *vtable!=0x8206A4D0u || !key)return result;
-  // All four real pause-page names and CRC keys were verified against
+  // Original settings page names and CRC keys were verified against
   // the loaded USA definition records. In particular the audio and camera
   // callbacks execute in separate page owners, not only GameSettings.
+  // The pinned USA OBJECTS.ARC also contains UIWidget_Frontend_Settings;
+  // its Increase/DecreaseEvent methods call the same six option setters.
   std::string_view expected;
   PausePage resolved=PausePage::Unknown;
   switch(*key) {
@@ -66,6 +71,7 @@ NativeOwner ResolveNativeOwner(uint32_t lr,uint32_t vm,uint32_t dispatcher_vm,
     case 0x04AA3A30u:expected="uipage_pause_gamesettings";resolved=PausePage::GameSettings;break;
     case 0xDD663BE3u:expected="uipage_pause_audiosettings";resolved=PausePage::AudioSettings;break;
     case 0x141ED2A4u:expected="uipage_pause_camerasettings";resolved=PausePage::CameraSettings;break;
+    case 0x30FE31F3u:expected="uiwidget_frontend_settings";resolved=PausePage::FrontendSettings;break;
     default:return result;
   }
   const auto tagged=word(*definition,4);
@@ -156,7 +162,7 @@ bool VerifyCameraGetter(uint32_t method,uint32_t lr,uint32_t vm,uint32_t dispatc
   if(!pin(thunk,16,yaw?0xe1144502df9ddd75ull:0x5638239b8bfd309dull) ||
      !pin(method,yaw?28u:24u,yaw?0x4a746c8a1a7c678full:0x25ca57bada5b3e24ull))return false;
   const auto page=ResolveNativeOwner(lr,vm,dispatcher_vm,descriptor,context,read,thunk).page;
-  return page==PausePage::Settings || page==PausePage::GameSettings ||
+  return IsOriginalSettingsRoot(page) || page==PausePage::GameSettings ||
          page==PausePage::CameraSettings;
 }
 // Restore the saved host subtitle preference only at the genuine original
@@ -174,6 +180,6 @@ bool VerifySubtitleGetter(uint32_t lr,uint32_t vm,uint32_t dispatcher_vm,
   if(!pin(0x82146A10u,16,0x42cf88a419a2c655ull) ||
      !pin(0x82338A38u,28,0x280b3f5d0b51d1feull))return false;
   const auto page=ResolveNativeOwner(lr,vm,dispatcher_vm,descriptor,context,read,0x82146A10u).page;
-  return page==PausePage::GameSettings || page==PausePage::Settings;
+  return page==PausePage::GameSettings || IsOriginalSettingsRoot(page);
 }
 } // namespace hulk::eor::vm

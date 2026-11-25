@@ -82,8 +82,9 @@ int main(int argc,char** argv){
   put(vm,frame);put(frame,input);put(input+8,nested);put(nested,arg);
   put(ctx+20,page);put(vm+32,3);put(vm+4*(2093+3),page);
   put(page+124,res);put(res+8,def);put(def,0x8206a4d0);put(def+4,name|1);
-  for(const auto& [key,label]:std::array<std::pair<uint32_t,std::string_view>,3>{{
+  for(const auto& [key,label]:std::array<std::pair<uint32_t,std::string_view>,4>{{
       {0xd7a9e027u,"UIPage_Pause_Settings"},
+      {0x30fe31f3u,"UIWidget_Frontend_Settings"},
       {0x04aa3a30u,"UIPage_Pause_GameSettings"},
       {0x141ed2a4u,"UIPage_Pause_CameraSettings"}}}){
     put(def+12,key);
@@ -111,7 +112,9 @@ int main(int argc,char** argv){
   }
   for(uint32_t i=1;i<=300;++i)check(CameraSpeedSlider(CameraSpeedMultiplier(i))==i);
   check(CameraSpeedMultiplier(1)==0.25 && CameraSpeedMultiplier(100)==1.0 && CameraSpeedMultiplier(300)==4.0);
-  put(def+12,0x141ed2a4u);
+  put(def+12,0x30fe31f3u);
+  const std::string_view frontend="UIWidget_Frontend_Settings";
+  std::fill_n(heap.data()+name,32,0);std::copy(frontend.begin(),frontend.end(),heap.data()+name);
   for(const auto& m:kCameraSpeedMethods) {
     put(desc,m.thunk);put(arg+12,125);put(frame+4,0x5400);
     const auto e=CaptureCameraSpeed(m.method,0x825ea158,vm,vm,desc,ctx,read);
@@ -120,5 +123,5 @@ int main(int argc,char** argv){
   }
   put(def+12,0);yaw=0;heap[arg+12]=1;
   check(!CaptureCameraMenuChange(0x82339a08,0x825ea158,vm,vm,desc,ctx,read));
-  std::cout<<"PASS: all three original camera/settings pages, both axes, true/false and rejected events\n";
+  std::cout<<"PASS: original pause and title settings pages, both axes, true/false and rejected events\n";
 }

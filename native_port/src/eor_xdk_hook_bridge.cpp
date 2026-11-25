@@ -526,6 +526,7 @@ void ObserveOriginalEorVmState_r(
       page.page==vm::PausePage::GameSettings?"UIPage_Pause_GameSettings":
       page.page==vm::PausePage::AudioSettings?"UIPage_Pause_AudioSettings":
       page.page==vm::PausePage::CameraSettings?"UIPage_Pause_CameraSettings":
+      page.page==vm::PausePage::FrontendSettings?"UIWidget_Frontend_Settings":
       "PAGE-OWNER UNKNOWN";
   static std::atomic<uint64_t> calls{0};
   const auto n=calls.fetch_add(1,std::memory_order_relaxed)+1u;
