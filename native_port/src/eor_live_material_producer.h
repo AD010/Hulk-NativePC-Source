@@ -117,6 +117,30 @@ inline ScalarInterface InspectScalarInterface(const aot::Blob& shader) {
   std::sort(out.inputs.begin(),out.inputs.end(),[](auto a,auto b){return a.location<b.location;});
   return out;
 }
+// One cache belongs to one immutable shader-bank generation. Unlike a
+// guest shader object, each Blob address is stable until that bank dies.
+// Cache only static SPIR-V reflection, never live registers, texture owners,
+// vertex bytes, camera matrices, or Draw authorization.
+class ScalarAnalysisCache {
+ public:
+  struct Analysis {
+    ScalarInterface interface;
+    std::vector<aot::SpirvImageResource> images;
+  };
+  const Analysis& Get(const aot::ShaderBank& bank,const aot::Digest& digest,aot::Stage stage) {
+    if(bank_!=&bank) {entries_.clear();bank_=&bank;}
+    const auto* shader=bank.Find(digest,stage);
+    if(!shader)throw std::invalid_argument("Original scalar shader absent");
+    const auto key=std::pair{digest,stage};
+    if(const auto it=entries_.find(key);it!=entries_.end())return it->second;
+    Analysis analysis{InspectScalarInterface(*shader),
+        aot::InspectSpirvImageResources(shader->spirv,stage)};
+    return entries_.emplace(key,std::move(analysis)).first->second;
+  }
+ private:
+  const aot::ShaderBank* bank_=nullptr;
+  std::map<std::pair<aot::Digest,aot::Stage>,Analysis> entries_;
+};
 inline std::optional<uint32_t> SemanticLocation(uint32_t usage,uint32_t index) noexcept {
   if(usage==0u && index==0u)return 0u;
   if(usage==3u && index==0u)return 1u;
@@ -230,21 +254,25 @@ inline std::vector<VerifiedNativeMaterialImage> OriginalScalarImages(
     const xdk::RawDraw& call,const aot::Digest& vs,const aot::Digest& ps,
     const aot::ShaderBank& bank,const aot::OriginalXdkShaderSamplers& samplers,
     uint32_t model,uint32_t surface,uint16_t source_mask,
-    DiligentOriginalTextureResidency& residency,const VerifiedSceneFormat& scene) {
+    DiligentOriginalTextureResidency& residency,const VerifiedSceneFormat& scene,
+    ScalarAnalysisCache* cached=nullptr) {
   const auto* v=bank.Find(vs,aot::Stage::Vertex);
   const auto* p=bank.Find(ps,aot::Stage::Pixel);
   if(!v || !p || !call.observed_vs_matrices || !call.observed_shader_constants ||
      !call.observed_live_pixel_shader_header ||
      !call.observed_live_pixel_shader_header->pixel_sampling ||
-     !samplers.Find(vs,aot::Stage::Vertex) || !samplers.Find(ps,aot::Stage::Pixel) ||
-     !aot::InspectSpirvImageResources(v->spirv,aot::Stage::Vertex).empty())
+     !samplers.Find(vs,aot::Stage::Vertex) || !samplers.Find(ps,aot::Stage::Pixel))
     throw std::invalid_argument("Unsupported original scalar sampler stages");
+  ScalarAnalysisCache local;
+  auto& cache=cached?*cached:local;
+  if(!cache.Get(bank,vs,aot::Stage::Vertex).images.empty())
+    throw std::invalid_argument("Unsupported original scalar vertex sampler stage");
   const auto& sampling=*call.observed_live_pixel_shader_header->pixel_sampling;
   if(sampling.source!=ps || (sampling.sampled_slots&~source_mask))
     throw std::invalid_argument("Original scalar sampler program differs from live material");
   uint16_t used=0;
   std::vector<VerifiedNativeMaterialImage> out;
-  for(const auto& image:aot::InspectSpirvImageResources(p->spirv,aot::Stage::Pixel)) {
+  for(const auto& image:cache.Get(bank,ps,aot::Stage::Pixel).images) {
     const auto slot=aot::DecodeFixedAotImageSlot(image.exact_variable_name);
     if(!slot || slot->slot>=16u || slot->dimension==2u || slot->dimension>3u || image.spirv_dim!=slot->dimension ||
        image.image_arrayed || image.image_multisampled)
@@ -330,7 +358,7 @@ inline ProducedWorldMaterial ProduceOriginalWorldMaterial(
     const aot::ShaderBank& bank,const aot::EffectCatalog& effects,
     const aot::OriginalVirtualShaderIdentity& identities,
     const aot::OriginalXdkShaderSamplers& samplers,const VerifiedSceneFormat& format,
-    DiligentOriginalTextureResidency& residency) {
+    DiligentOriginalTextureResidency& residency,ScalarAnalysisCache* cached=nullptr) {
   const auto indexed=xdk::DecodeOriginalIndexedXdkCall(call);
   const auto vertices=xdk::DecodeOriginalVerticesXdkCall(call);
   if((!indexed && !vertices) || (indexed && indexed->primitive!=4u) ||
@@ -362,8 +390,10 @@ inline ProducedWorldMaterial ProduceOriginalWorldMaterial(
   const auto* vertex=bank.Find(*vs,aot::Stage::Vertex);
   const auto* pixel=bank.Find(*ps,aot::Stage::Pixel);
   if(!vertex || !pixel)throw std::invalid_argument("Original indexed AOT pair missing");
-  const auto vertex_interface=InspectScalarInterface(*vertex);
-  const auto pixel_interface=InspectScalarInterface(*pixel);
+  ScalarAnalysisCache local;
+  auto& cache=cached?*cached:local;
+  const auto& vertex_interface=cache.Get(bank,*vs,aot::Stage::Vertex).interface;
+  const auto& pixel_interface=cache.Get(bank,*ps,aot::Stage::Pixel).interface;
   if(((vertex_interface.shared_members|pixel_interface.shared_members)&1u) &&
      (!call.observed_shader_constants || !xdk::PackOriginalScalarBooleans(*call.observed_shader_constants)))
     throw std::invalid_argument("Missing original boolean register file");
@@ -415,7 +445,7 @@ inline ProducedWorldMaterial ProduceOriginalWorldMaterial(
   out.material.original_model_hash=owner->original_resource_hash;
   out.material.original_surface_ordinal=*surface;
   out.material.original_images=OriginalScalarImages(call,*vs,*ps,bank,samplers,
-      owner->original_resource_hash,*surface,method.original_pass_sampler_slot_mask,residency,format);
+      owner->original_resource_hash,*surface,method.original_pass_sampler_slot_mask,residency,format,&cache);
   for(const auto& image:out.material.original_images) {
     const auto slot=image.original_binding.original_fetch_register;
     if(image.shader_reflected_view==OriginalTextureViewKind::NativeCube &&
@@ -599,7 +629,7 @@ inline ProducedRuntimeMaterial ProduceOriginalRuntimeMaterial(
     const aot::ShaderBank& bank,const aot::EffectCatalog& effects,
     const aot::OriginalVirtualShaderIdentity& identities,
     const aot::OriginalXdkShaderSamplers& samplers,const VerifiedSceneFormat& format,
-    DiligentOriginalTextureResidency& residency) {
+    DiligentOriginalTextureResidency& residency,ScalarAnalysisCache* cached=nullptr) {
   if(!call.observed_vs_matrices || !call.observed_shader_constants ||
      !call.observed_live_vertex_shader_header || !call.observed_live_pixel_shader_header ||
      !call.observed_live_eor_effect_pass ||
@@ -637,7 +667,10 @@ inline ProducedRuntimeMaterial ProduceOriginalRuntimeMaterial(
   const auto* v=bank.Find(*vs,aot::Stage::Vertex);
   const auto* p=bank.Find(*ps,aot::Stage::Pixel);
   if(!v || !p)throw std::invalid_argument("Transient shader AOT pair missing");
-  const auto vi=InspectScalarInterface(*v),pi=InspectScalarInterface(*p);
+  ScalarAnalysisCache local;
+  auto& cache=cached?*cached:local;
+  const auto& vi=cache.Get(bank,*vs,aot::Stage::Vertex).interface;
+  const auto& pi=cache.Get(bank,*ps,aot::Stage::Pixel).interface;
   if(!vi.supported || !pi.supported ||
      (((vi.shared_members|pi.shared_members)&1u) &&
        !xdk::PackOriginalScalarBooleans(*call.observed_shader_constants)))
@@ -658,7 +691,7 @@ inline ProducedRuntimeMaterial ProduceOriginalRuntimeMaterial(
   if(!alpha || (alpha->flags && !pass.original_scalar_alpha_test_verified))
     throw std::invalid_argument("Transient alpha-test shader unsupported");
   material.original_images=OriginalScalarImages(call,*vs,*ps,bank,samplers,
-    material.original_model_hash,ordinal,material_context?method->original_pass_sampler_slot_mask:sampling->sampled_slots,residency,format);
+    material.original_model_hash,ordinal,material_context?method->original_pass_sampler_slot_mask:sampling->sampled_slots,residency,format,&cache);
   for(auto& image:material.original_images) {
     image.original_binding.original_runtime_material=true;
     const auto slot=image.original_binding.original_fetch_register;

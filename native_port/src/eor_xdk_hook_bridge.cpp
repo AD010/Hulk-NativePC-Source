@@ -2192,6 +2192,7 @@ struct AutomaticEorOwner {
   std::shared_ptr<world::NativeWorldStream> source_models;
   std::shared_ptr<world::OriginalMaterialCandidateIndex> candidates;
   std::unique_ptr<gpu::DiligentEorDirectBackend> backend;
+  gpu::live::ScalarAnalysisCache scalar_analysis;
 
   AutomaticEorOwner(native_x_renderer::Device& host,OfflineShaderPack source,
       AutomaticSceneContract source_contract,const AutomaticArchivePaths& paths,
@@ -2352,8 +2353,8 @@ struct AutomaticEorOwner {
           throw std::invalid_argument("Original live Font_Main shader identity unavailable");
         const auto* v=pack.shaders->Find(*vs,aot::Stage::Vertex);
         const auto* p=pack.shaders->Find(*ps,aot::Stage::Pixel);
-        if(!v || !p || !gpu::live::InspectScalarInterface(*v).supported ||
-           !gpu::live::InspectScalarInterface(*p).supported)
+        if(!v || !p || !scalar_analysis.Get(*pack.shaders,*vs,aot::Stage::Vertex).interface.supported ||
+           !scalar_analysis.Get(*pack.shaders,*ps,aot::Stage::Pixel).interface.supported)
           throw std::invalid_argument("Original Font_Main scalar ABI unsupported");
         // Dynamic EFont has no model/surface archive ordinal. Its actual
         // atlas texture resource is the material owner; subresource zero
@@ -2368,7 +2369,7 @@ struct AutomaticEorOwner {
                                       {4,1,layout->texcoord.components,VT_FLOAT32,False},
                                       {8,2,layout->color->components,VT_FLOAT32,False}};
         for(auto& element:pass.exact_host_input_layout)element.Stride=16u;
-        const auto pixel_interface=gpu::live::InspectScalarInterface(*p);
+        const auto& pixel_interface=scalar_analysis.Get(*pack.shaders,*ps,aot::Stage::Pixel).interface;
         pass.original_scalar_alpha_test_verified=pixel_interface.has_kill &&
             (pixel_interface.shared_members&24u)==24u;
         const auto alpha=gpu::ResolveOriginalScalarAlpha(*call.observed_shader_constants->fixed_graphics_state);
@@ -2379,7 +2380,7 @@ struct AutomaticEorOwner {
         pass.original_view_space=gpu::VerifiedOriginalViewSpace::OriginalAspectHud;
         pass.original_view_space_verified=pass.original_hud_clip_coordinates_verified=true;
         material.original_images=gpu::live::OriginalScalarImages(call,*vs,*ps,
-            *pack.shaders,*pack.samplers,atlas,0,1u,textures,contract.format);
+            *pack.shaders,*pack.samplers,atlas,0,1u,textures,contract.format,&scalar_analysis);
         pass.material_pass_verified=true;
         backend->AdoptVerifiedOriginalMaterialPasses({&material,1},textures);
         ordered.push_back(backend->StageVerifiedOriginalFontDraw(
@@ -2393,7 +2394,7 @@ struct AutomaticEorOwner {
           try {
             archived=gpu::live::ProduceOriginalWorldMaterial(call,frame.sequence,ordinal,
                 borrowed,*pack.shaders,*pack.effects,*pack.virtual_ids,*pack.samplers,
-                contract.format,textures);
+                contract.format,textures,&scalar_analysis);
           } catch(const std::invalid_argument&) {}
         }
         auto project=[&](gpu::VerifiedOriginalGraphicsPass& pipeline,const aot::Digest& digest) {
@@ -2438,7 +2439,7 @@ struct AutomaticEorOwner {
               // original viewport. Do not infer that from its effect name.
               if(resolved && call.captured_vertex_bindings) {
                 try {
-                  const auto decoded=gpu::live::DecodeOriginalRuntimeGeometry(call,gpu::live::InspectScalarInterface(*vertex));
+                  const auto decoded=gpu::live::DecodeOriginalRuntimeGeometry(call,scalar_analysis.Get(*pack.shaders,digest,aot::Stage::Vertex).interface);
                   if(gpu::live::CoversOriginalClipQuad(decoded))
                     pipeline.original_view_space=gpu::VerifiedOriginalViewSpace::FullOutputPost;
                 } catch(const std::exception&) {}
@@ -2460,7 +2461,7 @@ struct AutomaticEorOwner {
           ordered.push_back(std::move(draw.front()));
         } else {
           auto produced=gpu::live::ProduceOriginalRuntimeMaterial(call,frame.sequence,ordinal,
-              *pack.shaders,*pack.effects,*pack.virtual_ids,*pack.samplers,contract.format,textures);
+              *pack.shaders,*pack.effects,*pack.virtual_ids,*pack.samplers,contract.format,textures,&scalar_analysis);
           project(produced.material.original_pipeline,produced.material.original_pipeline.original_vertex_shader_sha256);
           ordered.push_back(backend->StageOriginalRuntimeDraw(call,frame.sequence,ordinal,
               produced.material,produced.geometry,textures));
