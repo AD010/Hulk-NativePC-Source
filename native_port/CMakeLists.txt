@@ -83,7 +83,10 @@ add_library(hulk_native_core STATIC
 )
 target_include_directories(hulk_native_core PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
 if(WIN32)
-    target_link_libraries(hulk_native_core PUBLIC shell32 ole32)
+    # An actual Windows x64 audio device backend, isolated from guest PPC.
+    # Its PCM input must come from a verified decoded original sound bank.
+    target_sources(hulk_native_core PRIVATE src/eor_native_audio_xaudio2.cpp)
+    target_link_libraries(hulk_native_core PUBLIC shell32 ole32 xaudio2)
 endif()
 
 # This is a host library build, not a second game executable or a release.
@@ -97,6 +100,7 @@ if(HULK_NATIVE_CORE_ONLY)
         native_game_data_root_store_test
         eor_fmod_project_test
         eor_fmod_catalog_test
+        eor_native_audio_pcm_test
         eor_havok_packfile_test
         eor_native_havok_scheduler_test
         eor_native_lod_test)
