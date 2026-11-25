@@ -1,18 +1,11 @@
 #include "eor_model_resource.h"
+#include "eor_model_binary.h"
 #include <stdexcept>
 #include <utility>
 namespace hulk::eor::model {
 namespace {
-uint8_t B(std::span<const std::byte> raw, size_t i) {
-  return std::to_integer<uint8_t>(raw[i]);
-}
-uint32_t U32(std::span<const std::byte> raw, size_t i, Platform p) {
-  if (p == Platform::Xbox360)
-    return (uint32_t(B(raw,i))<<24) | (uint32_t(B(raw,i+1))<<16) |
-           (uint32_t(B(raw,i+2))<<8) | B(raw,i+3);
-  return B(raw,i) | (uint32_t(B(raw,i+1))<<8) |
-         (uint32_t(B(raw,i+2))<<16) | (uint32_t(B(raw,i+3))<<24);
-}
+using binary::B;
+using binary::U32;
 std::pair<std::string,size_t> AsciiName(std::span<const std::byte> raw,
                                         size_t from, size_t max_length) {
   if (from >= raw.size()) throw std::invalid_argument("Missing EoR string");

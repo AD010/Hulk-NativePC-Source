@@ -1,12 +1,12 @@
 #include "eor_model_surfaces.h"
+#include "eor_model_binary.h"
 #include <algorithm>
 #include <stdexcept>
 #include <utility>
 namespace hulk::eor::model {
 namespace {
-uint8_t B(std::span<const std::byte> r,size_t i) noexcept {
- return std::to_integer<uint8_t>(r[i]);
-}
+using binary::B;
+using binary::U32;
 bool NameByte(uint8_t c) noexcept {
  return (c>='a'&&c<='z')||(c>='A'&&c<='Z')||
         (c>='0'&&c<='9')||c=='_'||c=='.'||c=='-'||c==' ';
@@ -14,13 +14,6 @@ bool NameByte(uint8_t c) noexcept {
 bool FirstByte(uint8_t c) noexcept {
  return (c>='a'&&c<='z')||(c>='A'&&c<='Z')||
         (c>='0'&&c<='9')||c=='_';
-}
-uint32_t U32(std::span<const std::byte> r,size_t i,Platform p) noexcept {
- if(p==Platform::Xbox360)
-  return (uint32_t(B(r,i))<<24)|(uint32_t(B(r,i+1))<<16)|
-         (uint32_t(B(r,i+2))<<8)|B(r,i+3);
- return B(r,i)|(uint32_t(B(r,i+1))<<8)|
-        (uint32_t(B(r,i+2))<<16)|(uint32_t(B(r,i+3))<<24);
 }
 bool TryHeader(std::span<const std::byte> r,size_t at,size_t limit,
                Platform p,SurfaceHeader& out) {

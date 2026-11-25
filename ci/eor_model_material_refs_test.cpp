@@ -1,4 +1,5 @@
 #include "../native_port/src/eor_model_material_refs.h"
+#include "../native_port/src/eor_model_binary.h"
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
@@ -41,6 +42,19 @@ std::vector<std::byte> IndexData(bool be) {
 }
 }
 int main() {
+  using hulk::eor::model::Platform;
+  using namespace hulk::eor::model::binary;
+  constexpr std::array<std::byte,5> sample{std::byte{0xff},std::byte{0x12},
+      std::byte{0x34},std::byte{0x56},std::byte{0x78}};
+  assert(U32(sample,1,Platform::Xbox360)==0x12345678u);
+  assert(U32(sample,1,Platform::PcD3d9)==0x78563412u);
+  assert(BE32(sample,1)==0x12345678u);
+  assert(TextureSlots(Platform::Xbox360).size()==7 &&
+         TextureSlots(Platform::Xbox360).front()==56 &&
+         TextureSlots(Platform::Xbox360).back()==80);
+  assert(TextureSlots(Platform::PcD3d9).size()==2 &&
+         TextureSlots(Platform::PcD3d9).front()==48 &&
+         TextureSlots(Platform::PcD3d9).back()==52);
   for(bool be:{false,true}) {
     auto bytes=Model(be);const auto index=Index::Decode(IndexData(be));
     const auto refs=model::FirstSurfaceTextureCandidates(bytes,index);

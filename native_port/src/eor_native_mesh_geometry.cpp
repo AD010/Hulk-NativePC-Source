@@ -1,4 +1,5 @@
 #include "eor_native_mesh_geometry.h"
+#include "eor_model_binary.h"
 #include <algorithm>
 #include <bit>
 #include <cmath>
@@ -6,13 +7,8 @@
 #include <utility>
 namespace hulk::eor::model {
 namespace {
-uint8_t B(std::span<const std::byte> d,size_t i) noexcept {
- return std::to_integer<uint8_t>(d[i]);
-}
-uint32_t BE32(std::span<const std::byte>d,size_t i) noexcept {
- return (uint32_t(B(d,i))<<24)|(uint32_t(B(d,i+1))<<16)|
-        (uint32_t(B(d,i+2))<<8)|B(d,i+3);
-}
+using binary::B;
+using binary::BE32;
 uint32_t BE24(std::span<const std::byte>d,size_t i) noexcept {
  return (uint32_t(B(d,i))<<16)|(uint32_t(B(d,i+1))<<8)|B(d,i+2);
 }
