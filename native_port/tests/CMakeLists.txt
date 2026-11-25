@@ -1,15 +1,29 @@
 cmake_minimum_required(VERSION 3.25)
 project(HulkNativeInputTests LANGUAGES CXX)
 enable_testing()
+
+# Assertions are the actual regression checks in these test programs.
+# CMAKE_BUILD_TYPE=Release must not silently remove them.
+if(MSVC)
+    add_compile_options(/UNDEBUG)
+else()
+    add_compile_options(-UNDEBUG)
+endif()
 add_executable(hulk_input_test native_input_map_test.cpp ../src/launcher/native_input_map.cpp)
 target_compile_features(hulk_input_test PRIVATE cxx_std_23)
 add_test(NAME native_input_map COMMAND hulk_input_test)
 
-add_executable(hulk_native_profile_test native_profile_test.cpp ../src/native_x_hulk_profile.cpp)
-target_compile_features(hulk_native_profile_test PRIVATE cxx_std_23)
-target_include_directories(hulk_native_profile_test PRIVATE
-    ../src ../native_x_renderer_git/include)
-add_test(NAME native_profile COMMAND hulk_native_profile_test)
+option(HULK_REQUIRE_NATIVE_PROFILE_TEST "Require the pinned NativeX profile headers" ON)
+if(HULK_REQUIRE_NATIVE_PROFILE_TEST)
+    if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../native_x_renderer_git/include/native_x_renderer/native_x_renderer.h")
+        message(FATAL_ERROR "Pinned NativeX checkout is required for native profile tests")
+    endif()
+    add_executable(hulk_native_profile_test native_profile_test.cpp ../src/native_x_hulk_profile.cpp)
+    target_compile_features(hulk_native_profile_test PRIVATE cxx_std_23)
+    target_include_directories(hulk_native_profile_test PRIVATE
+        ../src ../native_x_renderer_git/include)
+    add_test(NAME native_profile COMMAND hulk_native_profile_test)
+endif()
 
 add_executable(hulk_direct_camera_test direct_camera_test.cpp ../src/launcher/native_camera_direct.cpp)
 target_compile_features(hulk_direct_camera_test PRIVATE cxx_std_23)

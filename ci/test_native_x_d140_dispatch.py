@@ -111,6 +111,23 @@ class D140WindowsDispatchTests(unittest.TestCase):
         self.assertIn("HULK/DIRECT-DMA-SNAPSHOT",builder)
 
 
+    def test_local_build_uses_same_pinned_input_and_real_release_assertions(self):
+        builder=(ROOT/"native_port"/"BUILD_WINDOWS.ps1").read_text("utf-8")
+        tests=(ROOT/"native_port"/"tests"/"CMakeLists.txt").read_text("utf-8")
+        self.assertIn("346A73690303F6633BFDAF9850E78793FE07CDBFB8F849B89FBEE320630B11F0",builder)
+        self.assertLess(builder.index("if ($ActualUsaXex -ne $ExpectedUsaXex)"),
+                        builder.index("ci/seed_hulk_ppc_tails.py"))
+        self.assertLess(builder.index("ci/seed_hulk_ppc_tails.py"),
+                        builder.index("$SdkCommit ="))
+        self.assertIn("'ctest'",builder)
+        self.assertEqual(builder.count("https://github.com/ElGuslml/NativeXRenderer.git"),1)
+        self.assertIn("$NativeXAtConfigure -ne $NativeXCommit",builder)
+        self.assertIn("-DHULK_REQUIRE_NATIVE_PROFILE_TEST=$RequireNativeProfile",builder)
+        self.assertIn("add_compile_options(/UNDEBUG)",tests)
+        self.assertIn("add_compile_options(-UNDEBUG)",tests)
+        self.assertIn("if(HULK_REQUIRE_NATIVE_PROFILE_TEST)",tests)
+        self.assertIn("message(FATAL_ERROR",tests)
+
     def test_atomic_native_x_source_plan_rejects_unreviewed_edits(self):
         builder=(ROOT/"native_port"/"BUILD_WINDOWS.ps1").read_text("utf-8")
         for bad in (

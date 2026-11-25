@@ -100,7 +100,7 @@ try {
     try { Stop-Transcript | Out-Null } catch {}
     exit 0
   }
-  foreach ($cmd in @('git', 'cmake', 'ninja', 'clang++', 'python')) { Require-Command $cmd }
+  foreach ($cmd in @('git', 'cmake', 'ctest', 'ninja', 'clang++', 'python')) { Require-Command $cmd }
   # Fail early if a future update reintroduces PAL data acceptance or unbounded GPU.
   Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_hulk_us_gpu_defaults.py')) $Source
   Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_hulk_pc_menu.py')) $Source
@@ -139,6 +139,16 @@ try {
   $LocalXex = Join-Path $LocalGame 'default.xex'
   if ($LocalXex -ne $Xex) { Copy-Item -LiteralPath $Xex -Destination $LocalXex -Force }
   # The game data can stay at its installed path. Codegen only needs default.xex.
+  # Local Windows builds must enforce the same USA input and PPC entry
+  # preparation as the private CI runner, before spending time on SDK builds.
+  $ExpectedUsaXex = '346A73690303F6633BFDAF9850E78793FE07CDBFB8F849B89FBEE320630B11F0'
+  $ActualUsaXex = (Get-FileHash -LiteralPath $LocalXex -Algorithm SHA256).Hash.ToUpperInvariant()
+  if ($ActualUsaXex -ne $ExpectedUsaXex) {
+    throw 'USA NativePC build requires the pinned original USA XEX. Use -EuTu1Analysis for EU analysis.'
+  }
+  $SeedPpcTool = Join-Path (Split-Path $Source -Parent) 'ci/seed_hulk_ppc_tails.py'
+  Invoke-Checked 'python' @($SeedPpcTool, (Join-Path $Source 'missing_funcs.toml'),
+    (Join-Path $Source 'indirect_funcs.toml')) $Source
 
   # Exact compatible ReXGlue SDK fork. Do not silently upgrade this source
   # to official v0.11's different module/driver ABI or floating recomp HEAD.
@@ -538,8 +548,10 @@ try {
   Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_hulk_present_hook_profile.py')) $Source
   # Compile and run standalone input tests before the larger game build.
   $TestDir = Join-Path $Source 'out\input-tests'
+  $RequireNativeProfile = if ($NativeXLink) { 'ON' } else { 'OFF' }
   Invoke-Checked 'cmake' @('-S', (Join-Path $Source 'tests'), '-B', $TestDir, '-G', 'Ninja',
-    '-DCMAKE_CXX_COMPILER=clang++', '-DCMAKE_BUILD_TYPE=Release') $Source
+    '-DCMAKE_CXX_COMPILER=clang++', '-DCMAKE_BUILD_TYPE=Release',
+    "-DHULK_REQUIRE_NATIVE_PROFILE_TEST=$RequireNativeProfile") $Source
   Invoke-Checked 'cmake' @('--build', $TestDir, '--parallel') $Source
   Invoke-Checked 'ctest' @('--test-dir', $TestDir, '--output-on-failure') $Source
 
@@ -555,9 +567,11 @@ try {
     if ($Pm4Probe) { throw 'Choose -NativeXLink or -Pm4Probe, not both' }
     $NxrFull = Join-Path $Source 'native_x_renderer_git'
     if (-not (Test-Path (Join-Path $NxrFull 'thirdparty\diligent-core\CMakeLists.txt'))) {
-      if (Test-Path $NxrFull) { throw "Incomplete renderer directory: $NxrFull (delete it to retry)" }
-      Invoke-Checked 'git' @('clone', '--depth', '1', '--recurse-submodules',
-        'https://github.com/ElGuslml/NativeXRenderer.git', $NxrFull) $Source
+      throw "Pinned NativeX D140 DiligentCore checkout is incomplete: $NxrFull"
+    }
+    $NativeXAtConfigure = (& git -C $NxrFull rev-parse HEAD).Trim()
+    if ($LASTEXITCODE -ne 0 -or $NativeXAtConfigure -ne $NativeXCommit) {
+      throw 'NativeX checkout changed after the reviewed patch chain; refusing CMake configure.'
     }
     $cmakeArgs += @("-DREXSDK_DIR=$Sdk", '-DHULK_WITH_NATIVE_X=ON',
       "-DHULK_NATIVE_X_SOURCE_DIR=$NxrFull", '-DREXGLUE_USE_VULKAN=ON',
