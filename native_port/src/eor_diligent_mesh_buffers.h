@@ -28,6 +28,7 @@ class DiligentMeshUploadBackend final : public model::NativeMeshUploadBackend {
   // 0: decoded XYZ, 1: RAW big-endian Xbox (never bind), 2: native index32,
   // 3: decoded float4 attributes, 4: decoded uint4 indices; UINT32_MAX: missing/stale handle.
   uint32_t KindOf(uint64_t handle) const noexcept;
+  uint64_t UploadPointIndices(std::span<const uint32_t> values);
   // Highest source index in this immutable GPU index buffer; UINT32_MAX
   // denotes a missing/non-index buffer, not an available vertex index.
   uint32_t MaxIndexOf(uint64_t handle) const noexcept;
@@ -35,11 +36,12 @@ class DiligentMeshUploadBackend final : public model::NativeMeshUploadBackend {
   // Actual immutable index window, not the global index-buffer extrema.
   // Verifies a signed base against the owning mesh's vertex count.
   bool IndexWindowInRange(uint64_t handle,uint32_t first,uint32_t count,
-                          int32_t base,uint32_t vertex_count) const noexcept;
+                          int32_t base,uint32_t vertex_count,bool point_list=false) const noexcept;
   size_t LiveBufferCount() const noexcept;
  private:
   struct State;
   std::unique_ptr<State> state_;
   uint64_t Create(const void* data, uint64_t bytes, uint32_t kind);
+  uint64_t UploadPrimitiveIndices(std::span<const uint32_t> values,bool point_list);
 };
 }

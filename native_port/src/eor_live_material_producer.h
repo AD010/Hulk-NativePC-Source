@@ -5,6 +5,7 @@
 #include "eor_diligent_aot_backend.h"
 #include "eor_native_draw_geometry.h"
 #include "eor_runtime_vertex_compaction.h"
+#include "eor_spirv_point_size.h"
 #include "eor_original_shader_samplers.h"
 #include "eor_spirv_texture_bindings.h"
 #include <algorithm>
@@ -221,8 +222,10 @@ inline std::vector<Diligent::LayoutElement> OriginalScalarMeshLayout(
 }
 inline VerifiedOriginalGraphicsPass OriginalScalarPass(
     const xdk::RawDraw& call,const aot::Digest& vs,const aot::Digest& ps,
-    const VerifiedSceneFormat& format) {
+    const VerifiedSceneFormat& format,bool point_list=false) {
   using namespace Diligent;
+  if(point_list && !xdk::IsOriginalRuntimePointDraw(call))
+    throw std::invalid_argument("Unverified original point topology");
   if(!call.observed_live_eor_effect_pass || !call.observed_vs_matrices ||
      !call.observed_shader_constants || !call.observed_shader_constants->fixed_graphics_state)
     throw std::invalid_argument("Original scalar material state not captured");
@@ -242,7 +245,7 @@ inline VerifiedOriginalGraphicsPass OriginalScalarPass(
       format.depth==NativeDepthFormat::D24S8 ? TEX_FORMAT_D24_UNORM_S8_UINT : TEX_FORMAT_UNKNOWN;
   if(!pass.original_depth_unbound && state.DSVFormat==TEX_FORMAT_UNKNOWN)
     throw std::invalid_argument("Original scalar depth attachment unsupported");
-  state.PrimitiveTopology=PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+  state.PrimitiveTopology=point_list?PRIMITIVE_TOPOLOGY_POINT_LIST:PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
   const auto derived=DeriveOriginalXdkGraphicsPipelineState(
       *call.observed_shader_constants->fixed_graphics_state,state);
   if(!derived)throw std::invalid_argument("Original scalar fixed graphics state unsupported");
@@ -512,8 +515,8 @@ inline DecodedRuntimeGeometry DecodeOriginalRuntimeGeometry(
   if(!indexed && !vertices)throw std::invalid_argument("Unsupported transient Draw kind");
   const uint32_t primitive=indexed?indexed->primitive:vertices->primitive;
   const uint32_t count=indexed?indexed->index_count:vertices->vertex_count;
-  const auto triangle_count=xdk::VerifiedRuntimeTriangleListCount(primitive,count);
-  if(!triangle_count || count>1048576u || *triangle_count>3145728u)
+  const auto index_count=xdk::VerifiedRuntimeIndexCount(call,primitive,count);
+  if(!index_count || count>1048576u || *index_count>3145728u)
     throw std::invalid_argument("Unsupported transient topology or draw size");
   std::vector<uint32_t> sequence;sequence.reserve(count);
   if(indexed && (!call.index_binding || !call.source_ib ||
@@ -534,8 +537,9 @@ inline DecodedRuntimeGeometry DecodeOriginalRuntimeGeometry(
   }
   const auto owners=CompactRuntimeIndices(sequence);
   DecodedRuntimeGeometry out;out.vertex_count=static_cast<uint32_t>(owners.size());
-  out.indices.reserve(*triangle_count);
-  if(primitive==4u)out.indices=sequence;
+  out.point_list=xdk::IsOriginalRuntimePointDraw(call);
+  out.indices.reserve(*index_count);
+  if(out.point_list || primitive==4u)out.indices=sequence;
   else if(primitive==5u)for(uint32_t i=0;i+2<count;++i) {
     out.indices.push_back(sequence[i+(i&1u)]);
     out.indices.push_back(sequence[i+1u-(i&1u)]);
@@ -546,7 +550,7 @@ inline DecodedRuntimeGeometry DecodeOriginalRuntimeGeometry(
     out.indices.insert(out.indices.end(),{sequence[i],sequence[i+1],sequence[i+2],
                                          sequence[i],sequence[i+2],sequence[i+3]});
   }
-  if(out.indices.size()!=*triangle_count)throw std::logic_error("Transient triangle count mismatch");
+  if(out.indices.size()!=*index_count)throw std::logic_error("Transient index count mismatch");
   std::map<uint32_t,model::NativeIndexedMesh> streams;
   for(const auto& input:shader.inputs) {
     const xdk::UsaVertexElement* element=nullptr;
@@ -606,7 +610,7 @@ inline DecodedRuntimeGeometry DecodeOriginalRuntimeGeometry(
 // Two triangles with all four exact clip corners and a shared diagonal.
 // This is a conservative geometric coverage proof for full-output post.
 inline bool CoversOriginalClipQuad(const DecodedRuntimeGeometry& g) noexcept {
-  if(g.indices.size()!=6 || g.attributes.empty() || g.layout.empty() ||
+  if(g.point_list || g.indices.size()!=6 || g.attributes.empty() || g.layout.empty() ||
      g.layout.front().InputIndex!=0 || g.attributes.front().size()!=g.vertex_count)return false;
   unsigned masks[2]{};
   for(size_t i=0;i<6;++i) {
@@ -682,7 +686,9 @@ inline ProducedRuntimeMaterial ProduceOriginalRuntimeMaterial(
   material.original_model_hash=material_context?method->original_pass_material_context_guest:live.original_guest_device;
   material.original_surface_ordinal=ordinal;
   auto& pass=material.original_pipeline;
-  pass=OriginalScalarPass(call,*vs,*ps,format);
+  if(out.geometry.point_list && !aot::HasOriginalPointSizeOutput(v->spirv))
+    throw std::invalid_argument("Original point Draw has no verified PointSize output");
+  pass=OriginalScalarPass(call,*vs,*ps,format,out.geometry.point_list);
   pass.exact_host_input_layout=out.geometry.layout;
   pass.original_host_vertex_layout_verified=true;
   pass.original_runtime_draw_verified=true;

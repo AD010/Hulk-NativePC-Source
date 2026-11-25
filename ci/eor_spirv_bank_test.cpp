@@ -1,4 +1,5 @@
 #include "../native_port/src/eor_spirv_bank.h"
+#include "../native_port/src/eor_spirv_point_size.h"
 #include "../native_port/src/eor_spirv_static_registers.h"
 #include "../native_port/src/eor_spirv_clip_position.h"
 #include <cassert>
@@ -35,6 +36,19 @@ void Write(const std::filesystem::path& p,const std::vector<uint8_t>& bytes){
 }
 void Bad(std::function<void()> f) {bool threw=false;try{f();}catch(const std::invalid_argument&){threw=true;} assert(threw);}
 int main() {
+  {
+    // Minimal synthetic instruction stream, no copyrighted program.
+    std::vector<uint32_t> point{0x07230203u,0x10000u,0,16,0,
+        (4u<<16)|15u,0,1,0,
+        (4u<<16)|71u,5,11,1,
+        (4u<<16)|59u,2,5,3,
+        (3u<<16)|62u,5,6};
+    assert(HasOriginalPointSizeOutput(point));
+    point.back()=7;assert(HasOriginalPointSizeOutput(point));
+    point[point.size()-2]=4;assert(!HasOriginalPointSizeOutput(point));
+    point[point.size()-2]=5;point[16]=1;assert(!HasOriginalPointSizeOutput(point));
+    point[16]=3;point.pop_back();assert(!HasOriginalPointSizeOutput(point));
+  }
   const auto p=std::filesystem::temp_directory_path()/"hulk_eor_shaderbank_synthetic.bin";
   auto data=Bank(2,2);Write(p,data);
   ShaderBank bank;bank.Load(p);

@@ -802,10 +802,23 @@ inline std::optional<uint32_t> VerifiedTriangleListCount(
     return 3u*(count-2u);
   return std::nullopt;
 }
+// The genuine USA EoR 826676C0 wrapper sets primitive=1 and passes
+// geometry+12 as vertex count via 826762C0 -> DrawVertices.
+inline bool IsOriginalRuntimePointDraw(const RawDraw& call) noexcept {
+  return call.kind==Kind::DrawVertices && call.function==0x8288DF30u &&
+      call.lr==0x82667718u && call.gpr[0] && call.gpr[1]==1u &&
+      call.gpr[2]==0u && call.gpr[3]!=0u;
+}
 inline std::optional<uint32_t> VerifiedRuntimeTriangleListCount(uint32_t primitive,uint32_t count) noexcept {
   if(primitive==5u && count>=3u && count-2u<=UINT32_MAX/3u)return 3u*(count-2u);
   if(primitive==13u && count>=4u && !(count%4u) && count/4u<=UINT32_MAX/6u)return count/4u*6u;
   return VerifiedTriangleListCount(primitive,count);
+}
+inline std::optional<uint32_t> VerifiedRuntimeIndexCount(
+    const RawDraw& call,uint32_t primitive,uint32_t count) noexcept {
+  if(primitive==1u)return IsOriginalRuntimePointDraw(call) && count==call.gpr[3] ?
+      std::optional<uint32_t>{count}:std::nullopt;
+  return VerifiedRuntimeTriangleListCount(primitive,count);
 }
 inline uint32_t OriginalTriangleFanVertex(
     uint32_t triangle,uint32_t corner) noexcept {

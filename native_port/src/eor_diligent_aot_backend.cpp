@@ -1218,7 +1218,10 @@ aot::BoundIndexedDraw DiligentEorDirectBackend::StageOriginalRuntimeDraw(
      !call.observed_live_eor_effect_pass || !material.original_pipeline.original_runtime_draw_verified ||
      material.original_surface_ordinal!=ordinal || cpu.layout.size()!=cpu.attributes.size() ||
      cpu.layout.size()!=cpu.integer_attributes.size() || !cpu.vertex_count || cpu.indices.empty() ||
-     cpu.indices.size()>UINT32_MAX || cpu.indices.size()%3)
+     cpu.indices.size()>UINT32_MAX || (!cpu.point_list && cpu.indices.size()%3) ||
+     cpu.point_list!=xdk::IsOriginalRuntimePointDraw(call) ||
+     cpu.point_list!=(material.original_pipeline.exact_render_state.PrimitiveTopology==
+                      Diligent::PRIMITIVE_TOPOLOGY_POINT_LIST))
     throw std::invalid_argument("Incomplete original transient Draw owner");
   auto& s=*state_;
   const auto& live=*call.observed_vs_matrices;
@@ -1281,7 +1284,7 @@ aot::BoundIndexedDraw DiligentEorDirectBackend::StageOriginalRuntimeDraw(
   if(!SourceRuntimeSlotMask(cpu.layout,buffers.host_vertex_slots))
     throw std::invalid_argument("Transient native vertex slot ABI invalid");
   buffers.position_handle=owner->position=buffers.host_vertex_slots.front();
-  buffers.index_handle=add(s.meshes.UploadIndices(cpu.indices));
+  buffers.index_handle=add(cpu.point_list?s.meshes.UploadPointIndices(cpu.indices):s.meshes.UploadIndices(cpu.indices));
   buffers.vertex_count=cpu.vertex_count;buffers.index_count=static_cast<uint32_t>(cpu.indices.size());
   buffers.original_model_hash=material.original_model_hash;
   buffers.original_mesh_header_offset=SIZE_MAX;
@@ -1302,6 +1305,7 @@ aot::BoundIndexedDraw DiligentEorDirectBackend::StageOriginalRuntimeDraw(
     result.effect_hash=pass.original_effect_hash;result.pass_index=pass.original_pass_index;
     result.original_model_hash=material.original_model_hash;result.original_surface_ordinal=ordinal;
     result.original_mesh_header_offset=SIZE_MAX;result.original_runtime_draw=true;
+    result.original_point_list=cpu.point_list;
     result.original_direct_xdk_runtime=pass.original_direct_xdk_runtime;
     result.source_nonindexed_linearization_verified=bool(xdk::DecodeOriginalVerticesXdkCall(call));
     if(call.observed_live_pixel_shader_header)
@@ -1538,7 +1542,10 @@ bool DiligentEorDirectBackend::PreflightOriginalScene(
       return false;
     const bool is_font=mesh->second.original_dynamic_font_verified;
     const bool runtime=mesh->second.original_runtime_draw_verified;
-    if(runtime!=item.original_runtime_draw || runtime!=selected->pipeline.original_runtime_draw_verified ||
+    if(item.original_point_list!=(selected->pipeline.exact_render_state.PrimitiveTopology==
+          Diligent::PRIMITIVE_TOPOLOGY_POINT_LIST) ||
+       (item.original_point_list && !runtime) ||
+       runtime!=item.original_runtime_draw || runtime!=selected->pipeline.original_runtime_draw_verified ||
        (runtime && is_font) || item.original_dynamic_font_draw!=is_font ||
        selected->pipeline.original_dynamic_font_vertex_layout_verified!=is_font)
       return false;
@@ -1569,7 +1576,7 @@ bool DiligentEorDirectBackend::PreflightOriginalScene(
              mesh->second.host_vertex_slots)) ||
        !s.meshes.IndexWindowInRange(d.index_buffer,d.first_index,
                                     d.index_count,d.base_vertex,
-                                    mesh->second.vertex_count))
+                                    mesh->second.vertex_count,item.original_point_list))
       return false;
     // Check typed slot storage before the first GPU clear, not only at Draw.
     for(const auto& element:selected->pipeline.exact_host_input_layout) {
@@ -1855,7 +1862,8 @@ bool DiligentEorDirectBackend::DrawIndexed(const native::IndexedDraw& draw) {
   // the whole source buffer (which may also contain other meshes).
   if(!s.meshes.IndexWindowInRange(draw.index_buffer,draw.first_index,
                                   draw.index_count,draw.base_vertex,
-                                  resident.vertex_count))
+                                  resident.vertex_count,
+                                  s.selected->pipeline.exact_render_state.PrimitiveTopology==Diligent::PRIMITIVE_TOPOLOGY_POINT_LIST))
     return false;
   const auto& slots=resident.host_vertex_slots;
   const auto& layout=s.selected->pipeline.exact_host_input_layout;

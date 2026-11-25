@@ -88,8 +88,14 @@ uint64_t DiligentMeshUploadBackend::UploadOriginalVertexStream(std::span<const s
   return Create(v.data(),v.size_bytes(),1);
 }
 uint64_t DiligentMeshUploadBackend::UploadIndices(std::span<const uint32_t> v) {
+  return UploadPrimitiveIndices(v,false);
+}
+uint64_t DiligentMeshUploadBackend::UploadPointIndices(std::span<const uint32_t> v) {
+  return UploadPrimitiveIndices(v,true);
+}
+uint64_t DiligentMeshUploadBackend::UploadPrimitiveIndices(std::span<const uint32_t> v,bool point_list) {
   if (v.empty() || v.size() > kMaxUploadBytes / sizeof(uint32_t) ||
-      v.size()%3 != 0)return 0;
+      (!point_list && v.size()%3 != 0))return 0;
   // Snapshot BEFORE GPU allocation; failure cannot leak a live handle.
   // The complete immutable mirror is used only for exact indexed windows,
   // not shader/texture emulation or guessed original Xbox streams.
@@ -158,10 +164,10 @@ uint32_t DiligentMeshUploadBackend::MinIndexOf(uint64_t handle) const noexcept {
 }
 bool DiligentMeshUploadBackend::IndexWindowInRange(
     uint64_t handle,uint32_t first,uint32_t count,
-    int32_t base,uint32_t vertex_count) const noexcept {
+    int32_t base,uint32_t vertex_count,bool point_list) const noexcept {
   const auto it=state_->live.find(handle);
   if(it==state_->live.end() || it->second.kind!=2 ||
-     !count || count%3 || vertex_count<3)
+     !count || !vertex_count || (!point_list && (count%3 || vertex_count<3)))
     return false;
   const auto& indices=it->second.immutable_indices;
   if(first>indices.size() || count>indices.size()-first)

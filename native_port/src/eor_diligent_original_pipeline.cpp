@@ -1,4 +1,5 @@
 #include "eor_diligent_original_pipeline.h"
+#include "eor_spirv_point_size.h"
 #include "RenderDevice.h"
 #include "ShaderResourceBinding.h"
 #include "Shader.h"
@@ -66,7 +67,8 @@ std::optional<Diligent::GraphicsPipelineDesc> DeriveOriginalXdkGraphicsPipelineS
   if(!source.original_guest_device ||
      source_proven_attachments.NumRenderTargets!=1 ||
      source_proven_attachments.RTVFormats[0]==TEX_FORMAT_UNKNOWN ||
-     source_proven_attachments.PrimitiveTopology!=PRIMITIVE_TOPOLOGY_TRIANGLE_LIST)
+     (source_proven_attachments.PrimitiveTopology!=PRIMITIVE_TOPOLOGY_TRIANGLE_LIST &&
+      source_proven_attachments.PrimitiveTopology!=PRIMITIVE_TOPOLOGY_POINT_LIST))
     return {};
   const auto depth=source.ReadOriginalXenosRegister(0x2200u);
   const auto blend=source.ReadOriginalXenosRegister(0x2201u);
@@ -243,7 +245,8 @@ OriginalVulkanPipeline CreateOriginalVulkanPipeline(
        state.DepthStencilDesc.StencilEnable)) ||
      (state.SmplDesc.Count!=1 && state.SmplDesc.Count!=2 &&
       state.SmplDesc.Count!=4 && state.SmplDesc.Count!=8) ||
-     state.PrimitiveTopology!=Diligent::PRIMITIVE_TOPOLOGY_TRIANGLE_LIST)
+     (state.PrimitiveTopology!=Diligent::PRIMITIVE_TOPOLOGY_TRIANGLE_LIST &&
+      state.PrimitiveTopology!=Diligent::PRIMITIVE_TOPOLOGY_POINT_LIST))
     throw std::invalid_argument("Original EoR color/depth/MSAA/primitive contract unverified");
   for(uint32_t i=0;i<state.NumRenderTargets;++i)
     if(state.RTVFormats[i]==Diligent::TEX_FORMAT_UNKNOWN)
@@ -253,6 +256,12 @@ OriginalVulkanPipeline CreateOriginalVulkanPipeline(
     if(a.NumComponents<1 || a.NumComponents>4 || a.BufferSlot>15 ||
        a.ValueType==Diligent::VT_UNDEFINED)
       throw std::invalid_argument("Original EoR host vertex semantic invalid");
+  if(state.PrimitiveTopology==Diligent::PRIMITIVE_TOPOLOGY_POINT_LIST) {
+    const auto* program=bank.Find(pass.original_vertex_shader_sha256,aot::Stage::Vertex);
+    if(!pass.original_runtime_draw_verified || !program ||
+       !aot::HasOriginalPointSizeOutput(program->spirv))
+      throw std::invalid_argument("Point pipeline requires original scalar PointSize output");
+  }
   auto* vertex=shaders.GetOrCreate(bank,pass.original_vertex_shader_sha256,aot::Stage::Vertex);
   auto* pixel=shaders.GetOrCreate(bank,pass.original_pixel_shader_sha256,aot::Stage::Pixel,pass.original_xbox_cube_gamma_mask);
   if(!vertex || !pixel)

@@ -41,6 +41,7 @@ struct BoundIndexedDraw {
   bool original_runtime_draw=false;
   std::optional<OriginalPixelSamplerControls> original_pixel_sampling{};
   bool original_direct_xdk_runtime=false;
+  bool original_point_list=false;
 };
 // A UI/post-process draw can bind original programs outside the engine's
 // observed material method. The exact device+Draw ordinal is then a

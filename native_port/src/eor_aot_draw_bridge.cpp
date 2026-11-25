@@ -28,6 +28,7 @@ bool MatchesOriginalXdkDraw(
   }
   if(host.original_runtime_draw) {
     const auto& method=source.original_engine_shader_method;
+    if(host.original_point_list!=xdk::IsOriginalRuntimePointDraw(source))return false;
     if(host.original_surface_ordinal!=draw.source_ordinal ||
        host.original_mesh_header_offset!=SIZE_MAX || host.original_dynamic_font_draw)return false;
     if(host.original_direct_xdk_runtime) {
@@ -36,9 +37,10 @@ bool MatchesOriginalXdkDraw(
     } else if(!method || !method->original_pass_vs_ps_xdk_binding_verified ||
        method->original_pass_material_context_guest!=host.original_model_hash)return false;
   }
+  if(host.original_point_list && !host.original_runtime_draw)return false;
   if(const auto indexed=xdk::DecodeOriginalIndexedXdkCall(source)) {
     const auto expected=host.original_runtime_draw ?
-        xdk::VerifiedRuntimeTriangleListCount(indexed->primitive,indexed->index_count) :
+        xdk::VerifiedRuntimeIndexCount(source,indexed->primitive,indexed->index_count) :
         std::optional<uint32_t>(indexed->index_count);
     return expected && !host.source_nonindexed_linearization_verified &&
            indexed->guest_device==draw.guest_vs_matrices->original_guest_device &&
@@ -53,7 +55,7 @@ bool MatchesOriginalXdkDraw(
   }
   const auto vertices=xdk::DecodeOriginalVerticesXdkCall(source);
   const auto indices=vertices ?
-      (host.original_runtime_draw ? xdk::VerifiedRuntimeTriangleListCount(vertices->primitive,vertices->vertex_count) : xdk::VerifiedTriangleListCount(vertices->primitive,vertices->vertex_count)) :
+      (host.original_runtime_draw ? xdk::VerifiedRuntimeIndexCount(source,vertices->primitive,vertices->vertex_count) : xdk::VerifiedTriangleListCount(vertices->primitive,vertices->vertex_count)) :
       std::nullopt;
   return indices && host.source_nonindexed_linearization_verified &&
          vertices->guest_device==draw.guest_vs_matrices->original_guest_device &&

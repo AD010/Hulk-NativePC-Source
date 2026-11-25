@@ -82,6 +82,7 @@ struct DecodedRuntimeGeometry {
   std::vector<uint32_t> indices;
   std::vector<Diligent::LayoutElement> layout;
   uint32_t vertex_count=0;
+  bool point_list=false;
 };
 class DiligentEorDirectBackend final : public aot::ShaderBindingBackend {
  public:

@@ -148,6 +148,18 @@ void CheckBufferSnapshots() {
 }
 }
 int main() {
+  {
+    RawDraw point{};
+    point.kind=Kind::DrawVertices;point.function=0x8288DF30u;
+    point.lr=0x82667718u;point.gpr[0]=0x40002880u;
+    point.gpr[1]=1;point.gpr[3]=7;
+    assert(IsOriginalRuntimePointDraw(point));
+    assert(VerifiedRuntimeIndexCount(point,1,7)==7u);
+    assert(!VerifiedRuntimeIndexCount(point,1,6));
+    assert(!VerifiedRuntimeTriangleListCount(1,7));
+    point.lr=0x8268BFE4u;
+    assert(!VerifiedRuntimeIndexCount(point,1,7));
+  }
   CheckBoundVertexWindow();
   CheckIndexDmaFormats();
   // The source-defined geometry wrapper preserves the outer call LR.
