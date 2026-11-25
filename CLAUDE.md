@@ -101,6 +101,10 @@ relaxing the source-only audit or suppressing compiler warnings.
   overrides. Test real D3D9/HUD presentation before claiming any INI
   profile works as intended. No fake DLL or game executable in public Git.
 
+## Durable native-port implementation references
+
+Read [the 2026-11-25 reference decisions and owner's acceptance criteria](native_port/docs/NATIVE_PORT_REFERENCE_2026-11-25.md) when resuming in a new session. Apply them to the remaining live runtime paths; do not turn the document into a repeat research or diagnostic stage.
+
 ## Communication
 
 Record concrete changed source paths and tests actually run. Report
