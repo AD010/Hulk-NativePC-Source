@@ -19,6 +19,43 @@ int main() {
   // Step execution is now directly bound to an ORIGINAL world callback
   // when its USA ABI, timestep units and job completion barrier are proven.
   timing::VerifiedHavokRuntime verified{true,true,true,true};
+  for(double hz:{0.0,-1.0,14.0,241.0,
+      std::numeric_limits<double>::infinity(),
+      std::numeric_limits<double>::quiet_NaN()}) {
+    bool fixed_rejected=false,live_rejected=false;
+    try { timing::FixedStepScheduler invalid(hz); }
+    catch(const std::invalid_argument&){fixed_rejected=true;}
+    try { timing::NativeHavokTickRunner invalid(verified,[](double){return true;},hz); }
+    catch(const std::invalid_argument&){live_rejected=true;}
+    assert(fixed_rejected && live_rejected);
+  }
+  for(uint32_t budget:{0u,1025u}) {
+    bool fixed_rejected=false,live_rejected=false;
+    try { timing::FixedStepScheduler invalid(60.0,budget); }
+    catch(const std::invalid_argument&){fixed_rejected=true;}
+    try { timing::NativeHavokTickRunner invalid(verified,[](double){return true;},60.0,budget); }
+    catch(const std::invalid_argument&){live_rejected=true;}
+    assert(fixed_rejected && live_rejected);
+  }
+  // Both clocks must keep the same debt and step count across variable
+  // presentation rates and stalls. This is not an actual Havok world test.
+  for(double hz:{15.0,30.0,60.0,120.0,240.0}) {
+    timing::FixedStepScheduler plan(hz,3);
+    timing::NativeHavokTickRunner run(verified,[](double){return true;},hz,3);
+    for(int i=0;i<1000;++i) {
+      const double dt=i%29==0?0.25:1.0/double(30+i%211);
+      auto a=plan.Advance(dt),b=run.AdvanceAndRun(dt);
+      for(;;) {
+        assert(a.simulation_steps==b.simulation_steps);
+        assert(a.must_catch_up_before_present==b.must_catch_up_before_present);
+        assert(Near(a.queued_seconds,b.queued_seconds));
+        assert(Near(a.interpolation_alpha,b.interpolation_alpha));
+        assert(plan.TotalTicks()==run.CompletedTicks());
+        if(!a.must_catch_up_before_present)break;
+        a=plan.CatchUp();b=run.CatchUpAndRun();
+      }
+    }
+  }
   uint64_t executed=0;
   timing::NativeHavokTickRunner live(verified,[&](double dt){
     assert(Near(dt,1.0/60.0));++executed;return true;

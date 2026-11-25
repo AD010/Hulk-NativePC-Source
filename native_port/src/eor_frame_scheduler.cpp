@@ -5,13 +5,21 @@
 #include <stdexcept>
 #include <utility>
 namespace hulk::eor::timing {
-namespace { constexpr double kEpsilon = 1e-10; }
-FixedStepScheduler::FixedStepScheduler(double hz, uint32_t max_steps)
-    : step_(1.0 / hz), budget_(max_steps) {
+namespace {
+constexpr double kEpsilon = 1e-10;
+double CheckedStep(double hz, uint32_t budget) {
   if (!std::isfinite(hz) || hz < 15.0 || hz > 240.0 ||
-      max_steps == 0 || max_steps > 1024)
+      budget == 0 || budget > 1024)
     throw std::invalid_argument("Invalid Havok fixed-step contract");
+  return 1.0 / hz;
 }
+StepBatch DescribeBatch(uint32_t steps, double dt, double queued) {
+  const bool behind = queued + kEpsilon >= dt;
+  return {steps, dt, behind ? 0.0 : queued / dt, queued, behind};
+}
+} // namespace
+FixedStepScheduler::FixedStepScheduler(double hz, uint32_t max_steps)
+    : step_(CheckedStep(hz, max_steps)), budget_(max_steps) {}
 void FixedStepScheduler::Reset() noexcept {
   accumulated_ = 0.0;
   total_ticks_ = 0;
@@ -28,25 +36,24 @@ StepBatch FixedStepScheduler::CatchUp() { return Drain(); }
 StepBatch FixedStepScheduler::Drain() {
   const double available = std::floor((accumulated_ + kEpsilon) / step_);
   const auto steps = static_cast<uint32_t>(std::min<double>(available, budget_));
+  if (steps > UINT64_MAX - total_ticks_)
+    throw std::overflow_error("Native original Havok fixed tick overflow");
   accumulated_ = std::max(0.0, accumulated_ - double(steps) * step_);
   if (accumulated_ < kEpsilon) accumulated_ = 0.0;
   total_ticks_ += steps;
-  const bool unfinished = accumulated_ + kEpsilon >= step_;
   // Preserve every unexecuted Havok step; no large-dt fast-forward or silent drop.
   // A presenter must skip interpolation while must_catch_up_before_present.
-  return {steps, step_, unfinished ? 0.0 : accumulated_ / step_,
-          accumulated_, unfinished};
+  return DescribeBatch(steps, step_, accumulated_);
 }
 NativeHavokTickRunner::NativeHavokTickRunner(
     VerifiedHavokRuntime proof,OriginalWorldStep callback,
     double hz,uint32_t budget)
-    :step_world_(std::move(callback)),fixed_dt_(1.0/hz),budget_(budget) {
+    :step_world_(std::move(callback)),fixed_dt_(CheckedStep(hz,budget)),budget_(budget) {
   if(!proof.original_world_identity_verified ||
      !proof.original_step_function_abi_verified ||
      !proof.original_world_units_verified ||
      !proof.original_job_completion_barrier_verified ||
-     !step_world_ || !std::isfinite(hz) || hz<15.0 || hz>240.0 ||
-     !budget || budget>1024)
+     !step_world_)
     throw std::invalid_argument("Original Hulk USA Havok world/step ABI is unverified");
 }
 void NativeHavokTickRunner::ResetAfterOriginalWorldReset() noexcept {
@@ -67,9 +74,8 @@ StepBatch NativeHavokTickRunner::CatchUpAndRun() {
   return Run();
 }
 StepBatch NativeHavokTickRunner::Run() {
-  constexpr double epsilon=1e-10;
   uint32_t dispatched=0;
-  while(dispatched<budget_ && pending_+epsilon>=fixed_dt_) {
+  while(dispatched<budget_ && pending_+kEpsilon>=fixed_dt_) {
     if(total_ticks_==UINT64_MAX)
       throw std::overflow_error("Native original Havok fixed tick overflow");
     bool completed=false;
@@ -85,12 +91,10 @@ StepBatch NativeHavokTickRunner::Run() {
       throw std::runtime_error("Source-verified original Havok step did not complete");
     }
     pending_=std::max(0.0,pending_-fixed_dt_);
-    if(pending_<epsilon)pending_=0.0;
+    if(pending_<kEpsilon)pending_=0.0;
     ++total_ticks_;
     ++dispatched;
   }
-  const bool behind=pending_+epsilon>=fixed_dt_;
-  return {dispatched,fixed_dt_,behind?0.0:pending_/fixed_dt_,
-          pending_,behind};
+  return DescribeBatch(dispatched, fixed_dt_, pending_);
 }
 } // namespace hulk::eor::timing
