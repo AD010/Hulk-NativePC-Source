@@ -5,16 +5,13 @@ mnk_mode = false
 hulk_mouse_sensitivity = 4.0
 hulk_mouse_invert_y = false
 hulk_mouse_invert_x = false
-# -1 inherits original game settings until an explicit menu change.
 hulk_original_subtitles = -1
-# Original EoR mixer preferences, applied through its volume lock/unlock.
 hulk_original_music_volume = -1
 hulk_original_sfx_volume = -1
 hulk_original_dialog_volume = -1
 hulk_mouse_horizontal_multiplier = 1.0
 hulk_mouse_vertical_multiplier = 1.0
 hulk_mouse_diagnostics = false
-# Native host output; original game FMOD mixer is preserved.
 audio_mute = false
 audio_maxqframes = 8
 audio_callback_min_interval_us = 3000
@@ -26,7 +23,6 @@ vulkan_allow_present_mode_fifo_relaxed = false
 vsync = true
 vblank_follows_display = false
 hulk_guest_swap_fps_cap = 0
-# Experimental original EoR 60Hz bounded catch-up; opt in after validation.
 hulk_original_havok_catchup = false
 ignore_thread_affinities = true
 ignore_thread_priorities = true
@@ -75,8 +71,6 @@ native_x_renderer_verify_frames = 1
 native_x_renderer_verify_at = 900
 bind_native_x_renderer_verify = "F11"
 hulk_world_stream_trace = false
-# Original USA EoR city only: runtime view of verified Levels QuickData.
-# Original values: 2000 and 50. No original archive is written.
 hulk_city_far_plane = 6000.0
 hulk_city_zone_buffer = 300.0
 hulk_city_lod_multiplier = 3.0
