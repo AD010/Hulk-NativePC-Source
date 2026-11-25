@@ -86,6 +86,18 @@ int main() {
       RawCommand{CommandKind::SetDepthStencilSurface,0x8287F628u,0x8263A010u,{1,8}});
   auto mixed_plan=gpu::PlanOriginalNativeTargets(mixed,1280,720);
   assert(mixed_plan && mixed_plan->format.original_graph.HasDepth(8));
+  // An independently rebound depth target is unused by a color-only
+  // clear. The later matching main pass proves its true size/sample count.
+  auto color_only=mixed;
+  auto color_clear=Clear(2,320,180);
+  auto color_state=*color_clear.captured_clear_targets;
+  color_state.original_depth_guest_object=8;
+  color_state.original_depth_extent=OriginalSurfaceExtent{1280,720};
+  color_clear.captured_clear_targets=std::make_shared<const OriginalVsMatrices>(color_state);
+  color_only.commands.insert(color_only.commands.begin()+3,color_clear);
+  const auto color_plan=gpu::PlanOriginalNativeTargets(color_only,1280,720);
+  assert(color_plan && color_plan->format.original_graph.HasDepth(8));
+  assert(color_plan->format.original_graph.extents.at(8).width==1280);
   // The same mismatched pair is still NOT legal for a combined clear.
   auto bad_clear=mixed;
   auto bad=Clear(2,320,180);

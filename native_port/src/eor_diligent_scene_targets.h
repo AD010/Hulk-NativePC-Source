@@ -212,7 +212,7 @@ inline std::optional<OriginalSourceTargetFormat> PlanOriginalNativeTargets(
     return inserted || it->second==format;
   };
   const auto register_targets=[&](const xdk::OriginalVsMatrices& state,
-      const xdk::OriginalXdkFixedGraphicsState& fixed,bool draw) {
+      const xdk::OriginalXdkFixedGraphicsState& fixed,bool draw,bool depth_consumed) {
     const auto format=ResolveOriginalXdkSurfaceFormats(state,fixed);
     const auto mask=fixed.ReadOriginalXenosRegister(0x2104u);
     const auto surface=fixed.ReadOriginalXenosRegister(0x2000u);
@@ -239,8 +239,12 @@ inline std::optional<OriginalSourceTargetFormat> PlanOriginalNativeTargets(
     colors.insert(state.original_rt0_guest_object);
     if(state.original_depth_guest_object) {
       if(format->format.depth!=NativeDepthFormat::D24S8 ||
-         !state.original_depth_extent || *state.original_depth_extent!=extent ||
-         !register_extent(state.original_depth_guest_object,*state.original_depth_extent) ||
+         !state.original_depth_extent)return false;
+      // A color-only clear does not consume the retained depth attachment.
+      // Its sample count cannot be inferred from the current color target.
+      // Register it at a matching Draw or combined clear instead.
+      if(*state.original_depth_extent!=extent)return !depth_consumed;
+      if(!register_extent(state.original_depth_guest_object,*state.original_depth_extent) ||
          !register_samples(state.original_depth_guest_object,format->samples))return false;
       depths.insert(state.original_depth_guest_object);
       output.format.depth=NativeDepthFormat::D24S8;
@@ -255,15 +259,18 @@ inline std::optional<OriginalSourceTargetFormat> PlanOriginalNativeTargets(
       if(!draw.observed_vs_matrices || !draw.observed_shader_constants ||
          !draw.observed_shader_constants->fixed_graphics_state ||
          !register_targets(*draw.observed_vs_matrices,
-                           *draw.observed_shader_constants->fixed_graphics_state,true))return {};
+                           *draw.observed_shader_constants->fixed_graphics_state,true,true))return {};
     } else if(cmd.kind==xdk::CommandKind::ClearF &&
               (cmd.captured_clear_targets || cmd.captured_clear_fixed)) {
       if(!cmd.captured_clear_targets || !cmd.captured_clear_fixed ||
          cmd.captured_clear_targets->original_guest_device!=cmd.gpr[0] ||
-         !register_targets(*cmd.captured_clear_targets,*cmd.captured_clear_fixed,false))return {};
+         !cmd.captured_clear ||
+         !register_targets(*cmd.captured_clear_targets,*cmd.captured_clear_fixed,false,
+                           (cmd.captured_clear->flags&0x30u)!=0))return {};
     }
   }
-  if(!output.samples || colors.empty() ||
+  if((graph.first_depth && !depths.contains(graph.first_depth)) ||
+     !output.samples || colors.empty() ||
      colors.size()>kMaxOriginalColorTargets || depths.size()>kMaxOriginalDepthTargets)return {};
   const auto front=source.commands.back().gpr[1];
   if(!front || colors.contains(front) || depths.contains(front))return {};
@@ -334,7 +341,8 @@ inline std::optional<OriginalSourceTargetFormat> PlanOriginalNativeTargets(
             !active_depth ||
             cmd.captured_clear_targets->original_depth_guest_object!=*active_depth))return {};
         const auto extent=graph.extents.at(active_color);
-        if(active_depth && *active_depth && (graph.extents.at(*active_depth)!=extent || graph.sample_counts.at(*active_depth)!=graph.sample_counts.at(active_color)))return {};
+        // Only a depth/stencil clear requires a compatible depth image.
+        // Color-only clears are valid between independent XDK rebinds.
         if(!xdk::IsOriginalFullTargetClear(*cmd.captured_clear,extent.width,extent.height) ||
            ((cmd.captured_clear->flags&0x30u) &&
              (!active_depth || !*active_depth || !graph.extents.contains(*active_depth) ||

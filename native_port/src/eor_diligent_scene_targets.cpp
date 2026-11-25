@@ -405,10 +405,12 @@ bool DiligentSceneTargets::ClearVerifiedOriginalXdk(
      !state_->color || ((source.flags&0x30u) && !state_->depth_bound) ||
      !xdk::IsOriginalFullTargetClear(source,guest.width,guest.height))
     return false;
-  if(state_->depth_bound && (!state_->depth ||
-      state_->depth->GetDesc().Width!=state_->color->GetDesc().Width ||
-      state_->depth->GetDesc().Height!=state_->color->GetDesc().Height ||
-      state_->depth->GetDesc().SampleCount!=state_->color->GetDesc().SampleCount))return false;
+  if(state_->depth_bound && !state_->depth)return false;
+  const bool mismatched_depth=state_->depth_bound &&
+      (state_->depth->GetDesc().Width!=state_->color->GetDesc().Width ||
+       state_->depth->GetDesc().Height!=state_->color->GetDesc().Height ||
+       state_->depth->GetDesc().SampleCount!=state_->color->GetDesc().SampleCount);
+  if(mismatched_depth && (source.flags&0x30u))return false;
   if((source.flags&0x0eu)!=0)
     return false; // native EoR scene owns RT0 only, never guest RT1..RT3
   if((source.flags&0x20u) &&
@@ -431,6 +433,11 @@ bool DiligentSceneTargets::ClearVerifiedOriginalXdk(
      ((source.flags&0x30u) && !depth_view))return false;
   try {
     if(source.flags&1u) {
+      // Bind only the consumed color attachment for this clear; the
+      // original incompatible depth selection remains logically intact.
+      if(mismatched_depth)
+        state_->context->SetRenderTargets(1,&color_view,nullptr,
+            Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
       state_->context->ClearRenderTarget(
           color_view,source.color.data(),
           Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
@@ -443,6 +450,7 @@ bool DiligentSceneTargets::ClearVerifiedOriginalXdk(
           depth_view,flags,source.depth,source.stencil,
           Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
     }
+    if(mismatched_depth && !BindOriginalAttachments())return false;
     return true;
   } catch (...) {return false;}
 }
