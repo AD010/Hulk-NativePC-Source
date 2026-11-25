@@ -127,20 +127,12 @@ void BindOriginalPixelImage2D(Diligent::IRenderDevice* device,
   // The guest's active base may be a smaller original streamed level.
   // Preserve normalized coordinates and explicit relative LOD using a
   // view of the verified suffix, not a rescaled or fabricated image.
-  RefCntAutoPtr<ITextureView> resident_view;
-  if(window->base) {
-    TextureViewDesc view{};
-    view.Name="Original EoR streamed mip suffix";
-    view.ViewType=TEXTURE_VIEW_SHADER_RESOURCE;
-    view.MostDetailedMip=window->base;view.NumMipLevels=window->count;
-    texture.host_texture->CreateView(view,&resident_view);
-    if(!resident_view)throw std::runtime_error("Original streamed mip view unavailable");
-  }
+  auto* resident_view=texture.MipSuffixSRV(window->base,window->count);
+  if(!resident_view)throw std::runtime_error("Original streamed mip view unavailable");
   if(verified_pc_prompt && (window->base || cube || one_dimensional ||
       image.MipLevels!=1u || hi!=0u || lo!=0u))
     throw std::invalid_argument("PC glyph replacement differs from original UI sampling contract");
-  resource->Set(verified_pc_prompt?verified_pc_prompt:
-      resident_view?resident_view.RawPtr():texture.SRV());
+  resource->Set(verified_pc_prompt?verified_pc_prompt:resident_view);
   sampler->Set(native);
 }
 

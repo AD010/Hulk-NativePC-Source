@@ -71,6 +71,26 @@ Diligent::ITextureView* UploadedEorTexture::SRV() const noexcept {
   return host_texture ?
     host_texture->GetDefaultView(Diligent::TEXTURE_VIEW_SHADER_RESOURCE) : nullptr;
 }
+Diligent::ITextureView* UploadedEorTexture::MipSuffixSRV(
+    uint32_t base,uint32_t count) const {
+  if(!host_texture || !mip_views || base>=original_mip_levels ||
+     count!=original_mip_levels-base ||
+     host_texture->GetDesc().MipLevels!=original_mip_levels ||
+     base>=mip_views->views.size())return nullptr;
+  if(!base)return SRV();
+  std::lock_guard lock(mip_views->mutex);
+  auto& cached=mip_views->views[base];
+  if(cached && cached->GetTexture()==host_texture.RawPtr())return cached.RawPtr();
+  Diligent::TextureViewDesc desc{};
+  desc.Name="Original EoR streamed mip suffix";
+  desc.ViewType=Diligent::TEXTURE_VIEW_SHADER_RESOURCE;
+  desc.MostDetailedMip=base;desc.NumMipLevels=count;
+  Diligent::RefCntAutoPtr<Diligent::ITextureView> fresh;
+  host_texture->CreateView(desc,&fresh);
+  if(!fresh)return nullptr;
+  cached=std::move(fresh);
+  return cached.RawPtr();
+}
 UploadedEorTexture UploadExplicitOriginalTexture(
     Diligent::IRenderDevice* host_device,
     const textures::OriginalTexture& original,

@@ -7,6 +7,10 @@
 #include "Texture.h"
 #include "RefCntAutoPtr.hpp"
 #include <cstdint>
+#include <array>
+#include <memory>
+#include <mutex>
+#include "TextureView.h"
 #include <span>
 namespace Diligent { struct IRenderDevice; struct ITexture; struct ITextureView; }
 namespace hulk::eor::gpu {
@@ -25,6 +29,14 @@ struct UploadedEorTexture {
   OriginalTextureViewKind view_kind=OriginalTextureViewKind::Native2D;
   Diligent::RefCntAutoPtr<Diligent::ITexture> host_texture;
   Diligent::ITextureView* SRV() const noexcept;
+  // Original source texture is immutable. Retain each exact mip-suffix SRV
+  // with its image instead of recreating a Vulkan image view per Draw.
+  struct MipViewCache {
+    std::mutex mutex;
+    std::array<Diligent::RefCntAutoPtr<Diligent::ITextureView>,16> views{};
+  };
+  std::shared_ptr<MipViewCache> mip_views=std::make_shared<MipViewCache>();
+  Diligent::ITextureView* MipSuffixSRV(uint32_t base,uint32_t count) const;
 };
 // Uses proven original texture record (via USA-pinned asset loader) and
 // EXPLICIT per-mip fetch layout supplied by separately validated EoR state.
