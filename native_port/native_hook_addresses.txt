@@ -167,3 +167,5 @@
 82339C90
 82338AE8
 82338B20
+# Original EoR method event dispatcher (PC settings, not XDK)
+825BAAC8

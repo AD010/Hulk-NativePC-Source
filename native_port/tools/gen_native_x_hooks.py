@@ -14,6 +14,8 @@ SOURCE_PINNED_SEGMENT_HOOKS = {"82886428": "KickSegment", "82885FF8": "NewSegmen
 SOURCE_EOR_CAMERA_GETTERS = {"82338A00", "82338A18"}
 SOURCE_EOR_CAMERA_SPEED = {"82339C18", "82339C90", "82338AE8", "82338B20"}
 SOURCE_EOR_HAVOK_FLOOR = {"82738B58"}
+SOURCE_EOR_PC_MENU_EVENTS = {"825BAAC8"}
+SOURCE_EOR_PC_MENU_CALLS = {"825B8270", "825B9528", "825B9D98", "8271D340"}
 def verify_pinned_codegen(directory, addresses):
     if not addresses:
         return
@@ -40,7 +42,7 @@ a=[]
 for line in entries:
  line=line.split('#',1)[0].strip().removeprefix('0x').upper()
  if not line:continue
- if not re.fullmatch('[89A-F][0-9A-F]{7}',line) or (line not in valid and line not in SOURCE_PINNED_SEGMENT_HOOKS and line not in SOURCE_EOR_CAMERA_GETTERS and line not in SOURCE_EOR_HAVOK_FLOOR and line not in SOURCE_EOR_CAMERA_SPEED):raise SystemExit('Not a mapped Hulk guest address: '+line)
+ if not re.fullmatch('[89A-F][0-9A-F]{7}',line) or (line not in valid and line not in SOURCE_PINNED_SEGMENT_HOOKS and line not in SOURCE_EOR_CAMERA_GETTERS and line not in SOURCE_EOR_HAVOK_FLOOR and line not in SOURCE_EOR_CAMERA_SPEED and line not in SOURCE_EOR_PC_MENU_EVENTS):raise SystemExit('Not a mapped Hulk guest address: '+line)
  if line in a:raise SystemExit('Duplicate hook: '+line)
  a.append(line)
 if len(sys.argv) >= 5:
@@ -60,7 +62,10 @@ if len(sys.argv) >= 5:
             raise SystemExit("Wrong original segment hook role: " + addr)
     print("embedded profile hook addresses verified:", len(mandatory))
 if len(sys.argv) == 6:
-    verify_pinned_codegen(Path(sys.argv[5]), set(a) & (SOURCE_PINNED_SEGMENT_HOOKS.keys() | SOURCE_EOR_CAMERA_GETTERS | SOURCE_EOR_HAVOK_FLOOR | SOURCE_EOR_CAMERA_SPEED))
+    pinned = set(a) & (SOURCE_PINNED_SEGMENT_HOOKS.keys() | SOURCE_EOR_CAMERA_GETTERS | SOURCE_EOR_HAVOK_FLOOR | SOURCE_EOR_CAMERA_SPEED | SOURCE_EOR_PC_MENU_EVENTS)
+    if set(a) & SOURCE_EOR_PC_MENU_EVENTS:
+        pinned |= SOURCE_EOR_PC_MENU_CALLS
+    verify_pinned_codegen(Path(sys.argv[5]), pinned)
 
 # These original USA PPC methods are NOT XDK APIs. Their named engine
 # shader-vtable entry identity was verified against the user's actual
@@ -130,7 +135,7 @@ SOURCE_EOR_MATERIAL_METHODS = {"825F8A50"}
 # True original 92-byte per-pass EoR dual-stage source resolver.
 SOURCE_EOR_PASS_METHODS = {"825F84C0"}
 if len(sys.argv) >= 5 and (set(mandatory) &
-                            (SOURCE_INLINE_END | SOURCE_EOR_SHADER_METHODS |
+                            (SOURCE_INLINE_END | SOURCE_EOR_SHADER_METHODS | SOURCE_EOR_PC_MENU_EVENTS |
                              SOURCE_EOR_VM_METHODS | SOURCE_EOR_CAMERA_SPEED | SOURCE_EOR_CAMERA_OPTION_METHODS | SOURCE_EOR_CAMERA_GETTERS | SOURCE_EOR_SUBTITLE_GETTER | SOURCE_EOR_AUDIO_MENU_METHODS |
                              SOURCE_EOR_HAVOK_STEP_METHODS | SOURCE_EOR_HAVOK_CATCHUP_METHODS | SOURCE_EOR_MATERIAL_METHODS |
                              SOURCE_EOR_PASS_METHODS |
@@ -320,8 +325,16 @@ h += r"""
         __imp__sub_##addr(ctx,base); \
     }
 """
+h += r"""
+#define HULK_EOR_PC_MENU_HOOK(addr) \
+    REX_EXTERN(__imp__sub_##addr); \
+    REX_HOOK_RAW(sub_##addr) { \
+        ::hulk::eor::xdk::DispatchOriginalPcMenu(ctx,base,&__imp__sub_##addr); \
+    }
+"""
 Path(sys.argv[3]).parent.mkdir(parents=True,exist_ok=True)
 generated = h + '\n'.join(
+    'HULK_EOR_PC_MENU_HOOK('+addr+')' if addr in SOURCE_EOR_PC_MENU_EVENTS else
     'HULK_EOR_INLINE_END_HOOK('+addr+')' if addr in SOURCE_INLINE_END else
     'HULK_EOR_HAVOK_CATCHUP_HOOK('+addr+')' if addr in SOURCE_EOR_HAVOK_CATCHUP_METHODS else
     'HULK_EOR_HAVOK_STEP_HOOK('+addr+')' if addr in SOURCE_EOR_HAVOK_STEP_METHODS else

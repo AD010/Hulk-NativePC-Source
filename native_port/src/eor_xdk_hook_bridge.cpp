@@ -4,6 +4,7 @@
 #include "eor_xdk_hook_bridge.h"
 #include "eor_original_pause_vm.h"
 #include "eor_native_ui_prompts.h"
+#include "eor_original_pc_menu.h"
 #include "native_pc_options_store.h"
 #include "native_pc_menu_actions.h"
 #include <string>
@@ -186,6 +187,135 @@ bool ReadGuest(void* state,uint32_t address,std::byte* output,size_t length) noe
   return false;
 #endif
 }
+}
+
+// Real EoR method dispatcher. The original UI's StorageOption is an
+// already allocated MenuItemTxt with a working selector and a text child.
+// On Windows the obsolete console storage action becomes the PC menu.
+REX_EXTERN(sub_825B8270);
+REX_EXTERN(sub_825B9528);
+REX_EXTERN(sub_825B9D98);
+REX_EXTERN(sub_8271D340);
+namespace {
+#ifdef _WIN32
+struct PcMenuGuestScratch {
+  PPCContext& original;
+  uint8_t* base;
+  uint32_t stack=0;
+  uint8_t* text=nullptr;
+  explicit PcMenuGuestScratch(PPCContext& ctx,uint8_t* b):original(ctx),base(b) {
+    const auto sp=ctx.r1.u32;
+    // Reserve below the original guest SP; require a real committed stack
+    // range for the nested PPC calls and their ABI home/save areas.
+    if(!b || sp<0x10000u || sp>=0xe0000000u || (sp&15u) ||
+       uint64_t(sp)>UINTPTR_MAX-uintptr_t(b))return;
+    const auto begin=uintptr_t(b)+sp-0x8000u;
+    MEMORY_BASIC_INFORMATION info{};
+    if(VirtualQuery(reinterpret_cast<void*>(begin),&info,sizeof(info))!=sizeof(info) ||
+       info.State!=MEM_COMMIT || (info.Protect&PAGE_GUARD))return;
+    const auto protection=info.Protect&0xffu;
+    if(protection!=PAGE_READWRITE && protection!=PAGE_WRITECOPY &&
+       protection!=PAGE_EXECUTE_READWRITE && protection!=PAGE_EXECUTE_WRITECOPY)return;
+    const auto first=uintptr_t(info.BaseAddress);
+    if(begin<first || begin-first>info.RegionSize ||
+       info.RegionSize-(begin-first)<0x8000u)return;
+    stack=sp;text=reinterpret_cast<uint8_t*>(uintptr_t(b)+sp-640u);
+  }
+  std::optional<uint32_t> Invoke(uint32_t address,std::span<const uint32_t> args) {
+    if(!stack || args.size()>6u)return {};
+    PPCFunc* fn=nullptr;
+    switch(address) {
+      case 0x825B8270u:fn=&sub_825B8270;break;
+      case 0x825B9528u:fn=&sub_825B9528;break;
+      case 0x825B9D98u:fn=&sub_825B9D98;break;
+      case 0x8271D340u:fn=&sub_8271D340;break;
+      default:return {};
+    }
+    PPCContext child=original;
+    child.r1.u64=stack-1024u;
+    std::array<PPCRegister*,6> regs{&child.r3,&child.r4,&child.r5,&child.r6,&child.r7,&child.r8};
+    for(size_t i=0;i<args.size();++i)regs[i]->u64=args[i];
+    const auto saved=original.fpscr.getcsr();
+    struct RestoreFp {PPCContext& ctx;uint32_t csr;~RestoreFp(){ctx.fpscr.setcsr(csr);}} restore{original,saved};
+    (*fn)(child,base);
+    return child.r3.u32;
+  }
+  template<class Read>
+  std::optional<bool> Hidden(uint32_t object,Read& read) {
+    if(!stack)return {};
+    // The original property symbol is initialized by the native engine.
+    const auto symbol=ui::WidgetWord(0x82ED42F8u,0,read);
+    if(symbol!=ui::WidgetSymbol("Hidden"))return {};
+    text[0]=0xff;
+    const std::array<uint32_t,3> args{object,*symbol,stack-640u};
+    if(Invoke(0x825B9D98u,args)!=1u || text[0]>1u)return {};
+    return text[0]!=0;
+  }
+  template<class Api>
+  bool Paint(Api& api,uint32_t row,std::string_view label) {
+    if(!stack || label.empty() || label.size()>255u)return false;
+    for(char c:label)if(static_cast<unsigned char>(c)<32u ||
+                        static_cast<unsigned char>(c)>126u)return false;
+    for(size_t i=0;i<label.size();++i){text[2*i]=0;text[2*i+1]=uint8_t(label[i]);}
+    text[2*label.size()]=text[2*label.size()+1]=0;
+    return api.SetRowText(row,stack-640u,label.size());
+  }
+};
+thread_local ui::OriginalPcStorageMenu g_original_pc_storage_menu;
+thread_local bool g_pc_menu_dispatching=false;
+#endif
+} // namespace
+
+void DispatchOriginalPcMenu(PPCContext& ctx,uint8_t* base,PPCFunc* original) {
+#ifdef _WIN32
+  // Nested source calls and unrelated script events must run normally.
+  if(!g_pc_menu_dispatching && base) {
+    const auto read=[&](uint32_t a,uint8_t* bytes,size_t n){
+      return ReadGuest(base,a,reinterpret_cast<std::byte*>(bytes),n);
+    };
+    std::optional<ui::PcSettingsEvent> event;
+    try {event=ui::CapturePcSettingsEvent(ctx.r3.u32,ctx.r4.u32,read);}catch(...){}
+    if(event) {
+      const auto apply=[&](bool entering)->bool {
+        struct Scope {Scope(){g_pc_menu_dispatching=true;}~Scope(){g_pc_menu_dispatching=false;}} scope;
+        PcMenuGuestScratch scratch(ctx,base);
+        if(!scratch.stack)return false;
+        auto invoke=[&](uint32_t a,std::span<const uint32_t> args){return scratch.Invoke(a,args);};
+        ui::OriginalWidgetApi api(read,invoke);
+        if(!api.Verified())return false;
+        const auto row=api.Find(event->root,ui::WidgetSymbol("StorageOption"));
+        if(!row || row->definition!=ui::kMenuItemTemplate ||
+           scratch.Hidden(row->object,read)!=std::optional<bool>{false})return false;
+        const auto paint=[&](std::string_view value){return scratch.Paint(api,row->object,value);};
+        if(entering)return g_original_pc_storage_menu.Enter(event->root,row->object,paint);
+        if(!g_original_pc_storage_menu.Owns(event->root,row->object))return false;
+        const std::array<uint32_t,2> lookup{event->root,event->context};
+        const auto method=scratch.Invoke(0x825B9528u,lookup);
+        if(!method || !*method)return false;
+        const auto selector=api.Find(row->object,ui::kSelectorChild);
+        const bool focused=selector && scratch.Hidden(selector->object,read)==std::optional<bool>{false};
+        return g_original_pc_storage_menu.Handle(event->root,row->object,event->event,focused,
+          paint,[](std::string_view key){return rex::cvar::GetFlagByName(std::string(key));},
+          [](std::string_view key,std::string_view value){
+            return options::CommitLivePcMenuValue(key,value,[](std::string_view k,std::string_view v){
+              return rex::cvar::SetFlagByName(std::string(k),std::string(v));});
+          });
+      };
+      if(event->event==ui::PcEvent::Enter) {
+        g_original_pc_storage_menu.Leave();
+        (*original)(ctx,base);
+        if(ctx.r3.u32==1u)try{(void)apply(true);}catch(...){}
+        return;
+      }
+      try {
+        if(apply(false)){ctx.r3.u64=1;return;}
+      } catch (...) {g_original_pc_storage_menu.Leave();}
+      if(event->event==ui::PcEvent::Back)g_original_pc_storage_menu.Leave();
+      (*original)(ctx,base);return;
+    }
+  }
+#endif
+  (*original)(ctx,base);
 }
 
 std::optional<vm::OriginalCameraMenuChange> CaptureOriginalCameraMenuOption(

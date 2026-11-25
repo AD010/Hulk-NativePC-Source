@@ -16,6 +16,7 @@
 namespace hulk::eor::gpu {class DiligentEorDirectBackend;}
 namespace hulk::eor::world {class NativeWorldStream;class OriginalMaterialCandidateIndex;}
 namespace hulk::eor::xdk {
+void DispatchOriginalPcMenu(PPCContext& ctx,uint8_t* base,PPCFunc* original);
 // Verified USA EoR script-VM global state_r (original guest 0x8264C798).
 // Its r3 argument is the authentic original VM call context; the
 // function is SHARED by unrelated game scripts. Read-only audit only:
