@@ -973,9 +973,13 @@ bool DiligentEorDirectBackend::ReplayOriginalXdkCommand(
       // (when tiled) alias-free mapping were proved in frame preflight.
       return true;
     case xdk::CommandKind::ClearF:
-      if(!cmd.captured_clear)return false;
-      if(cmd.captured_clear->flags&1u)s.resolve_reuse.ColorWritten(s.scene.ActiveOriginalColor());
-      return s.scene.ClearVerifiedOriginalXdk(*cmd.captured_clear,s.frame.original_guest);
+      if(!cmd.captured_clear ||
+         !s.scene.ClearVerifiedOriginalXdk(*cmd.captured_clear,s.frame.original_guest))
+        return false;
+      // Only a completed native clear changes the source generation.
+      if(cmd.captured_clear->flags&1u)
+        s.resolve_reuse.ColorWritten(s.scene.ActiveOriginalColor());
+      return true;
     case xdk::CommandKind::Resolve:
       // The real native color+depth target remains resident through
       // DrawIndexed; physical MSAA resolve is performed by ResolveScene()
@@ -2022,8 +2026,10 @@ bool DiligentEorDirectBackend::DrawIndexed(const native::IndexedDraw& draw) {
         1,draw.first_index,static_cast<Diligent::Uint32>(draw.base_vertex));
     const auto color_mask=regs.fixed_graphics_state ?
         regs.fixed_graphics_state->ReadOriginalXenosRegister(0x2104u) : std::nullopt;
-    s.resolve_reuse.DrawColorWritten(s.scene.ActiveOriginalColor(),color_mask);
     s.context->DrawIndexed(command);
+    // A failed draw did not submit a color write. Reuse bookkeeping must
+    // describe the actual native command stream, not an attempted one.
+    s.resolve_reuse.DrawColorWritten(s.scene.ActiveOriginalColor(),color_mask);
     return true;
   } catch (...) {
     // A Diligent exception can occur after a partial resource/constant bind.
