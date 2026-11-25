@@ -3,8 +3,27 @@
 #undef NDEBUG
 #include <cassert>
 #include <memory>
+#include <cstdlib>
 using hulk::eor::gpu::ImmutableBufferCache;
+// Diligent's intrusive smart pointer exposes an overloaded operator&
+ // that produces an out-parameter helper. A plain shared_ptr test cannot
+ // reproduce that compilation error or catch destructive out-parameter use.
+struct OutParameterOwner {
+  std::shared_ptr<int> value;
+  int** operator&() noexcept {std::abort();}
+};
 int main() {
+  {
+    ImmutableBufferCache<OutParameterOwner> gpu_cache(16,2,8);
+    std::array<std::byte,8> bytes{};
+    const OutParameterOwner first{std::make_shared<int>(174)};
+    gpu_cache.Remember(3,bytes,first);
+    const auto* hit=gpu_cache.Find(3,bytes);
+    assert(hit && hit->value==first.value);
+    auto retained=hit->value;
+    gpu_cache.Clear();
+    assert(*retained==174 && !gpu_cache.Find(3,bytes));
+  }
   using Owner=std::shared_ptr<int>;
   ImmutableBufferCache<Owner> cache(24,3,16);
   std::array<std::byte,8> a{},b{},c{},d{};

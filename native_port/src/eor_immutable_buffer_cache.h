@@ -7,6 +7,7 @@
 #include <cstring>
 #include <list>
 #include <map>
+#include <memory>
 #include <span>
 #include <tuple>
 #include <utility>
@@ -26,7 +27,9 @@ template<class Value> class ImmutableBufferCache {
     auto item=found->second;
     if(!std::equal(bytes.begin(),bytes.end(),item->bytes.begin()))return nullptr;
     entries_.splice(entries_.begin(),entries_,item);
-    return &item->value;
+    // GPU COM owners such as Diligent::RefCntAutoPtr overload operator&
+    // for output parameters. That is not the address of the cache value.
+    return std::addressof(item->value);
   }
   void Remember(uint32_t kind,std::span<const std::byte> bytes,const Value& value) {
     if(!Eligible(bytes))return;
