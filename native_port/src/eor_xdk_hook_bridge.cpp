@@ -1053,55 +1053,53 @@ bool ReplayNextVerifiedPpcFrame(
 // Present and Draw ordinal in either the full or identity-only path.
 static void ObserveBoundShaderIdentity(RawDraw& draw,uint32_t vertex,
                                       uint32_t pixel,uint8_t* guest_base) {
-  if (g_original_shader_capture_index &&
-      g_collector.NextDrawOrdinal() < FrameCapture::kMaxDraws) {
-    const auto& sources = *g_original_shader_capture_index;
-    const uint64_t frame = g_collector.NextFrameSequence();
-    const uint32_t ordinal = g_collector.NextDrawOrdinal();
-    draw.observed_live_vertex_shader_header = aot::ObserveOriginalBoundXdkShader(
-        sources, vertex, aot::Stage::Vertex,
-        ReadGuest, guest_base, frame, ordinal);
-    std::optional<aot::Digest> paired_pixel;
-    if(draw.observed_live_vertex_shader_header && g_original_effect_capture_catalog) {
-      const auto live_vs=aot::ResolveOriginalLiveXdkShaderSource(sources,
-          *draw.observed_live_vertex_shader_header,vertex,aot::Stage::Vertex,frame,ordinal);
-      if(live_vs)paired_pixel=g_original_effect_capture_catalog->UniquePixelForVertex(*live_vs);
+  if (!g_original_shader_capture_index ||
+      g_collector.NextDrawOrdinal() >= FrameCapture::kMaxDraws)return;
+  const auto& sources = *g_original_shader_capture_index;
+  const uint64_t frame = g_collector.NextFrameSequence();
+  const uint32_t ordinal = g_collector.NextDrawOrdinal();
+  // Keep independently matched ambiguous candidates from the SAME read.
+  // Retrying guest object reads for each pairing can observe a different
+  // allocation, and repeats the expensive header and physical hashes.
+  auto v=aot::ObserveOriginalBoundXdkShader(sources,vertex,aot::Stage::Vertex,
+      ReadGuest,guest_base,frame,ordinal,nullptr,true);
+  auto p=aot::ObserveOriginalBoundXdkShader(sources,pixel,aot::Stage::Pixel,
+      ReadGuest,guest_base,frame,ordinal,nullptr,true);
+  auto vs=v ? aot::ResolveOriginalLiveXdkShaderSource(sources,*v,vertex,
+      aot::Stage::Vertex,frame,ordinal) : std::nullopt;
+  auto ps=p ? aot::ResolveOriginalLiveXdkShaderSource(sources,*p,pixel,
+      aot::Stage::Pixel,frame,ordinal) : std::nullopt;
+  if(v && p && g_original_effect_capture_catalog) {
+    const auto& effects=*g_original_effect_capture_catalog;
+    if(vs && !ps && !p->alias_live_physical.empty()) {
+      p->alias_paired_pixel_source=effects.UniquePixelForVertex(*vs);
+      if(p->alias_paired_pixel_source)
+        ps=aot::ResolveOriginalLiveXdkShaderSource(sources,*p,pixel,
+            aot::Stage::Pixel,frame,ordinal);
+    } else if(ps && !vs && !v->alias_live_physical.empty()) {
+      v->alias_paired_vertex_source=effects.UniqueVertexForPixel(*ps);
+      if(v->alias_paired_vertex_source)
+        vs=aot::ResolveOriginalLiveXdkShaderSource(sources,*v,vertex,
+            aot::Stage::Vertex,frame,ordinal);
+    } else if(!vs && !ps && aot::SelectJointOriginalLiveAliasPair(
+        sources,effects,*v,*p,vertex,pixel,frame,ordinal)) {
+      vs=aot::ResolveOriginalLiveXdkShaderSource(sources,*v,vertex,
+          aot::Stage::Vertex,frame,ordinal);
+      ps=aot::ResolveOriginalLiveXdkShaderSource(sources,*p,pixel,
+          aot::Stage::Pixel,frame,ordinal);
     }
-    draw.observed_live_pixel_shader_header = aot::ObserveOriginalBoundXdkShader(
-        sources, pixel, aot::Stage::Pixel,
-        ReadGuest, guest_base, frame, ordinal,paired_pixel ? &*paired_pixel : nullptr);
-    // The PS can be the independent source witness too. Retry only the
-    // missing VS with its unique ledger partner, never with a guessed SHA.
-    if(!draw.observed_live_vertex_shader_header &&
-       draw.observed_live_pixel_shader_header &&
-       !draw.observed_live_pixel_shader_header->alias_paired_pixel_source &&
-       g_original_effect_capture_catalog) {
-      const auto live_ps=aot::ResolveOriginalLiveXdkShaderSource(sources,
-          *draw.observed_live_pixel_shader_header,pixel,aot::Stage::Pixel,frame,ordinal);
-      if(live_ps)
-        if(const auto paired_vs=g_original_effect_capture_catalog->UniqueVertexForPixel(*live_ps))
-          draw.observed_live_vertex_shader_header=aot::ObserveOriginalBoundXdkShader(
-              sources,vertex,aot::Stage::Vertex,ReadGuest,guest_base,frame,ordinal,&*paired_vs);
+    if(vs && ps)
+      draw.observed_live_eor_effect_pass=aot::ResolveOriginalLiveEorEffectPass(
+          sources,effects,*v,*p,vertex,pixel,frame,ordinal);
+    // A paired alias is valid only with its independently authenticated
+    // partner and exact original effect. Never publish an unresolved alias.
+    if(!draw.observed_live_eor_effect_pass) {
+      if(v->alias_paired_vertex_source)vs.reset();
+      if(p->alias_paired_pixel_source)ps.reset();
     }
-    if(!draw.observed_live_vertex_shader_header &&
-       !draw.observed_live_pixel_shader_header && g_original_effect_capture_catalog) {
-      auto v=aot::ObserveOriginalBoundXdkShader(sources,vertex,aot::Stage::Vertex,
-          ReadGuest,guest_base,frame,ordinal,nullptr,true);
-      auto p=aot::ObserveOriginalBoundXdkShader(sources,pixel,aot::Stage::Pixel,
-          ReadGuest,guest_base,frame,ordinal,nullptr,true);
-      if(v && p && aot::SelectJointOriginalLiveAliasPair(
-          sources,*g_original_effect_capture_catalog,*v,*p,vertex,pixel,frame,ordinal)) {
-        draw.observed_live_vertex_shader_header=std::move(v);
-        draw.observed_live_pixel_shader_header=std::move(p);
-      }
-    }
-    if (draw.observed_live_vertex_shader_header &&
-        draw.observed_live_pixel_shader_header && g_original_effect_capture_catalog)
-      draw.observed_live_eor_effect_pass = aot::ResolveOriginalLiveEorEffectPass(
-          sources, *g_original_effect_capture_catalog,
-          *draw.observed_live_vertex_shader_header, *draw.observed_live_pixel_shader_header,
-          vertex, pixel, frame, ordinal);
   }
+  if(vs)draw.observed_live_vertex_shader_header=std::move(v);
+  if(ps)draw.observed_live_pixel_shader_header=std::move(p);
 }
 void CapturePpcDraw(Kind kind, uint32_t guest, const PPCContext& ctx,
                     uint8_t* guest_base) {
