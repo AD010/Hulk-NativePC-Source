@@ -791,6 +791,24 @@ std::optional<OriginalInlineGlyphBatch> CaptureUsaInlineGlyphs(
     ReadGuestBytes reader,void* state,OriginalGuestBufferSnapshots& buffers);
 std::optional<std::array<uint32_t,6>> CaptureUsaFontFetch(
     uint32_t device, ReadGuestBytes read,void* state);
+// Called only after the current Draw's texture owner recovery has finished.
+inline std::optional<std::array<uint32_t,6>> CaptureUsaFontFetchAtDraw(
+    const RawDraw& draw,ReadGuestBytes read,void* state) {
+  const auto& parent=draw.original_engine_shader_method;
+  const auto& live=draw.observed_vs_matrices;
+  if(!parent || !live || !draw.gpr[0] ||
+     live->original_guest_device!=draw.gpr[0] ||
+     !parent->original_shader_method_vtable_verified ||
+     parent->original_shader_method_guest!=0x8266A0C0u ||
+     parent->original_shader_vtable_guest!=0x8206ED6Cu ||
+     !parent->original_pass_vs_ps_xdk_binding_verified ||
+     !parent->original_pass_sampler_slots_verified ||
+     !(parent->original_pass_sampler_slot_mask&1u) ||
+     !parent->original_pass_live_texture_objects_present ||
+     !draw.original_pixel_texture_keys[0] ||
+     !live->original_texture_guest_objects[0])return {};
+  return CaptureUsaFontFetch(draw.gpr[0],read,state);
+}
 std::optional<VerticesXdkCall> DecodeOriginalFontVertices(const RawDraw& call);
 // Original USA frontend DrawVertices prim=6 (D3DPT_TRIANGLEFAN) emits two
 // triangles for a four-vertex quad; Vulkan's native DrawIndexed uses lists.

@@ -1204,10 +1204,6 @@ void CapturePpcDraw(Kind kind, uint32_t guest, const PPCContext& ctx,
       }
     }
   }
-  if(draw.original_pixel_texture_keys[0] && draw.original_engine_shader_method &&
-     draw.original_engine_shader_method->original_shader_method_guest==0x8266A0C0u &&
-     draw.original_engine_shader_method->original_shader_method_vtable_verified)
-    draw.original_font_fetch=CaptureUsaFontFetch(ctx.r3.u32,ReadGuest,guest_base);
   // Two dominant USA callsites have a source-defined geometry owner even
   // when a virtual material method was not active. Validate the original
   // caller AND the wrapper's tail branch once per immutable guest image.
@@ -1314,6 +1310,12 @@ void CapturePpcDraw(Kind kind, uint32_t guest, const PPCContext& ctx,
       } catch(const std::bad_alloc&) { /* Missing source policy rejects only direct replay. */ }
     }
   }
+  // Recovering an authentic cached ERTexture can establish the atlas
+  // only in the sampler loop above. Capture its live s0 descriptor now,
+  // not before ownership recovery, or StageVerifiedOriginalFontDraw
+  // rejects an otherwise complete original menu/HUD frame.
+  if(replay && g_frame_shader_complete)
+    draw.original_font_fetch=CaptureUsaFontFetchAtDraw(draw,ReadGuest,guest_base);
   // Only a requested direct Vulkan render performs byte-exact guest
   // resource capture; diagnostics-only XDK observer is unaffected.
   if((diagnostic_mesh || (replay && g_frame_shader_complete)) &&

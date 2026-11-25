@@ -294,6 +294,24 @@ int main(){
   assert(!native::IdentifyLiveOriginalXdkMaterialSurface(
       resident,materialSource,1u));
   engine.original_pass_sampler_slots_verified=true;
+  // Multiple registers sampling the same authenticated live XDK texture
+  // are one archive-surface clue, not a reason to reject this Draw.
+  engine.original_pass_sampler_slot_mask=3u;
+  materialSource.original_pixel_texture_keys[1]=0xBEEFu;
+  auto& live_texture_objects=materialSource.observed_vs_matrices->original_texture_guest_objects;
+  live_texture_objects[1]=live_texture_objects[0];
+  assert(native::IdentifyLiveOriginalXdkMaterialSurface(
+      resident,materialSource,3u)==0u);
+  live_texture_objects[1]=0x83003000u;
+  assert(!native::IdentifyLiveOriginalXdkMaterialSurface(
+      resident,materialSource,3u));
+  live_texture_objects[1]=live_texture_objects[0];
+  materialSource.original_pixel_texture_keys[1]=0xFEEDu;
+  assert(!native::IdentifyLiveOriginalXdkMaterialSurface(
+      resident,materialSource,3u));
+  engine.original_pass_sampler_slot_mask=1u;
+  materialSource.original_pixel_texture_keys[1]=0u;
+  live_texture_objects[1]=0u;
   auto bad_texture=original.original_sampler_slots;
   bad_texture[0].original_texture_hash=0xFEEDu;
   assert(!native::IdentifyOriginalMaterialSurface(resident,bad_texture));

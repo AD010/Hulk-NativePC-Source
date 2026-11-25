@@ -215,6 +215,20 @@ int main() {
   write(dev+1164,0x00100c14);
   assert((*fetch)[3]!=(*xdk::CaptureUsaFontFetch(dev,read,&mem))[3]);
   assert(!xdk::CaptureUsaFontFetch(UINT32_MAX,read,&mem));
+  // Recovered atlas ownership must authorize the exact same live s0
+  // descriptor, even when it was unknown at the start of the Draw hook.
+  const auto atlas_key=in.original_pixel_texture_keys[0];
+  in.original_pixel_texture_keys[0]=0;
+  assert(!xdk::CaptureUsaFontFetchAtDraw(in,read,&mem));
+  in.original_pixel_texture_keys[0]=atlas_key;
+  const auto recovered_fetch=xdk::CaptureUsaFontFetchAtDraw(in,read,&mem);
+  assert(recovered_fetch && recovered_fetch==xdk::CaptureUsaFontFetch(dev,read,&mem));
+  auto invalid_font=in;
+  invalid_font.original_engine_shader_method->original_pass_vs_ps_xdk_binding_verified=false;
+  assert(!xdk::CaptureUsaFontFetchAtDraw(invalid_font,read,&mem));
+  invalid_font=in;
+  invalid_font.observed_vs_matrices->original_texture_guest_objects[0]=0;
+  assert(!xdk::CaptureUsaFontFetchAtDraw(invalid_font,read,&mem));
   xdk::OriginalGuestBufferSnapshots snapshots;
   auto capture=[&]{return xdk::CaptureUsaInlineGlyphs(in,wrapper,sp,read,&mem,snapshots);};
   in.inline_glyphs=capture();
