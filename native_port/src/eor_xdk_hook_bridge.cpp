@@ -75,6 +75,7 @@ REXCVAR_DEFINE_INT32(hulk_original_dialog_volume,-1,"Hulk/Original Settings",
                     "Original EoR dialogue volume, -1 inherits game").range(-1,100);
 namespace hulk {
 void CommitOriginalCameraMenuOption(bool yaw,bool value,uint8_t* base) noexcept;
+void RestoreOriginalCameraMenuOptions(uint8_t* base) noexcept;
 }
 namespace hulk::eor::xdk {
 namespace {
@@ -283,6 +284,16 @@ void FinishOriginalAudioMenuOption(std::optional<vm::AudioMenuChange> change,
   (void)change;(void)base;
 #endif
 }
+void RestoreOriginalCameraGetter(uint32_t method,const PPCContext& ctx,uint8_t* base) noexcept {
+  if(!base)return;
+  if(vm::VerifyCameraGetter(method,static_cast<uint32_t>(ctx.lr),ctx.r3.u32,
+      ctx.r31.u32,ctx.r27.u32,ctx.r28.u32,
+      [&](uint32_t address,uint8_t* data,size_t size) {
+        return ReadGuest(base,address,reinterpret_cast<std::byte*>(data),size);
+      }))
+    hulk::RestoreOriginalCameraMenuOptions(base);
+}
+
 void RestoreOriginalSubtitleOption(const PPCContext& ctx,uint8_t* base) noexcept {
 #ifdef _WIN32
   if(!base)return;

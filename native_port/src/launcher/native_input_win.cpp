@@ -247,6 +247,29 @@ void NativeInputRawMouse(int dx, int dy) {
   g_raw_abs_x.fetch_add(static_cast<uint64_t>(std::abs(x)), std::memory_order_relaxed);
   g_raw_abs_y.fetch_add(static_cast<uint64_t>(std::abs(y)), std::memory_order_relaxed);
 }
+// The original page may initialize before the first keyboard/gamepad poll.
+// Restore once per original guest lifetime, using the same lock and state
+// as the input bridge. Never overwrite a subsequent original menu change.
+void RestoreOriginalCameraMenuOptions(uint8_t* base) noexcept {
+#ifdef _WIN32
+  if(!base)return;
+  try {
+    std::lock_guard lock(inversion_mutex);
+    if(inversion_base!=base) {
+      inversion_base=base;previous_inversion.reset();
+    }
+    if(previous_inversion)return;
+    const auto original=camera::ReadGameLookInversion(base);
+    if(!original)return;
+    const camera::OriginalLookInversion desired{
+        REXCVAR_GET(hulk_mouse_invert_x),REXCVAR_GET(hulk_mouse_invert_y)};
+    if(desired==*original || camera::WriteGameLookInversion(base,*original,desired))
+      previous_inversion=desired;
+  } catch (...) {}
+#else
+  (void)base;
+#endif
+}
 // The original pause UI callback has already changed its own genuine
 // game option. Persist that one axis without waiting for XInput polling,
 // preserving the independent host setting on the other axis.

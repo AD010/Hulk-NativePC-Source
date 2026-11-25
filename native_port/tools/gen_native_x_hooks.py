@@ -11,12 +11,13 @@ if len(sys.argv) not in (4, 5, 6): raise SystemExit(__doc__)
 # Kick 82886428: SHA256 b84fc4331563e192a0b7733d833fa594b1c79e5bbc400167eb673abc8b541da6
 # New  82885FF8: SHA256 e959315c50eedbcb3375eb500bdb3e4fca242a2eb5988e4a02064e7697bdf380
 SOURCE_PINNED_SEGMENT_HOOKS = {"82886428": "KickSegment", "82885FF8": "NewSegment"}
-def verify_segment_codegen(directory, addresses):
+SOURCE_EOR_CAMERA_GETTERS = {"82338A00", "82338A18"}
+def verify_pinned_codegen(directory, addresses):
     if not addresses:
         return
     xex = directory.parent.parent / "game" / "default.xex"
     if hashlib.sha256(xex.read_bytes()).hexdigest() != "346a73690303f6633bfdaf9850e78793fe07cdbfb8f849b89fbee320630b11f0":
-        raise SystemExit("Segment hook source is not the pinned original USA XEX")
+        raise SystemExit("New hook source is not the pinned original USA XEX")
     definitions = dict.fromkeys(addresses, 0)
     pattern = re.compile(r"(?m)^DEFINE_REX_FUNC\(sub_([0-9a-fA-F]{8})\)")
     for file in directory.glob("*_recomp.*.cpp"):
@@ -25,8 +26,8 @@ def verify_segment_codegen(directory, addresses):
             if address in definitions:
                 definitions[address] += 1
     if any(count != 1 for count in definitions.values()):
-        raise SystemExit("Missing or duplicate original segment codegen body: " + str(definitions))
-    print("original USA segment codegen bodies verified:", len(definitions))
+        raise SystemExit("Missing or duplicate original pinned codegen body: " + str(definitions))
+    print("original USA pinned codegen bodies verified:", len(definitions))
 # When generating the actual executable, the profile is a required source
 # dependency. Developer's old 3-argument probe remains supported, but CMake
 # MUST supply the embedded profile as the fourth argument and fail closed
@@ -37,7 +38,7 @@ a=[]
 for line in entries:
  line=line.split('#',1)[0].strip().removeprefix('0x').upper()
  if not line:continue
- if not re.fullmatch('[89A-F][0-9A-F]{7}',line) or (line not in valid and line not in SOURCE_PINNED_SEGMENT_HOOKS):raise SystemExit('Not a mapped Hulk guest address: '+line)
+ if not re.fullmatch('[89A-F][0-9A-F]{7}',line) or (line not in valid and line not in SOURCE_PINNED_SEGMENT_HOOKS and line not in SOURCE_EOR_CAMERA_GETTERS):raise SystemExit('Not a mapped Hulk guest address: '+line)
  if line in a:raise SystemExit('Duplicate hook: '+line)
  a.append(line)
 if len(sys.argv) >= 5:
@@ -57,7 +58,7 @@ if len(sys.argv) >= 5:
             raise SystemExit("Wrong original segment hook role: " + addr)
     print("embedded profile hook addresses verified:", len(mandatory))
 if len(sys.argv) == 6:
-    verify_segment_codegen(Path(sys.argv[5]), set(a) & SOURCE_PINNED_SEGMENT_HOOKS.keys())
+    verify_pinned_codegen(Path(sys.argv[5]), set(a) & (SOURCE_PINNED_SEGMENT_HOOKS.keys() | SOURCE_EOR_CAMERA_GETTERS))
 
 # These original USA PPC methods are NOT XDK APIs. Their named engine
 # shader-vtable entry identity was verified against the user's actual
@@ -128,7 +129,7 @@ SOURCE_EOR_MATERIAL_METHODS = {"825F8A50"}
 SOURCE_EOR_PASS_METHODS = {"825F84C0"}
 if len(sys.argv) >= 5 and (set(mandatory) &
                             (SOURCE_INLINE_END | SOURCE_EOR_SHADER_METHODS |
-                             SOURCE_EOR_VM_METHODS | SOURCE_EOR_CAMERA_OPTION_METHODS | SOURCE_EOR_SUBTITLE_GETTER | SOURCE_EOR_AUDIO_MENU_METHODS |
+                             SOURCE_EOR_VM_METHODS | SOURCE_EOR_CAMERA_OPTION_METHODS | SOURCE_EOR_CAMERA_GETTERS | SOURCE_EOR_SUBTITLE_GETTER | SOURCE_EOR_AUDIO_MENU_METHODS |
                              SOURCE_EOR_HAVOK_STEP_METHODS | SOURCE_EOR_HAVOK_CATCHUP_METHODS | SOURCE_EOR_MATERIAL_METHODS |
                              SOURCE_EOR_PASS_METHODS |
                              SOURCE_EOR_RENDER_ITEM_METHODS)):
@@ -220,6 +221,15 @@ h += r"""
         ::hulk::eor::xdk::FinishOriginalCameraMenuOption(change,base); \
     }
 """
+# Original camera restoration occurs before the genuine VM getter.
+h += r"""
+#define HULK_EOR_CAMERA_GETTER_HOOK(addr) \
+    REX_EXTERN(__imp__sub_##addr); \
+    REX_HOOK_RAW(sub_##addr) { \
+        ::hulk::eor::xdk::RestoreOriginalCameraGetter(0x##addr,ctx,base); \
+        __imp__sub_##addr(ctx,base); \
+    }
+"""
 # Subtitle restoration executes before the original VM getter.
 h += r"""
 #define HULK_EOR_SUBTITLE_GETTER_HOOK(addr) \
@@ -303,6 +313,7 @@ generated = h + '\n'.join(
     'HULK_EOR_HAVOK_CATCHUP_HOOK('+addr+')' if addr in SOURCE_EOR_HAVOK_CATCHUP_METHODS else
     'HULK_EOR_HAVOK_STEP_HOOK('+addr+')' if addr in SOURCE_EOR_HAVOK_STEP_METHODS else
     'HULK_EOR_AUDIO_MENU_HOOK('+addr+')' if addr in SOURCE_EOR_AUDIO_MENU_METHODS else
+    'HULK_EOR_CAMERA_GETTER_HOOK('+addr+')' if addr in SOURCE_EOR_CAMERA_GETTERS else
     'HULK_EOR_SUBTITLE_GETTER_HOOK('+addr+')' if addr in SOURCE_EOR_SUBTITLE_GETTER else
     'HULK_EOR_CAMERA_OPTION_HOOK('+addr+')' if addr in SOURCE_EOR_CAMERA_OPTION_METHODS else
     'HULK_EOR_VM_STATE_TRACE_HOOK('+addr+')'

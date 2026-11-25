@@ -87,6 +87,14 @@ int main(int argc,char** argv){
       {0x141ed2a4u,"UIPage_Pause_CameraSettings"}}}){
     put(def+12,key);
     std::fill_n(heap.data()+name,32,0);std::copy(label.begin(),label.end(),heap.data()+name);
+    for(const auto& [method,thunk]:std::array<std::pair<uint32_t,uint32_t>,2>{{
+        {0x82338a00u,0x8218d3b0u},{0x82338a18u,0x8213a2b0u}}}) {
+      put(desc,thunk);
+      check(VerifyCameraGetter(method,0x825ea158,vm,vm,desc,ctx,read));
+      check(!VerifyCameraGetter(method,0,vm,vm,desc,ctx,read));
+      put(desc,0x82146a10u);
+      check(!VerifyCameraGetter(method,0x825ea158,vm,vm,desc,ctx,read));
+    }
     for(bool axis:{false,true}){
       const uint32_t method=axis?0x82339a08u:0x823399e8u;
       put(desc,axis?0x821204b0u:0x8217e250u);

@@ -34,6 +34,7 @@ std::optional<vm::AudioMenuChange> CaptureOriginalAudioMenuOption(
 void FinishOriginalAudioMenuOption(std::optional<vm::AudioMenuChange> change,
     uint8_t* base) noexcept;
 void RestoreOriginalSubtitleOption(const PPCContext& ctx,uint8_t* base) noexcept;
+void RestoreOriginalCameraGetter(uint32_t method,const PPCContext& ctx,uint8_t* base) noexcept;
 void ObserveOriginalHavokStep(uint32_t method,const PPCContext& ctx,uint8_t* base) noexcept;
 void ApplyOriginalHavokCatchup(const PPCContext& ctx,uint8_t* base) noexcept;
 // Source-verified original 0x825F84C0 EoR material state slot to

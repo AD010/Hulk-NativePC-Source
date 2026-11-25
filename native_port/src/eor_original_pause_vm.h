@@ -137,6 +137,28 @@ std::optional<OriginalCameraMenuChange> CaptureCameraMenuChange(
      previous>1 || previous==value)return {};
   return OriginalCameraMenuChange{yaw,value!=0,subtitles};
 }
+// The genuine USA Options_GetInvertPitch/Yaw getters return the original
+// boolean in VM output+12. Restore persistent PC options BEFORE the original
+// native body executes, on the owning page, even without XInput polling.
+template<class Read>
+bool VerifyCameraGetter(uint32_t method,uint32_t lr,uint32_t vm,uint32_t dispatcher_vm,
+    uint32_t descriptor,uint32_t context,Read&& read) noexcept {
+  const bool yaw=method==0x82338A18u;
+  if(!yaw && method!=0x82338A00u)return false;
+  const auto pin=[&](uint32_t address,size_t length,uint64_t expected) {
+    std::array<uint8_t,32> bytes{};
+    if(length>bytes.size() || !read(address,bytes.data(),length))return false;
+    uint64_t hash=0xcbf29ce484222325ull;
+    for(size_t i=0;i<length;++i)hash=(hash^bytes[i])*0x100000001b3ull;
+    return hash==expected;
+  };
+  const auto thunk=yaw?0x8213A2B0u:0x8218D3B0u;
+  if(!pin(thunk,16,yaw?0xe1144502df9ddd75ull:0x5638239b8bfd309dull) ||
+     !pin(method,yaw?28u:24u,yaw?0x4a746c8a1a7c678full:0x25ca57bada5b3e24ull))return false;
+  const auto page=ResolveNativeOwner(lr,vm,dispatcher_vm,descriptor,context,read,thunk).page;
+  return page==PausePage::Settings || page==PausePage::GameSettings ||
+         page==PausePage::CameraSettings;
+}
 // Restore the saved host subtitle preference only at the genuine original
 // pause-page getter. The original PPC still produces the returned VM value.
 template<class Read>

@@ -167,6 +167,8 @@ with tempfile.TemporaryDirectory() as tmp:
         str(project / "analysis/guest_host_mapping.csv"), str(out),
         str(project / "hulk_native_x_profile.ini")], check=True)
     cpp = out.read_text()
+    for address in ("82338A00","82338A18"):
+        assert "HULK_EOR_CAMERA_GETTER_HOOK(" + address + ")" in cpp
     for address in segment_roles:
         assert "HULK_NATIVE_X_HOOK(" + address + "," in cpp
         assert "case 0x" + address + "u: return true;" in cpp
