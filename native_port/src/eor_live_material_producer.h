@@ -584,18 +584,19 @@ inline DecodedRuntimeGeometry DecodeOriginalRuntimeGeometry(
     auto values=model::DecodeVerifiedAttribute(it->second,*format);
     if(format->components<4u)for(auto& v:values)v[3]=1.f;
     out.attributes.emplace_back();out.integer_attributes.emplace_back();
-    if(input.uint_bits) {
+    if(input.location==9u) {
       auto& ints=out.integer_attributes.back();ints.reserve(values.size());
-      if(input.location==9u) {
-        for(const auto& v:values)ints.push_back({uint32_t(v[0]),uint32_t(v[1]),uint32_t(v[2]),uint32_t(v[3])});
-      } else {
-        // Match the already authenticated archive normal/tangent ABI.
-        if((input.location!=1u && input.location!=2u) || input.components!=4u ||
-           element->original_packed_type!=0x1a2186u || format->components!=4u)
-          throw std::invalid_argument("Unverified transient normal/tangent bit representation");
-        for(const auto& v:values)ints.push_back(RuntimeFloatAttributeBits(v));
-      }
-    } else out.attributes.back()=std::move(values);
+      for(const auto& v:values)ints.push_back({uint32_t(v[0]),uint32_t(v[1]),uint32_t(v[2]),uint32_t(v[3])});
+    } else {
+      if(input.uint_bits && ((input.location!=1u && input.location!=2u) ||
+          input.components!=4u || element->original_packed_type!=0x1a2186u ||
+          format->components!=4u))
+        throw std::invalid_argument("Unverified transient normal/tangent bit representation");
+      // Store finite IEEE float4 bytes. VK_FORMAT_R32G32B32A32_UINT
+      // reads those SAME bytes for the original scalar asfloat input.
+      // Do not send these bits through the 0..255 bone-index uploader.
+      out.attributes.back()=std::move(values);
+    }
     Diligent::LayoutElement layout{input.location,static_cast<uint32_t>(out.layout.size()),4,
         input.uint_bits?Diligent::VT_UINT32:Diligent::VT_FLOAT32,Diligent::False};
     layout.RelativeOffset=0;layout.Stride=16;out.layout.push_back(layout);

@@ -1,9 +1,24 @@
 #include "../native_port/src/eor_runtime_vertex_compaction.h"
+#include "../native_port/src/eor_host_vertex_layout.h"
 #include <cstdlib>
 #include <iostream>
 using namespace hulk::eor::gpu::live;
 static void Check(bool ok){if(!ok)std::abort();}
 int main(){
+  using hulk::eor::gpu::OriginalVertexStorageKind;
+  for(bool runtime:{false,true}) {
+    Check(OriginalVertexStorageKind(1,1,true,runtime,false)==3);
+    Check(OriginalVertexStorageKind(2,2,true,runtime,false)==3);
+    Check(OriginalVertexStorageKind(3,9,true,runtime,false)==4);
+    Check(OriginalVertexStorageKind(4,4,false,runtime,false)==3);
+    Check(OriginalVertexStorageKind(3,9,false,runtime,false)==UINT32_MAX);
+    Check(OriginalVertexStorageKind(4,4,true,runtime,false)==UINT32_MAX);
+  }
+  Check(OriginalVertexStorageKind(0,0,false,false,false)==0);
+  Check(OriginalVertexStorageKind(0,0,false,true,false)==3);
+  Check(OriginalVertexStorageKind(0,0,true,false,false)==UINT32_MAX);
+  Check(OriginalVertexStorageKind(0,0,false,false,true)==3);
+  Check(OriginalVertexStorageKind(1,1,true,false,true)==UINT32_MAX);
   std::vector<uint32_t> indices{10000000,2,10000000,9,2,9};
   const auto old=indices;
   auto owners=CompactRuntimeIndices(indices);
@@ -19,6 +34,10 @@ int main(){
   Check(std::equal(contiguous.begin(),contiguous.end(),bytes.begin()+64));
   bool rejected=false;
   try{(void)GatherRuntimeVertexBytes(bytes,16,320,16,std::array<uint32_t,1>{20});}
+  catch(const std::invalid_argument&){rejected=true;}
+  Check(rejected);
+  rejected=false;
+  try{(void)GatherRuntimeVertexBytes(bytes,16,320,16,std::array<uint32_t,3>{2,2,4});}
   catch(const std::invalid_argument&){rejected=true;}
   Check(rejected);
   for(int v=-128;v<=127;++v){

@@ -36,6 +36,7 @@ inline std::vector<std::byte> GatherRuntimeVertexBytes(
      uint64_t(owners.size())*stride>SIZE_MAX)
     throw std::invalid_argument("Invalid original transient stream range");
   if(!std::is_sorted(owners.begin(),owners.end()) ||
+     std::adjacent_find(owners.begin(),owners.end())!=owners.end() ||
      uint64_t(owners.back()+uint64_t{1})*stride>length)
     throw std::invalid_argument("Original transient vertex outside stream");
   const auto first=owners.front();

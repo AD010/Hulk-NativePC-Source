@@ -6,6 +6,20 @@
 
 namespace hulk::eor::gpu {
 
+// Immutable upload kinds are independent from Vulkan's input format.
+// Normal/tangent float4 bytes are deliberately interpreted as uint4 in
+// the scalar shader (asfloat). Kind 4 is ONLY numerical bone indices.
+inline constexpr uint32_t OriginalVertexStorageKind(
+    uint32_t slot,uint32_t location,bool uint_bits,bool runtime,bool font) noexcept {
+  if(font)return uint_bits?UINT32_MAX:3u;
+  if(!runtime && slot==0u)return uint_bits||location!=0u?UINT32_MAX:0u;
+  if(uint_bits) {
+    if(location==9u)return 4u;
+    if(location==1u || location==2u)return 3u;
+    return UINT32_MAX;
+  }
+  return location==9u?UINT32_MAX:3u;
+}
 struct HostVertexAttribute {
   uint32_t slot = 0;
   uint32_t components = 0;
