@@ -1498,10 +1498,13 @@ void CapturePpcDraw(Kind kind, uint32_t guest, const PPCContext& ctx,
     if(witness.asset)g_original_texture_owners.Remember(witness,ReadGuest,guest_base);
   // Read both objects from this Draw's device shadow. UI, intro and world
   // Draws can bind shaders outside an observed engine shader-method scope.
-  const bool need_shader_identity=!replay || g_frame_shader_complete.load(std::memory_order_relaxed) ||
-      !g_offline_shader_pack || !g_offline_shader_pack->shaders ||
-      !g_offline_shader_pack->shaders->HasFullArchiveCoverage();
-  if(need_shader_identity && draw.observed_vs_matrices &&
+  // Every source Draw must authenticate its own bound VS/PS and EoR
+  // effect, even after an earlier Draw made this Present ineligible.
+  // The old g_frame_shader_complete shortcut silently discarded ALL later
+  // shader identities when the 5194-program AOT bank was complete, so the
+  // bridge could never establish full coverage or identify valid later
+  // materials. Only expensive constant/mesh snapshots are short-circuited.
+  if(draw.observed_vs_matrices &&
      draw.observed_vs_matrices->original_guest_device==draw.gpr[0])
     ObserveBoundShaderIdentity(draw,draw.observed_vs_matrices->original_vs_guest_object,
                                draw.observed_vs_matrices->original_ps_guest_object,guest_base);
