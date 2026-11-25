@@ -2,6 +2,11 @@
 """Synthetic XEX2 unit tests; never checks in proprietary game bytes."""
 import struct
 import unittest
+import hashlib
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from unittest.mock import patch
+from seed_hulk_ppc_tails import required_hook_targets, PINNED_SOURCE_HOOKS
 from audit_hulk_xex_xdk import inspect, verify_xdk_6534
 
 
@@ -76,6 +81,35 @@ class TestXex2Xdk(unittest.TestCase):
         struct.pack_into('>I', d, 0x250, 9999999)
         with self.assertRaisesRegex(ValueError, 'Malformed'):
             inspect(bytes(d))
+
+
+class TestSourcePinnedHooks(unittest.TestCase):
+    def test_pinned_hooks_require_original_source_and_reject_unknown(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "analysis").mkdir()
+            (root / "src/launcher").mkdir(parents=True)
+            (root / "game").mkdir()
+            (root / "analysis/guest_host_mapping.csv").write_text(
+                "guest_address,host_address\n0x82100000,0x140001000\n", encoding="utf-8")
+            (root / "src/launcher/input_hook.cpp").write_text(
+                "REX_HOOK_RAW(sub_82100000)", encoding="utf-8")
+            hooks = root / "native_hook_addresses.txt"
+            lines = "".join(f"{addr:08X}\n" for addr in sorted(PINNED_SOURCE_HOOKS))
+            hooks.write_text(lines, encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "pinned original USA XEX"):
+                required_hook_targets(root)
+            payload = b"synthetic fixture"
+            (root / "game/default.xex").write_bytes(payload)
+            with self.assertRaisesRegex(ValueError, "pinned original USA XEX"):
+                required_hook_targets(root)
+            with patch("seed_hulk_ppc_tails.PINNED_USA_SHA256",
+                       hashlib.sha256(payload).hexdigest()):
+                self.assertEqual(set(required_hook_targets(root)),
+                                 PINNED_SOURCE_HOOKS | {0x82100000})
+                hooks.write_text(lines + "82800000\n", encoding="utf-8")
+                with self.assertRaisesRegex(ValueError, "0x82800000"):
+                    required_hook_targets(root)
 
 
 if __name__ == '__main__':
