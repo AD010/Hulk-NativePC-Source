@@ -1,4 +1,5 @@
 #include "eor_native_audio_xaudio2.h"
+#include "eor_fsb4_pcm.h"
 #ifdef _WIN32
 #include <xaudio2.h>
 #include <algorithm>
@@ -99,6 +100,13 @@ bool NativeXAudio2Mixer::PlayPcm16(Bus bus,std::span<const int16_t> samples,
   if(FAILED(voice->source->Start(0)))return false;
   state_->voices.push_back(std::move(voice));
   return true;
+}
+bool NativeXAudio2Mixer::PlayFsb4Pcm16(Bus bus,
+    std::span<const std::byte> bank,uint32_t sample_index,float gain) {
+  if(!Ready())return false;
+  const auto decoded=DecodeFsb4Pcm16(bank,sample_index);
+  return decoded && PlayPcm16(bus,decoded->pcm,
+      decoded->sample_rate,decoded->channels,gain);
 }
 bool NativeXAudio2Mixer::SetBusVolume(Bus bus,float gain) noexcept {
   const unsigned index=BusIndex(bus);
