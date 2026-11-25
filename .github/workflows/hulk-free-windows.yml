@@ -29,6 +29,11 @@ jobs:
         run: |
           python ci/check_public_source.py
           if ($LASTEXITCODE -ne 0) { throw 'PUBLIC SOURCE AUDIT FAILED: prohibited assets in Git' }
+      - name: Verify redacted compiler reporter before reading private diagnostics
+        shell: pwsh
+        run: |
+          python ci/test_report_hulk_compiler_failure.py
+          if ($LASTEXITCODE -ne 0) { throw 'Redacted diagnostic reporter tests failed' }
       - name: Diagnose previous private NativeX failure (redacted classification only)
         shell: pwsh
         env:
@@ -46,8 +51,6 @@ jobs:
             if (-not $file) { Write-Host '[HULK/LAST-FAIL] No compiler file'; exit 0 }
             # Print only compiler error categories/codes and public source basenames.
             # Never expose private PPC generated code or raw compiler messages.
-            python ci/test_report_hulk_compiler_failure.py
-            if ($LASTEXITCODE -ne 0) { throw 'Redacted diagnostic reporter tests failed' }
             python ci/report_hulk_compiler_failure.py $file.FullName
             $lines = @(Get-Content -LiteralPath $file.FullName -Tail 550 -ErrorAction Stop)
             $class = 'other'; $script = 'unknown'
@@ -79,8 +82,6 @@ jobs:
           $sourceFailures = [System.Collections.Generic.List[string]]::new()
           python ci/test_native_x_patch_chain.py --d140
           if ($LASTEXITCODE -ne 0) { $sourceFailures.Add('ci/test_native_x_patch_chain.py --d140'); Write-Host '[HULK/PREFLIGHT-FAIL] ci/test_native_x_patch_chain.py --d140' }
-          python ci/test_report_hulk_compiler_failure.py
-          if ($LASTEXITCODE -ne 0) { $sourceFailures.Add('ci/test_report_hulk_compiler_failure.py'); Write-Host '[HULK/PREFLIGHT-FAIL] ci/test_report_hulk_compiler_failure.py' }
           python ci/test_patch_sdk_hulk_fps_probe.py
           if ($LASTEXITCODE -ne 0) { $sourceFailures.Add('ci/test_patch_sdk_hulk_fps_probe.py'); Write-Host '[HULK/PREFLIGHT-FAIL] ci/test_patch_sdk_hulk_fps_probe.py' }
           python ci/test_hulk_us_gpu_defaults.py
