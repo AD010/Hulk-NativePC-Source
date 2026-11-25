@@ -43,8 +43,14 @@ inline std::string_view PcPromptBinding(uint32_t source_hash) noexcept {
 inline std::string_view FirstPromptToken(std::string_view bindings) noexcept {
   std::string_view token;
   options::AnyBindingKey(bindings,[&](std::string_view key) {
-    if(!options::IsBindingToken(key))return false;
-    token=key;return true;
+    // Match the Win32 input bridge, including its documented aliases.
+    // Return the canonical token so art lookup and the GPU cache agree.
+    if(options::KeyNameEquals(key,"Return"))key="Enter";
+    if(options::KeyNameEquals(key,"Control"))key="Ctrl";
+    if(options::IsEscapeKey(key))key="Esc";
+    for(auto canonical:options::kBindingTokens)
+      if(options::KeyNameEquals(key,canonical)) {token=canonical;return true;}
+    return false;
   });
   return token;
 }
@@ -94,8 +100,16 @@ inline constexpr std::array<std::array<uint8_t,7>,36> kKeyFont{{
 // so no shader/UV/layout assumption changes. Transparent outside the key.
 inline std::vector<uint8_t> RasterPcKeycap(std::string_view token,
     uint32_t width,uint32_t height) {
-  const auto label=PromptLabel(token);
+  auto label=PromptLabel(token);
   if(label.empty() || width<32 || height<16 || width>256 || height>256)return {};
+  // Small original glyphs cannot fit a five-letter label at integer
+  // pixel scale. Prefer an explicit key abbreviation over an Xbox icon.
+  if(label.size()*6u-1u>width-6u) {
+    if(label=="SPACE")label="SPC";
+    else if(label=="ENTER")label="ENT";
+    else if(label=="SHIFT")label="SHFT";
+    else if(label=="RIGHT")label="RGHT";
+  }
   const auto letters=static_cast<uint32_t>(label.size());
   const auto units=letters*6u-1u;
   const auto scale=std::min((width-6u)/units,(height-8u)/7u);
