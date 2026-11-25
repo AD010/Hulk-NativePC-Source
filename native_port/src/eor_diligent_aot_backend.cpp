@@ -378,6 +378,7 @@ struct DiligentEorDirectBackend::State {
     } catch (...) {return nullptr;}
   }
   std::map<MaterialKey,OriginalVulkanPipeline> pipeline_cache;
+  std::optional<MaterialKey> prewarm_cursor;
   // The SAME authenticated surface/effect can legitimately change cull,
   // color write, depth and blend state between original Draw calls.
   std::map<PipelineVariantKey,OriginalVulkanPipeline> pipeline_variants;
@@ -1012,8 +1013,17 @@ std::size_t DiligentEorDirectBackend::PrewarmResidentOriginalPipelines(
   // have no compiled SPIR-V variant yet. Skip an unsupported pass instead
   // of abandoning prewarming ALL the valid resident UI/world materials.
   const std::size_t attempt_budget=std::max(max_new,std::size_t{128});
-  for(const auto& [key,owner_ptr]:s.material_lookup) {
-    if(warmed>=max_new || attempted>=attempt_budget)break;
+  // Resume after the last inspected key, even when its pipeline failed.
+  // Restarting at begin() starves every material behind 128 unsupported
+  // resident passes. Store a key, not an iterator: streamed material
+  // insertion and retirement may change this map between Presents.
+  auto cursor=s.prewarm_cursor ? s.material_lookup.upper_bound(*s.prewarm_cursor)
+                               : s.material_lookup.begin();
+  for(std::size_t remaining=s.material_lookup.size();
+      remaining && warmed<max_new && attempted<attempt_budget;--remaining) {
+    if(cursor==s.material_lookup.end())cursor=s.material_lookup.begin();
+    const auto& [key,owner_ptr]=*cursor++;
+    s.prewarm_cursor=key;
     const auto& owner=*owner_ptr;
     if(!resident_models.contains(owner.original_model_hash))continue;
     if(s.pipeline_cache.contains(key) &&
