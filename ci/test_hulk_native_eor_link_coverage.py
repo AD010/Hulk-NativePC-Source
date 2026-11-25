@@ -27,6 +27,19 @@ class NativeEorLinkCoverage(unittest.TestCase):
                    if not re.search(r"\bsrc/" + re.escape(source.name) + r"\b", target)]
         self.assertEqual(missing, [], f"Native EoR source not linked into EXE: {missing}")
 
+    def test_native_host_services_do_not_require_the_sdk(self):
+        cmake = TARGET.read_text(encoding="utf-8")
+        core = cmake.split("add_library(hulk_native_core STATIC", 1)[1].split("\n)", 1)[0]
+        for source in ("eor_archive.cpp", "eor_frame_scheduler.cpp",
+                       "native_pc_save_format.cpp", "native_pc_options_store.cpp",
+                       "eor_fmod_catalog.cpp", "eor_native_lod.cpp"):
+            self.assertIn("src/" + source, core)
+            self.assertEqual(cmake.count("src/" + source), 1)
+        self.assertLess(cmake.index("if(HULK_NATIVE_CORE_ONLY)"),
+                        cmake.index("include(generated/rexglue.cmake)"))
+        self.assertIn("target_link_libraries(incredible_hulk PRIVATE hulk_native_core)", cmake)
+        self.assertNotRegex(cmake, r"target_link_libraries\(hulk_native_core[^\n]*(?:rex::|native_x_renderer)")
+
     def test_private_build_model_adapter_links_its_dependents(self):
         workflow = WORKFLOW.read_text(encoding="utf-8")
         match = re.search(r"\$modelAssetsArgs\s*=\s*@\((.*?)\)\s*\n\s*&\s*cl\.exe\s+@modelAssetsArgs", workflow, re.S)

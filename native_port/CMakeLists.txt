@@ -14,17 +14,13 @@ set(HULK_VERSION 0.0.1)
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-include(generated/rexglue.cmake)
-
 # Sources
 set(INCREDIBLEHULK_SOURCES
     src/main.cpp
     src/crash_report.cpp
     src/native_gpu_autodiag.cpp
     src/assets_locator.cpp
-    src/native_game_data_root_store.cpp
     # Self-contained, native original EoR resource backend. No SDK dependency.
-    src/eor_archive.cpp
     src/eor_usa_index.cpp
     src/eor_verified_sampler_bindings.cpp
     src/eor_model_resource.cpp
@@ -43,15 +39,10 @@ set(INCREDIBLEHULK_SOURCES
     src/eor_xenos_texture_mips.cpp
     src/eor_original_texture_usa.cpp
     src/eor_original_model_upload.cpp
-    src/eor_native_lod.cpp
     src/eor_native_world_stream.cpp
     src/eor_native_archive_source.cpp
-    src/eor_fmod_project.cpp
-    src/eor_fmod_catalog.cpp
-    src/eor_havok_packfile.cpp
     src/eor_font_pack.cpp
     src/eor_native_font_geometry.cpp
-    src/eor_frame_scheduler.cpp
     src/eor_motion_vectors.cpp
     src/eor_native_frame.cpp
     src/eor_spirv_bank.cpp
@@ -65,9 +56,6 @@ set(INCREDIBLEHULK_SOURCES
     src/eor_xdk_draw_capture.cpp
     src/eor_ui_asset_catalog.cpp
     src/eor_ui_original_dds.cpp
-    src/native_pc_options_store.cpp
-    src/native_pc_save_path.cpp
-    src/native_pc_save_format.cpp
     src/pc_menu.cpp
     # Existing game-side input/window hooks; no separate launcher is built.
     src/launcher/input_hook.cpp
@@ -78,6 +66,56 @@ set(INCREDIBLEHULK_SOURCES
     src/launcher/game_window.cpp
 )
 
+# Real host-side services: compiled once as a native static library.
+# No SDK include directories, generated PPC, GPU plugin or guest runtime
+# link dependencies are inherited by these translation units.
+add_library(hulk_native_core STATIC
+    src/native_game_data_root_store.cpp
+    src/eor_archive.cpp
+    src/eor_fmod_project.cpp
+    src/eor_fmod_catalog.cpp
+    src/eor_havok_packfile.cpp
+    src/eor_frame_scheduler.cpp
+    src/eor_native_lod.cpp
+    src/native_pc_options_store.cpp
+    src/native_pc_save_path.cpp
+    src/native_pc_save_format.cpp
+)
+target_include_directories(hulk_native_core PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
+if(WIN32)
+    target_link_libraries(hulk_native_core PUBLIC shell32 ole32)
+endif()
+
+# This is a host library build, not a second game executable or a release.
+# It can be compiled and exercised without fetching any SDK or game bytes.
+option(HULK_NATIVE_CORE_ONLY "Build native host services without the transitional runtime" OFF)
+if(HULK_NATIVE_CORE_ONLY)
+    enable_testing()
+    foreach(_test IN ITEMS
+        native_pc_save_format_test
+        native_pc_options_store_test
+        native_game_data_root_store_test
+        eor_fmod_project_test
+        eor_fmod_catalog_test
+        eor_havok_packfile_test
+        eor_native_lod_test)
+        add_executable(${_test} "${CMAKE_CURRENT_SOURCE_DIR}/../ci/${_test}.cpp")
+        target_link_libraries(${_test} PRIVATE hulk_native_core)
+        # Keep the existing assert-based regression checks active in Release.
+        if(MSVC)
+            target_compile_options(${_test} PRIVATE /UNDEBUG)
+        else()
+            target_compile_options(${_test} PRIVATE -UNDEBUG)
+        endif()
+        add_test(NAME ${_test} COMMAND ${_test})
+    endforeach()
+    return()
+endif()
+
+# Temporary generated-code and host compatibility integration. Native core
+# above deliberately does not consume this package or its target settings.
+include(generated/rexglue.cmake)
+
 if(WIN32)
     # File details, and a manifest that makes the ANSI code page UTF-8 so accented paths work (playbook chapter 2).
     list(APPEND INCREDIBLEHULK_SOURCES src/incredible_hulk.rc src/incredible_hulk.manifest)
@@ -87,6 +125,7 @@ else()
     add_executable(incredible_hulk ${INCREDIBLEHULK_SOURCES})
 endif()
 
+target_link_libraries(incredible_hulk PRIVATE hulk_native_core)
 rexglue_setup_target(incredible_hulk GPU_PLUGINS xenos)
 
 # Native Vulkan renderer integration (NativeXRenderer + validated game-specific XDK profile).
