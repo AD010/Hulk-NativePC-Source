@@ -34,20 +34,32 @@ inline std::optional<DecodedFsbPcm16> DecodeFsb4Pcm16(
   const uint32_t headers=FsbLe32(fsb,8);
   const uint32_t bytes=FsbLe32(fsb,12);
   const uint32_t flags=FsbLe32(fsb,20);
-  if(!count || count>4096 || ordinal>=count ||
-     (flags&2u) || headers<uint64_t(count)*80u ||
+  const bool basic=(flags&2u)!=0;
+  // FMOD Ex's BASICHEADERS means full metadata only for sample zero;
+  // subsequent entries carry exactly two 32-bit lengths. Bank mode bit
+  // 0x40 adds platform-specific data alignment; refuse it until its
+  // exact packing is established rather than playing the wrong bytes.
+  if(!count || count>4096 || ordinal>=count || (flags&0x40u) ||
+     headers<80ull+uint64_t(count-1u)*(basic?8u:80u) ||
      uint64_t(48)+headers+bytes>fsb.size())return {};
   size_t cursor=48;
   uint64_t data_offset=uint64_t(48)+headers;
+  uint32_t inherited_mode=0,inherited_rate=0;
+  uint16_t inherited_channels=0;
   for(uint32_t i=0;i<count;++i) {
-    if(cursor+80u>uint64_t(48)+headers)return {};
-    const uint16_t size=FsbLe16(fsb,cursor);
-    if(size<80 || uint64_t(cursor)+size>uint64_t(48)+headers)return {};
-    const auto frame_count=FsbLe32(fsb,cursor+32);
-    const auto payload_bytes=FsbLe32(fsb,cursor+36);
-    const auto mode=FsbLe32(fsb,cursor+48);
-    const auto rate=FsbLe32(fsb,cursor+52);
-    const auto channels=FsbLe16(fsb,cursor+62);
+    const bool abbreviated=basic && i!=0;
+    if(uint64_t(cursor)+(abbreviated?8u:80u)>uint64_t(48)+headers)return {};
+    const uint16_t size=abbreviated?8u:FsbLe16(fsb,cursor);
+    if(size<(abbreviated?8u:80u) ||
+       uint64_t(cursor)+size>uint64_t(48)+headers)return {};
+    const auto frame_count=FsbLe32(fsb,cursor+(abbreviated?0u:32u));
+    const auto payload_bytes=FsbLe32(fsb,cursor+(abbreviated?4u:36u));
+    const auto mode=abbreviated?inherited_mode:FsbLe32(fsb,cursor+48);
+    const auto rate=abbreviated?inherited_rate:FsbLe32(fsb,cursor+52);
+    const auto channels=abbreviated?inherited_channels:FsbLe16(fsb,cursor+62);
+    if(!abbreviated) {
+      inherited_mode=mode;inherited_rate=rate;inherited_channels=channels;
+    }
     if(uint64_t(data_offset)+payload_bytes>uint64_t(48)+headers+bytes)return {};
     if(i==ordinal) {
       // FSOUND_16BITS, no unsigned/Delta/IT/IMA/VAG/XMA/GCADPCM.
