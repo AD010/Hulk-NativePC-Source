@@ -428,7 +428,18 @@ class NativeEorLinkCoverage(unittest.TestCase):
         self.assertIn("draw.observed_live_eor_effect_pass->effect_hash",source)
         self.assertIn("draw.observed_live_eor_effect_pass->pass_index",source)
         hook=(ROOT / "native_port/src/eor_xdk_hook_bridge.cpp").read_text()
-        self.assertIn("g_original_effect_capture_catalog->UniquePixelForVertex(*live_vs)",hook)
+        observe=hook.split("static void ObserveBoundShaderIdentity(",1)[1].split("void CapturePpcDraw(",1)[0]
+        # Exactly one live observation of each stage. Subsequent alias selection
+        # and effect verification must use those same authenticated snapshots.
+        self.assertEqual(observe.count("aot::ObserveOriginalBoundXdkShader("),2)
+        self.assertIn("const auto& effects=*g_original_effect_capture_catalog;",observe)
+        self.assertIn("effects.UniquePixelForVertex(*vs)",observe)
+        self.assertIn("effects.UniqueVertexForPixel(*ps)",observe)
+        self.assertIn("aot::SelectJointOriginalLiveAliasPair(",observe)
+        self.assertIn("aot::ResolveOriginalLiveEorEffectPass(",observe)
+        self.assertIn("if(!draw.observed_live_eor_effect_pass)",observe)
+        self.assertLess(observe.index("aot::ResolveOriginalLiveEorEffectPass("),
+                        observe.index("draw.observed_live_vertex_shader_header=std::move(v)"))
         self.assertIn("state.original_vs_guest_object",source)
         self.assertIn("state.original_ps_guest_object",source)
         self.assertIn("Same live XDK VS guest object claimed two original source shaders",source)

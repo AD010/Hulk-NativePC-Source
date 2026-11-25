@@ -181,10 +181,20 @@ with tempfile.TemporaryDirectory() as tmp:
 from seed_hulk_ppc_tails import PINNED_SOURCE_HOOKS, PINNED_USA_SHA256, required_hook_targets
 from unittest.mock import patch
 import hashlib
-expected = {0x82338A00,0x82338A18,0x82885FF8,0x82886428,
-            0x82339C18,0x82339C90,0x82338AE8,0x82338B20,0x82738B58}
+expected_hooks = {0x82338A00,0x82338A18,0x82885FF8,0x82886428,
+                  0x82339C18,0x82339C90,0x82338AE8,0x82338B20,0x82738B58,
+                  0x825BAAC8}
+# Direct original widget routines must have codegen bodies but must not
+# become XDK hooks. Seed them automatically from the menu dispatcher.
+menu_calls = {0x825B8270,0x825B9528,0x825B9D98,0x8271D340,0x8271AA60}
+expected = expected_hooks | menu_calls
 assert PINNED_SOURCE_HOOKS == expected
-assert {int(x,16) for x in compiled if x} - {int(x,16) for x in registered} <= expected
+assert {int(x,16) for x in compiled if x} - {int(x,16) for x in registered} <= expected_hooks
+assert "HULK_EOR_PC_MENU_HOOK(825BAAC8)" in cpp
+assert "HULK_NATIVE_X_HOOK(825BAAC8," not in cpp
+for address in menu_calls:
+    assert f"{address:08X}" not in compiled
+    assert f"HULK_NATIVE_X_HOOK({address:08X}," not in cpp
 for address in ("82339C18","82339C90","82338AE8","82338B20"):
     assert "HULK_EOR_CAMERA_SPEED_HOOK(" + address + ")" in cpp
     assert "HULK_NATIVE_X_HOOK(" + address not in cpp
@@ -197,7 +207,7 @@ with tempfile.TemporaryDirectory() as tmp:
         "guest_address,native_entry\n0x8289D730,0x140001000\n")
     (root/"src/launcher/input_hook.cpp").write_text("REX_HOOK_RAW(sub_8289D730)")
     hooks = root/"native_hook_addresses.txt"
-    hooks.write_text("\n".join(f"{a:08X}" for a in sorted(expected)))
+    hooks.write_text("\n".join(f"{a:08X}" for a in sorted(expected_hooks)))
     (root/"game/default.xex").write_bytes(b"synthetic fixture only")
     try:
         required_hook_targets(root)
@@ -208,7 +218,9 @@ with tempfile.TemporaryDirectory() as tmp:
     with patch.object(hashlib, "sha256") as digest:
         digest.return_value.hexdigest.return_value = PINNED_USA_SHA256
         assert set(required_hook_targets(root)) == expected | {0x8289D730}
-        hooks.write_text(hooks.read_text()+"\n82738B5C\n")
+        hooks.write_text("\n".join(f"{a:08X}" for a in sorted(expected_hooks - {0x825BAAC8})))
+        assert set(required_hook_targets(root)) == (expected_hooks - {0x825BAAC8}) | {0x8289D730}
+        hooks.write_text("\n".join(f"{a:08X}" for a in sorted(expected_hooks))+"\n82738B5C\n")
         try:
             required_hook_targets(root)
         except ValueError as exc:
