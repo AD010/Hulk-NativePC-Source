@@ -67,6 +67,24 @@ int main() {
          !array_bindings[0].image_multisampled);
   auto multisample=shader;multisample[5+6]=1;
   assert(InspectSpirvImageResources(multisample)[0].image_multisampled);
+  // Separate sampler descriptors must not collide with image descriptors.
+  auto sampler=shader;
+  Add(sampler,26,{6});
+  Add(sampler,32,{7,0,6});
+  Add(sampler,59,{7,8,0});
+  Add(sampler,71,{8,33,5});
+  Add(sampler,71,{8,34,0});
+  Reject([&]{(void)InspectSpirvImageResources(sampler);});
+  const auto sampler_name=Text("HulkSampler_s3");
+  std::vector<uint32_t> sampler_var{8};
+  sampler_var.insert(sampler_var.end(),sampler_name.begin(),sampler_name.end());
+  Add(sampler,5,sampler_var);
+  assert(InspectSpirvImageResources(sampler).size()==1);
+  auto collision=sampler;
+  for(size_t at=5;at<collision.size();at+=collision[at]>>16)
+    if((collision[at]&65535u)==71u && collision[at+1]==8 && collision[at+2]==33)
+      collision[at+3]=2;
+  Reject([&]{(void)InspectSpirvImageResources(collision);});
   // The original material/SRB path addresses image variables by their
   // exact names. A second descriptor with the same name is ambiguous even
   // when the set and binding decorations are distinct.

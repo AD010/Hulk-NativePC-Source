@@ -92,6 +92,21 @@ class NativeImageResourceContract(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_named_spirv_images(words_to_bytes(HEADER + odd + BINDINGS + IMAGE))
 
+    def test_reject_hidden_resource_name_suffix(self):
+        bad_name = NAME.copy()
+        bad_name[-1] |= 0x78000000
+        with self.assertRaisesRegex(ValueError, "padding"):
+            validate_named_spirv_images(words_to_bytes(
+                HEADER + bad_name + BINDINGS + IMAGE))
+
+    def test_reject_array_descriptor_before_runtime(self):
+        # Array of image types is unsupported by the single-SRV binder.
+        image = IMAGE[:9] + [0x0004001c, 6, 2, 7,
+                            0x00040020, 3, 0, 6, 0x0004003b, 3, 4, 0]
+        with self.assertRaisesRegex(ValueError, "array"):
+            validate_named_spirv_images(words_to_bytes(
+                HEADER + NAME + BINDINGS + image))
+
     def test_invalid_instruction_extent_fails(self):
         with self.assertRaises(ValueError):
             validate_named_spirv_images(words_to_bytes(HEADER + [0]))

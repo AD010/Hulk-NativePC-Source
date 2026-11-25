@@ -25,11 +25,11 @@ std::string Name(std::span<const uint32_t> words) {
       throw std::invalid_argument("Unsupported original SPIR-V image resource variable name");
   return std::move(*result);
 }
-const Type* FindImageType(uint32_t id, const std::map<uint32_t,Type>& types) {
+const Type* FindSampledResourceType(uint32_t id, const std::map<uint32_t,Type>& types) {
   for(unsigned depth=0;depth<16;++depth) {
     const auto it=types.find(id);
     if(it==types.end())return nullptr;
-    if(it->second.kind==TypeKind::Image)return &it->second;
+    if(it->second.kind==TypeKind::Image || it->second.kind==TypeKind::Sampler)return &it->second;
     if(it->second.kind==TypeKind::Array)
       throw std::invalid_argument(
           "Original AOT shader uses an array of GPU image descriptors without verified array bindings");
@@ -60,7 +60,7 @@ std::optional<FixedAotImageSlot> DecodeFixedAotImageSlot(std::string_view name) 
 }
 std::vector<SpirvImageResource> InspectSpirvImageResources(
     std::span<const uint32_t> shader,std::optional<Stage> stage) {
-  if(shader.size()<5 || shader.size()>1000000 ||
+  if(shader.size()<5 || shader.size()>(8u<<20)/4u ||
      shader[0]!=0x07230203u ||
      shader[3]==0 || shader[3]>1000000 ||
      shader[4]!=0)
@@ -119,10 +119,10 @@ std::vector<SpirvImageResource> InspectSpirvImageResources(
   }
   std::vector<SpirvImageResource> result;
   std::set<std::pair<uint32_t,uint32_t>> occupied;
-  std::set<std::string> unique_image_names;
+  std::set<std::string> unique_resource_names;
   for(const auto& variable:vars) {
-    const auto* image=FindImageType(variable.pointer,types);
-    if(!image)continue;
+    const auto* resource=FindSampledResourceType(variable.pointer,types);
+    if(!resource)continue;
     const auto name=names.find(variable.id);
     const auto set=sets.find(variable.id);
     const auto bind=bindings.find(variable.id);
@@ -133,17 +133,19 @@ std::vector<SpirvImageResource> InspectSpirvImageResources(
     // Two distinct image descriptors with the same name can bind the wrong
     // material even if their SPIR-V set/binding numbers differ.
     auto exact_name=Name(name->second);
+    // Separate sampler descriptors share the same Vulkan binding namespace
+    // as images. Validate them without returning them as texture SRVs.
+    if(!unique_resource_names.insert(exact_name).second)
+      throw std::invalid_argument("Ambiguous duplicated original SPIR-V resource variable name");
+    if(resource->kind==TypeKind::Sampler)continue;
     if(const auto fixed=DecodeFixedAotImageSlot(exact_name)) {
-      if(image->dim!=fixed->dimension || image->arrayed || image->multisampled ||
+      if(resource->dim!=fixed->dimension || resource->arrayed || resource->multisampled ||
          bind->second!=fixed->binding || set->second>1 ||
          (stage && set->second!=(*stage==Stage::Pixel ? 1u : 0u)))
         throw std::invalid_argument("Scalar AOT image differs from original stage, dimension or binding");
     }
-    if(!unique_image_names.insert(exact_name).second)
-      throw std::invalid_argument(
-          "Ambiguous duplicated original SPIR-V image resource variable name");
     result.push_back({std::move(exact_name),set->second,bind->second,
-                      image->dim,image->arrayed,image->multisampled});
+                      resource->dim,resource->arrayed,resource->multisampled});
   }
   return result;
 }

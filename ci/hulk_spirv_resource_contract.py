@@ -25,6 +25,7 @@ def validate_named_spirv_images(data: bytes) -> int:
     bound = words[3]
     sampled_resource_types: set[int] = set()
     aliases: dict[int, int] = {}
+    array_types: set[int] = set()
     names: dict[int, bytes] = {}
     sets: dict[int, int] = {}
     bindings: dict[int, int] = {}
@@ -46,6 +47,8 @@ def validate_named_spirv_images(data: bytes) -> int:
                 sampled_resource_types.add(ident)
             else:
                 aliases[ident] = args[2] if op == 32 else args[1]
+                if op in (28, 29):
+                    array_types.add(ident)
         elif op == 59:  # OpVariable(result type, result ID, storage class)
             if len(args) < 3:
                 raise ValueError("Truncated SPIR-V variable")
@@ -57,9 +60,12 @@ def validate_named_spirv_images(data: bytes) -> int:
             if len(args) < 2 or not 0 < args[0] < bound or args[0] in names:
                 raise ValueError("Invalid or duplicate SPIR-V debug resource name")
             raw = struct.pack("<" + "I" * (len(args) - 1), *args[1:])
-            if b"\0" not in raw:
+            end = raw.find(b"\0")
+            if end < 0:
                 raise ValueError("Nonterminated SPIR-V resource name")
-            raw = raw.split(b"\0", 1)[0]
+            if len(raw) - end > 4 or any(raw[end:]):
+                raise ValueError("Invalid SPIR-V resource name padding")
+            raw = raw[:end]
             # Non-resource OpName entries may include arbitrary compiler
             # names. Validate only the sampled-image variables actually
             # used by the native EoR Diligent resource-binding interface.
@@ -77,6 +83,8 @@ def validate_named_spirv_images(data: bytes) -> int:
         for _ in range(16):
             if ty in sampled_resource_types:
                 return True
+            if ty in array_types:
+                raise ValueError("Unsupported array of SPIR-V resource descriptors")
             if ty in visited:
                 raise ValueError("Cyclic SPIR-V resource type")
             visited.add(ty)
