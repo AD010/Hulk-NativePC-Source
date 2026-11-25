@@ -1,6 +1,7 @@
 #pragma once
 #include <array>
 #include <cstdint>
+#include <optional>
 
 namespace hulk::eor::gpu {
 // The original replay backend is the sole writer to these source color
@@ -18,6 +19,12 @@ class OriginalResolveReuse {
     }
     // More source targets than supported: forget reuse, never skip a copy.
     Reset();
+  }
+  // A verified zero RT write mask cannot modify the color image. Depth
+  // and stencil writes still execute; they do not invalidate a color Resolve.
+  // Unknown state is conservative, just like an actual color write.
+  void DrawColorWritten(uint32_t source,std::optional<uint32_t> color_mask) noexcept {
+    if(!color_mask || *color_mask!=0u)ColorWritten(source);
   }
   bool CanReuse(uint32_t source,uint32_t dest,bool full) const noexcept {
     if(!full || !source || !dest || source==dest)return false;

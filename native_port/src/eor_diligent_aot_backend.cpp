@@ -2012,7 +2012,9 @@ bool DiligentEorDirectBackend::DrawIndexed(const native::IndexedDraw& draw) {
     Diligent::DrawIndexedAttribs command(
         draw.index_count,Diligent::VT_UINT32,Diligent::DRAW_FLAG_NONE,
         1,draw.first_index,static_cast<Diligent::Uint32>(draw.base_vertex));
-    s.resolve_reuse.ColorWritten(s.scene.ActiveOriginalColor());
+    const auto color_mask=regs.fixed_graphics_state ?
+        regs.fixed_graphics_state->ReadOriginalXenosRegister(0x2104u) : std::nullopt;
+    s.resolve_reuse.DrawColorWritten(s.scene.ActiveOriginalColor(),color_mask);
     s.context->DrawIndexed(command);
     return true;
   } catch (...) {
