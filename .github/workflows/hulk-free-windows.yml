@@ -6,10 +6,6 @@ on:
   # The previous push marker remains archived as source history but it
   # must never trigger another build by an unrelated commit.
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - 'ci/hulk-release-request-2026-11-21.txt'
 permissions:
   contents: write
 concurrency:
@@ -841,7 +837,6 @@ jobs:
           python ci/verify_hulk_release.py artifacts/Hulk-NativePC-Vulkan.zip
           if ($LASTEXITCODE -ne 0) { throw 'ZIP verification failed' }
       - name: Deliver game ZIP to PRIVATE GitHub release, not public artifact
-        if: ${{ false }}
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.HULK_PRIVATE_REPO_TOKEN }}
@@ -895,7 +890,7 @@ jobs:
       # Generated PPC and proprietary input exist only in this ephemeral runner.
       # Cleanup is only after verified private publication and is nonfatal.
       - name: Prune merged Hulk temporary branches
-        if: ${{ false }}
+        if: success()
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
