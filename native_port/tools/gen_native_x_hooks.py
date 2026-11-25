@@ -12,6 +12,7 @@ if len(sys.argv) not in (4, 5, 6): raise SystemExit(__doc__)
 # New  82885FF8: SHA256 e959315c50eedbcb3375eb500bdb3e4fca242a2eb5988e4a02064e7697bdf380
 SOURCE_PINNED_SEGMENT_HOOKS = {"82886428": "KickSegment", "82885FF8": "NewSegment"}
 SOURCE_EOR_CAMERA_GETTERS = {"82338A00", "82338A18"}
+SOURCE_EOR_HAVOK_FLOOR = {"82738B58"}
 def verify_pinned_codegen(directory, addresses):
     if not addresses:
         return
@@ -38,7 +39,7 @@ a=[]
 for line in entries:
  line=line.split('#',1)[0].strip().removeprefix('0x').upper()
  if not line:continue
- if not re.fullmatch('[89A-F][0-9A-F]{7}',line) or (line not in valid and line not in SOURCE_PINNED_SEGMENT_HOOKS and line not in SOURCE_EOR_CAMERA_GETTERS):raise SystemExit('Not a mapped Hulk guest address: '+line)
+ if not re.fullmatch('[89A-F][0-9A-F]{7}',line) or (line not in valid and line not in SOURCE_PINNED_SEGMENT_HOOKS and line not in SOURCE_EOR_CAMERA_GETTERS and line not in SOURCE_EOR_HAVOK_FLOOR):raise SystemExit('Not a mapped Hulk guest address: '+line)
  if line in a:raise SystemExit('Duplicate hook: '+line)
  a.append(line)
 if len(sys.argv) >= 5:
@@ -58,7 +59,7 @@ if len(sys.argv) >= 5:
             raise SystemExit("Wrong original segment hook role: " + addr)
     print("embedded profile hook addresses verified:", len(mandatory))
 if len(sys.argv) == 6:
-    verify_pinned_codegen(Path(sys.argv[5]), set(a) & (SOURCE_PINNED_SEGMENT_HOOKS.keys() | SOURCE_EOR_CAMERA_GETTERS))
+    verify_pinned_codegen(Path(sys.argv[5]), set(a) & (SOURCE_PINNED_SEGMENT_HOOKS.keys() | SOURCE_EOR_CAMERA_GETTERS | SOURCE_EOR_HAVOK_FLOOR))
 
 # These original USA PPC methods are NOT XDK APIs. Their named engine
 # shader-vtable entry identity was verified against the user's actual
@@ -121,7 +122,7 @@ SOURCE_EOR_CAMERA_OPTION_METHODS = {"823399E8", "82339A08", "82339A30"}
 SOURCE_EOR_SUBTITLE_GETTER = {"82338A38"}
 SOURCE_EOR_AUDIO_MENU_METHODS = {"82339D08","82339D20","82339D90","82339E28"}
 SOURCE_EOR_HAVOK_STEP_METHODS = {"82508F60", "82509C18"}
-SOURCE_EOR_HAVOK_CATCHUP_METHODS = {"82611740"}
+SOURCE_EOR_HAVOK_CATCHUP_METHODS = SOURCE_EOR_HAVOK_FLOOR
 # 0x825F8A50 is original Decal item-material setter, independently verified
 # from PPC bl 0x82642CB0 and its native shader context ABI.
 SOURCE_EOR_MATERIAL_METHODS = {"825F8A50"}

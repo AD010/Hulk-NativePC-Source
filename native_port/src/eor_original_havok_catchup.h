@@ -30,6 +30,17 @@ inline std::optional<CatchupPlan> PlanOriginalCatchup(
   if(pending-extra>120u)return {}; // bounded debt, no spiral on long stalls
   return CatchupPlan{remainder+float(extra)*step,pending-extra,extra};
 }
+// The retail scheduler calls its floor helper after its pre-physics callbacks
+// and after reading the live elapsed/step. The same helper is used elsewhere
+// in the game, so only this exact return address and quotient are admissible.
+inline constexpr uint32_t kOriginalSchedulerFloorReturn=0x8261187cu;
+inline bool MatchesOriginalSchedulerFloorInput(uint32_t lr,double quotient,
+    float elapsed,float step) noexcept {
+  return lr==kOriginalSchedulerFloorReturn &&
+      std::isfinite(quotient) && std::isfinite(elapsed) &&
+      elapsed>0 && elapsed<=0.25f && step==kOriginalStep &&
+      quotient==static_cast<double>(elapsed/step);
+}
 struct OuterClock {
   uint32_t owner=0,world=0,simulation=0,scheduler=0;
   float elapsed=0,step=0,accumulator=0,simulation_time=0;
@@ -45,6 +56,7 @@ std::optional<OuterClock> CaptureOuterClock(uint32_t owner,Read&& read) noexcept
   };
   if(!owner || !pin(0x82611740u,40,0x3c2a2346f021cdc9ull) ||
      !pin(0x82611848u,284,0x0be7ba327ab8184bfull) ||
+     !pin(0x82738B58u,60,0xb241b2feddc2c150ull) ||
      !pin(0x8267BBC8u,128,0x1c06e98d41f8865cull) ||
      !pin(0x8296B180u,128,0x5d1cfcf739311e39ull) ||
      !pin(0x8296B200u,88,0xfb59ee03a13e5ec6ull) ||

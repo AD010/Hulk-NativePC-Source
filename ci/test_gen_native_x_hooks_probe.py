@@ -169,6 +169,9 @@ with tempfile.TemporaryDirectory() as tmp:
     cpp = out.read_text()
     for address in ("82338A00","82338A18"):
         assert "HULK_EOR_CAMERA_GETTER_HOOK(" + address + ")" in cpp
+    assert "HULK_EOR_HAVOK_CATCHUP_HOOK(82738B58)" in cpp
+    assert "HULK_EOR_HAVOK_CATCHUP_HOOK(82611740)" not in cpp
+    assert "HULK_NATIVE_X_HOOK(82738B58" not in cpp
     for address in segment_roles:
         assert "HULK_NATIVE_X_HOOK(" + address + "," in cpp
         assert "case 0x" + address + "u: return true;" in cpp

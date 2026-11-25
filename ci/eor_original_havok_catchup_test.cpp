@@ -5,6 +5,18 @@
 using namespace hulk::eor::havok;
 static void check(bool v){if(!v)std::abort();}
 int main(){
+  // Original 82611874 fdivs followed by BL to 82738B58:
+  // the host may recover debt only after all pre-step callbacks, at
+  // the matching source LR and the actual single-precision quotient.
+  const float slow=kOriginalStep*7.25f;
+  const double quotient=static_cast<double>(slow/kOriginalStep);
+  check(MatchesOriginalSchedulerFloorInput(kOriginalSchedulerFloorReturn,
+        quotient,slow,kOriginalStep));
+  check(!MatchesOriginalSchedulerFloorInput(0x82611878u,quotient,slow,kOriginalStep));
+  check(!MatchesOriginalSchedulerFloorInput(kOriginalSchedulerFloorReturn,
+        quotient+1,slow,kOriginalStep));
+  check(!MatchesOriginalSchedulerFloorInput(kOriginalSchedulerFloorReturn,
+        quotient,slow,1.0f/30));
   for(unsigned fps=30;fps<=240;++fps) {
     const float dt=1.0f/float(fps);
     auto p=PlanOriginalCatchup(dt,kOriginalStep,0,0);

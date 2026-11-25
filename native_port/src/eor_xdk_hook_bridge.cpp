@@ -330,21 +330,27 @@ void RestoreOriginalSubtitleOption(const PPCContext& ctx,uint8_t* base) noexcept
 
 void ApplyOriginalHavokCatchup(const PPCContext& ctx,uint8_t* base) noexcept {
 #ifdef _WIN32
+  // Called from the original floor routine. All other callers must leave
+  // even the TLS debt untouched. The scheduler owns r31 at this BL.
+  if(static_cast<uint32_t>(ctx.lr)!=havok::kOriginalSchedulerFloorReturn)return;
   struct Debt {
     uint8_t* base=nullptr;
     uint32_t owner=0,world=0,simulation=0,scheduler=0,ticks=0;
     float time=0;
   };
-  // The outer original world update is called on the owning game thread.
-  // Only its own accumulator may be changed, before any worker is woken.
+  // The original scheduler has finished its pre-step callbacks and read
+  // elapsed/step. It has not loaded owner+24 or woken any Havok worker.
+  // Inject only into that accumulator at this exact source call boundary.
   static thread_local Debt debt;
   if(!base || !REXCVAR_GET(hulk_original_havok_catchup)) {debt={};return;}
   try {
-    const auto clock=havok::CaptureOuterClock(ctx.r3.u32,
+    const auto clock=havok::CaptureOuterClock(ctx.r31.u32,
         [&](uint32_t address,uint8_t* data,size_t size) {
           return ReadGuest(base,address,reinterpret_cast<std::byte*>(data),size);
         });
-    if(!clock) {debt={};return;}
+    if(!clock || !havok::MatchesOriginalSchedulerFloorInput(
+        static_cast<uint32_t>(ctx.lr),ctx.f1.f64,clock->elapsed,clock->step))
+      {debt={};return;}
     if(debt.base!=base || debt.owner!=clock->owner || debt.world!=clock->world ||
        debt.simulation!=clock->simulation || debt.scheduler!=clock->scheduler ||
        clock->simulation_time<debt.time)debt={};
