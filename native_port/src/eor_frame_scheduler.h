@@ -54,5 +54,8 @@ class NativeHavokTickRunner {
   uint32_t budget_=8;
   uint64_t total_ticks_=0;
   bool faulted_=false;
+  // A world-step callback may synchronously run game code. Never permit
+  // recursive ticks or reset the clock while original Havok jobs are active.
+  bool dispatching_=false;
 };
 } // namespace hulk::eor::timing
