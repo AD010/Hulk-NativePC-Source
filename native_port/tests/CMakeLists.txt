@@ -98,6 +98,10 @@ if(HULK_DILIGENT_CORE)
     endif()
 endif()
 
+add_executable(hulk_runtime_vertex_compaction_test ../../ci/eor_runtime_vertex_compaction_test.cpp)
+target_compile_features(hulk_runtime_vertex_compaction_test PRIVATE cxx_std_20)
+add_test(NAME runtime_vertex_compaction COMMAND hulk_runtime_vertex_compaction_test)
+
 add_executable(hulk_original_resolve_reuse_test ../../ci/eor_original_resolve_reuse_test.cpp)
 target_compile_features(hulk_original_resolve_reuse_test PRIVATE cxx_std_20)
 add_test(NAME original_resolve_reuse COMMAND hulk_original_resolve_reuse_test)

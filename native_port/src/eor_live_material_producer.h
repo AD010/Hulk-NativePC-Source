@@ -4,6 +4,7 @@
 // Draw, its ShaderContainer hashes, exact archive geometry and texture owner.
 #include "eor_diligent_aot_backend.h"
 #include "eor_native_draw_geometry.h"
+#include "eor_runtime_vertex_compaction.h"
 #include "eor_original_shader_samplers.h"
 #include "eor_spirv_texture_bindings.h"
 #include <algorithm>
@@ -501,12 +502,8 @@ inline DecodedRuntimeGeometry DecodeOriginalRuntimeGeometry(
       throw std::invalid_argument("Transient effective vertex outside range");
     sequence.push_back(static_cast<uint32_t>(effective));
   }
-  const auto [minimum,maximum]=std::minmax_element(sequence.begin(),sequence.end());
-  const uint32_t first=*minimum;
-  const uint64_t size=uint64_t(*maximum)-first+1u;
-  if(size>1048576u)throw std::invalid_argument("Transient vertex span too large");
-  for(auto& i:sequence)i-=first;
-  DecodedRuntimeGeometry out;out.vertex_count=static_cast<uint32_t>(size);
+  const auto owners=CompactRuntimeIndices(sequence);
+  DecodedRuntimeGeometry out;out.vertex_count=static_cast<uint32_t>(owners.size());
   out.indices.reserve(*triangle_count);
   if(primitive==4u)out.indices=sequence;
   else if(primitive==5u)for(uint32_t i=0;i+2<count;++i) {
@@ -539,15 +536,14 @@ inline DecodedRuntimeGeometry DecodeOriginalRuntimeGeometry(
     if(!bytes && slot==0u)bytes=call.source_vb0;
     if(!binding || !bytes || !binding->Matches(*bytes) ||
        !binding->stride || binding->stride>192u || binding->stride%4u ||
-       (uint64_t(first)+size)*binding->stride>binding->length)
+       (uint64_t(owners.back())+1u)*binding->stride>binding->length)
       throw std::invalid_argument("Transient vertex window outside source allocation");
     auto [it,inserted]=streams.try_emplace(slot);
     if(inserted) {
       auto& mesh=it->second;mesh.original_vertex_stride=binding->stride;
       mesh.positions.resize(out.vertex_count);
-      const size_t begin=size_t(binding->offset)+size_t(first)*binding->stride;
-      const size_t end=begin+size_t(size)*binding->stride;
-      mesh.original_vertex_stream.assign(bytes->bytes.begin()+begin,bytes->bytes.begin()+end);
+      mesh.original_vertex_stream=GatherRuntimeVertexBytes(bytes->bytes,
+          binding->offset,binding->length,binding->stride,owners);
     }
     const auto format=RuntimeAttribute(*element);
     if(!format || (input.uint_bits && input.location!=1u &&
@@ -558,9 +554,17 @@ inline DecodedRuntimeGeometry DecodeOriginalRuntimeGeometry(
     auto values=model::DecodeVerifiedAttribute(it->second,*format);
     if(format->components<4u)for(auto& v:values)v[3]=1.f;
     out.attributes.emplace_back();out.integer_attributes.emplace_back();
-    if(input.location==9u) {
+    if(input.uint_bits) {
       auto& ints=out.integer_attributes.back();ints.reserve(values.size());
-      for(const auto& v:values)ints.push_back({uint32_t(v[0]),uint32_t(v[1]),uint32_t(v[2]),uint32_t(v[3])});
+      if(input.location==9u) {
+        for(const auto& v:values)ints.push_back({uint32_t(v[0]),uint32_t(v[1]),uint32_t(v[2]),uint32_t(v[3])});
+      } else {
+        // Match the already authenticated archive normal/tangent ABI.
+        if((input.location!=1u && input.location!=2u) || input.components!=4u ||
+           element->original_packed_type!=0x1a2186u || format->components!=4u)
+          throw std::invalid_argument("Unverified transient normal/tangent bit representation");
+        for(const auto& v:values)ints.push_back(RuntimeFloatAttributeBits(v));
+      }
     } else out.attributes.back()=std::move(values);
     Diligent::LayoutElement layout{input.location,static_cast<uint32_t>(out.layout.size()),4,
         input.uint_bits?Diligent::VT_UINT32:Diligent::VT_FLOAT32,Diligent::False};

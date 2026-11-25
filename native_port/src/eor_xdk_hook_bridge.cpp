@@ -2397,7 +2397,9 @@ struct AutomaticEorOwner {
           } catch(const std::invalid_argument&) {}
         }
         auto project=[&](gpu::VerifiedOriginalGraphicsPass& pipeline,const aot::Digest& digest) {
-          if(!contract.output.widescreen_camera)return;
+          // View classification also controls PC key art and world AF in
+          // 16:9. Only the requirement for projection expansion depends
+          // on whether the physical output changes the original aspect.
           const auto& extent=call.observed_vs_matrices->original_color_extent;
           if(extent && (extent->width!=1280u || extent->height!=720u)) {
             pipeline.original_view_space=gpu::VerifiedOriginalViewSpace::Offscreen;
@@ -2411,8 +2413,11 @@ struct AutomaticEorOwner {
               std::nullopt;
           if(!projection) {
             if(!vertex || !(vertex->scalar_preserves_clip_xyw ? *vertex->scalar_preserves_clip_xyw :
-                aot::ScalarPreservesClipXYW(vertex->spirv)))
-              throw std::invalid_argument("Live perspective or clip-space camera matrix not proven");
+                aot::ScalarPreservesClipXYW(vertex->spirv))) {
+              if(contract.output.widescreen_camera)
+                throw std::invalid_argument("Live perspective or clip-space camera matrix not proven");
+              return; // exact original aspect needs no projection change
+            }
             // Geometry is already in clip coordinates. Preserve its original
             // picture aspect unless this is a proven full-screen post pass.
             pipeline.original_view_space=gpu::VerifiedOriginalViewSpace::OriginalAspectHud;
