@@ -18,6 +18,7 @@
 #include <map>
 #include <memory>
 #include <span>
+#include <string>
 #include <vector>
 
 namespace Diligent {
