@@ -532,10 +532,21 @@ std::optional<OriginalPixelSamplerControls> ReadOriginalPixelSamplerControls(
         const auto f0=Be32(inst),f1=Be32(inst+4),f2=Be32(inst+8);
         const auto opcode=f0&31u;
         if(opcode==19 || opcode==25 || opcode==26)continue; // weights, set gradients
-        if(opcode!=1 || (f0>>20&31u)>=16 || (f0&(1u<<25)) ||
+        // Pinned XenosRecomp getCompTexLod2D emits a real pixel-stage
+        // CalculateLevelOfDetailUnclamped using this image and sampler.
+        // Retain the same sampler slot in the live material witness.
+        const bool lod_query=opcode==17u;
+        if((opcode!=1u && !lod_query) || (f0>>20&31u)>=16 || (f0&(1u<<25)) ||
            (f1>>18&7u)!=7 || (f1>>21&7u)!=0 || (f2>>2&127u)!=0)return {};
         const auto filters=(f1>>12)&63u;
-        if(filters!=0u && filters!=63u)return {};
+        if(lod_query) {
+          // TextureFetchInstruction: useCompLod=word1 bit28,
+          // useRegLod=bit29, useRegGradients=word2 bit0, dimension=14..15.
+          // Only the source-supported implicit 2D query with inherited
+          // filtering is admitted; no synthetic LOD or sampler override.
+          if((f1&(3u<<28))!=(1u<<28) || (f2&1u) ||
+             (f2>>14&3u)!=1u || filters!=63u)return {};
+        } else if(filters!=0u && filters!=63u)return {};
         const auto mask=static_cast<uint16_t>(1u<<(f0>>20&15u));
         const bool point=filters==0;
         if((controls.sampled_slots&mask) && bool(controls.point_slots&mask)!=point)
