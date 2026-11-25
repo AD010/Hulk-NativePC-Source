@@ -100,7 +100,7 @@ bool DiligentSceneTargets::Prepare(const native::FrameGeometry& frame,
      state_->formats.color==verified.color && state_->formats.depth==verified.depth &&
      state_->color && (state_->depth || verified.depth==NativeDepthFormat::None ||
                       graph.active()) && state_->resolved &&
-     state_->formats.original_graph==graph) {
+     SameOriginalTargetStorage(state_->formats.original_graph,graph)) {
     // Native attachment storage is reusable at the same extent/format,
     // but the verified Xbox RT0/depth/front-buffer *owner* can change
     // after a menu transition, loading screen or resource recreation.

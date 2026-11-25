@@ -1944,8 +1944,8 @@ bool SameAutomaticScene(const AutomaticSceneContract& a,
          a.output.samples==b.output.samples &&
          a.format.color==b.format.color && a.format.depth==b.format.depth &&
          x.guest_device==y.guest_device && x.guest_rt0==y.guest_rt0 &&
-         x.guest_depth==y.guest_depth && x.guest_front_buffer==y.guest_front_buffer &&
-         a.format.original_graph==b.format.original_graph;
+         x.guest_depth==y.guest_depth &&
+         gpu::SameOriginalTargetStorage(a.format.original_graph,b.format.original_graph);
 }
 struct AutomaticArchivePaths {
   std::filesystem::path index,models,textures,streams;
@@ -2298,7 +2298,12 @@ std::shared_ptr<const VerifiedWorkerEorOwnerCatalog> BuildAutomaticOriginalOwner
   };
   catalog->accepts_live_source=[owned](const Frame& frame,native::Size size) {
     const auto live=OriginalTargetContract(frame,size,owned->pack);
-    return live && SameAutomaticScene(owned->contract,*live);
+    if(!live || !SameAutomaticScene(owned->contract,*live) ||
+       !owned->backend->RebindOriginalFrontBuffer(live->format))return false;
+    // The live source contract is established for this exact immutable
+    // frame, never from the previous Present or a guessed swapchain index.
+    owned->contract=*live;
+    return true;
   };
   return catalog;
 }

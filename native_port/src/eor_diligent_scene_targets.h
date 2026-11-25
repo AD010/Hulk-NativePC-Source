@@ -3,6 +3,7 @@
 // No Xenos EDRAM aliasing; no guessed game render-state, sampler or PSO.
 // Must run on the render thread of an existing DiligentCore/Vulkan device.
 #include "eor_native_frame.h"
+#include "eor_original_target_storage.h"
 #include "eor_xdk_draw_capture.h"
 #include <cstdint>
 #include <memory>

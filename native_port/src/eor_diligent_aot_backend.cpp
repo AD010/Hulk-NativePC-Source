@@ -748,6 +748,27 @@ bool DiligentEorDirectBackend::CanReplayOriginalXdkCommand(
       return false;
   }
 }
+bool DiligentEorDirectBackend::RebindOriginalFrontBuffer(const VerifiedSceneFormat& verified) {
+  if(!state_ || state_->scene_open || state_->frame_preflight_ready)return false;
+  auto& s=*state_;
+  const auto& a=s.format.original_screen;
+  const auto& b=verified.original_screen;
+  if(!s.format.original_graph.active() || !verified.original_graph.active() ||
+     s.format.color!=verified.color || s.format.depth!=verified.depth ||
+     !verified.original_color_format_verified || !verified.original_depth_format_verified ||
+     !b.exact_guest_to_native_targets_verified || !b.final_resolve_to_front_buffer_verified ||
+     b.guest_front_buffer!=verified.original_graph.front_buffer ||
+     a.guest_device!=b.guest_device || a.guest_rt0!=b.guest_rt0 ||
+     a.guest_depth!=b.guest_depth ||
+     !SameOriginalTargetStorage(s.format.original_graph,verified.original_graph))return false;
+  if(a.guest_front_buffer==b.guest_front_buffer)return true;
+  // A failed queue fence may leave old staged references alive. Do not
+  // mutate the owner of an epoch whose GPU lifetime has not been retired.
+  if(!s.runtime_uploads.empty() || !s.font_uploads.empty())return false;
+  auto next=verified;
+  s.format=std::move(next);
+  return true;
+}
 bool DiligentEorDirectBackend::CanReplayOriginalXdkTimeline(
     const xdk::Frame& source) const {
   if(!state_ || !xdk::ValidateOriginalCommandTimeline(source))return false;

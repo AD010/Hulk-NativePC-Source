@@ -166,6 +166,9 @@ class DiligentEorDirectBackend final : public aot::ShaderBindingBackend {
   // staging immediately; unlike RetireCompleted this is NOT a completion
   // fence and must never touch a font Draw that entered BeginScene.
   void DiscardUnsubmittedOriginalFontDraws(uint64_t rejected_frame) noexcept;
+  // Rebind ONLY the independently revalidated rotating Present destination.
+  // All actual host allocations, source material keys and draw targets stay unchanged.
+  bool RebindOriginalFrontBuffer(const VerifiedSceneFormat& verified);
   bool PreflightOriginalScene(
       std::span<const aot::BoundIndexedDraw> draws) override;
   bool CanReplayOriginalXdkTimeline(const xdk::Frame& source) const override;
