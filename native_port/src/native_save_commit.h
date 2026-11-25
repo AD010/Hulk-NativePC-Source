@@ -78,7 +78,8 @@ inline bool CommitMetadata(const std::filesystem::path& target,
   fs::path staging;
   try {
     std::error_code ec;
-    fs::create_directories(target.parent_path(), ec);
+    const auto parent = target.has_parent_path() ? target.parent_path() : fs::path(".");
+    fs::create_directories(parent, ec);
     if (ec) return false;
     auto status = fs::symlink_status(target, ec);
     if (ec && ec != std::errc::no_such_file_or_directory) return false;
@@ -122,7 +123,7 @@ inline bool CommitMetadata(const std::filesystem::path& target,
       }
     }
     // Persist recovery-directory entries before replacing the live name.
-    if (!SyncCommitDirectory(staging) || !SyncCommitDirectory(target.parent_path()))
+    if (!SyncCommitDirectory(staging) || !SyncCommitDirectory(parent))
       return false;
     if (!ReplaceCommitFile(temporary, target)) {
       fs::remove(temporary, ec);
@@ -130,7 +131,9 @@ inline bool CommitMetadata(const std::filesystem::path& target,
       if (!existed) fs::remove(staging, ec);
       return false;
     }
-    if (!SyncCommitDirectory(target.parent_path())) return false;
+    // The rename crosses from staging into its parent; persist both
+    // directory entries before reporting a completed replacement.
+    if (!SyncCommitDirectory(staging) || !SyncCommitDirectory(parent)) return false;
     // A successful overwrite keeps its backup directory. First creation
     // leaves no empty transaction directory behind.
     if (!existed) fs::remove(staging, ec);

@@ -22,6 +22,24 @@ int main(int argc, char** argv) {
   assert(read(target)==original);
   assert(hulk::save::CommitMetadata(target, next.data(), next.size()));
   assert(read(target)==next);
+  // Bare relative filenames must use the current directory, not an empty
+  // parent path. Keep the test confined to its temporary save directory.
+  const auto old_cwd=fs::current_path();
+  fs::create_directory(root/"relative");
+  fs::current_path(root/"relative");
+  assert(hulk::save::CommitMetadata("relative.header",original.data(),original.size()));
+  assert(hulk::save::CommitMetadata("relative.header",next.data(),next.size()));
+  assert(read("relative.header")==next);
+  unsigned relative_backups=0;
+  for(const auto& item:fs::directory_iterator(".")) {
+    if(item.is_directory() && fs::exists(item.path()/"previous")) {
+      assert(read(item.path()/"previous")==original);
+      assert(!fs::exists(item.path()/"new"));
+      ++relative_backups;
+    }
+  }
+  assert(relative_backups==1);
+  fs::current_path(old_cwd);
   unsigned backups=0;
   for (const auto& item:fs::directory_iterator(root)) {
     if (item.is_directory() && fs::exists(item.path()/"previous")) {
