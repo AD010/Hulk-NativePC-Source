@@ -273,8 +273,8 @@ int main() {
     Expect(key=="vsync" && value=="false","Unexpected live PC setting");
     return true;
   };
-  const auto changed=hulk::options::CommitLivePcMenuValue("vsync","false",apply);
-  Expect(changed.persisted && changed.live_applied && !changed.RestartRequired() &&
+  const auto live_commit=hulk::options::CommitLivePcMenuValue("vsync","false",apply);
+  Expect(live_commit.persisted && live_commit.live_applied && !live_commit.RestartRequired() &&
          live_calls==1,"Shared PC menu live setting was not applied");
   const auto deferred=hulk::options::CommitLivePcMenuValue("fullscreen","true",apply);
   Expect(deferred.persisted && !deferred.live_applied && deferred.RestartRequired() &&
