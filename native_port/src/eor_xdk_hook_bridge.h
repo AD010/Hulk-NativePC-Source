@@ -178,6 +178,8 @@ bool InstallVerifiedSourceShaderPack(
     std::shared_ptr<const aot::OriginalXdkShaderSamplers> samplers = {},
     std::shared_ptr<const aot::OriginalVirtualShaderIdentity> virtual_ids = {});
 bool HasVerifiedSourceShaderPack() noexcept;
+// Source-only identity metadata permits live AOT demand before the first SPIR-V pair exists.
+bool HasVerifiedOriginalShaderCaptureIndex() noexcept;
 void ClearVerifiedSourceShaderPack() noexcept;
 // Thread-safe source submission. A complete source-proven EoR engine owner
 // must supply this per-frame; startup AOT shader banks alone are insufficient.

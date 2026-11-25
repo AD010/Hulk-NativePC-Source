@@ -113,12 +113,20 @@ bool NativeXInitialize(
     const bool available=hulk::eor::xdk::HasVerifiedSourceShaderPack() ||
         hulk::eor::xdk::InstallVerifiedSourceShaderPackFromDirectory(original_source_root);
     if(!available) {
-      // Preserve normal pacing and avoid byte-exact VB/IB capture when
-      // no EoR submission can possibly succeed. Do not mutate saved TOML.
-      rex::cvar::SetFlagByName("hulk_eor_vulkan_replay","false");
-      direct_eor_requested=false;
-      REXLOG_WARN("[HULK/EOR-WORKER] complete source pack unavailable; "
-                  "direct replay disabled for this session");
+      // The app installs authentic HEORVRT1/HEORMAT2 even before DXC
+      // produces its first pair. Keep the worker and source capture alive
+      // so real Draws can feed HEORREQ1 and hot-adopt the resulting bank.
+      // TryWorkerEorFrame still refuses all GPU replay without a verified
+      // compiled pack and exact material/target ownership.
+      if(hulk::eor::xdk::HasVerifiedOriginalShaderCaptureIndex()) {
+        REXLOG_INFO("[HULK/EOR-WORKER] original shader identities ready; "
+                    "waiting for first source-observed compiled VS/PS");
+      } else {
+        rex::cvar::SetFlagByName("hulk_eor_vulkan_replay","false");
+        direct_eor_requested=false;
+        REXLOG_WARN("[HULK/EOR-WORKER] original shader identities unavailable; "
+                    "direct replay disabled for this session");
+      }
     }
   }
   bool native_requested = rex::cvar::Query<bool>("native_x_renderer");

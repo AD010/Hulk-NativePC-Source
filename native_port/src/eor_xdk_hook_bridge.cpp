@@ -1762,6 +1762,14 @@ void InstallOriginalEorMaterialCandidateIndexPath(
   g_last_incremental_spirv_write={};
   g_last_incremental_spirv_size=0;
 }
+bool HasVerifiedOriginalShaderCaptureIndex() noexcept {
+  std::lock_guard lock(g_mutex);
+  return g_original_shader_capture_index &&
+      g_original_shader_capture_index->size()==5194u &&
+      g_original_effect_capture_catalog &&
+      g_original_effect_capture_catalog->PairCount()==2597u &&
+      g_original_effect_capture_catalog->ShaderCount()==5194u;
+}
 bool HasVerifiedSourceShaderPack() noexcept {
   std::lock_guard lock(g_mutex);
   return g_offline_shader_pack && g_offline_shader_pack->shaders &&
