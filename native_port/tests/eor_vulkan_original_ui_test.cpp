@@ -564,10 +564,16 @@ static void VerifyStagedGlyphReplay(IRenderDevice* device,IDeviceContext* contex
   gpu::DiligentMeshUploadBackend meshes(device);
   gpu::DiligentSceneTargets scene(device,context);
   unsigned composites=0;
+  bool mask_all_color=false;
   auto output=[&](ITextureView* image,eor::native::Rect,eor::native::Size) {
     auto rgba=ReadPixels(device,context,image->GetTexture());
     for(size_t i=0;i<rgba.size();i+=4)std::swap(rgba[i],rgba[i+2]);
-    if(rgba!=expected_bgra)throw std::runtime_error("Staged Font_Main readback differs from reference");
+    if(mask_all_color) {
+      const std::array clear_pixel{std::byte{255},std::byte{0},std::byte{255},std::byte{255}};
+      for(size_t i=0;i<rgba.size();i+=4)
+        if(!std::equal(clear_pixel.begin(),clear_pixel.end(),rgba.begin()+i))
+          throw std::runtime_error("Font_Main variant wrote masked color channels");
+    } else if(rgba!=expected_bgra)throw std::runtime_error("Staged Font_Main readback differs from reference");
     ++composites;return true;
   };
   auto constants=[&](IShaderResourceBinding* binding,const auto&...) {
@@ -627,6 +633,21 @@ static void VerifyStagedGlyphReplay(IRenderDevice* device,IDeviceContext* contex
   replay(call,staged,backend);
   if(composites!=1)throw std::runtime_error("Staged glyph replay did not complete exactly once");
   backend.RetireCompletedOriginalFontDraws(sequence); // ReadPixels waited for completion.
+  // Keep the original material and glyphs, but use another genuine XDK
+  // color-mask state. The variant must retain a matching atlas SRB.
+  auto masked=call;
+  auto masked_regs=std::make_shared<xdk::OriginalShaderRegisters>(*regs);
+  masked_regs->fixed_graphics_state=FixtureFixedState(screen.guest_device,0);
+  masked.observed_shader_constants=masked_regs;
+  const auto masked_draw=backend.StageVerifiedOriginalFontDraw(masked,*layout,sequence,ordinal,fixture_owner,0,identities);
+  mask_all_color=true;
+  replay(masked,masked_draw,backend);
+  backend.RetireCompletedOriginalFontDraws(sequence);
+  mask_all_color=false;
+  const auto restored=backend.StageVerifiedOriginalFontDraw(call,*layout,sequence,ordinal,fixture_owner,0,identities);
+  replay(call,restored,backend);
+  backend.RetireCompletedOriginalFontDraws(sequence);
+  if(composites!=3)throw std::runtime_error("Font_Main PSO variant or base restoration failed");
   // Reuse the captured attributes as a controlled indexed mesh. The world
   // uploader packs positions as float3, UV and color as separate float4 arrays.
   // The original shader fetches only two components from the UV stream.
@@ -654,7 +675,7 @@ static void VerifyStagedGlyphReplay(IRenderDevice* device,IDeviceContext* contex
   draw.original_mesh_header_offset=0;draw.original_dynamic_font_draw=false;
   draw.source_nonindexed_linearization_verified=false;draw.original_pixel_sampling=pixel_sampling;
   replay(indexed,draw,world);
-  if(composites!=2)throw std::runtime_error("Indexed mesh did not reproduce the captured glyph image");
+  if(composites!=4)throw std::runtime_error("Indexed mesh did not reproduce the captured glyph image");
   std::cout<<"Native indexed XYZ/UV/color mesh matched the captured glyph reference\n";
   std::cout<<"Production Font_Main replay matched "<<size.width*size.height<<" pixels in one offscreen composite\n";
 }

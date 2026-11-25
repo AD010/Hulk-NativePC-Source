@@ -1150,10 +1150,35 @@ aot::BoundIndexedDraw DiligentEorDirectBackend::StageVerifiedOriginalFontDraw(
     auto pso=CreateOriginalVulkanPipeline(s.device,s.shaders,s.bank,s.effects,pass);
     pipeline=s.pipeline_cache.emplace(material,std::move(pso)).first;
   }
+  // The atlas can be shared by text in different original depth/blend/
+  // color-mask states. Bind this glyph's SRB to the exact live PSO, not
+  // the first glyph's cached material state.
+  const auto& fixed=call.observed_shader_constants->fixed_graphics_state;
+  if(!fixed || fixed->original_guest_device!=live.original_guest_device)
+    throw std::invalid_argument("Original EFont draw lacks fixed graphics state");
+  auto* font_pipeline=pipeline->second.pipeline.RawPtr();
+  if(!MatchesOriginalXdkGraphicsState(pass,*fixed)) {
+    const auto derived=DeriveOriginalXdkGraphicsPipelineState(*fixed,pass.exact_render_state);
+    const auto variant=OriginalPipelineVariantKey(material,*fixed);
+    if(!derived || !variant ||
+       derived->SmplDesc.Count!=s.format.original_graph.Samples(live.original_rt0_guest_object,s.frame.samples))
+      throw std::invalid_argument("Original EFont PSO variant changes target contract");
+    auto exact=pass;
+    exact.exact_render_state=*derived;
+    if(!MatchesOriginalXdkGraphicsState(exact,*fixed))
+      throw std::invalid_argument("Original EFont PSO variant does not match live state");
+    auto found_variant=s.pipeline_variants.find(*variant);
+    if(found_variant==s.pipeline_variants.end()) {
+      auto pso=CreateOriginalVulkanPipeline(s.device,s.shaders,s.bank,s.effects,exact);
+      found_variant=s.pipeline_variants.emplace(*variant,std::move(pso)).first;
+    }
+    font_pipeline=found_variant->second.pipeline.RawPtr();
+  }
   // Distinct glyph batches can share an atlas while changing its sampling
   // mode. Keep the descriptor with this draw until its GPU fence completes.
+  if(!font_pipeline)throw std::runtime_error("Original EFont PSO unavailable");
   Diligent::RefCntAutoPtr<Diligent::IShaderResourceBinding> font_bindings;
-  pipeline->second.pipeline->CreateShaderResourceBinding(&font_bindings,true);
+  font_pipeline->CreateShaderResourceBinding(&font_bindings,true);
   BindUsaFontMainAtlas(s.device,font_bindings,*owner->original_textures[0].uploaded,
                        *call.original_font_fetch);
   auto gpu=ui::UploadOriginalLiveFontDraw(cpu,s.meshes);
@@ -1464,9 +1489,8 @@ bool DiligentEorDirectBackend::PreflightOriginalScene(
         // A streamed material owns the shader pair, vertex layout and
         // images, but fixed-function state belongs to the actual Draw.
         // Derive an additional PSO only from that immutable XDK snapshot.
-        // EFont's separately staged SRB still requires its exact base PSO.
-        if(pass.original_dynamic_font_vertex_layout_verified ||
-           !pass.original_render_state_verified)return false;
+        // EFont stages its own SRB against the same exact variant key.
+        if(!pass.original_render_state_verified)return false;
         const auto derived=DeriveOriginalXdkGraphicsPipelineState(
             live_state,pass.exact_render_state);
         const auto variant=OriginalPipelineVariantKey(key,live_state);
@@ -1636,7 +1660,7 @@ bool DiligentEorDirectBackend::PreflightOriginalScene(
       s.pipeline_variants.emplace(key,std::move(pipeline));
     }
     for(const auto& item:draws) {
-      if(item.original_dynamic_font_draw || !item.draw.source_frame)continue;
+      if(!item.draw.source_frame)continue;
       const MaterialKey key{item.original_model_hash,item.original_surface_ordinal,
                             item.effect_hash,item.pass_index,!item.draw.guest_vs_matrices->original_depth_guest_object,item.original_runtime_draw,
                             s.format.original_graph.active()?item.draw.guest_vs_matrices->original_rt0_guest_object:0u};
@@ -1650,6 +1674,9 @@ bool DiligentEorDirectBackend::PreflightOriginalScene(
         prepared.draw_bindings=variant.bindings;
         pipeline=variant.pipeline.RawPtr();
       }
+      // EFont already owns a per-glyph atlas SRB created on its exact
+      // base or variant PSO. Do not overwrite it with a shared descriptor.
+      if(item.original_dynamic_font_draw)continue;
       const bool scalar=std::any_of(textures.begin(),textures.end(),[](const auto& texture) {
         return aot::DecodeFixedAotImageSlot(texture.identity.exact_shader_variable_name).has_value();
       });
