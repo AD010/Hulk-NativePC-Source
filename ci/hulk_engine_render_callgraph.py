@@ -53,11 +53,13 @@ def read_hooks(ini: Path) -> dict[int, str]:
     # USA XDK 6534: Clear 82888D68 converts packed color to float4 and
     # calls ClearF 82888C40, whose inner clear helper is 828885B0.
     # Do not permit a partial pair: otherwise menu and depth clears disappear.
-    if len(hooks) != 10:
-        raise ValueError('Pinned Hulk 6534 profile must provide ten hooks')
+    if len(hooks) != 12:
+        raise ValueError('Pinned Hulk 6534 profile must provide twelve hooks')
+    if hooks.get(0x82886428) != 'KickSegment' or hooks.get(0x82885FF8) != 'NewSegment':
+        raise ValueError('Pinned USA command segment ABI addresses do not match')
     if hooks.get(0x82888D68) != 'Clear' or hooks.get(0x82888C40) != 'ClearF':
         raise ValueError('Pinned USA Clear/ClearF ABI addresses do not match')
-    if len(set(hooks.values())) != 10:
+    if len(set(hooks.values())) != 12:
         raise ValueError('Duplicate XDK method mappings in Hulk profile')
     return hooks
 
@@ -241,6 +243,8 @@ def analyze(reverse: dict[int, list[tuple[int, int]]],
             return 'rt_bind'
         if name in ('Clear', 'ClearF'):
             return 'clear'
+        if name in ('KickSegment', 'NewSegment'):
+            return 'segment'
         return 'tiling'
 
     ranked = []

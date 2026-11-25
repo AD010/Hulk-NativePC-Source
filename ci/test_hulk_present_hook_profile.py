@@ -35,6 +35,8 @@ class TestHulkPresentABI(unittest.TestCase):
         self.assertEqual(hooks.get("0x8288E318"), "DrawIndexedVertices")
         self.assertEqual(hooks.get("0x828897F8"), "Resolve")
         self.assertEqual(hooks.get("0x8287F2C0"), "SetRenderTarget")
+        self.assertEqual(hooks.get("0x82886428"), "KickSegment")
+        self.assertEqual(hooks.get("0x82885FF8"), "NewSegment")
 
 if __name__ == "__main__":
     unittest.main()

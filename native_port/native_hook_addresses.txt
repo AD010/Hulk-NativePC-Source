@@ -68,6 +68,11 @@
 8287F2C0
 8287F628
 8288AD98
+# USA XDK 6534 command segment boundaries, verified original PPC.
+# Their actual generated definitions are checked at build, not historical
+# native PE addresses that change on every recompilation.
+82886428
+82885FF8
 # Original USA EoR virtual shader-method ENTRY scopes (not XDK functions).
 # Verified against original named class vtables in decrypted PPC memory.
 # Wrappers always call through; record source r3 object only when its BE

@@ -21,6 +21,8 @@ HOOKS = """[hooks]
 0x82888D68=Clear
 0x82888C40=ClearF
 0x82880778=Present
+0x82886428=KickSegment
+0x82885FF8=NewSegment
 """
 
 class RenderGraph(unittest.TestCase):
@@ -62,7 +64,9 @@ class RenderGraph(unittest.TestCase):
             cfg = Path(tmp) / 'profile.ini'
             cfg.write_text(HOOKS, encoding='utf-8')
             hooks = read_hooks(cfg)
-            self.assertEqual(len(hooks), 10)
+            self.assertEqual(len(hooks), 12)
+            self.assertEqual(hooks[0x82886428], 'KickSegment')
+            self.assertEqual(hooks[0x82885FF8], 'NewSegment')
             self.assertEqual(hooks[0x82888D68], 'Clear')
             self.assertEqual(hooks[0x82888C40], 'ClearF')
             reverse = {
@@ -75,7 +79,8 @@ class RenderGraph(unittest.TestCase):
             ancestor = next(x for x in result['candidate_ancestors']
                             if x['guest_function'] == '0x82888D68')
             self.assertIn('clear', ancestor['hook_groups'])
-            for missing in ('0x82888D68=Clear', '0x82888C40=ClearF'):
+            for missing in ('0x82888D68=Clear', '0x82888C40=ClearF',
+                            '0x82886428=KickSegment', '0x82885FF8=NewSegment'):
                 cfg.write_text(HOOKS.replace(missing, ''), encoding='utf-8')
                 with self.assertRaises(ValueError):
                     read_hooks(cfg)

@@ -3,9 +3,30 @@
 No rendering is redirected unless a fully validated XDK profile maps every method.
 Usage: python tools/gen_native_x_hooks.py native_hook_addresses.txt analysis/guest_host_mapping.csv output.cpp
 """
-import sys,re,csv,configparser
+import sys,re,csv,configparser,hashlib
 from pathlib import Path
-if len(sys.argv) not in (4, 5): raise SystemExit(__doc__)
+if len(sys.argv) not in (4, 5, 6): raise SystemExit(__doc__)
+# These are verified original USA XDK functions, not historical PE RVAs.
+# The build validates the exact owner XEX and generated symbol definitions.
+# Kick 82886428: SHA256 b84fc4331563e192a0b7733d833fa594b1c79e5bbc400167eb673abc8b541da6
+# New  82885FF8: SHA256 e959315c50eedbcb3375eb500bdb3e4fca242a2eb5988e4a02064e7697bdf380
+SOURCE_PINNED_SEGMENT_HOOKS = {"82886428": "KickSegment", "82885FF8": "NewSegment"}
+def verify_segment_codegen(directory, addresses):
+    if not addresses:
+        return
+    xex = directory.parent.parent / "game" / "default.xex"
+    if hashlib.sha256(xex.read_bytes()).hexdigest() != "346a73690303f6633bfdaf9850e78793fe07cdbfb8f849b89fbee320630b11f0":
+        raise SystemExit("Segment hook source is not the pinned original USA XEX")
+    definitions = dict.fromkeys(addresses, 0)
+    pattern = re.compile(r"(?m)^DEFINE_REX_FUNC\(sub_([0-9a-fA-F]{8})\)")
+    for file in directory.glob("*_recomp.*.cpp"):
+        for match in pattern.finditer(file.read_text(encoding="utf-8")):
+            address = match.group(1).upper()
+            if address in definitions:
+                definitions[address] += 1
+    if any(count != 1 for count in definitions.values()):
+        raise SystemExit("Missing or duplicate original segment codegen body: " + str(definitions))
+    print("original USA segment codegen bodies verified:", len(definitions))
 # When generating the actual executable, the profile is a required source
 # dependency. Developer's old 3-argument probe remains supported, but CMake
 # MUST supply the embedded profile as the fourth argument and fail closed
@@ -16,10 +37,10 @@ a=[]
 for line in entries:
  line=line.split('#',1)[0].strip().removeprefix('0x').upper()
  if not line:continue
- if not re.fullmatch('[89A-F][0-9A-F]{7}',line) or line not in valid:raise SystemExit('Not a mapped Hulk guest address: '+line)
+ if not re.fullmatch('[89A-F][0-9A-F]{7}',line) or (line not in valid and line not in SOURCE_PINNED_SEGMENT_HOOKS):raise SystemExit('Not a mapped Hulk guest address: '+line)
  if line in a:raise SystemExit('Duplicate hook: '+line)
  a.append(line)
-if len(sys.argv) == 5:
+if len(sys.argv) >= 5:
     cfg = configparser.ConfigParser(interpolation=None)
     if not cfg.read(sys.argv[4], encoding="utf-8") or not cfg.has_section("hooks"):
         raise SystemExit("NativeX embedded profile missing [hooks]: " + sys.argv[4])
@@ -31,7 +52,12 @@ if len(sys.argv) == 5:
     if missing:
         raise SystemExit("Profile has uncompiled NativeX PPC hooks: " +
                          ", ".join("0x" + key + "=" + mandatory[key] for key in missing))
+    for addr, role in SOURCE_PINNED_SEGMENT_HOOKS.items():
+        if addr in a and mandatory.get(addr) != role:
+            raise SystemExit("Wrong original segment hook role: " + addr)
     print("embedded profile hook addresses verified:", len(mandatory))
+if len(sys.argv) == 6:
+    verify_segment_codegen(Path(sys.argv[5]), set(a) & SOURCE_PINNED_SEGMENT_HOOKS.keys())
 
 # These original USA PPC methods are NOT XDK APIs. Their named engine
 # shader-vtable entry identity was verified against the user's actual
@@ -100,7 +126,7 @@ SOURCE_EOR_HAVOK_CATCHUP_METHODS = {"82611740"}
 SOURCE_EOR_MATERIAL_METHODS = {"825F8A50"}
 # True original 92-byte per-pass EoR dual-stage source resolver.
 SOURCE_EOR_PASS_METHODS = {"825F84C0"}
-if len(sys.argv) == 5 and (set(mandatory) &
+if len(sys.argv) >= 5 and (set(mandatory) &
                             (SOURCE_INLINE_END | SOURCE_EOR_SHADER_METHODS |
                              SOURCE_EOR_VM_METHODS | SOURCE_EOR_CAMERA_OPTION_METHODS | SOURCE_EOR_SUBTITLE_GETTER | SOURCE_EOR_AUDIO_MENU_METHODS |
                              SOURCE_EOR_HAVOK_STEP_METHODS | SOURCE_EOR_HAVOK_CATCHUP_METHODS | SOURCE_EOR_MATERIAL_METHODS |

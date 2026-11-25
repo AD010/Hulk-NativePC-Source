@@ -150,10 +150,24 @@ with (project / "analysis/guest_host_mapping.csv").open(encoding="utf-8-sig",
     rows = list(csv.DictReader(stream))
 registered = {r["guest_address"].removeprefix("0x").upper(): int(
                   r["native_entry"], 16) for r in rows}
-assert not (absent := (set(required)-set(registered))), (
+# The two new source-pinned segment boundaries are validated against
+# real generated DEFINE_REX_FUNC bodies in the actual Windows build.
+# Do not fabricate historical host PE addresses for new functions.
+segment_roles = {"82886428": "KickSegment", "82885FF8": "NewSegment"}
+assert all(required.get(addr)==role for addr,role in segment_roles.items())
+assert not (absent := (set(required)-set(registered)-set(segment_roles))), (
     "Profile guest functions missing from PPC host map: " +
     ", ".join(sorted(absent)))
 assert registered["82888D68"] == 0x1410ECD70, "USA Clear PPC/AOT mapping drift"
 assert registered["82888C40"] == 0x141FEC5A0, "USA ClearF PPC/AOT mapping drift"
 
+with tempfile.TemporaryDirectory() as tmp:
+    out = Path(tmp) / "hooks.cpp"
+    subprocess.run([sys.executable, str(s), str(project / "native_hook_addresses.txt"),
+        str(project / "analysis/guest_host_mapping.csv"), str(out),
+        str(project / "hulk_native_x_profile.ini")], check=True)
+    cpp = out.read_text()
+    for address in segment_roles:
+        assert "HULK_NATIVE_X_HOOK(" + address + "," in cpp
+        assert "case 0x" + address + "u: return true;" in cpp
 print("GPU strong-hook generator synthetic and full Hulk profile tests: OK")
