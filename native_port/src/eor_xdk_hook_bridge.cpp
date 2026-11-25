@@ -4,6 +4,7 @@
 #include "eor_xdk_hook_bridge.h"
 #include "eor_original_pause_vm.h"
 #include "eor_original_havok_step.h"
+#include "eor_original_havok_catchup.h"
 #include "eor_usa_material_textures.h"
 #include "eor_diligent_aot_backend.h"
 #include "eor_diligent_host_output.h"
@@ -60,6 +61,8 @@ REXCVAR_DEFINE_BOOL(hulk_eor_vulkan_replay, false, "Hulk/Diagnostics",
                     "Opt-in direct EoR Vulkan replay; requires verified sole presenter");
 REXCVAR_DEFINE_BOOL(hulk_original_havok_step_probe, false, "Hulk/Diagnostics",
                     "Verify original Havok world and split-step delta; does not modify timing");
+REXCVAR_DEFINE_BOOL(hulk_original_havok_catchup, false, "Hulk/Physics",
+                    "Experimental bounded catch-up in original 60Hz EoR physics scheduler");
 namespace hulk {
 void CommitOriginalCameraMenuOption(bool yaw,bool value,uint8_t* base) noexcept;
 }
@@ -181,6 +184,65 @@ std::optional<vm::OriginalCameraMenuChange> CaptureOriginalCameraMenuOption(
 void FinishOriginalCameraMenuOption(
     std::optional<vm::OriginalCameraMenuChange> change,uint8_t* base) noexcept {
   if(change)hulk::CommitOriginalCameraMenuOption(change->yaw,change->value,base);
+}
+
+void ApplyOriginalHavokCatchup(const PPCContext& ctx,uint8_t* base) noexcept {
+#ifdef _WIN32
+  struct Debt {
+    uint8_t* base=nullptr;
+    uint32_t owner=0,world=0,simulation=0,scheduler=0,ticks=0;
+    float time=0;
+  };
+  // The outer original world update is called on the owning game thread.
+  // Only its own accumulator may be changed, before any worker is woken.
+  static thread_local Debt debt;
+  if(!base || !REXCVAR_GET(hulk_original_havok_catchup)) {debt={};return;}
+  try {
+    const auto clock=havok::CaptureOuterClock(ctx.r3.u32,
+        [&](uint32_t address,uint8_t* data,size_t size) {
+          return ReadGuest(base,address,reinterpret_cast<std::byte*>(data),size);
+        });
+    if(!clock) {debt={};return;}
+    if(debt.base!=base || debt.owner!=clock->owner || debt.world!=clock->world ||
+       debt.simulation!=clock->simulation || debt.scheduler!=clock->scheduler ||
+       clock->simulation_time<debt.time)debt={};
+    const auto plan=havok::PlanOriginalCatchup(clock->elapsed,clock->step,
+                                              clock->accumulator,debt.ticks);
+    if(!plan) {debt={};return;}
+    if(plan->extra) {
+      // Verified writable aligned 4-byte guest accumulator. Never change
+      // the original global delta, simulation rate or scheduler job fields.
+      const uint64_t address=uint64_t(clock->owner)+24u;
+      const uint64_t offset=address+(address>=0xE0000000u?4096u:0u);
+      if(address>UINT32_MAX-3u || (address&3u) || offset>UINTPTR_MAX-uintptr_t(base))
+        {debt={};return;}
+      const auto at=uintptr_t(base)+uintptr_t(offset);
+      MEMORY_BASIC_INFORMATION info{};
+      if(VirtualQuery(reinterpret_cast<void*>(at),&info,sizeof(info))!=sizeof(info) ||
+         info.State!=MEM_COMMIT || (info.Protect&PAGE_GUARD)) {debt={};return;}
+      const auto protection=info.Protect&0xffu;
+      if(protection!=PAGE_READWRITE && protection!=PAGE_WRITECOPY &&
+         protection!=PAGE_EXECUTE_READWRITE && protection!=PAGE_EXECUTE_WRITECOPY)
+        {debt={};return;}
+      const auto start=uintptr_t(info.BaseAddress);
+      if(at<start || at-start>info.RegionSize || info.RegionSize-(at-start)<4u)
+        {debt={};return;}
+      auto raw=std::bit_cast<uint32_t>(plan->accumulator);
+      const auto expected=std::bit_cast<uint32_t>(clock->accumulator);
+      std::array<uint8_t,4> previous{},next{};
+      for(unsigned i=0;i<4;++i) {
+        previous[i]=uint8_t(expected>>(24-8*i));next[i]=uint8_t(raw>>(24-8*i));
+      }
+      auto* dst=reinterpret_cast<uint8_t*>(at);
+      if(std::memcmp(dst,previous.data(),4)!=0) {debt={};return;}
+      std::memcpy(dst,next.data(),4);
+    }
+    debt={base,clock->owner,clock->world,clock->simulation,clock->scheduler,
+          plan->debt,clock->simulation_time};
+  } catch (...) {debt={};}
+#else
+  (void)ctx;(void)base;
+#endif
 }
 
 void ObserveOriginalHavokStep(uint32_t method,const PPCContext& ctx,uint8_t* base) noexcept {
@@ -2297,13 +2359,15 @@ std::shared_ptr<const VerifiedWorkerEorOwnerCatalog> BuildAutomaticOriginalOwner
     return owned->Prepare(frame,retained);
   };
   catalog->accepts_live_source=[owned](const Frame& frame,native::Size size) {
-    const auto live=OriginalTargetContract(frame,size,owned->pack);
-    if(!live || !SameAutomaticScene(owned->contract,*live) ||
-       !owned->backend->RebindOriginalFrontBuffer(live->format))return false;
-    // The live source contract is established for this exact immutable
-    // frame, never from the previous Present or a guessed swapchain index.
-    owned->contract=*live;
-    return true;
+    try {
+      auto live=OriginalTargetContract(frame,size,owned->pack);
+      if(!live || !SameAutomaticScene(owned->contract,*live) ||
+         !owned->backend->RebindOriginalFrontBuffer(live->format))return false;
+      // The live source contract is established for this exact immutable
+      // frame, never from the previous Present or a guessed swapchain index.
+      owned->contract=std::move(*live);
+      return true;
+    } catch (...) {return false;}
   };
   return catalog;
 }

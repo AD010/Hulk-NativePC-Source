@@ -14,6 +14,8 @@ vulkan_allow_present_mode_fifo_relaxed = false
 vsync = true
 vblank_follows_display = false
 hulk_guest_swap_fps_cap = 0
+# Experimental original EoR 60Hz bounded catch-up; opt in after validation.
+hulk_original_havok_catchup = false
 ignore_thread_affinities = true
 ignore_thread_priorities = true
 hulk_guest_thread_probe = false

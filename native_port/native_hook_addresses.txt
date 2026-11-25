@@ -139,3 +139,6 @@
 # Original Havok 5.1 world step and split-step prepare boundaries (read-only).
 82508F60
 82509C18
+
+# Original EoR physics outer fixed-step update, source-pinned.
+82611740

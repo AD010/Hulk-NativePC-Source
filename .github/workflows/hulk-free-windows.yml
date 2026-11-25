@@ -314,6 +314,12 @@ jobs:
             & $samplerMipTest
             if ($LASTEXITCODE -ne 0) { $cppFailures.Add('Original streamed mip window regression failed') }
           }
+          $havokCatchupTest = Join-Path $env:RUNNER_TEMP 'hulk-eor-original-havok-catchup-test.exe'
+          & cl.exe /nologo /std:c++20 /EHsc /W4 /WX /utf-8 "/Fe:$havokCatchupTest" ci/eor_original_havok_catchup_test.cpp
+          if ($LASTEXITCODE -ne 0) { $cppFailures.Add('Original Havok catch-up regression compile failed') } else {
+            & $havokCatchupTest
+            if ($LASTEXITCODE -ne 0) { $cppFailures.Add('Original Havok catch-up arithmetic failed') }
+          }
           # EoR-only fixed-step clock and motion-vector math; no guest Havok claim.
           $temporalTest = Join-Path $env:RUNNER_TEMP 'hulk-eor-fixed-temporal-test.exe'
           $temporalArgs = @('/nologo','/std:c++20','/EHsc','/W4','/WX','/utf-8',

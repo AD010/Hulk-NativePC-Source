@@ -92,6 +92,7 @@ SOURCE_INLINE_END = {"8288D8F8"}
 SOURCE_EOR_VM_METHODS = {"8264C798"}  # original registered state_r global
 SOURCE_EOR_CAMERA_OPTION_METHODS = {"823399E8", "82339A08"}
 SOURCE_EOR_HAVOK_STEP_METHODS = {"82508F60", "82509C18"}
+SOURCE_EOR_HAVOK_CATCHUP_METHODS = {"82611740"}
 # 0x825F8A50 is original Decal item-material setter, independently verified
 # from PPC bl 0x82642CB0 and its native shader context ABI.
 SOURCE_EOR_MATERIAL_METHODS = {"825F8A50"}
@@ -100,7 +101,7 @@ SOURCE_EOR_PASS_METHODS = {"825F84C0"}
 if len(sys.argv) == 5 and (set(mandatory) &
                             (SOURCE_INLINE_END | SOURCE_EOR_SHADER_METHODS |
                              SOURCE_EOR_VM_METHODS | SOURCE_EOR_CAMERA_OPTION_METHODS |
-                             SOURCE_EOR_HAVOK_STEP_METHODS | SOURCE_EOR_MATERIAL_METHODS |
+                             SOURCE_EOR_HAVOK_STEP_METHODS | SOURCE_EOR_HAVOK_CATCHUP_METHODS | SOURCE_EOR_MATERIAL_METHODS |
                              SOURCE_EOR_PASS_METHODS |
                              SOURCE_EOR_RENDER_ITEM_METHODS)):
     raise SystemExit("Original EoR shader/VM method incorrectly declared an XDK profile entry")
@@ -200,6 +201,16 @@ h += r"""
         __imp__sub_##addr(ctx,base); \
     }
 """
+# Preserve original gameplay physics update and its worker completion
+# barriers. Optional correction acts only on the outer fixed-step accumulator.
+h += r"""
+#define HULK_EOR_HAVOK_CATCHUP_HOOK(addr) \
+    REX_EXTERN(__imp__sub_##addr); \
+    REX_HOOK_RAW(sub_##addr) { \
+        ::hulk::eor::xdk::ApplyOriginalHavokCatchup(ctx,base); \
+        __imp__sub_##addr(ctx,base); \
+    }
+"""
 # Original item-material descriptor setter: observe this source PPC method
 # before original call, but never invoke native Vulkan or change its state.
 h += r"""
@@ -242,6 +253,7 @@ h += r"""
 Path(sys.argv[3]).parent.mkdir(parents=True,exist_ok=True)
 generated = h + '\n'.join(
     'HULK_EOR_INLINE_END_HOOK('+addr+')' if addr in SOURCE_INLINE_END else
+    'HULK_EOR_HAVOK_CATCHUP_HOOK('+addr+')' if addr in SOURCE_EOR_HAVOK_CATCHUP_METHODS else
     'HULK_EOR_HAVOK_STEP_HOOK('+addr+')' if addr in SOURCE_EOR_HAVOK_STEP_METHODS else
     'HULK_EOR_CAMERA_OPTION_HOOK('+addr+')' if addr in SOURCE_EOR_CAMERA_OPTION_METHODS else
     'HULK_EOR_VM_STATE_TRACE_HOOK('+addr+')'

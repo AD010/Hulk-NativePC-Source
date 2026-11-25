@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "guest_slice_sha256": "291d7c3e9646d540ce5a212733c632cc79a090a048cbb88bbd949f32a7432cfe",
+  "outer_update": "0x82611740",
+  "source_fixed_step_constructor": "0x826115D8",
+  "source_fixed_step_constant": "0x820011F4",
+  "fixed_step_bits": "0x3c888889",
+  "fixed_step_hz": 60,
+  "elapsed_global": "0x82E2C804",
+  "enable_byte": "0x82E2D040",
+  "owner": {
+    "wrapper": 0,
+    "world": 4,
+    "fixed_step": 20,
+    "accumulator": 24
+  },
+  "source_clamp": {
+    "address": "0x826118A4",
+    "steps": 3
+  },
+  "worker_wrapper": "0x8267BBC8",
+  "scheduler_publish": "0x8296B180",
+  "scheduler_barrier": "0x8296B200",
+  "mode": "experimental opt-in; preserves original 60Hz stepping, restores bounded catch-up debt; never modifies global delta",
+  "limitations": [
+    "No live game or MSVC build yet",
+    "No whole-game frame pacing guarantee",
+    "Pause/discontinuity or debt overflow resets native debt"
+  ]
+}
