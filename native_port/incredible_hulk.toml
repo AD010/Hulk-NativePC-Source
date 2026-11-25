@@ -7,6 +7,10 @@ hulk_mouse_invert_y = false
 hulk_mouse_invert_x = false
 # -1 inherits original game settings until an explicit menu change.
 hulk_original_subtitles = -1
+# Original EoR mixer preferences, applied through its volume lock/unlock.
+hulk_original_music_volume = -1
+hulk_original_sfx_volume = -1
+hulk_original_dialog_volume = -1
 hulk_mouse_horizontal_multiplier = 1.0
 hulk_mouse_vertical_multiplier = 1.0
 hulk_mouse_diagnostics = false

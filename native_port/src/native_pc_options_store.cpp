@@ -6,6 +6,7 @@
 #include "native_resolution.h"
 
 #include <array>
+#include <charconv>
 #include <cmath>
 #include <cstdlib>
 #include <fstream>
@@ -45,6 +46,16 @@ bool Allowed(std::string_view key, std::string_view value) {
   if (key == "anisotropic_override")
     return value=="-1" || value=="0" || value=="1" || value=="2" ||
            value=="3" || value=="4" || value=="5";
+  if(key=="hulk_original_music_volume" || key=="hulk_original_sfx_volume" ||
+     key=="hulk_original_dialog_volume") {
+    if(value=="-1")return true;
+    if(value.empty() || value.size()>3 ||
+       value.front()<'0' || value.front()>'9' ||
+       (value.size()>1 && value.front()=='0'))return false;
+    uint32_t volume=0;
+    const auto result=std::from_chars(value.data(),value.data()+value.size(),volume);
+    return result.ec==std::errc{} && result.ptr==value.data()+value.size() && volume<=100;
+  }
   if (key == "hulk_original_subtitles")
     return value == "-1" || value == "0" || value == "1";
   if (key == "hulk_guest_swap_fps_cap")
@@ -220,6 +231,15 @@ void SetLiveConfigPath(const std::filesystem::path& path) noexcept {
     std::lock_guard lock(g_live_path_mutex);
     g_live_config_path=path;
   } catch (...) {}
+}
+bool SaveOriginalAudioVolume(std::string_view key,uint32_t value) noexcept {
+  if(value>100 || (key!="hulk_original_music_volume" &&
+      key!="hulk_original_sfx_volume" && key!="hulk_original_dialog_volume"))return false;
+  try {
+    std::filesystem::path path;
+    { std::lock_guard lock(g_live_path_mutex); path=g_live_config_path; }
+    return Save(path,key,std::to_string(value));
+  } catch (...) {return false;}
 }
 bool SaveOriginalSubtitles(bool enabled) noexcept {
   try {

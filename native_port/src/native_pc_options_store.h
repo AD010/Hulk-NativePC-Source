@@ -24,6 +24,7 @@ bool SaveWindowSize(const std::filesystem::path& config_file,
 // configuration. Persist only the axes the game actually changed.
 void SetLiveConfigPath(const std::filesystem::path& path) noexcept;
 bool SaveOriginalSubtitles(bool enabled) noexcept;
+bool SaveOriginalAudioVolume(std::string_view key,uint32_t value) noexcept;
 bool SaveOriginalLookInversion(std::optional<bool> yaw,
                                std::optional<bool> pitch) noexcept;
 

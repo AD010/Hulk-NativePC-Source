@@ -66,6 +66,12 @@ REXCVAR_DEFINE_BOOL(hulk_original_havok_catchup, false, "Hulk/Physics",
                     "Experimental bounded catch-up in original 60Hz EoR physics scheduler");
 REXCVAR_DEFINE_INT32(hulk_original_subtitles, -1, "Hulk/Original Settings",
                     "Original subtitle preference: -1 inherits the game, 0 off, 1 on").range(-1,1);
+REXCVAR_DEFINE_INT32(hulk_original_music_volume,-1,"Hulk/Original Settings",
+                    "Original EoR music volume, -1 inherits game").range(-1,100);
+REXCVAR_DEFINE_INT32(hulk_original_sfx_volume,-1,"Hulk/Original Settings",
+                    "Original EoR effects volume, -1 inherits game").range(-1,100);
+REXCVAR_DEFINE_INT32(hulk_original_dialog_volume,-1,"Hulk/Original Settings",
+                    "Original EoR dialogue volume, -1 inherits game").range(-1,100);
 namespace hulk {
 void CommitOriginalCameraMenuOption(bool yaw,bool value,uint8_t* base) noexcept;
 }
@@ -73,6 +79,8 @@ namespace hulk::eor::xdk {
 namespace {
 std::mutex g_mutex;
 std::mutex g_subtitle_mutex;
+std::mutex g_original_audio_menu_mutex;
+uint8_t* g_original_audio_restored_base=nullptr;
 uint8_t* g_subtitle_restored_base=nullptr;
 std::atomic<uint64_t> g_eor_ready_backbuffers{0};
 std::atomic<uint64_t> g_eor_gpu_failures{0};
@@ -205,6 +213,75 @@ void FinishOriginalCameraMenuOption(
   } catch (...) {}
 }
 
+std::optional<vm::AudioMenuChange> CaptureOriginalAudioMenuOption(
+    uint32_t method,const PPCContext& ctx,uint8_t* base) noexcept {
+  if(!base)return {};
+  return vm::CaptureAudioMenuChange(method,static_cast<uint32_t>(ctx.lr),
+      ctx.r3.u32,ctx.r31.u32,ctx.r27.u32,ctx.r28.u32,
+      [&](uint32_t address,uint8_t* data,size_t size) {
+        return ReadGuest(base,address,reinterpret_cast<std::byte*>(data),size);
+      });
+}
+void FinishOriginalAudioMenuOption(std::optional<vm::AudioMenuChange> change,
+    uint8_t* base) noexcept {
+#ifdef _WIN32
+  if(!base || !change)return;
+  try {
+    std::lock_guard lock(g_original_audio_menu_mutex);
+    const auto read=[&](uint32_t address,uint8_t* data,size_t size) {
+      return ReadGuest(base,address,reinterpret_cast<std::byte*>(data),size);
+    };
+    if(change->channel==vm::AudioChannel::Lock) {
+      if(g_original_audio_restored_base==base)return;
+      const std::array<int32_t,3> prefs{
+          REXCVAR_GET(hulk_original_music_volume),REXCVAR_GET(hulk_original_sfx_volume),
+          REXCVAR_GET(hulk_original_dialog_volume)};
+      const auto plan=vm::PlanDeferredVolumeRestore(*change,prefs,read);
+      if(!plan)return;
+      if(plan->after!=plan->before) {
+        constexpr auto address=vm::kOriginalDeferredVolume;
+        if(address>UINTPTR_MAX-uintptr_t(base))return;
+        auto* dst=reinterpret_cast<uint8_t*>(uintptr_t(base)+address);
+        MEMORY_BASIC_INFORMATION info{};
+        if(VirtualQuery(dst,&info,sizeof(info))!=sizeof(info) ||
+           info.State!=MEM_COMMIT || (info.Protect&PAGE_GUARD))return;
+        const auto protection=info.Protect&0xffu;
+        if(protection!=PAGE_READWRITE && protection!=PAGE_WRITECOPY &&
+           protection!=PAGE_EXECUTE_READWRITE && protection!=PAGE_EXECUTE_WRITECOPY)return;
+        const auto start=uintptr_t(info.BaseAddress),at=uintptr_t(dst);
+        if(at<start || at-start>info.RegionSize || info.RegionSize-(at-start)<12u ||
+           std::memcmp(dst,plan->before.data(),12)!=0 ||
+           vm::ReadVolumeLock(read)!=std::optional<bool>{true})return;
+        std::memcpy(dst,plan->after.data(),12);
+      }
+      g_original_audio_restored_base=base;
+      return;
+    }
+    if(!vm::OriginalVolumeApplied(*change,read))return;
+    const auto value=static_cast<int32_t>(change->value);
+    const char* key=nullptr;
+    int32_t previous=-1;
+    switch(change->channel) {
+      case vm::AudioChannel::Music:
+        key="hulk_original_music_volume";previous=REXCVAR_GET(hulk_original_music_volume);
+        REXCVAR_SET(hulk_original_music_volume,value);break;
+      case vm::AudioChannel::Sfx:
+        key="hulk_original_sfx_volume";previous=REXCVAR_GET(hulk_original_sfx_volume);
+        REXCVAR_SET(hulk_original_sfx_volume,value);break;
+      case vm::AudioChannel::Dialog:
+        key="hulk_original_dialog_volume";previous=REXCVAR_GET(hulk_original_dialog_volume);
+        REXCVAR_SET(hulk_original_dialog_volume,value);break;
+      default:return;
+    }
+    // Source slider callbacks may repeat without any change; no disk I/O
+    // for the unchanged original value. Original mixer remains authoritative.
+    if(previous!=value && !options::SaveOriginalAudioVolume(key,change->value))
+      REXLOG_WARN("[HULK/UI] Original EoR volume changed; PC TOML save failed");
+  } catch (...) {}
+#else
+  (void)change;(void)base;
+#endif
+}
 void RestoreOriginalSubtitleOption(const PPCContext& ctx,uint8_t* base) noexcept {
 #ifdef _WIN32
   if(!base)return;
