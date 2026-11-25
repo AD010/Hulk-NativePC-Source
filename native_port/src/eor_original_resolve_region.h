@@ -30,10 +30,25 @@ inline std::optional<OriginalResolveRegion> MapOriginalResolveRegion(
   if(!ValidOriginalResolveRegion(r,sw,sh,dw,dh) || !host_sw || !host_sh ||
      !host_dw || !host_dh || host_sw>INT32_MAX || host_sh>INT32_MAX ||
      host_dw>INT32_MAX || host_dh>INT32_MAX)return {};
+  // At a noninteger host scale (e.g. 720 -> 1600), an original
+  // eight-texel-aligned rectangle need not land on integer host edges.
+  // Use the same half-open pixel-center convention as the native viewport.
+  // A plain GPU copy is exact only if source and destination grids have
+  // equal scale AND the translation is an integral number of host pixels.
+  // Reject differing phases rather than silently resampling.
+  const auto phase=[](int32_t from,int32_t to,uint32_t src,uint32_t dst,
+                      uint32_t host_src,uint32_t host_dst) {
+    if(uint64_t(host_src)*dst!=uint64_t(host_dst)*src)return false;
+    const int64_t shift=int64_t(to)-from;
+    return (shift*int64_t(host_src))%src==0;
+  };
+  if(!phase(r.source[0],r.destination[0],sw,dw,host_sw,host_dw) ||
+     !phase(r.source[1],r.destination[1],sh,dh,host_sh,host_dh))return {};
   auto scale=[](int32_t v,uint32_t original,uint32_t host)->std::optional<int32_t>{
-    uint64_t n=uint64_t(v)*host;
-    if(n%original || n/original>INT32_MAX)return {};
-    return static_cast<int32_t>(n/original);
+    const uint64_t n=uint64_t(v)*host;
+    const uint64_t rounded=n/original+((n%original)*2u>original?1u:0u);
+    if(rounded>INT32_MAX)return {};
+    return static_cast<int32_t>(rounded);
   };
   OriginalResolveRegion result;
   for(unsigned i=0;i<4;++i) {
