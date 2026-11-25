@@ -95,8 +95,9 @@ void CheckBufferSnapshots() {
   assert(rewritten->bytes[0]==std::byte{0xAB}); // no in-place mutation
   assert(buffers.RetainedBytes()==2*bytes);
   // A completely new buffer at a full budget must not perform guest I/O.
-  const auto no_read=[](void*,uint32_t,std::byte*,size_t) noexcept {
-    assert(false && "Impossible new buffer must not be read");return false;
+  const auto no_read=[](void*,uint32_t,std::byte*,size_t) noexcept -> bool {
+    std::fputs("[HULK/TEST] Impossible new buffer must not be read\n",stderr);
+    std::abort();
   };
   assert(!buffers.Capture(object+4u,address,bytes,no_read,&guest));
   const auto failing=[](void*,uint32_t,std::byte* out,size_t) noexcept {
@@ -841,8 +842,8 @@ int main() {
   const auto independent=mailbox.ClaimLatestIndependentIfSequence(77);
   assert(independent && independent->sequence==77 && !mailbox.Peek());
   assert(mailbox.MissedSinceTake()==0 && mailbox.TotalOverwritten()==1);
-  Frame partial{78,1,{a}};
-  mailbox.Publish(std::move(partial));
+  Frame incomplete_epoch{78,1,{a}};
+  mailbox.Publish(std::move(incomplete_epoch));
   assert(!mailbox.ClaimLatestIndependentIfSequence(78));
   assert(mailbox.DiscardIfSequence(78));
   mailbox.Publish(Frame{79,0,{b}});

@@ -66,7 +66,7 @@ int main() {
   const auto debug_key=OriginalPixelDebugHeaderKey(debug);
   assert(debug_key);
   debug[44]='z';assert(OriginalPixelDebugHeaderKey(debug)==debug_key);
-  std::fill(debug.begin()+44,debug.begin()+52,0);
+  std::fill(debug.begin()+44,debug.begin()+52,uint8_t{0});
   assert(OriginalPixelDebugHeaderKey(debug)==debug_key);
   debug[75]=1;assert(OriginalPixelDebugHeaderKey(debug)!=debug_key);
   debug[75]=0;word(16,51);assert(!OriginalPixelDebugHeaderKey(debug));
