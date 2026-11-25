@@ -84,9 +84,14 @@
         },
         {
             "name": "win-amd64-release",
-            "displayName": "Windows AMD64 Release",
+            "displayName": "Windows AMD64 Release (SSE4.2 / no AVX requirement)",
             "inherits": "windows-base",
-            "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release",
+                "CMAKE_C_FLAGS": "-march=x86-64-v2 -mno-avx -mno-avx2",
+                "CMAKE_CXX_FLAGS": "-march=x86-64-v2 -mno-avx -mno-avx2",
+                "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+            }
         },
         {
             "name": "linux-amd64-debug",

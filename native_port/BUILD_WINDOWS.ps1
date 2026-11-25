@@ -243,13 +243,21 @@ try {
     $SdkBranches = Join-Path (Split-Path $Source -Parent) 'ci\patch_sdk_branch_edges.py'
     Invoke-Checked 'python' @($SdkBranches, $Sdk) $Source
   }
-  $SdkConfigArgs = @('--preset', 'win-amd64')
+  # Same SSE4.2 baseline for the SDK and generated native PPC target.
+  # SIMDe provides the portable implementation when AVX is unavailable.
+  $CpuBaseline = '-march=x86-64-v2 -mno-avx -mno-avx2'
+  $CpuAudit = Join-Path (Split-Path $Source -Parent) 'ci/audit_hulk_cpu_baseline.py'
+  Invoke-Checked 'python' @((Join-Path (Split-Path $Source -Parent) 'ci/test_audit_hulk_cpu_baseline.py')) $Source
+  $SdkConfigArgs = @('--preset', 'win-amd64',
+    "-DCMAKE_C_FLAGS=$CpuBaseline", "-DCMAKE_CXX_FLAGS=$CpuBaseline",
+    '-DCMAKE_EXPORT_COMPILE_COMMANDS=ON')
   if ($NativeXLink) {
     # Windows ReXGlue defaults to D3D12; enable the real Vulkan backend instead.
     $SdkConfigArgs += @('-DREXGLUE_USE_VULKAN=ON', '-DREXGLUE_USE_D3D12=OFF',
       '-DSDL_RENDER=ON', '-DSDL_JOYSTICK=OFF', '-DSDL_GAMEPAD=OFF', '-DSDL_VULKAN=ON')
   }
   Invoke-Checked 'cmake' $SdkConfigArgs $Sdk
+  Invoke-Checked 'python' @($CpuAudit, (Join-Path $Sdk 'out/build/win-amd64/compile_commands.json'), $Sdk) $Source
   Invoke-Checked 'cmake' @('--build', 'out/build/win-amd64', '--config', 'Release', '--target', 'install', '--parallel') $Sdk
   $SdkInstall = Join-Path $Sdk 'out\install\win-amd64'
   $Codegen = Join-Path $SdkInstall 'bin\rexglue.exe'
@@ -559,6 +567,7 @@ try {
     $cmakeArgs += @("-DCMAKE_PREFIX_PATH=$SdkInstall", '-DHULK_WITH_NATIVE_X=OFF')
   }
   Invoke-Checked 'cmake' $cmakeArgs $Source
+  Invoke-Checked 'python' @($CpuAudit, (Join-Path $BuildDir 'compile_commands.json'), $Source) $Source
   Invoke-Checked 'cmake' @('--build', $BuildDir, '--parallel') $Source
   $exe = Join-Path $BuildDir 'incredible_hulk.exe'
   if (-not (Test-Path $exe)) { throw "Build exited without producing $exe" }
