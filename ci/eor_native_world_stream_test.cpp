@@ -220,6 +220,31 @@ void CheckCurrentDrawOvertakesStagedPrefetch() {
   }
   assert(gpu.serial==12u);
 }
+void CheckBoundedPublicationBatch() {
+  FakeGpu gpu;
+  NativeWorldStream stream(std::make_unique<Source>(),gpu,{});
+  const auto before=calls.load();
+  stream.RequestSourceVerifiedModels(std::array<uint32_t,4>{91u,92u,93u,94u});
+  RetryUntil([&]{return calls.load()>=before+4;});
+  std::vector<uint32_t> published;
+  const auto publish=[&](const auto& item){published.push_back(item->original_resource_hash);};
+  assert(stream.TickAndPublishSourceVerifiedModels(4,std::chrono::milliseconds(0),publish)==0);
+  assert(gpu.serial==0u);
+  assert(stream.TickAndPublishSourceVerifiedModels(2,std::chrono::seconds(5),publish)==2);
+  assert(published.size()==2 && published[0]==91u && published[1]==92u);
+  assert(gpu.serial==6u && !stream.LastUploadedOriginalSourceModel());
+  // A slow upload may exceed the budget, but the next one must not start.
+  assert(stream.TickAndPublishSourceVerifiedModels(4,std::chrono::milliseconds(1),
+      [&](const auto& item){
+        publish(item);
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+      })==1);
+  assert(published.size()==3 && published.back()==93u && gpu.serial==9u);
+  RetryUntil([&]{
+    return stream.TickAndPublishSourceVerifiedModels(4,std::chrono::seconds(5),publish)==1;
+  });
+  assert(published.size()==4 && published.back()==94u && gpu.serial==12u);
+}
 void CheckPublicationRetryRetainsGpuIdentity() {
   FakeGpu gpu;
   NativeWorldStream stream(std::make_unique<Source>(),gpu,{});
@@ -280,5 +305,6 @@ int main() {
   CheckSourceVerifiedWorldModels();
   CheckSourceReadAheadAndBoundedUpload();
   CheckCurrentDrawOvertakesStagedPrefetch();
+  CheckBoundedPublicationBatch();
   CheckPublicationRetryRetainsGpuIdentity();
 }

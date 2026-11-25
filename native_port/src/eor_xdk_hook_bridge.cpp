@@ -27,6 +27,7 @@
 #include <rex/logging.h>
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <array>
 #include <cstring>
 #include <exception>
@@ -3512,8 +3513,11 @@ native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(
            !owner_catalog->source_models->UsesGpuBackend(
                owner_catalog->direct_gpu->OriginalModelUploader()))
           return Result::kNotReady;
-        owner_catalog->source_models->TickAndPublishSourceVerifiedModel(
-            [&](const auto& newly_resident) {
+        // Consume at most one prepared read-ahead window per Present,
+        // stopping before another upload if the render-thread budget expired.
+        // Current Draw requests already overtake speculative models.
+        owner_catalog->source_models->TickAndPublishSourceVerifiedModels(
+            4u,std::chrono::milliseconds(2),[&](const auto& newly_resident) {
           // Adopt the SAME source GPU handles on the Vulkan worker.
           // If publication fails, retry this resident before another upload
           // can overwrite its identity. No partially owned frame is accepted.

@@ -5,6 +5,7 @@
 #include "eor_original_model_upload.h"
 #include "eor_native_lod.h"
 #include <condition_variable>
+#include <chrono>
 #include <cstdint>
 #include <deque>
 #include <map>
@@ -53,6 +54,24 @@ class NativeWorldStream {
     publish(resident);
     last_uploaded_original_model_hash_=0;
     return true;
+  }
+  // A bounded batch avoids starving a newly visible city block behind
+  // a one-model-per-Present upload cap. I/O remains asynchronous. An
+  // individual GPU upload may exceed the soft time budget; do not start
+  // another after that, and never lose the pending publication on failure.
+  template<class Publish>
+  size_t TickAndPublishSourceVerifiedModels(size_t max_count,
+      std::chrono::steady_clock::duration budget,Publish&& publish) {
+    if(lod_)throw std::logic_error("Source-only batch requires no inferred LOD tiers");
+    if(!max_count || budget<=std::chrono::steady_clock::duration::zero())return 0;
+    const auto start=std::chrono::steady_clock::now();
+    size_t count=0;
+    while(count<max_count) {
+      if(count && std::chrono::steady_clock::now()-start>=budget)break;
+      if(!TickAndPublishSourceVerifiedModel(publish))break;
+      ++count;
+    }
+    return count;
   }
   // The last original model GPU upload is owned by THIS persistent
   // stream and uses exactly the same Diligent Vulkan device as the
