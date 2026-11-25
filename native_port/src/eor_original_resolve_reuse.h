@@ -31,20 +31,27 @@ class OriginalResolveReuse {
     const auto generation=Generation(source);
     if(!generation)return false;
     for(const auto& entry:resolves_)
-      if(entry.dest==dest)return entry.source==source && entry.generation==generation;
+      if(entry.dest==dest)return entry.source==source &&
+          entry.generation==generation &&
+          entry.dest_generation==Generation(dest);
     return false;
   }
   void Resolved(uint32_t source,uint32_t dest,bool full) noexcept {
     if(!dest)return;
     const auto generation=full && source!=dest ? Generation(source):0;
+    // Resolve writes the destination just like a Draw/Clear. Any later
+    // rendering into it must invalidate reuse, and a destination used as
+    // the source of another Resolve must advance its own generation.
+    ColorWritten(dest);
+    const auto dest_generation=Generation(dest);
     for(auto& entry:resolves_)if(entry.dest==dest || !entry.dest) {
-      entry={dest,generation?source:0u,generation};return;
+      entry={dest,generation?source:0u,generation,dest_generation};return;
     }
     resolves_={};
   }
  private:
   struct Color {uint32_t id=0;uint64_t generation=0;};
-  struct Resolve {uint32_t dest=0,source=0;uint64_t generation=0;};
+  struct Resolve {uint32_t dest=0,source=0;uint64_t generation=0,dest_generation=0;};
   uint64_t Generation(uint32_t id) const noexcept {
     if(id)for(const auto& color:colors_)if(color.id==id)return color.generation;
     return 0;
