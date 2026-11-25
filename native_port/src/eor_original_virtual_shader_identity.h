@@ -64,6 +64,9 @@ class OriginalVirtualShaderIdentity {
   const PixelDebugAlias* FindVertexDebugAlias(
       std::span<const uint8_t> header,std::span<const uint8_t> physical,
       const Digest* paired_vertex_source=nullptr) const noexcept;
+  std::vector<Digest> FindOriginalAliasCandidates(
+      std::span<const uint8_t> header,std::span<const uint8_t> physical,
+      Stage stage) const noexcept;
   size_t VertexDebugAliasCount() const noexcept {return vertex_alias_count_;}
   size_t VertexMetadataAliasCount() const noexcept {return vertex_metadata_count_;}
   size_t PixelDebugAliasCount() const noexcept {return pixel_alias_count_;}
@@ -143,7 +146,14 @@ ObserveOriginalBoundXdkShader(
     Stage stage,
     ReadOriginalGuestShaderBytes reader,void* original_guest_base,
     uint64_t exact_frame_sequence,uint32_t exact_call_ordinal,
-    const Digest* paired_pixel_source=nullptr) noexcept;
+    const Digest* paired_pixel_source=nullptr,
+    bool retain_ambiguous_candidates=false) noexcept;
+// Select only a unique ledger pair from independently matched metadata and
+// physical programs. The full pair is checked again at replay admission.
+bool SelectJointOriginalLiveAliasPair(
+    const OriginalVirtualShaderIdentity& identities,const EffectCatalog& effects,
+    OriginalLiveXdkShaderHeaderWitness& vertex,OriginalLiveXdkShaderHeaderWitness& pixel,
+    uint32_t bound_vertex,uint32_t bound_pixel,uint64_t frame,uint32_t ordinal) noexcept;
 std::optional<OriginalPixelSamplerControls> CaptureOriginalPixelSamplerControls(
     const OriginalLiveXdkShaderHeaderWitness& witness,const Digest& original_source,
     ReadOriginalGuestShaderBytes read,void* state,OriginalPixelSamplerCache& cache,

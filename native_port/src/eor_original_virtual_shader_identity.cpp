@@ -387,6 +387,29 @@ OriginalVirtualShaderIdentity::FindShaderDebugAlias(
     return exact;
   return find(pixel_metadata_aliases_,MetadataKey(header,stage));
 }
+std::vector<Digest> OriginalVirtualShaderIdentity::FindOriginalAliasCandidates(
+    std::span<const uint8_t> header,std::span<const uint8_t> physical,
+    Stage stage) const noexcept {
+  if(header.size()<36 || physical.empty() ||
+     physical.size()!=Be32(header.data()+8) || FindOriginalSource(header,stage))
+    return {};
+  try {
+    const auto digest=ExactHeaderDigest(physical);
+    std::vector<Digest> result;
+    const auto append=[&](const auto& entries,const std::optional<Digest>& key) {
+      if(!key)return;
+      const auto it=entries.find(*key);
+      if(it==entries.end())return;
+      for(const auto& candidate:it->second)
+        if(candidate.physical_sha==digest)result.push_back(candidate.full_source_sha);
+    };
+    append(pixel_debug_aliases_,DebugHeaderKey(header,stage));
+    append(pixel_metadata_aliases_,MetadataKey(header,stage));
+    std::sort(result.begin(),result.end());
+    result.erase(std::unique(result.begin(),result.end()),result.end());
+    return result;
+  } catch (...) {return {};}
+}
 namespace {
 std::optional<uint32_t> UsaShaderHeaderAddress(uint32_t object, Stage stage) noexcept {
   if (!object || (object & 3u) || (stage != Stage::Vertex && stage != Stage::Pixel))
@@ -401,7 +424,7 @@ ObserveOriginalBoundXdkShader(
     const OriginalVirtualShaderIdentity& identities, uint32_t object,
     Stage stage, ReadOriginalGuestShaderBytes reader, void* original_guest_base,
     uint64_t exact_frame_sequence, uint32_t exact_call_ordinal,
-    const Digest* paired_pixel_source) noexcept {
+    const Digest* paired_pixel_source,bool retain_ambiguous_candidates) noexcept {
   if (!reader || !original_guest_base || !identities.size() ||
       !exact_frame_sequence || exact_call_ordinal == UINT32_MAX)
     return std::nullopt;
@@ -462,7 +485,8 @@ ObserveOriginalBoundXdkShader(
           identities.FindPixelDebugAlias(header,physical,paired_pixel_source);
       paired=alias!=nullptr;
     }
-    if(!alias)return {};
+    if(!alias && (!retain_ambiguous_candidates ||
+       identities.FindOriginalAliasCandidates(header,physical,stage).size()<2u))return {};
     OriginalLiveXdkShaderHeaderWitness result{
         object,header_address,true,std::move(header),
         exact_frame_sequence,exact_call_ordinal};
@@ -622,6 +646,30 @@ std::optional<Digest> ResolveOriginalLiveXdkShaderSource(
   return {};
 }
 
+bool SelectJointOriginalLiveAliasPair(
+    const OriginalVirtualShaderIdentity& identities,const EffectCatalog& effects,
+    OriginalLiveXdkShaderHeaderWitness& vertex,OriginalLiveXdkShaderHeaderWitness& pixel,
+    uint32_t bound_vertex,uint32_t bound_pixel,uint64_t frame,uint32_t ordinal) noexcept {
+  if(vertex.alias_paired_pixel_source || pixel.alias_paired_vertex_source ||
+     vertex.alias_live_physical.empty() || pixel.alias_live_physical.empty())return false;
+  const auto vs=identities.FindOriginalAliasCandidates(
+      vertex.exact_original_guest_virtual_header,vertex.alias_live_physical,Stage::Vertex);
+  const auto ps=identities.FindOriginalAliasCandidates(
+      pixel.exact_original_guest_virtual_header,pixel.alias_live_physical,Stage::Pixel);
+  if(vs.size()<2u || ps.size()<2u)return false;
+  const auto pair=effects.UniqueLivePair(vs,ps);
+  if(!pair || (vertex.alias_paired_vertex_source && *vertex.alias_paired_vertex_source!=pair->first) ||
+     (pixel.alias_paired_pixel_source && *pixel.alias_paired_pixel_source!=pair->second))return false;
+  const auto old_vs=vertex.alias_paired_vertex_source,old_ps=pixel.alias_paired_pixel_source;
+  vertex.alias_paired_vertex_source=pair->first;
+  pixel.alias_paired_pixel_source=pair->second;
+  if(ResolveOriginalLiveXdkShaderSource(identities,vertex,bound_vertex,Stage::Vertex,frame,ordinal)==pair->first &&
+     ResolveOriginalLiveXdkShaderSource(identities,pixel,bound_pixel,Stage::Pixel,frame,ordinal)==pair->second)
+    return true;
+  vertex.alias_paired_vertex_source=old_vs;
+  pixel.alias_paired_pixel_source=old_ps;
+  return false;
+}
 std::optional<OriginalEffectPass> ResolveOriginalLiveEorEffectPass(
     const OriginalVirtualShaderIdentity& identities,
     const EffectCatalog& effects,
@@ -636,10 +684,19 @@ std::optional<OriginalEffectPass> ResolveOriginalLiveEorEffectPass(
       identities,pixel,bound_pixel_xdk_object,Stage::Pixel,
       exact_frame_sequence,exact_call_ordinal);
   if(!vs || !ps)return std::nullopt;
-  // Never admit a circular match in which both stages need the other
-  // to select a source digest. One stage must resolve independently.
+  // Two selected aliases cannot authenticate one another. Recompute
+  // the unique intersection of both independently proven candidate sets;
+  // the selected digests alone are NOT evidence of that intersection.
+  if(vertex.alias_paired_vertex_source && pixel.alias_paired_pixel_source) {
+    const auto v=identities.FindOriginalAliasCandidates(
+        vertex.exact_original_guest_virtual_header,vertex.alias_live_physical,Stage::Vertex);
+    const auto p=identities.FindOriginalAliasCandidates(
+        pixel.exact_original_guest_virtual_header,pixel.alias_live_physical,Stage::Pixel);
+    const auto joint=effects.UniqueLivePair(v,p);
+    if(v.size()<2u || p.size()<2u || !joint || joint->first!=*vs || joint->second!=*ps)return {};
+    return effects.FindOriginalPass(*vs,*ps);
+  }
   if(vertex.alias_paired_vertex_source) {
-    if(pixel.alias_paired_pixel_source)return {};
     const auto paired=effects.UniqueVertexForPixel(*ps);
     if(!paired || *paired!=*vs || *paired!=*vertex.alias_paired_vertex_source)return {};
   }

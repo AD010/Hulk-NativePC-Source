@@ -68,6 +68,16 @@ int main() {
   const auto shared_original_pass=catalog.FindOriginalPass(reused_vs,reused_ps);
   assert(shared_original_pass && shared_original_pass->effect_hash==0x222 &&
          shared_original_pass->pass_index==1);
+  hulk::eor::aot::Digest absent{};absent.fill(0x88);
+  const std::array vertices{reused_vs,absent};
+  const std::array pixels{reused_ps,absent};
+  assert(catalog.UniqueLivePair(vertices,pixels)==
+         (std::pair{reused_vs,reused_ps}));
+  // Add a second actual matching candidate for the same VS.
+  hulk::eor::aot::Digest other_pixel{};other_pixel.fill(0x22);
+  const std::array two_matches{reused_ps,other_pixel};
+  assert(!catalog.UniqueLivePair(vertices,two_matches));
+  assert(!catalog.UniqueLivePair(std::span<const hulk::eor::aot::Digest>{},pixels));
   const auto verified_shared=data;
   // Duplicate exact stage pairs are ambiguous even when both effects
   // legitimately reuse one stage of a different original shader pair.

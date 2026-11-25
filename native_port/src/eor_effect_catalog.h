@@ -11,6 +11,7 @@
 #include <map>
 #include <optional>
 #include <set>
+#include <span>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -116,6 +117,20 @@ class EffectCatalog {
   std::optional<Digest> UniqueVertexForPixel(const Digest& ps) const noexcept {
     const auto it=vertex_by_pixel_.find(ps);
     return it==vertex_by_pixel_.end()?std::nullopt:it->second;
+  }
+  // Joint identification: independently validated sets of live shader
+  // candidates can identify a unique original pass even when neither
+  // stage is individually unique. Never choose among multiple matches.
+  std::optional<std::pair<Digest,Digest>> UniqueLivePair(
+      std::span<const Digest> vertices,std::span<const Digest> pixels) const noexcept {
+    std::optional<std::pair<Digest,Digest>> result;
+    for(const auto& vs:vertices)for(const auto& ps:pixels) {
+      const std::pair<Digest,Digest> key{vs,ps};
+      if(!reverse_.contains(key))continue;
+      if(result && *result!=key)return {};
+      result=key;
+    }
+    return result;
   }
   // Compare every original SHA pair/ordinal, not only the 233/5194
   // census. A different ShaderEffects generation may have the same counts.
