@@ -305,6 +305,12 @@ int main() {
   Expect(page.Select(10,1,"vsync","false",apply).live_applied,
          "Native menu row was not applied");
   Expect(page.Resolution(10,1,2560,1600),"Native menu resolution rejected");
+  Expect(page.Select(10,1,"hulk_eor_xdk_source_mesh_capture","true",apply).RestartRequired(),
+         "Source mesh capture was not persisted as restart-only");
+  const auto capture=Read(config);
+  Expect(capture.find("hulk_eor_xdk_source_mesh_capture = true")!=std::string::npos &&
+         capture.find("hulk_eor_xdk_capture = true")!=std::string::npos,
+         "Source mesh capture lost its parent capture dependency");
   unsigned exits=0;
   Expect(!page.ConfirmExit(10,1,true,[&]{++exits;}),
          "Exit without confirmation request accepted");

@@ -27,6 +27,7 @@ void SetLiveConfigPath(const std::filesystem::path& path) noexcept;
 // these after its own verified widget event has supplied a key and value.
 bool SaveLiveOption(std::string_view key,std::string_view value) noexcept;
 bool SaveLiveWindowSize(uint32_t width,uint32_t height) noexcept;
+bool SaveLiveSourceMeshCapture(bool enabled) noexcept;
 bool SaveOriginalSubtitles(bool enabled) noexcept;
 bool SaveOriginalAudioVolume(std::string_view key,uint32_t value) noexcept;
 bool SaveOriginalLookInversion(std::optional<bool> yaw,

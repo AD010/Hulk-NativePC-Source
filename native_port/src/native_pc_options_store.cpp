@@ -246,6 +246,18 @@ bool SaveLiveWindowSize(uint32_t width,uint32_t height) noexcept {
     return SaveWindowSize(path,width,height);
   } catch (...) {return false;}
 }
+bool SaveLiveSourceMeshCapture(bool enabled) noexcept {
+  if(!enabled)return SaveLiveOption("hulk_eor_xdk_source_mesh_capture","false");
+  try {
+    std::filesystem::path path;
+    { std::lock_guard lock(g_live_path_mutex); path=g_live_config_path; }
+    const std::array<Setting,2> pair{{
+        {"hulk_eor_xdk_source_mesh_capture","true"},
+        {"hulk_eor_xdk_capture","true"}
+    }};
+    return SaveSettings(path,pair);
+  } catch (...) {return false;}
+}
 bool SaveOriginalAudioVolume(std::string_view key,uint32_t value) noexcept {
   if(value>100 || (key!="hulk_original_music_volume" &&
       key!="hulk_original_sfx_volume" && key!="hulk_original_dialog_volume"))return false;

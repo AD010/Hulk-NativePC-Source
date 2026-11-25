@@ -80,8 +80,11 @@ class TestHulkPcMenu(unittest.TestCase):
                                   input_code))
         self.assertEqual(names, declared)
         self.assertEqual(len(names), 21)
-        for key in names:
-            self.assertIn('"' + key + '"', menu)
+        rows = (ROOT/"native_port/src/native_pc_menu_rows.h").read_text()
+        row_names = set(re.findall(r'"(hulk_bind_[a-z_]+)"', rows))
+        self.assertEqual(names, row_names)
+        self.assertIn("for(const auto& row:options::kPcMenuRows)", menu)
+        self.assertIn("if(row.kind!=options::PcMenuRowKind::Binding)continue;", menu)
         self.assertIn("IsBindingOption(key)", store)
         self.assertIn("IsBindingToken(value)", store)
         self.assertIn(

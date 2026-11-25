@@ -96,9 +96,9 @@ class PcMenuPageSession {
     if(!Owns(owner,generation) || exit_pending_)return {};
     const auto* row=FindPcMenuRow(key);
     if(!row || !IsPcMenuChoice(*row,value))return {};
-    // A geometry capture requires its parent capture. The real frontend
-    // must not offer this debug action until it can commit the pair atomically.
-    if(key=="hulk_eor_xdk_source_mesh_capture" && value=="true")return {};
+    // Geometry capture and its parent capture are one persistent transaction.
+    if(key=="hulk_eor_xdk_source_mesh_capture")
+      return {SaveLiveSourceMeshCapture(value=="true"),false};
     return CommitLivePcMenuValue(key,value,apply);
   }
   bool Resolution(uint32_t owner,uint64_t generation,uint32_t w,uint32_t h) {
