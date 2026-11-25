@@ -3401,22 +3401,18 @@ native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(
            !owner_catalog->source_models->UsesGpuBackend(
                owner_catalog->direct_gpu->OriginalModelUploader()))
           return Result::kNotReady;
-        if(owner_catalog->source_models->TickSourceVerifiedModels()) {
-          // Original async I/O just produced a REAL source-authenticated
-          // position/attribute/index GPU allocation. Adopt those SAME
-          // handles immediately on the existing Vulkan worker. Waiting
-          // for a fully verified material witness before registering
-          // physical model buffers caused a circular first-Draw dependency.
-          auto newly_resident=
-              owner_catalog->source_models->LastUploadedOriginalSourceModel();
-          if(!newly_resident ||
-             !newly_resident->original_resource_hash ||
+        owner_catalog->source_models->TickAndPublishSourceVerifiedModel(
+            [&](const auto& newly_resident) {
+          // Adopt the SAME source GPU handles on the Vulkan worker.
+          // If publication fails, retry this resident before another upload
+          // can overwrite its identity. No partially owned frame is accepted.
+          if(!newly_resident->original_resource_hash ||
              newly_resident->original_identity.platform!=model::Platform::Xbox360)
-            return Result::kNotReady;
+            throw std::logic_error("Invalid original resident world model");
           const model::UploadedOriginalModel* live=newly_resident.get();
           owner_catalog->direct_gpu->AdoptVerifiedResidentWorldMeshes(
               std::span<const model::UploadedOriginalModel* const>(&live,1));
-        }
+        });
       } else if(owner_catalog->advance_source_model_uploads)
         owner_catalog->advance_source_model_uploads();
     } catch (...) {return Result::kNotReady;}

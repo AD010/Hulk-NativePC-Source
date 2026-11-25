@@ -13,6 +13,7 @@
 #include <optional>
 #include <set>
 #include <span>
+#include <stdexcept>
 #include <thread>
 namespace hulk::eor::world {
 class ModelSource {
@@ -39,6 +40,20 @@ class NativeWorldStream {
   // Unlike Tick(distance), this never invents camera distance or LOD.
   // Returns true when a staged real original Xbox model became GPU-resident.
   bool TickSourceVerifiedModels();
+  // Production source-only publication is transactional: if adoption throws,
+  // keep the exact uploaded GPU model for retry before consuming another
+  // staged asset. The callback must be idempotent for partial adoption.
+  template<class Publish>
+  bool TickAndPublishSourceVerifiedModel(Publish&& publish) {
+    if (!LastUploadedOriginalSourceModel() && !TickSourceVerifiedModels())
+      return false;
+    auto resident=LastUploadedOriginalSourceModel();
+    if (!resident)
+      throw std::logic_error("Original source upload lost before publication");
+    publish(resident);
+    last_uploaded_original_model_hash_=0;
+    return true;
+  }
   // The last original model GPU upload is owned by THIS persistent
   // stream and uses exactly the same Diligent Vulkan device as the
   // active direct renderer. Only access on the render thread directly

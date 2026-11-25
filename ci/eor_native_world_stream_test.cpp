@@ -203,6 +203,35 @@ void CheckSourceReadAheadAndBoundedUpload() {
   for(const auto hash:requested)assert(stream.Resident(hash));
   assert(gpu.serial==15u);
 }
+void CheckPublicationRetryRetainsGpuIdentity() {
+  FakeGpu gpu;
+  NativeWorldStream stream(std::make_unique<Source>(),gpu,{});
+  stream.RequestSourceVerifiedModels(std::array<uint32_t,2>{81u,82u});
+  std::shared_ptr<const model::UploadedOriginalModel> first;
+  bool rejected=false;
+  RetryUntil([&] {
+    try {
+      stream.TickAndPublishSourceVerifiedModel([&](const auto& resident) {
+        first=resident;
+        throw std::runtime_error("Simulated interrupted GPU adoption");
+      });
+    } catch(const std::runtime_error&) { rejected=true; }
+    return rejected;
+  });
+  assert(first && first->original_resource_hash==81u && gpu.serial==3u);
+  assert(stream.LastUploadedOriginalSourceModel()==first);
+  assert(stream.TickAndPublishSourceVerifiedModel([&](const auto& resident) {
+    assert(resident==first && gpu.serial==3u);
+  }));
+  assert(!stream.LastUploadedOriginalSourceModel());
+  RetryUntil([&] {
+    return stream.TickAndPublishSourceVerifiedModel([&](const auto& resident) {
+      assert(resident->original_resource_hash==82u && gpu.serial==6u);
+    });
+  });
+  assert(!stream.LastUploadedOriginalSourceModel());
+  assert(stream.ResidentShared(81u)==first && stream.Resident(82u));
+}
 int main() {
   FakeGpu gpu;
   {
@@ -233,4 +262,5 @@ int main() {
   CheckSharedGpuResidentLifetime();
   CheckSourceVerifiedWorldModels();
   CheckSourceReadAheadAndBoundedUpload();
+  CheckPublicationRetryRetainsGpuIdentity();
 }
