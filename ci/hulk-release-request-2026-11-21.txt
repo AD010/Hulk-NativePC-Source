@@ -1,2 +1,46 @@
-Internal Windows compiler/regression validation after PPC source-pinned hook seed fix. No unfinished release publication.
-Source: 1e979caa872033337d96e5afb5eb39c1fc039924
+User-requested one-time Windows Release compilation of Hulk NativePC on 2026-11-21.
+Build current main source at this commit, including independent EoR Vulkan
+source probes and native PC menu; preserve old private release ZIP.
+Do not publish game XEX, asset ARC, shaders, or private input data publicly.
+
+Retry 2: source-only CI assertion fixed; packaged TOML no longer contains a developer comment.
+
+Retry 3: corrected obsolete native display 11-preset test; collect all independent public-only regression failures per run.
+
+Retry 4: F10 Win32 test now expects the actual integrated fullscreen Esc/F10 native menu registration log.
+
+Retry 5: validate exact user-authorized one-off push marker in source-only dispatch test; revert manual-only on completion.
+
+Retry 6: correct synthetic vector compare CR6 fixture to pinned real ReXGlue builder multiline source.
+
+Retry 7: update native GPU diagnostic test to real confirmed Exit-to-Windows path in full-screen menu.
+
+Retry 8: synchronize source-coverage tests with exact shared VB/IB 16/32-bit endian-aware guest source provenance and actual verified rebase.
+
+Retry 9: block duplicate marker-stripped converted-index pool arithmetic, not only full replacement marker.
+
+Retry 10: repair original shader effect pass ledger 3-field stage tuple unpack; tests stage-offset uniqueness and verified PDB technique.
+
+Retry 11: assert safe preflight before real mailbox handoff, not before stale mailbox epoch eviction.
+
+Retry 12: MSVC /W4 /WX C4456 shadowed 'exact' in real native Draw matcher; renamed the typed XDK equality guard without affecting verified source mesh owner.
+
+Retry 13: report exact C++ native EoR Draw test failed line/exception from real Windows runtime rather than generic process exit.
+
+Retry 14: correct MSVC Draw witness regression: restore original source VB after deliberately wrong XDK resource object; continue full private Windows Release compilation at latest main.
+
+Retry 15: use the exact one-shot marker accepted by ci/test_native_x_d140_dispatch.py; run latest main after source-only validation.
+
+2026-11-24: user explicitly requested Windows Release retry after EoR link coverage and runtime uint4 fixes.
+
+2026-11-24: user requested retry after original EoR pass record test drift; aggregate source preflight failures before any private build.
+
+2026-11-24: retry after correcting D140 regression counting diagnostic labels as duplicate test calls; exactly one real invocation remains.
+
+2026-11-24: retry after MSVC C4389 optional uint32 assertion fix; report all independent C++ compile/test failures, retain /W4 /WX.
+
+2026-11-24: repair five native preflight blockers, two MSVC narrowing warnings and stale synthetic original vertex declarations; preserve validation.
+
+2026-11-24: fix invalid apostrophe in native EoR asset-root parameter declaration and definition; report safe public compiler error locations; retry Windows Release after build 168.
+
+2026-11-24: requested Release test of portable AOT pack, static shader analysis, model read-ahead, immutable frame claim and automatic EoR startup.
