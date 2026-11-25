@@ -1,32 +1,10 @@
 #include "eor_original_texture_mip_ranges.h"
+#include "eor_texture_format_info.h"
 #include <algorithm>
 #include <cstdint>
 #include <stdexcept>
 namespace hulk::eor::textures {
 namespace {
-struct BlockInfo {
-  OriginalLfxtStorageFamily family;
-  uint32_t pixels_per_block=0, bytes_per_block=0;
-};
-BlockInfo Info(XenosTextureFormat f) {
-  switch(f) {
-    case XenosTextureFormat::BC1:
-    case XenosTextureFormat::BC4:
-      return {OriginalLfxtStorageFamily::BC_8ByteBlock,4,8};
-    case XenosTextureFormat::BC2:
-    case XenosTextureFormat::BC3:
-    case XenosTextureFormat::BC5:
-      return {OriginalLfxtStorageFamily::BC_16ByteBlock,4,16};
-    case XenosTextureFormat::RGBA8:
-      return {OriginalLfxtStorageFamily::Texel_4Byte,1,4};
-    case XenosTextureFormat::R8:
-      return {OriginalLfxtStorageFamily::Texel_1Byte,1,1};
-    case XenosTextureFormat::RGBA16F:
-      return {OriginalLfxtStorageFamily::Texel_8Byte,1,8};
-    default:
-      throw std::invalid_argument("Unknown original EoR format family; cannot verify mip ranges");
-  }
-}
 uint64_t Round32(uint64_t n) {return (n+31u)&~uint64_t(31);}
 }
 void ValidateOriginalMipPayloadRanges(
@@ -36,7 +14,7 @@ void ValidateOriginalMipPayloadRanges(
     const OriginalLfxtMipPlan& plan,
     XenosTextureFormat format,
     std::span<const SourceMipLayout> layouts) {
-  const auto info=Info(format);
+  const auto info=GetTextureBlockInfo(format);
   if(plan.family!=info.family || plan.levels.empty() ||
      plan.levels.size()!=layouts.size() || layouts.size()>14)
     throw std::invalid_argument("Original USA LFXT mip plan missing/format-family mismatch");
@@ -62,8 +40,8 @@ void ValidateOriginalMipPayloadRanges(
        !original.width || !original.height ||
        l.width!=original.width || l.height!=original.height ||
        l.from_stream_archive!=original.from_stream_archive ||
-       l.tiling==XenosTileMode::Unknown ||
-       l.endian==XenosDataEndian::Unknown)
+       !ValidTextureTileMode(l.tiling) ||
+       !ValidTextureEndian(l.endian))
       throw std::invalid_argument("Unverified original Xbox mip identity/layout");
     const uint64_t block_w=(uint64_t(l.width)+info.pixels_per_block-1)/
                            info.pixels_per_block;

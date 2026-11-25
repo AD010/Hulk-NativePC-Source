@@ -1,24 +1,11 @@
 #include "eor_xenos_texture_mips.h"
+#include "eor_texture_format_info.h"
 #include <algorithm>
 #include <array>
 #include <limits>
 #include <stdexcept>
 namespace hulk::eor::textures {
 namespace {
-struct BlockInfo { uint32_t pixels,bpp,shift; };
-BlockInfo Info(XenosTextureFormat f) {
-  switch(f) {
-    case XenosTextureFormat::BC1: return {4,8,3};
-    case XenosTextureFormat::BC2: return {4,16,4};
-    case XenosTextureFormat::BC3: return {4,16,4};
-    case XenosTextureFormat::BC4: return {4,8,3};
-    case XenosTextureFormat::BC5: return {4,16,4};
-    case XenosTextureFormat::RGBA8: return {1,4,2};
-    case XenosTextureFormat::R8: return {1,1,0};
-    case XenosTextureFormat::RGBA16F: return {1,8,3};
-    default: throw std::invalid_argument("Unverified original Xenos GPU texture format");
-  }
-}
 uint32_t CeilDiv(uint32_t n,uint32_t div) {return (n-1)/div+1;}
 void ConvertEndian(std::byte* output,const std::byte* input,
                    uint32_t count,XenosDataEndian e) {
@@ -62,7 +49,7 @@ PreparedHostImage PrepareExplicitOriginalMips(
     std::span<const SourceMipLayout> layouts,
     std::span<const std::byte> texture,
     std::span<const std::byte> stream) {
-  const BlockInfo info=Info(format);
+  const auto info=GetTextureBlockInfo(format);
   if(layouts.empty() || layouts.size()>14)
     throw std::invalid_argument("Original Xenos mip chain absent/oversized");
   if(layouts[0].width==0 || layouts[0].height==0 ||
@@ -86,11 +73,11 @@ PreparedHostImage PrepareExplicitOriginalMips(
     const uint32_t expected_w=std::max(1u,base_w>>i);
     const uint32_t expected_h=std::max(1u,base_h>>i);
     if(m.width!=expected_w || m.height!=expected_h ||
-       m.tiling==XenosTileMode::Unknown ||
-       m.endian==XenosDataEndian::Unknown)
+       !ValidTextureTileMode(m.tiling) ||
+       !ValidTextureEndian(m.endian))
       throw std::invalid_argument("Unknown/inconsistent original Xenos mip layout");
-    const uint32_t blocks_x=CeilDiv(m.width,info.pixels);
-    const uint32_t blocks_y=CeilDiv(m.height,info.pixels);
+    const uint32_t blocks_x=CeilDiv(m.width,info.pixels_per_block);
+    const uint32_t blocks_y=CeilDiv(m.height,info.pixels_per_block);
     if(!m.storage_pitch_blocks || !m.storage_height_blocks ||
        m.storage_pitch_blocks>8192 || m.storage_height_blocks>8192 ||
        uint64_t(m.source_x_blocks)+blocks_x>m.storage_pitch_blocks ||
@@ -98,7 +85,7 @@ PreparedHostImage PrepareExplicitOriginalMips(
        (m.tiling==XenosTileMode::Tiled2D &&
         ((m.storage_pitch_blocks%32) || (m.storage_height_blocks%32))))
       throw std::invalid_argument("Original Xenos mip block dimensions out of bounds");
-    const uint64_t output_count=uint64_t(blocks_x)*blocks_y*info.bpp;
+    const uint64_t output_count=uint64_t(blocks_x)*blocks_y*info.bytes_per_block;
     accumulated+=output_count;
     if(accumulated>(512ull<<20) ||
        output_count>std::numeric_limits<size_t>::max())
@@ -113,28 +100,28 @@ PreparedHostImage PrepareExplicitOriginalMips(
     // or the 52-byte original LFXT GPU descriptor as pixels, producing
     // false material matches or corrupt high-resolution host images.
     const uint64_t source_storage_bytes=
-        uint64_t(m.storage_pitch_blocks)*m.storage_height_blocks*info.bpp;
+        uint64_t(m.storage_pitch_blocks)*m.storage_height_blocks*info.bytes_per_block;
     if(!source_storage_bytes || source_storage_bytes>(512ull<<20) ||
        source_storage_bytes>src.size()-m.source_offset)
       throw std::invalid_argument("Original Xenos mip storage overlaps another ARC record");
 
     LinearHostMip dst;
     dst.width=m.width;dst.height=m.height;
-    dst.row_pitch_bytes=blocks_x*info.bpp;
+    dst.row_pitch_bytes=blocks_x*info.bytes_per_block;
     dst.blocks.resize(static_cast<size_t>(output_count));
     for(uint32_t y=0;y<blocks_y;++y) {
       for(uint32_t x=0;x<blocks_x;++x) {
         const uint32_t sx=m.source_x_blocks+x,sy=m.source_y_blocks+y;
         const uint64_t address=m.tiling==XenosTileMode::Tiled2D ?
-          OriginalTiled2DOffset(sx,sy,m.storage_pitch_blocks,info.bpp) :
-          (uint64_t(sy)*m.storage_pitch_blocks+sx)*info.bpp;
+          OriginalTiled2DOffset(sx,sy,m.storage_pitch_blocks,info.bytes_per_block) :
+          (uint64_t(sy)*m.storage_pitch_blocks+sx)*info.bytes_per_block;
         if(address>source_storage_bytes ||
-           info.bpp>source_storage_bytes-address)
+           info.bytes_per_block>source_storage_bytes-address)
           throw std::invalid_argument("Original Xenos tile escapes its own mip allocation");
         const auto* input=src.data()+static_cast<size_t>(m.source_offset+address);
         auto* output=dst.blocks.data()+static_cast<size_t>(
-          (uint64_t(y)*blocks_x+x)*info.bpp);
-        ConvertEndian(output,input,info.bpp,m.endian);
+          (uint64_t(y)*blocks_x+x)*info.bytes_per_block);
+        ConvertEndian(output,input,info.bytes_per_block,m.endian);
       }
     }
     image.mips.push_back(std::move(dst));

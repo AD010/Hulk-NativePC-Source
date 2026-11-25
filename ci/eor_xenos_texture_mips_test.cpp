@@ -1,4 +1,5 @@
 #include "../native_port/src/eor_xenos_texture_mips.h"
+#include "../native_port/src/eor_texture_format_info.h"
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
@@ -12,6 +13,17 @@ template<typename F> void Reject(F f) {
 }
 }
 int main() {
+  using F=XenosTextureFormat;
+  using S=OriginalLfxtStorageFamily;
+  static_assert(GetTextureBlockInfo(F::BC1).bytes_per_block==8);
+  static_assert(GetTextureBlockInfo(F::BC4).family==S::BC_8ByteBlock);
+  static_assert(GetTextureBlockInfo(F::BC2).pixels_per_block==4);
+  static_assert(GetTextureBlockInfo(F::BC3).bytes_per_block==16);
+  static_assert(GetTextureBlockInfo(F::BC5).family==S::BC_16ByteBlock);
+  static_assert(GetTextureBlockInfo(F::RGBA8).pixels_per_block==1);
+  static_assert(GetTextureBlockInfo(F::RGBA16F).bytes_per_block==8);
+  static_assert(GetTextureBlockInfo(F::R8).bytes_per_block==1);
+  Reject([]{(void)GetTextureBlockInfo(static_cast<F>(255));});
   assert(OriginalTiled2DOffset(0,0,64,8)==0);
   assert(OriginalTiled2DOffset(1,0,64,8)==8);
   assert(OriginalTiled2DOffset(0,1,64,8)==16);
@@ -57,6 +69,14 @@ int main() {
   Reject([&]{(void)PrepareExplicitOriginalMips(XenosTextureFormat::BC3,
       std::span(&tail,1),{},packed);});
   tail.endian=XenosDataEndian::Swap16;tail.source_x_blocks=33;
+  Reject([&]{(void)PrepareExplicitOriginalMips(XenosTextureFormat::BC3,
+      std::span(&tail,1),{},packed);});
+  tail.source_x_blocks=5;
+  tail.tiling=static_cast<XenosTileMode>(255);
+  Reject([&]{(void)PrepareExplicitOriginalMips(XenosTextureFormat::BC3,
+      std::span(&tail,1),{},packed);});
+  tail.tiling=XenosTileMode::Tiled2D;
+  tail.endian=static_cast<XenosDataEndian>(255);
   Reject([&]{(void)PrepareExplicitOriginalMips(XenosTextureFormat::BC3,
       std::span(&tail,1),{},packed);});
   // Literal consecutive BC1 8x8, 4x4 levels with no invented lower mip.

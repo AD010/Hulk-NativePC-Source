@@ -1,4 +1,5 @@
 #include "eor_original_texture_gpu_layout.h"
+#include "eor_texture_format_info.h"
 #include "eor_original_texture_mip_ranges.h"
 #include <algorithm>
 #include <cstdint>
@@ -116,21 +117,15 @@ DecodeOriginalStandaloneMip(std::span<const std::byte> lfxt, uint32_t original_h
   if (source_width!=width || source_height!=height || (word0&3u)!=2u ||
       !(word0>>31) || BE32(fetch,44)!=0u || BE32(fetch,48)!=0xa00u)
     return std::nullopt;
-  const bool compressed=format==XenosTextureFormat::BC1 || format==XenosTextureFormat::BC3;
-  const uint32_t block=compressed ? 4u : 1u;
-  const uint32_t bytes=format==XenosTextureFormat::BC3 ? 16u :
-                       format==XenosTextureFormat::RGBA8 ? 4u :
-                       format==XenosTextureFormat::R8 ? 1u : 8u;
+  const auto info=GetTextureBlockInfo(format);
+  const uint32_t block=info.pixels_per_block,bytes=info.bytes_per_block;
   // The sole source-proven k_8 asset uses a complete 256x256 allocation.
   // Smaller k_8 tiled images require different padded storage rules.
   if(format==XenosTextureFormat::R8 && (width!=256u || height!=256u || (word0&1023u)!=2u))return {};
   const auto pitch=PaddedBlocks(width,block), rows=PaddedBlocks(height,block);
   if (((word0>>22)&511u)*32u!=pitch*block || uint64_t(pitch)*rows*bytes!=payload)
     return std::nullopt;
-  const auto family=format==XenosTextureFormat::BC1 ? OriginalLfxtStorageFamily::BC_8ByteBlock :
-                    format==XenosTextureFormat::BC3 ? OriginalLfxtStorageFamily::BC_16ByteBlock :
-                    format==XenosTextureFormat::R8 ? OriginalLfxtStorageFamily::Texel_1Byte :
-                    OriginalLfxtStorageFamily::Texel_4Byte;
+  const auto family=info.family;
   OriginalLfxtMipPlan plan{family,width,height,{{width,height,static_cast<uint32_t>(payload),false}},true};
   SourceMipLayout level{};
   level.width=width;level.height=height;level.source_offset=section.inline_data_offset;
@@ -167,19 +162,10 @@ std::optional<VerifiedOriginalXboxGpuMipChain> DecodeOriginalXboxGpuMips(
   // BC1/BC3 are 4x4 pixel blocks; RGBA8 and RGBA16F are uncompressed
   // per-texel formats. Treating RGBA8 as BC undercounts its tiled footprint
   // by up to 16x and rejects or misaddresses the original 0x06 LFXT mips.
-  const uint32_t block_pixels=
-      (resident_format==XenosTextureFormat::BC1 ||
-       resident_format==XenosTextureFormat::BC3) ? 4u : 1u;
-  const uint32_t block_bytes=resident_format==XenosTextureFormat::BC3?16u:
-      resident_format==XenosTextureFormat::RGBA8?4u:8u;
-  const OriginalLfxtStorageFamily family=
-      resident_format==XenosTextureFormat::BC1 ?
-          OriginalLfxtStorageFamily::BC_8ByteBlock :
-      resident_format==XenosTextureFormat::BC3 ?
-          OriginalLfxtStorageFamily::BC_16ByteBlock :
-      resident_format==XenosTextureFormat::RGBA8 ?
-          OriginalLfxtStorageFamily::Texel_4Byte :
-          OriginalLfxtStorageFamily::Texel_8Byte;
+  const auto info=GetTextureBlockInfo(resident_format);
+  const uint32_t block_pixels=info.pixels_per_block;
+  const uint32_t block_bytes=info.bytes_per_block;
+  const auto family=info.family;
   if(plan.family!=family ||
      table.levels.size()!=static_cast<size_t>(std::count_if(
         plan.levels.begin(),plan.levels.end(),
