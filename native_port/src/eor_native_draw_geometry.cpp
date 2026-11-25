@@ -353,16 +353,26 @@ std::optional<uint32_t> IdentifyLiveOriginalXdkMaterialSurface(
   // Each sampled texture key must be read from the actual guest source
   // material-context setter and agree with a CURRENT bound XDK texture
   // object. A stale unbound texture index cannot authorize any surface.
-  std::array<uint32_t,16> observed{};
+  // Count repeated verified texture objects only once as surface evidence.
+  // Keep every sampler slot for the downstream native Vulkan binding.
+  std::array<uint32_t,16> observed{},objects{};
   unsigned count=0;
   for(unsigned slot=0;slot<16;++slot) {
     if(!(mask&(uint16_t{1}<<slot)))continue;
     const auto id=draw.original_pixel_texture_keys[slot];
-    if(!id || !state.original_texture_guest_objects[slot])
-      return std::nullopt;
-    for(unsigned i=0;i<count;++i)
-      if(observed[i]==id)return std::nullopt; // duplicate weak evidence
-    observed[count++]=id;
+    const auto object=state.original_texture_guest_objects[slot];
+    if(!id || !object)return std::nullopt;
+    bool repeated=false;
+    for(unsigned i=0;i<count;++i) {
+      if(observed[i]==id || objects[i]==object) {
+        if(observed[i]!=id || objects[i]!=object)return std::nullopt;
+        repeated=true;
+        break;
+      }
+    }
+    if(repeated)continue;
+    observed[count]=id;
+    objects[count++]=object;
   }
   std::optional<uint32_t> unique;
   for(const auto& surface:model.original_surface_candidates) {
