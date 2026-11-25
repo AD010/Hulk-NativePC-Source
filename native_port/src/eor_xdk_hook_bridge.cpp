@@ -2179,36 +2179,86 @@ std::optional<AutomaticArchivePaths> FindAutomaticArchives(
   }
   return {};
 }
-struct AutomaticEorOwner {
+// Archive identity, immutable GPU mesh allocations, texture residency and
+// compiled source shader modules are independent of the current screen RT
+// graph. Share them across menu/gameplay transitions and native resizes.
+// The scene/backend itself is deliberately NOT shared: its target and PSO
+// witnesses must be rebuilt for the exact next original command timeline.
+struct AutomaticEorResources {
+  Diligent::IRenderDevice* device;
   OfflineShaderPack pack;
-  AutomaticSceneContract contract;
-  gpu::DiligentSceneTargets scene;
+  std::filesystem::path root,candidate_file;
   gpu::DiligentMeshUploadBackend meshes;
   gpu::DiligentAotShaderModules shaders;
   textures::OriginalXboxTextureAssets assets;
   gpu::DiligentOriginalTextureResidency textures;
+  std::shared_ptr<world::NativeWorldStream> source_models;
+  std::shared_ptr<world::OriginalMaterialCandidateIndex> candidates;
+  gpu::live::ScalarAnalysisCache scalar_analysis;
+
+  AutomaticEorResources(native_x_renderer::Device& host,OfflineShaderPack source,
+      const AutomaticArchivePaths& paths,const std::filesystem::path& source_root,
+      const std::filesystem::path& candidate_path)
+      :device(host.device()),pack(std::move(source)),root(source_root),
+       candidate_file(candidate_path),meshes(host.device()),shaders(host.device()),
+       assets(textures::OriginalXboxTextureAssets::OpenPinnedUsa(paths.index,paths.textures,paths.streams)),
+       textures(host.device(),assets) {
+    if(!pack.shaders || !pack.effects || !pack.reflection ||
+       !pack.virtual_ids || !pack.samplers)
+      throw std::invalid_argument("Incomplete live EoR source resources");
+    source_models=std::make_shared<world::NativeWorldStream>(
+        std::make_unique<world::ArchiveModelSource>(paths.index,paths.models),
+        meshes,std::vector<world::LodTier>{});
+    candidates=std::make_shared<world::OriginalMaterialCandidateIndex>();
+    bool cached=false;
+    if(!candidate_path.empty() && std::filesystem::is_regular_file(candidate_path)) {
+      try {
+        candidates->Load(candidate_path);
+        constexpr std::array<uint8_t,32> pinned{
+          0x46,0xe6,0xc6,0xec,0x9f,0x74,0x28,0xba,0x3a,0x17,0x37,0xab,0x7e,0xba,0xd5,0x64,
+          0xc1,0xb0,0x27,0xb0,0x06,0xc3,0xe3,0x51,0x56,0xd2,0xe0,0x36,0xab,0x8b,0x28,0x20};
+        cached=candidates->OriginalIndexDigest()==pinned && candidates->LinkCount()==41745u;
+      } catch(const std::exception&) {}
+    }
+    if(!cached)candidates->LoadFromOriginalXboxArchive(paths.index,paths.models);
+  }
+  bool Matches(native_x_renderer::Device& host,const OfflineShaderPack& source,
+      const std::filesystem::path& source_root,
+      const std::filesystem::path& candidate_path) const {
+    return device==host.device() && root==source_root && candidate_file==candidate_path &&
+        pack.shaders==source.shaders && pack.effects==source.effects &&
+        pack.reflection==source.reflection && pack.samplers==source.samplers &&
+        pack.virtual_ids==source.virtual_ids;
+  }
+};
+// A weak reference cannot retain resources beyond their owning GPU
+// catalogue; only the existing sole Vulkan worker may read or replace it.
+thread_local std::weak_ptr<AutomaticEorResources> g_automatic_resources;
+
+struct AutomaticEorOwner {
+  std::shared_ptr<AutomaticEorResources> resources;
+  const OfflineShaderPack& pack;
+  AutomaticSceneContract contract;
+  gpu::DiligentSceneTargets scene;
+  gpu::DiligentMeshUploadBackend& meshes;
+  gpu::DiligentAotShaderModules& shaders;
+  gpu::DiligentOriginalTextureResidency& textures;
   gpu::DiligentEorHostOutput host_output;
   Diligent::RefCntAutoPtr<Diligent::IBuffer> shared_constants;
   std::shared_ptr<world::NativeWorldStream> source_models;
   std::shared_ptr<world::OriginalMaterialCandidateIndex> candidates;
   std::unique_ptr<gpu::DiligentEorDirectBackend> backend;
-  gpu::live::ScalarAnalysisCache scalar_analysis;
+  gpu::live::ScalarAnalysisCache& scalar_analysis;
 
-  AutomaticEorOwner(native_x_renderer::Device& host,OfflineShaderPack source,
-      AutomaticSceneContract source_contract,const AutomaticArchivePaths& paths,
-      const std::filesystem::path& candidate_file)
-      :pack(std::move(source)),contract(source_contract),
-       scene(host.device(),host.context()),meshes(host.device()),shaders(host.device()),
-       assets(textures::OriginalXboxTextureAssets::OpenPinnedUsa(paths.index,paths.textures,paths.streams)),
-       textures(host.device(),assets),host_output(host) {
-    if(!pack.shaders || !pack.effects || !pack.reflection ||
-       !pack.virtual_ids || !pack.samplers || !host_output.Initialize())
-      throw std::invalid_argument("Incomplete live EoR source owner");
-    // The scalar ABI uses normalized, already decoded host attributes,
-    // host clip-space conventions and conventional depth (not Sonic's
-    // packed normals/reverse-Z). InspectScalarInterface rejects shaders
-    // that consume uncaptured original boolean registers; the fixed-state
-    // decoder also rejects original alpha test and alpha-to-mask.
+  AutomaticEorOwner(native_x_renderer::Device& host,
+      std::shared_ptr<AutomaticEorResources> source,AutomaticSceneContract source_contract)
+      :resources(std::move(source)),pack(resources->pack),contract(std::move(source_contract)),
+       scene(host.device(),host.context()),meshes(resources->meshes),
+       shaders(resources->shaders),textures(resources->textures),host_output(host),
+       source_models(resources->source_models),candidates(resources->candidates),
+       scalar_analysis(resources->scalar_analysis) {
+    if(!host_output.Initialize())
+      throw std::invalid_argument("Incomplete live EoR scene output");
     std::array<uint32_t,8> native_values{};
     Diligent::BufferDesc desc{};
     desc.Name="Hulk scalar host ABI constants";
@@ -2218,21 +2268,6 @@ struct AutomaticEorOwner {
     desc.Size=sizeof(native_values);
     host.device()->CreateBuffer(desc,nullptr,&shared_constants);
     if(!shared_constants)throw std::runtime_error("Scalar Vulkan shared UBO unavailable");
-    source_models=std::make_shared<world::NativeWorldStream>(
-        std::make_unique<world::ArchiveModelSource>(paths.index,paths.models),
-        meshes,std::vector<world::LodTier>{});
-    candidates=std::make_shared<world::OriginalMaterialCandidateIndex>();
-    bool cached=false;
-    if(!candidate_file.empty() && std::filesystem::is_regular_file(candidate_file)) {
-      try {
-        candidates->Load(candidate_file);
-        constexpr std::array<uint8_t,32> pinned{
-          0x46,0xe6,0xc6,0xec,0x9f,0x74,0x28,0xba,0x3a,0x17,0x37,0xab,0x7e,0xba,0xd5,0x64,
-          0xc1,0xb0,0x27,0xb0,0x06,0xc3,0xe3,0x51,0x56,0xd2,0xe0,0x36,0xab,0x8b,0x28,0x20};
-        cached=candidates->OriginalIndexDigest()==pinned && candidates->LinkCount()==41745u;
-      } catch(const std::exception&) {}
-    }
-    if(!cached)candidates->LoadFromOriginalXboxArchive(paths.index,paths.models);
     auto bind=[this,context=host.context()](Diligent::IShaderResourceBinding* binding,
         const aot::ReflectedShader&,const aot::ReflectedShader&,
         const native::IndexedDraw&,const aot::OriginalDrawVsMatrices&,
@@ -2493,9 +2528,13 @@ std::shared_ptr<const VerifiedWorkerEorOwnerCatalog> BuildAutomaticOriginalOwner
      previous->accepts_live_source(*source,backbuffer))return previous;
   const auto contract=OriginalTargetContract(*source,backbuffer,pack);
   if(!contract)return {};
-  const auto paths=FindAutomaticArchives(root);
-  if(!paths)return {};
-  auto owned=std::make_shared<AutomaticEorOwner>(host,std::move(pack),*contract,*paths,candidate);
+  auto resources=g_automatic_resources.lock();
+  if(!resources || !resources->Matches(host,pack,root,candidate)) {
+    const auto paths=FindAutomaticArchives(root);
+    if(!paths)return {};
+    resources=std::make_shared<AutomaticEorResources>(host,pack,*paths,root,candidate);
+  }
+  auto owned=std::make_shared<AutomaticEorOwner>(host,resources,*contract);
   if(!owned->backend->CanReplayOriginalXdkTimeline(*source))return {};
   auto catalog=std::make_shared<VerifiedWorkerEorOwnerCatalog>();
   catalog->device=&host;catalog->output=contract->output;
@@ -2518,6 +2557,7 @@ std::shared_ptr<const VerifiedWorkerEorOwnerCatalog> BuildAutomaticOriginalOwner
       return true;
     } catch (...) {return false;}
   };
+  g_automatic_resources=resources;
   return catalog;
 }
 std::shared_ptr<const VerifiedWorkerEorOwnerCatalog> BuildAutomaticOriginalOwnerCatalog(
