@@ -23,8 +23,8 @@ RawCommand Clear(uint32_t target,uint32_t width,uint32_t height) {
   RawCommand c{CommandKind::ClearF,0x82888C40u,0x8263A008u,{1,1,0,0x1000}};
   c.captured_clear=OriginalXdkClearF{};
   c.captured_clear->flags=1;c.captured_clear->has_color=true;
-  c.captured_clear_targets=State(target,width,height);
-  c.captured_clear_fixed=Fixed(width);
+  c.captured_clear_targets=std::make_shared<const OriginalVsMatrices>(State(target,width,height));
+  c.captured_clear_fixed=std::make_shared<const OriginalXdkFixedGraphicsState>(Fixed(width));
   return c;
 }
 Frame Source() {
@@ -74,11 +74,37 @@ int main() {
   incompatible=next->format.original_graph;
   incompatible.sample_counts.at(7)=4;
   assert(!gpu::SameOriginalTargetStorage(graph,incompatible));
+  // A color-only intermediate Resolve may occur while a depth target
+  // belonging to the NEXT larger pass is already selected.
+  auto mixed=frame;
+  auto state=*mixed.commands[4].captured_clear_targets;
+  state.original_depth_guest_object=8;
+  state.original_depth_extent=OriginalSurfaceExtent{1280,720};
+  mixed.commands[4].captured_clear_targets=std::make_shared<const OriginalVsMatrices>(state);
+  mixed.calls[0].observed_vs_matrices=state;
+  mixed.commands.insert(mixed.commands.begin()+2,
+      RawCommand{CommandKind::SetDepthStencilSurface,0x8287F628u,0x8263A010u,{1,8}});
+  auto mixed_plan=gpu::PlanOriginalNativeTargets(mixed,1280,720);
+  assert(mixed_plan && mixed_plan->format.original_graph.HasDepth(8));
+  // The same mismatched pair is still NOT legal for a combined clear.
+  auto bad_clear=mixed;
+  auto bad=Clear(2,320,180);
+  bad.captured_clear->flags=0x11;bad.gpr[1]=0x11;
+  auto bad_state=*bad.captured_clear_targets;
+  bad_state.original_depth_guest_object=8;
+  bad_state.original_depth_extent=OriginalSurfaceExtent{1280,720};
+  bad.captured_clear_targets=std::make_shared<const OriginalVsMatrices>(bad_state);
+  bad_clear.commands.insert(bad_clear.commands.begin()+3,bad);
+  assert(!gpu::PlanOriginalNativeTargets(bad_clear,1280,720));
   auto missing=frame;missing.commands[1].captured_clear_targets.reset();
   assert(!gpu::PlanOriginalNativeTargets(missing,1280,720));
-  auto wrong=frame;wrong.commands[1].captured_clear_targets->original_rt0_guest_object=6;
+  auto wrong=frame;auto wrong_state=*wrong.commands[1].captured_clear_targets;
+  wrong_state.original_rt0_guest_object=6;
+  wrong.commands[1].captured_clear_targets=std::make_shared<const OriginalVsMatrices>(wrong_state);
   assert(!gpu::PlanOriginalNativeTargets(wrong,1280,720));
-  auto other_device=frame;other_device.commands[1].captured_clear_fixed->original_guest_device=99;
+  auto other_device=frame;auto wrong_fixed=*other_device.commands[1].captured_clear_fixed;
+  wrong_fixed.original_guest_device=99;
+  other_device.commands[1].captured_clear_fixed=std::make_shared<const OriginalXdkFixedGraphicsState>(wrong_fixed);
   assert(!gpu::PlanOriginalNativeTargets(other_device,1280,720));
   auto uninitialized=frame;uninitialized.commands.erase(uninitialized.commands.begin()+1);
   assert(!gpu::PlanOriginalNativeTargets(uninitialized,1280,720));

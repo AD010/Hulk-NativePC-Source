@@ -276,12 +276,12 @@ static void VerifySequentialTargets(IRenderDevice* device,IDeviceContext* contex
   const eor::native::Size size{w,h};
   eor::native::FrameGeometry frame{size,size,{0,0,w,h},1,false,true,size};
   gpu::VerifiedSceneFormat format{gpu::NativeColorFormat::Rgba8,
-      gpu::NativeDepthFormat::None,true,true,{1,3,0,5,true,true,false}};
+      gpu::NativeDepthFormat::D24S8,true,true,{1,3,6,5,true,true,false}};
   auto& graph=format.original_graph;
-  graph.colors={2,3};graph.resolves={4};
-  graph.extents={{2,{w/2,h/2}},{3,{w,h}},{4,{w/2,h/2}}};
+  graph.colors={2,3};graph.resolves={4};graph.depths={6};
+  graph.extents={{2,{w/2,h/2}},{3,{w,h}},{4,{w/2,h/2}},{6,{w,h}}};
   graph.color_formats={{2,gpu::NativeColorFormat::Rgba16Float},{3,gpu::NativeColorFormat::Rgba8},{4,gpu::NativeColorFormat::Rgba16Float}};
-  graph.sample_counts={{2,4},{3,1},{4,1}};
+  graph.sample_counts={{2,4},{3,1},{4,1},{6,1}};
   graph.partial_msaa_sources.insert(2);
   graph.first_color=2;graph.final_color=3;graph.front_buffer=5;
   gpu::DiligentSceneTargets scene(device,context);
@@ -299,6 +299,8 @@ static void VerifySequentialTargets(IRenderDevice* device,IDeviceContext* contex
   clear.color={0,0,1,1};
   const eor::xdk::OriginalResolveRegion region{{0,0,16,8},{16,8}};
   if(!scene.ClearVerifiedOriginalXdk(clear,{w/2,h/2}) ||
+     !scene.SetOriginalDepthTarget(6) ||
+     scene.ClearVerifiedOriginalXdk(clear,{w/2,h/2}) ||
      !scene.ResolveOriginalIntermediate(4,region) ||
      !scene.SetOriginalColorTarget(3))
     throw std::runtime_error("Partial FP16 MSAA Resolve failed");

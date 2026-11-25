@@ -1339,8 +1339,8 @@ void CapturePpcCommand(CommandKind kind,uint32_t guest,
       auto targets=CaptureUsaVsMatrices(event.gpr[0],ReadGuest,guest_base);
       auto fixed=CaptureUsaFixedGraphicsState(event.gpr[0],ReadGuest,guest_base);
       if(targets && fixed) {
-        event.captured_clear_targets=std::move(targets);
-        event.captured_clear_fixed=std::move(fixed);
+        event.captured_clear_targets=std::make_shared<const OriginalVsMatrices>(std::move(*targets));
+        event.captured_clear_fixed=std::make_shared<const OriginalXdkFixedGraphicsState>(std::move(*fixed));
       }
     }
   }

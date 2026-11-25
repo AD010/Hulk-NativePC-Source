@@ -376,7 +376,10 @@ inline std::optional<OriginalSourceTargetFormat> PlanOriginalNativeTargets(
           for(int32_t v:region->destination)if(v&7)return {};
           if(graph.sample_counts.at(active_color)>1u)graph.partial_msaa_sources.insert(active_color);
         }
-        if(active_depth && *active_depth && (graph.extents.at(*active_depth)!=extent || graph.sample_counts.at(*active_depth)!=graph.sample_counts.at(active_color)))return {};
+        // Color-only Resolve reads the selected color image. The original
+        // XDK may temporarily retain a different-sized depth binding
+        // between SetRenderTarget and SetDepthStencilSurface. Unlike a
+        // Draw or a combined Clear, no depth attachment is consumed here.
         if(!register_extent(dest,extent) || !register_samples(dest,1u) ||
            !register_color(dest,graph.color_formats.at(active_color)))return {};
         if(dest==front) {

@@ -92,8 +92,11 @@ struct RawCommand {
   uint32_t captured_resolve_color_owner=0;
   // Clear-only passes may have no Draw from which to learn their surface.
   // Snapshot the real bound device and RB format state at ClearF entry.
-  std::optional<OriginalVsMatrices> captured_clear_targets;
-  std::optional<OriginalXdkFixedGraphicsState> captured_clear_fixed;
+  // Only ClearF owns these snapshots. Embedding them in every Draw,
+  // Resolve and Present inflated the entire command stream by more than
+  // a kilobyte per command; immutable shared storage keeps copies cheap.
+  std::shared_ptr<const OriginalVsMatrices> captured_clear_targets;
+  std::shared_ptr<const OriginalXdkFixedGraphicsState> captured_clear_fixed;
 };
 std::optional<OriginalResolveRegion> CaptureOriginalColorResolveRegion(
     const std::array<uint32_t,8>& gpr,ReadGuestBytes read,void* state) noexcept;

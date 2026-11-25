@@ -341,8 +341,9 @@ bool DiligentSceneTargets::ResolveOriginalIntermediate(uint32_t guest,
   if(it==state_->intermediates.end() || !it->second)return false;
   const auto& src=state_->color->GetDesc();const auto& dst=it->second->GetDesc();
   if(src.Width!=dst.Width || src.Height!=dst.Height || src.Format!=dst.Format || dst.SampleCount!=1)return false;
-  if(state_->depth_bound && (!state_->depth || state_->depth->GetDesc().Width!=src.Width ||
-      state_->depth->GetDesc().Height!=src.Height || state_->depth->GetDesc().SampleCount!=src.SampleCount))return false;
+  // Color-only resolve is legal with a temporarily incompatible depth
+  // binding. It runs detached; rebind through the same deferred-pair
+  // mechanism as SetOriginalColorTarget/SetOriginalDepthTarget.
   std::optional<xdk::OriginalResolveRegion> mapped;
   if(source_region) {
     const auto source=ActiveSourceExtent(state_->original);
@@ -360,10 +361,6 @@ bool DiligentSceneTargets::ResolveOriginalIntermediate(uint32_t guest,
     if(scratch==state_->partial_msaa_scratch.end() || !scratch->second)return false;
     copy_source=scratch->second.RawPtr();
   }
-  auto* rtv=state_->color->GetDefaultView(TEXTURE_VIEW_RENDER_TARGET);
-  auto* dsv=state_->depth_bound && state_->depth ?
-      state_->depth->GetDefaultView(TEXTURE_VIEW_DEPTH_STENCIL) : nullptr;
-  if(!rtv || (state_->depth_bound && !dsv))return false;
   try {
     // Each original Resolve captures the active host color contents at
     // this exact chronology point. A separate texture remains readable
@@ -390,7 +387,7 @@ bool DiligentSceneTargets::ResolveOriginalIntermediate(uint32_t guest,
       args.DstTextureTransitionMode=RESOURCE_STATE_TRANSITION_MODE_TRANSITION;
       state_->context->CopyTexture(args);
     }
-    state_->context->SetRenderTargets(1,&rtv,dsv,RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+    if(!BindOriginalAttachments())return false;
     state_->completed_intermediates.insert(guest);
     return true;
   } catch (...) {AbortScene();return false;}
