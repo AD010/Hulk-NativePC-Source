@@ -698,7 +698,8 @@ HRESULT STDMETHODCALLTYPE OnSetVS(IDirect3DDevice9* dev,IDirect3DVertexShader9* 
 HRESULT STDMETHODCALLTYPE OnVSConstants(IDirect3DDevice9* dev,UINT reg,
                                         const float* data,UINT count) {
   if(!realVSConst)return D3DERR_INVALIDCALL;
-  if(!fixAspect || !data || !count || count>256)return realVSConst(dev,reg,data,count);
+  if(!fixAspect || !data || !count || reg>=256 || count>256-reg)
+    return realVSConst(dev,reg,data,count);
   // Query the shader bound to THIS device, not the last shader set on
   // any device. The latter is shared process-wide and can apply a camera
   // matrix correction to a different device's UI or postprocessing pass.
