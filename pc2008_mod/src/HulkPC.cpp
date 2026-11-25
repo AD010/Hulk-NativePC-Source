@@ -278,14 +278,16 @@ template<typename Fn> bool ReplaceVtable(void* object,size_t index,Fn hook,Fn& o
   if(!VirtualProtect(slot,sizeof(void*),PAGE_EXECUTE_READWRITE,&protect))return false;
   const auto observed=*slot;
   bool success=false;
-  if(observed==current) {
-    InterlockedExchangePointer(reinterpret_cast<PVOID volatile*>(slot),
-                               reinterpret_cast<PVOID>(hook));
-    success=(*slot==reinterpret_cast<void*>(hook));
-    if(success) {
-      if(!original)original=reinterpret_cast<Fn>(current);
+  if(observed==current && current) {
+    // Publish the original before exposing the hook to another render thread.
+    // Compare-exchange also avoids overwriting a concurrent foreign hook.
+    if(!original)original=reinterpret_cast<Fn>(current);
+    const auto previous=InterlockedCompareExchangePointer(
+        reinterpret_cast<PVOID volatile*>(slot),
+        reinterpret_cast<PVOID>(hook),current);
+    success=(previous==current);
+    if(success)
       ownedVtableSlots.emplace(slot,reinterpret_cast<void*>(original));
-    }
   }
   DWORD unused=0;
   VirtualProtect(slot,sizeof(void*),protect,&unused);
