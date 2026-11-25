@@ -2721,8 +2721,10 @@ struct AutomaticEorOwner {
         auto layout=call.kind==Kind::EndVertices ? ui::ResolveUsaInlineFontLayout(call) :
                                                   ui::ResolveUsaBufferedFontLayout(call);
         if(!layout || !layout->color || !call.observed_vs_matrices ||
-           !call.observed_live_vertex_shader_header || !call.observed_live_pixel_shader_header)
-          throw std::invalid_argument("Live original font material unavailable");
+           !call.observed_live_vertex_shader_header || !call.observed_live_pixel_shader_header ||
+           !call.observed_shader_constants ||
+           !call.observed_shader_constants->fixed_graphics_state)
+          throw std::invalid_argument("Live original font material or fixed-state registers unavailable");
         const auto& live=*call.observed_vs_matrices;
         const auto vs=aot::ResolveOriginalLiveXdkShaderSource(*pack.virtual_ids,
              *call.observed_live_vertex_shader_header,live.original_vs_guest_object,
