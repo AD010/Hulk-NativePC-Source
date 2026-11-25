@@ -3,6 +3,7 @@
 // No modifications to gameplay input maps, GPU render hooks or guest assets.
 #include "pc_menu.h"
 #include "native_pc_options_store.h"
+#include "native_pc_menu_actions.h"
 #include "native_audio_options.h"
 #include "native_pc_bindings.h"
 #include "native_resolution.h"
@@ -788,9 +789,15 @@ class PcMenu final : public rex::ui::ImGuiDialog {
         : rex::cvar::Query<double>(key);
   }
   void Change(const char* key, const std::string& value) {
-    const bool saved=hulk::options::Save(config_, key, value);
-    last_save_ok_=saved;
-    if (!saved) {
+    const auto result=options::CommitPcMenuValue(key,value,
+        [this](std::string_view k,std::string_view v) {
+          return options::Save(config_,k,v);
+        },
+        [key,&value](std::string_view,std::string_view) {
+          return rex::cvar::SetFlagByName(key,value);
+        });
+    last_save_ok_=result.persisted;
+    if (!result.persisted) {
       std::error_code ec;
       REXLOG_ERROR("[HULK/PCMENU-SAVE] REJECTED key={} exists={} "
                    "regular={} (unwritable, duplicate or invalid value)",
@@ -799,15 +806,9 @@ class PcMenu final : public rex::ui::ImGuiDialog {
       return;
     }
     saved_preview_[key]=value;
-    const std::string_view name(key);
-    const bool hot=name.starts_with("hulk_bind_") ||
-                   name.starts_with("hulk_mouse_") ||
-                   name=="vsync" || name=="hulk_guest_swap_fps_cap" ||
-                   options::IsLiveHostAudioOption(name);
-    const bool applied=hot && rex::cvar::SetFlagByName(key,value);
     REXLOG_INFO("[HULK/PCMENU-SAVE] key={} persisted=true "
                 "live_applied={} restart_required={} value={}",
-                key,applied,!applied,value);
+                key,result.live_applied,result.RestartRequired(),value);
   }
   void DrawMouseMultiplier(const char* label, const char* key,
                            float& pending, bool& editing) {

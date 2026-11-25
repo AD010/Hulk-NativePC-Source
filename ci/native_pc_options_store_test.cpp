@@ -1,5 +1,6 @@
 // Synthetic-only NativePC options write regression; no user TOML touched.
 #include "../native_port/src/native_pc_options_store.h"
+#include "../native_port/src/native_pc_menu_actions.h"
 #include "../native_port/src/native_pc_bindings.h"
 #include "../native_port/src/native_resolution.h"
 #include "../native_port/src/native_camera_projection.h"
@@ -262,6 +263,31 @@ int main() {
     Expect(Read(config)=="hulk_mouse_invert_x = true\nhulk_mouse_invert_y = false\nvsync = true\n",
            "Concurrent menu writes lost a setting");
   }
+  // The original EoR UI and ImGui can use the same settings transaction.
+  // Rejected values must never reach the engine; restart-only values
+  // must not invoke an unsafe live swapchain/device reconfiguration.
+  unsigned live_calls=0;
+  const auto apply=[&](std::string_view key,std::string_view value) {
+    ++live_calls;
+    Expect(key=="vsync" && value=="false","Unexpected live PC setting");
+    return true;
+  };
+  const auto changed=hulk::options::CommitLivePcMenuValue("vsync","false",apply);
+  Expect(changed.persisted && changed.live_applied && !changed.RestartRequired() &&
+         live_calls==1,"Shared PC menu live setting was not applied");
+  const auto deferred=hulk::options::CommitLivePcMenuValue("fullscreen","true",apply);
+  Expect(deferred.persisted && !deferred.live_applied && deferred.RestartRequired() &&
+         live_calls==1,"Restart-only setting reached live engine");
+  const auto rejected=hulk::options::CommitLivePcMenuValue("vsync","invalid",apply);
+  Expect(!rejected.persisted && !rejected.live_applied && !rejected.RestartRequired() &&
+         live_calls==1,"Invalid setting reached live engine");
+  Expect(hulk::options::SaveLiveWindowSize(2560,1600),"Shared native resolution save failed");
+  const auto persisted=Read(config);
+  Expect(persisted.find("window_width = 2560")!=std::string::npos &&
+         persisted.find("window_height = 1600")!=std::string::npos &&
+         persisted.find("fullscreen = true")!=std::string::npos &&
+         persisted.find("vsync = false")!=std::string::npos,
+         "Shared menu changes were not persisted");
   hulk::options::SetLiveConfigPath({});
   Write(config, "vsync = true\nvsync = false\n");
   Expect(!Save(config, "vsync", "true"), "Duplicate TOML keys must be refused");

@@ -232,20 +232,30 @@ void SetLiveConfigPath(const std::filesystem::path& path) noexcept {
     g_live_config_path=path;
   } catch (...) {}
 }
+bool SaveLiveOption(std::string_view key,std::string_view value) noexcept {
+  try {
+    std::filesystem::path path;
+    { std::lock_guard lock(g_live_path_mutex); path=g_live_config_path; }
+    return Save(path,key,value);
+  } catch (...) {return false;}
+}
+bool SaveLiveWindowSize(uint32_t width,uint32_t height) noexcept {
+  try {
+    std::filesystem::path path;
+    { std::lock_guard lock(g_live_path_mutex); path=g_live_config_path; }
+    return SaveWindowSize(path,width,height);
+  } catch (...) {return false;}
+}
 bool SaveOriginalAudioVolume(std::string_view key,uint32_t value) noexcept {
   if(value>100 || (key!="hulk_original_music_volume" &&
       key!="hulk_original_sfx_volume" && key!="hulk_original_dialog_volume"))return false;
   try {
-    std::filesystem::path path;
-    { std::lock_guard lock(g_live_path_mutex); path=g_live_config_path; }
-    return Save(path,key,std::to_string(value));
+    return SaveLiveOption(key,std::to_string(value));
   } catch (...) {return false;}
 }
 bool SaveOriginalSubtitles(bool enabled) noexcept {
   try {
-    std::filesystem::path path;
-    { std::lock_guard lock(g_live_path_mutex); path=g_live_config_path; }
-    return Save(path,"hulk_original_subtitles",enabled?"1":"0");
+    return SaveLiveOption("hulk_original_subtitles",enabled?"1":"0");
   } catch (...) {return false;}
 }
 bool SaveOriginalLookInversion(std::optional<bool> yaw,
