@@ -220,6 +220,26 @@ void CheckCurrentDrawOvertakesStagedPrefetch() {
   }
   assert(gpu.serial==12u);
 }
+void CheckUrgentReadBypassesFullSpeculativeWindow() {
+  FakeGpu gpu;
+  NativeWorldStream stream(std::make_unique<Source>(),gpu,{});
+  const auto before=calls.load();
+  stream.RequestSourceVerifiedModels(std::array<uint32_t,6>{71u,72u,73u,74u,75u,76u});
+  RetryUntil([&]{return calls.load()>=before+4;});
+  // Model 76 is already queued as speculative. Promotion must wake
+  // a worker blocked by four staged models without any GPU upload.
+  stream.RequestSourceVerifiedModels(std::array<uint32_t,1>{76u},true);
+  RetryUntil([&]{return calls.load()>=before+5;});
+  assert(gpu.serial==0u);
+  std::this_thread::sleep_for(std::chrono::milliseconds(20));
+  assert(calls.load()==before+5); // still bounded; model 75 must wait
+  RetryUntil([&]{
+    stream.TickAndPublishSourceVerifiedModels(1,std::chrono::seconds(1),[](const auto&){});
+    return stream.Resident(76u)!=nullptr;
+  });
+  assert(gpu.serial==3u);
+  assert(!stream.Resident(75u));
+}
 void CheckBoundedPublicationBatch() {
   FakeGpu gpu;
   NativeWorldStream stream(std::make_unique<Source>(),gpu,{});
@@ -305,6 +325,7 @@ int main() {
   CheckSourceVerifiedWorldModels();
   CheckSourceReadAheadAndBoundedUpload();
   CheckCurrentDrawOvertakesStagedPrefetch();
+  CheckUrgentReadBypassesFullSpeculativeWindow();
   CheckBoundedPublicationBatch();
   CheckPublicationRetryRetainsGpuIdentity();
 }

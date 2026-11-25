@@ -69,6 +69,9 @@ void NativeWorldStream::Queue(uint32_t hash, bool urgent) {
         // Reorder in place without allocating: erase+push_front could
         // throw mid-promotion and permanently strand a queued model.
         std::rotate(requests_.begin(), it, it + 1);
+        // Promotion can now open the reserved urgent I/O slot even when
+        // the speculative staging window is already full.
+        wake_.notify_one();
       }
     }
     return;
@@ -219,8 +222,18 @@ void NativeWorldStream::Worker() {
     uint32_t hash=0;
     {
       std::unique_lock lock(mutex_);
-      wake_.wait(lock,[this]{return stopping_ ||
-          (!requests_.empty() && staged_.size()<(lod_?1u:kSourceReadAhead));});
+      wake_.wait(lock,[this]{
+        if(stopping_)return true;
+        if(requests_.empty())return false;
+        if(lod_)return staged_.empty();
+        if(staged_.size()<kSourceReadAhead)return true;
+        // A full speculative read-ahead window must not block the model
+        // independently authenticated by the current Draw. Reserve exactly
+        // one additional staging slot for urgent source requests; no GPU
+        // operation, eviction or speculative LOD mapping is needed.
+        return staged_.size()==kSourceReadAhead &&
+               source_urgent_.contains(requests_.front());
+      });
       if (stopping_) return;
       hash=requests_.front();requests_.pop_front();
     }
