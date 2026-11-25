@@ -12,6 +12,7 @@ import pathlib
 import re
 import sys
 import csv
+import hashlib
 
 # ReXGlue run 42112949583, emitted "Unresolved b target ... from ...".
 HULK_TAIL_TARGETS = (
@@ -22,6 +23,12 @@ HULK_TAIL_TARGETS = (
     0x8216ED60,
     0x82186480,
 )
+
+# New original source entrypoints have no historical native PE address.
+# Only admit these four when the existing local USA XEX matches the pinned
+# source. The actual generated bodies are still required by the hook generator.
+PINNED_USA_SHA256 = "346a73690303f6633bfdaf9850e78793fe07cdbfb8f849b89fbee320630b11f0"
+PINNED_SOURCE_HOOKS = frozenset((0x82338A00, 0x82338A18, 0x82885FF8, 0x82886428))
 
 FUNCTION = re.compile(r"(?m)^0x([0-9a-fA-F]{8})\s*=\s*\{\s*\}\s*$")
 RANGE = re.compile(
@@ -55,6 +62,12 @@ def required_hook_targets(root: pathlib.Path) -> tuple[int, ...]:
         raise ValueError("No input_hook.cpp guest entrypoints discovered; refusing silent link failure")
     for hit in input_hooks:
         requested.add(int(hit, 16))
+    source_only = requested - mapped
+    if source_only and source_only.issubset(PINNED_SOURCE_HOOKS):
+        xex = root / "game/default.xex"
+        if not xex.is_file() or hashlib.sha256(xex.read_bytes()).hexdigest() != PINNED_USA_SHA256:
+            raise ValueError("New source hook entries require the pinned original USA XEX")
+        mapped.update(source_only)
     unknown = sorted(requested - mapped)
     if unknown:
         raise ValueError("Hooks not in verified guest map: " +
@@ -81,7 +94,7 @@ def seed(missing: str, indirect: str, hook_targets: tuple[int, ...] = ()) -> tup
             raise ValueError(f"0x{target:08X}: no validated inferred span")
         if target not in found:
             additions.append(target)
-    # Old mapping has these as real PPC functions. If they are not called
+    # Historical mapping or pinned source validates these real PPC functions. If they are not called
     # directly by the codegen scanner, they otherwise never get emitted, and
     # lld-link fails on the hook's __imp__sub_XXXXXXXX call-through.
     for target in hook_targets:
