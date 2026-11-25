@@ -861,7 +861,23 @@ bool DiligentEorDirectBackend::CanReplayOriginalXdkTimeline(
     const auto& graph=plan->format.original_graph;
     uint32_t active=graph.first_color;
     for(const auto& cmd:source.commands) {
+      if(cmd.draw_ordinal!=UINT32_MAX)continue;
+      // A source graph can have valid texture mappings while containing
+      // unsupported tiling, ClearF or target-binding commands. Reject them
+      // BEFORE BeginScene instead of abandoning a partially written
+      // backbuffer and losing the compatible frame after GPU submission.
+      if(!CanReplayOriginalXdkCommand(cmd))return false;
       if(cmd.kind==xdk::CommandKind::SetRenderTarget)active=cmd.gpr[2];
+      if(cmd.kind==xdk::CommandKind::ClearF) {
+        // The generic command validator allows any graph target size.
+        // This command must match the CURRENT source RT, not another
+        // similarly-shaped color attachment.
+        const auto extent=graph.SourceExtent(active,state_->frame.original_guest);
+        if(!cmd.captured_clear ||
+           !xdk::IsOriginalFullTargetClear(*cmd.captured_clear,
+                                           extent.width,extent.height))
+          return false;
+      }
       if(cmd.kind!=xdk::CommandKind::Resolve)continue;
       const auto a=graph.SourceExtent(active,state_->frame.original_guest);
       const auto d=graph.SourceExtent(cmd.gpr[3],state_->frame.original_guest);
