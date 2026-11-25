@@ -57,11 +57,20 @@ NativeHavokTickRunner::NativeHavokTickRunner(
     throw std::invalid_argument("Original Hulk USA Havok world/step ABI is unverified");
 }
 void NativeHavokTickRunner::ResetAfterOriginalWorldReset() noexcept {
+  if(dispatching_) {
+    // An original world reset cannot safely invalidate a running hkpWorld
+    // callback or its job-completion barrier. Require a later explicit
+    // reset once all original jobs have returned to the host.
+    faulted_=true;
+    return;
+  }
   pending_=0.0;
   total_ticks_=0;
   faulted_=false;
 }
 StepBatch NativeHavokTickRunner::AdvanceAndRun(double elapsed) {
+  if(dispatching_)
+    throw std::logic_error("Reentrant original Havok world step");
   if(faulted_ || !std::isfinite(elapsed) || elapsed<0.0 || elapsed>10.0 ||
      pending_>std::numeric_limits<double>::max()-elapsed)
     throw std::invalid_argument("Unusable native Havok clock or elapsed time");
@@ -74,6 +83,13 @@ StepBatch NativeHavokTickRunner::CatchUpAndRun() {
   return Run();
 }
 StepBatch NativeHavokTickRunner::Run() {
+  if(dispatching_)
+    throw std::logic_error("Original Havok job dispatch already active");
+  dispatching_=true;
+  struct DispatchGuard {
+    bool& active;
+    ~DispatchGuard() noexcept { active=false; }
+  } guard{dispatching_};
   uint32_t dispatched=0;
   while(dispatched<budget_ && pending_+kEpsilon>=fixed_dt_) {
     if(total_ticks_==UINT64_MAX)
@@ -84,9 +100,11 @@ StepBatch NativeHavokTickRunner::Run() {
       faulted_=true;
       throw;
     }
-    if(!completed) {
+    if(!completed || faulted_) {
+      // The callback may have rejected its own job or triggered a world
+      // reset while in flight. Neither is proof of a completed fixed tick.
       // Never silently consume an unexecuted physics step or retry a
-      // potentially half-updated hkpWorld. Requires original world reset.
+      // potentially half-updated hkpWorld.
       faulted_=true;
       throw std::runtime_error("Source-verified original Havok step did not complete");
     }
