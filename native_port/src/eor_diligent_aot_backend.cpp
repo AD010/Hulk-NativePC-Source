@@ -15,7 +15,7 @@
 #include "ShaderResourceBinding.h"
 #include "TextureView.h"
 #include "RefCntAutoPtr.hpp"
-#include <rex/cvar.h>
+#include "eor_original_resolve_reuse.h"
 #include <algorithm>
 #include <array>
 #include <bit>
@@ -311,6 +311,9 @@ struct DiligentEorDirectBackend::State {
   std::map<MaterialKey,const NativeEorPassResources*> material_lookup;
   using PromptKey=std::tuple<uint32_t,std::string,uint32_t,uint32_t,Diligent::TEXTURE_FORMAT>;
   std::map<PromptKey,Diligent::RefCntAutoPtr<Diligent::ITexture>> pc_prompt_images;
+  int32_t world_anisotropy=-1;
+  std::map<std::string,std::string,std::less<>> pc_bindings;
+  OriginalResolveReuse resolve_reuse;
   Diligent::ITextureView* AcquirePcPrompt(const UploadedEorTexture& source,
       const VerifiedOriginalGraphicsPass& pass,const std::array<uint32_t,6>& fetch) noexcept {
     try {
@@ -318,14 +321,15 @@ struct DiligentEorDirectBackend::State {
       if(!pass.original_view_space_verified ||
          pass.original_view_space!=VerifiedOriginalViewSpace::OriginalAspectHud ||
          !pass.original_hud_clip_coordinates_verified ||
-         !ui::PcPromptInputActive() ||
+         pc_bindings.empty() ||
          source.view_kind!=OriginalTextureViewKind::Native2D ||
          !source.host_texture || source.original_mip_levels!=1u ||
          (fetch[4]>>2&255u) || (fetch[5]>>12&0x1ffffu))return nullptr;
       const auto key_name=ui::PcPromptBinding(source.original_texture_hash);
       if(key_name.empty())return nullptr;
-      const auto bindings=rex::cvar::Query<std::string>(std::string(key_name).c_str());
-      const auto token=ui::FirstPromptToken(bindings);
+      const auto binding=pc_bindings.find(key_name);
+      if(binding==pc_bindings.end())return nullptr;
+      const auto token=ui::FirstPromptToken(binding->second);
       if(token.empty())return nullptr;
       const auto& original=source.host_texture->GetDesc();
       if(original.MipLevels!=1u || original.ArraySize!=1u ||
@@ -965,9 +969,9 @@ bool DiligentEorDirectBackend::ReplayOriginalXdkCommand(
       // (when tiled) alias-free mapping were proved in frame preflight.
       return true;
     case xdk::CommandKind::ClearF:
-      return cmd.captured_clear &&
-             s.scene.ClearVerifiedOriginalXdk(
-                 *cmd.captured_clear,s.frame.original_guest);
+      if(!cmd.captured_clear)return false;
+      if(cmd.captured_clear->flags&1u)s.resolve_reuse.ColorWritten(s.scene.ActiveOriginalColor());
+      return s.scene.ClearVerifiedOriginalXdk(*cmd.captured_clear,s.frame.original_guest);
     case xdk::CommandKind::Resolve:
       // The real native color+depth target remains resident through
       // DrawIndexed; physical MSAA resolve is performed by ResolveScene()
@@ -977,8 +981,15 @@ bool DiligentEorDirectBackend::ReplayOriginalXdkCommand(
         const auto size=s.scene.ActiveSourceExtent(s.frame.original_guest);
         const auto region=xdk::DecodeOriginalColorResolveRegion(cmd,size.width,size.height);
         if(!region)return false;
-        if(cmd.gpr[3]!=s.format.original_screen.guest_front_buffer)
-          return s.scene.ResolveOriginalIntermediate(cmd.gpr[3],region);
+        if(cmd.gpr[3]!=s.format.original_screen.guest_front_buffer) {
+          const auto color=s.scene.ActiveOriginalColor(),dest=cmd.gpr[3];
+          const bool full=region->IsFull(size.width,size.height);
+          if(s.resolve_reuse.CanReuse(color,dest,full) &&
+             s.scene.IntermediateColorSRV(dest))return true;
+          if(!s.scene.ResolveOriginalIntermediate(dest,region))return false;
+          s.resolve_reuse.Resolved(color,dest,full);
+          return true;
+        }
         if(!region->IsFull(size.width,size.height))return false;
       }
       s.source_resolve_recorded=true;
@@ -1335,6 +1346,13 @@ void DiligentEorDirectBackend::RetireCompletedOriginalFontDraws(
     it=s.font_uploads.erase(it);
   }
 }
+bool DiligentEorDirectBackend::SetHostPresentationOptions(int32_t anisotropy,
+    std::map<std::string,std::string,std::less<>> bindings) {
+  if(!state_ || state_->scene_open || state_->frame_preflight_ready)return false;
+  state_->world_anisotropy=anisotropy>=-1 && anisotropy<=5?anisotropy:-1;
+  state_->pc_bindings=std::move(bindings);
+  return true;
+}
 bool DiligentEorDirectBackend::PreflightOriginalScene(
     std::span<const aot::BoundIndexedDraw> draws) {
   auto& s=*state_;
@@ -1662,7 +1680,7 @@ bool DiligentEorDirectBackend::PreflightOriginalScene(
           BindOriginalPixelImage2D(s.device,binding,*texture.uploaded,image->slot,
                                    captured.pixel_fetch[image->slot],(controls.point_slots&bit)!=0,
                                    (pass.original_xbox_cube_gamma_mask&bit)!=0,
-                                   world?rex::cvar::Query<int32_t>("anisotropic_override"):-1,
+                                   world?s.world_anisotropy:-1,
                                    s.AcquirePcPrompt(*texture.uploaded,pass,captured.pixel_fetch[image->slot]));
         }
         bound|=bit;
@@ -1686,6 +1704,7 @@ bool DiligentEorDirectBackend::BeginScene(native::Size world,uint32_t samples) {
   if(!s.format.original_graph.active() && !s.scene.SetDepthBound(s.first_draw_depth_bound)) {
     s.scene.AbortScene();return false;
   }
+  s.resolve_reuse.Reset();
   s.scene_open=true;s.finished=false;s.selected=nullptr;
   s.source_timeline_active=false;
   s.source_resolve_recorded=false;
@@ -1941,6 +1960,7 @@ bool DiligentEorDirectBackend::DrawIndexed(const native::IndexedDraw& draw) {
     Diligent::DrawIndexedAttribs command(
         draw.index_count,Diligent::VT_UINT32,Diligent::DRAW_FLAG_NONE,
         1,draw.first_index,static_cast<Diligent::Uint32>(draw.base_vertex));
+    s.resolve_reuse.ColorWritten(s.scene.ActiveOriginalColor());
     s.context->DrawIndexed(command);
     return true;
   } catch (...) {

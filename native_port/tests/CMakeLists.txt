@@ -30,7 +30,7 @@ if(HULK_DILIGENT_CORE)
     enable_language(C)
     add_subdirectory("${HULK_DILIGENT_CORE}" diligent EXCLUDE_FROM_ALL)
     add_executable(hulk_original_ui_vulkan_test eor_vulkan_original_ui_test.cpp
-        ../src/eor_archive.cpp ../src/eor_usa_index.cpp
+        ../src/eor_archive.cpp ../src/eor_usa_index.cpp ../src/eor_ui_original_dds.cpp
         ../src/eor_original_virtual_shader_identity.cpp
         ../src/eor_original_texture_usa.cpp ../src/eor_original_texture_assets.cpp
         ../src/eor_original_texture_gpu_layout.cpp ../src/eor_original_texture_mip_ranges.cpp
@@ -97,6 +97,10 @@ if(HULK_DILIGENT_CORE)
         endif()
     endif()
 endif()
+
+add_executable(hulk_original_resolve_reuse_test ../../ci/eor_original_resolve_reuse_test.cpp)
+target_compile_features(hulk_original_resolve_reuse_test PRIVATE cxx_std_20)
+add_test(NAME original_resolve_reuse COMMAND hulk_original_resolve_reuse_test)
 
 add_executable(hulk_immutable_buffer_cache_test ../../ci/eor_immutable_buffer_cache_test.cpp)
 target_compile_features(hulk_immutable_buffer_cache_test PRIVATE cxx_std_20)

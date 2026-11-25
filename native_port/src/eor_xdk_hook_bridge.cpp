@@ -3,6 +3,7 @@
 // This is an input provenance oracle, not a completed Vulkan renderer.
 #include "eor_xdk_hook_bridge.h"
 #include "eor_original_pause_vm.h"
+#include "eor_native_ui_prompts.h"
 #include "native_pc_options_store.h"
 #include "eor_original_havok_step.h"
 #include "eor_original_havok_catchup.h"
@@ -2261,6 +2262,17 @@ struct AutomaticEorOwner {
   }
   std::vector<aot::BoundIndexedDraw> Prepare(const Frame& frame,
       std::vector<std::shared_ptr<const model::UploadedOriginalModel>>& retained) {
+    std::map<std::string,std::string,std::less<>> pc_bindings;
+    if(ui::PcPromptInputActive()) {
+      for(const char* key:{"hulk_bind_confirm","hulk_bind_back","hulk_bind_primary",
+          "hulk_bind_secondary","hulk_bind_lt","hulk_bind_rt","hulk_bind_lb",
+          "hulk_bind_rb","hulk_bind_start","hulk_bind_select","hulk_bind_menu_up",
+          "hulk_bind_menu_down","hulk_bind_menu_left","hulk_bind_menu_right"})
+        pc_bindings.emplace(key,rex::cvar::Query<std::string>(key));
+    }
+    if(!backend->SetHostPresentationOptions(rex::cvar::Query<int32_t>("anisotropic_override"),
+                                            std::move(pc_bindings)))
+      throw std::runtime_error("Native host settings cannot change during an active scene");
     std::vector<aot::BoundIndexedDraw> ordered;
     ordered.reserve(frame.calls.size());
     // Strong owners remain attached to this source frame until the

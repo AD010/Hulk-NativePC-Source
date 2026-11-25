@@ -169,6 +169,10 @@ class DiligentEorDirectBackend final : public aot::ShaderBindingBackend {
   // Rebind ONLY the independently revalidated rotating Present destination.
   // All actual host allocations, source material keys and draw targets stay unchanged.
   bool RebindOriginalFrontBuffer(const VerifiedSceneFormat& verified);
+  // Capture host options once per immutable frame, independent of the
+  // SDK CVar implementation. Standalone offscreen tests use defaults.
+  bool SetHostPresentationOptions(int32_t anisotropy,
+      std::map<std::string,std::string,std::less<>> bindings);
   bool PreflightOriginalScene(
       std::span<const aot::BoundIndexedDraw> draws) override;
   bool CanReplayOriginalXdkTimeline(const xdk::Frame& source) const override;
