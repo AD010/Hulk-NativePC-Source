@@ -1,6 +1,7 @@
 // Synthetic-only NativePC options write regression; no user TOML touched.
 #include "../native_port/src/native_pc_options_store.h"
 #include "../native_port/src/native_pc_menu_actions.h"
+#include "../native_port/src/native_pc_menu_rows.h"
 #include "../native_port/src/native_pc_bindings.h"
 #include "../native_port/src/native_resolution.h"
 #include "../native_port/src/native_camera_projection.h"
@@ -288,6 +289,34 @@ int main() {
          persisted.find("fullscreen = true")!=std::string::npos &&
          persisted.find("vsync = false")!=std::string::npos,
          "Shared menu changes were not persisted");
+  hulk::options::PcMenuPageSession page;
+  unsigned bind_rows=0;
+  for(const auto& row:hulk::options::kPcMenuRows)
+    if(row.kind==hulk::options::PcMenuRowKind::Binding) {
+      ++bind_rows;
+      Expect(hulk::options::IsBindingOption(row.key),"Unexpected menu binding");
+    }
+  Expect(bind_rows==21,"Menu binding coverage incomplete");
+  page.Enter(10,1);
+  Expect(!page.Select(10,2,"vsync","false",apply).persisted,
+         "Stale page generation accepted");
+  Expect(!page.Select(10,1,"vsync","invalid",apply).persisted,
+         "Unknown menu choice accepted");
+  Expect(page.Select(10,1,"vsync","false",apply).live_applied,
+         "Native menu row was not applied");
+  Expect(page.Resolution(10,1,2560,1600),"Native menu resolution rejected");
+  unsigned exits=0;
+  Expect(!page.ConfirmExit(10,1,true,[&]{++exits;}),
+         "Exit without confirmation request accepted");
+  Expect(page.RequestExit(10,1),"Exit request failed");
+  Expect(!page.Select(10,1,"vsync","false",apply).persisted,
+         "Setting applied while exit confirmation pending");
+  Expect(page.ConfirmExit(10,1,false,[&]{++exits;}) && exits==0,
+         "Cancel exit closed game");
+  Expect(page.RequestExit(10,1) &&
+         page.ConfirmExit(10,1,true,[&]{++exits;}) && exits==1,
+         "Confirmed exit not delivered exactly once");
+  Expect(!page.Owns(10,1),"Closed page retained ownership");
   hulk::options::SetLiveConfigPath({});
   Write(config, "vsync = true\nvsync = false\n");
   Expect(!Save(config, "vsync", "true"), "Duplicate TOML keys must be refused");

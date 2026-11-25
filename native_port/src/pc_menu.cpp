@@ -4,6 +4,7 @@
 #include "pc_menu.h"
 #include "native_pc_options_store.h"
 #include "native_pc_menu_actions.h"
+#include "native_pc_menu_rows.h"
 #include "native_audio_options.h"
 #include "native_pc_bindings.h"
 #include "native_resolution.h"
@@ -563,31 +564,10 @@ class PcMenu final : public rex::ui::ImGuiDialog {
           // HULK/NATIVE-REMAP: source-supported actions only. The token
           // list is shared with the independent native TOML writer,
           // so the UI cannot claim to bind unsupported virtual keys.
-          static constexpr std::pair<const char*, const char*>
-              kRebindActions[] = {
-              {"Move forward", "hulk_bind_forward"},
-              {"Move backward", "hulk_bind_backward"},
-              {"Move left", "hulk_bind_left"},
-              {"Move right", "hulk_bind_right"},
-              {"Jump / Confirm", "hulk_bind_confirm"},
-              {"Attack", "hulk_bind_primary"},
-              {"Secondary attack", "hulk_bind_secondary"},
-              {"Back / Cancel", "hulk_bind_back"},
-              {"Alternate back", "hulk_bind_alt_back"},
-              {"Left ability", "hulk_bind_lb"},
-              {"Right ability", "hulk_bind_rb"},
-              {"Left trigger", "hulk_bind_lt"},
-              {"Right trigger", "hulk_bind_rt"},
-              {"Pause", "hulk_bind_start"},
-              {"Walk", "hulk_bind_walk"},
-              {"Menu up", "hulk_bind_menu_up"},
-              {"Menu down", "hulk_bind_menu_down"},
-              {"Menu left", "hulk_bind_menu_left"},
-              {"Menu right", "hulk_bind_menu_right"},
-              {"Select / Back button", "hulk_bind_select"},
-              {"Right stick click", "hulk_bind_rstick_click"},
-          };
-          for (const auto& [label, key] : kRebindActions) {
+          for(const auto& row:options::kPcMenuRows) {
+            if(row.kind!=options::PcMenuRowKind::Binding)continue;
+            const auto* label=row.label;
+            const auto* key=row.key;
             ImGui::PushID(key);
             const std::string current = Bind(key);
             if (ImGui::BeginCombo(label, current.c_str())) {
