@@ -23,9 +23,9 @@ from patch_native_x_hulk_scene_wait_budget import (
 
 ROOT=Path(__file__).resolve().parents[1]
 BUILDER=ROOT/"native_port"/"BUILD_WINDOWS.ps1"
-SHA="bf965e952c98e050753e91d08f32685a9f754b12"
-CANDIDATE_SHA="919371b5bdae0c9c4c7120ca321f5a4d72b7e78e"  # D127-D135 reviewed migration
-D140_SHA="fa19ea85fec5c7f7f8a2df82d6c4a86548817b52"  # isolated candidate; NOT production
+SHA="bf965e952c98e050753e91d08f32685a9f754b12"  # historical baseline, explicit opt-in
+CANDIDATE_SHA="919371b5bdae0c9c4c7120ca321f5a4d72b7e78e"  # historical D127-D135 migration
+D140_SHA="fa19ea85fec5c7f7f8a2df82d6c4a86548817b52"  # current Windows build pin
 EXPERIMENTS=[
  "ci/test_patch_native_x_hulk_packet_first.py",
  "ci/patch_native_x_hulk_packet_first.py",
@@ -117,7 +117,7 @@ def run_d140_patch(path: Path, source: Path) -> None:
     apply_d140_reviewed_patch(path, source)
 
 
-def run(sha=SHA):
+def run(sha=D140_SHA):
     if sha not in (SHA, CANDIDATE_SHA, D140_SHA):
         raise ValueError("Unreviewed NativeX revision")
     # Fail fast, with PUBLIC synthetic-only test output, BEFORE touching
@@ -139,7 +139,7 @@ def run(sha=SHA):
     # Every separate Hulk patch script compares its *actual* checkout HEAD
     # with this value. The candidate is not disguised as the old revision.
     os.environ["HULK_NATIVEX_SOURCE_SHA"] = sha
-    print(f"[NativeX/preflight] source SHA={sha}; mode={'candidate-only' if sha != SHA else 'production'}", flush=True)
+    print(f"[NativeX/preflight] source SHA={sha}; mode={'production-pin' if sha == D140_SHA else 'historical-only'}", flush=True)
     scripts=commands()
     if sha == D140_SHA:
         checked([sys.executable,str(ROOT/"ci/test_native_x_d140_dispatch.py")])
@@ -383,7 +383,7 @@ def run(sha=SHA):
         if missing:raise RuntimeError(f"NativeX patch chain markers absent: {missing}")
         print(f"[NativeX/preflight] All {len(scripts)} real NativeX {sha[:8]} source patches pass")
 if __name__=="__main__":
-    if len(sys.argv) > 2 or (len(sys.argv) == 2 and sys.argv[1] not in ("--candidate","--d140")):
-        raise SystemExit("Usage: python ci/test_native_x_patch_chain.py [--candidate|--d140]")
-    run(D140_SHA if len(sys.argv)==2 and sys.argv[1]=="--d140"
-        else CANDIDATE_SHA if len(sys.argv)==2 else SHA)
+    modes={"--legacy": SHA, "--candidate": CANDIDATE_SHA, "--d140": D140_SHA}
+    if len(sys.argv)>2 or (len(sys.argv)==2 and sys.argv[1] not in modes):
+        raise SystemExit("Usage: python ci/test_native_x_patch_chain.py [--d140|--legacy|--candidate]")
+    run(modes[sys.argv[1]] if len(sys.argv)==2 else D140_SHA)

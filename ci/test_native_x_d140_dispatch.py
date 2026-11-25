@@ -128,6 +128,16 @@ class D140WindowsDispatchTests(unittest.TestCase):
         self.assertIn("if(HULK_REQUIRE_NATIVE_PROFILE_TEST)",tests)
         self.assertIn("message(FATAL_ERROR",tests)
 
+    def test_only_actual_release_pin_is_mandatory(self):
+        workflow=(ROOT/".github"/"workflows"/"hulk-free-windows.yml").read_text("utf-8")
+        self.assertEqual(re.findall(
+            r"(?m)^\s*python ci/test_native_x_patch_chain\.py(?: ([^\r\n]+))?\s*$",
+            workflow),["--d140"])
+        audit=(ROOT/"ci"/"test_native_x_patch_chain.py").read_text("utf-8")
+        self.assertIn("def run(sha=D140_SHA):",audit)
+        self.assertIn('modes={"--legacy": SHA, "--candidate": CANDIDATE_SHA, "--d140": D140_SHA}',audit)
+        self.assertIn("else D140_SHA)",audit)
+
     def test_atomic_native_x_source_plan_rejects_unreviewed_edits(self):
         builder=(ROOT/"native_port"/"BUILD_WINDOWS.ps1").read_text("utf-8")
         for bad in (
