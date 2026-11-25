@@ -4,6 +4,7 @@
 // and render-pass identity still must be verified before any Vulkan Draw.
 #pragma once
 #include "eor_spirv_bank.h"
+#include <algorithm>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -62,6 +63,8 @@ class EffectCatalog {
         vs[b] = bytes[at + 8 + b];
         ps[b] = bytes[at + 40 + b];
       }
+      if (vs == Digest{} || ps == Digest{})
+        throw std::invalid_argument("Original EoR shader source digest missing");
       if (vs == ps)
         throw std::invalid_argument("One original shader identity has incompatible stages");
       const auto accept = [&](const Digest& digest, Stage stage) {
@@ -123,12 +126,23 @@ class EffectCatalog {
   // stage is individually unique. Never choose among multiple matches.
   std::optional<std::pair<Digest,Digest>> UniqueLivePair(
       std::span<const Digest> vertices,std::span<const Digest> pixels) const noexcept {
+    if(vertices.empty() || pixels.empty())return {};
     std::optional<std::pair<Digest,Digest>> result;
-    for(const auto& vs:vertices)for(const auto& ps:pixels) {
-      const std::pair<Digest,Digest> key{vs,ps};
-      if(!reverse_.contains(key))continue;
-      if(result && *result!=key)return {};
-      result=key;
+    // The live alias resolver supplies sorted SHA candidates. Walk only
+    // actual ledger edges for each vertex, rather than testing the full
+    // VS x PS product. Preserve arbitrary caller order and duplicate IDs.
+    const bool sorted_pixels=std::is_sorted(pixels.begin(),pixels.end());
+    for(const auto& vs:vertices) {
+      for(auto it=reverse_.lower_bound({vs,Digest{}});
+          it!=reverse_.end() && it->first.first==vs;++it) {
+        const auto& ps=it->first.second;
+        const bool found=sorted_pixels ?
+            std::binary_search(pixels.begin(),pixels.end(),ps) :
+            std::find(pixels.begin(),pixels.end(),ps)!=pixels.end();
+        if(!found)continue;
+        if(result && *result!=it->first)return {};
+        result=it->first;
+      }
     }
     return result;
   }
