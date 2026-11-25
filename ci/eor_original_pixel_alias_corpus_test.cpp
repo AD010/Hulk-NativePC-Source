@@ -30,7 +30,7 @@ int main(int argc,char** argv){
  }
  assert(vs_headers.size()==2597 && ps_containers.size()==2597 && pair.size()==2597);
  std::vector<uint8_t> guest(3u<<20);constexpr uint32_t vo=0x1000,po=0x110000,code=0x220000;
- size_t paired=0,unpaired=0,sampling=0,sampling_unsupported=0;OriginalPixelSamplerCache cache;
+ size_t paired=0,unpaired=0,sampling=0,sampling_unsupported=0,joint_recovered=0,joint_ambiguous=0;OriginalPixelSamplerCache cache;
  for(const auto& [ps,full]:ps_containers){
   const auto vs=pair.at(ps);const auto vh=vs_headers.at(vs);
   const auto v=Be(full.data()+4),ctab=Be(full.data()+16),defs=Be(full.data()+20),desc=Be(full.data()+24),removed=ctab-36u;
@@ -60,7 +60,46 @@ int main(int argc,char** argv){
   assert(bool(native)==bool(recovered));if(native){assert(native->sampled_slots==recovered->sampled_slots&&native->point_slots==recovered->point_slots);++sampling;}else ++sampling_unsupported;
   auto corrupt=*observed_ps;corrupt.alias_live_physical[0]^=1;assert(!ResolveOriginalLiveEorEffectPass(ids,effects,*observed_vs,corrupt,vo,po,7,0));
   corrupt=*observed_ps;corrupt.exact_original_guest_virtual_header.back()^=1;assert(!ResolveOriginalLiveEorEffectPass(ids,effects,*observed_vs,corrupt,vo,po,7,0));
+  // Both live XDK objects may have lost their UPDB directory. Exercise the
+  // actual archived VS/PS pair, not guessed SHA candidates or copied
+  // synthetic pass IDs. A multiply matching pair must remain rejected.
+  if(!direct) {
+    const auto vc=Be(vh.data()+16),vd=Be(vh.data()+20),vi=Be(vh.data()+24),vr=vc-36u;
+    std::vector<uint8_t> stripped_vs(vh.begin(),vh.begin()+36);
+    stripped_vs.insert(stripped_vs.end(),vh.begin()+vc,vh.end());
+    Put(stripped_vs,4,uint32_t(stripped_vs.size()));Put(stripped_vs,12,0);
+    Put(stripped_vs,16,36);Put(stripped_vs,20,vd?vd-vr:0);Put(stripped_vs,24,vi-vr);
+    const auto vcode=std::span<const uint8_t>(vh.data()+vh.size(),Be(vh.data()+8));
+    const auto vertices=ids.FindOriginalAliasCandidates(stripped_vs,vcode,Stage::Vertex);
+    const auto pixels=ids.FindOriginalAliasCandidates(stripped,physical,Stage::Pixel);
+    assert(std::find(vertices.begin(),vertices.end(),vs)!=vertices.end());
+    assert(std::find(pixels.begin(),pixels.end(),ps)!=pixels.end());
+    if(vertices.size()>1 && pixels.size()>1) {
+      constexpr uint32_t vcode_address=0x210000;
+      assert(vcode.size()<=code-vcode_address);
+      std::copy(stripped_vs.begin(),stripped_vs.end(),guest.begin()+vo+872);
+      Put(guest,vo+32,vcode_address);
+      std::copy(vcode.begin(),vcode.end(),guest.begin()+vcode_address);
+      auto live_v=ObserveOriginalBoundXdkShader(ids,vo,Stage::Vertex,Read,&guest,7,0,nullptr,true);
+      auto live_p=ObserveOriginalBoundXdkShader(ids,po,Stage::Pixel,Read,&guest,7,0,nullptr,true);
+      assert(live_v && live_p);
+      const auto joint=effects.UniqueLivePair(vertices,pixels);
+      assert(SelectJointOriginalLiveAliasPair(ids,effects,*live_v,*live_p,vo,po,7,0)==bool(joint));
+      if(joint) {
+        assert(joint->first==vs && joint->second==ps);
+        const auto resolved=ResolveOriginalLiveEorEffectPass(ids,effects,*live_v,*live_p,vo,po,7,0);
+        assert(resolved && effects.HasPair(resolved->effect_hash,resolved->pass_index,vs,ps));
+        assert(!ResolveOriginalLiveEorEffectPass(ids,effects,*live_v,*live_p,vo,po,7,1));
+        live_v->alias_live_physical[0]^=1;
+        assert(!ResolveOriginalLiveEorEffectPass(ids,effects,*live_v,*live_p,vo,po,7,0));
+        ++joint_recovered;
+      } else {
+        assert(!ResolveOriginalLiveEorEffectPass(ids,effects,*live_v,*live_p,vo,po,7,0));
+        ++joint_ambiguous;
+      }
+    }
+  }
  }
  assert(unpaired==1601 && paired==996 && sampling==2597 && sampling_unsupported==0);
- std::cout<<"PASS: 2597 original stripped PS, "<<paired<<" newly disambiguated, "<<unpaired<<" unambiguous, sampler decoder supported="<<sampling<<" unsupported="<<sampling_unsupported<<"\n";
+ std::cout<<"PASS: 2597 original stripped PS, "<<paired<<" newly disambiguated, "<<unpaired<<" unambiguous, sampler decoder supported="<<sampling<<" unsupported="<<sampling_unsupported<<" joint recovered="<<joint_recovered<<" joint ambiguous="<<joint_ambiguous<<"\n";
 }
