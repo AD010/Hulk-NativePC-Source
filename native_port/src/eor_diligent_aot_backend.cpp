@@ -318,8 +318,7 @@ struct DiligentEorDirectBackend::State {
       if(!pass.original_view_space_verified ||
          pass.original_view_space!=VerifiedOriginalViewSpace::OriginalAspectHud ||
          !pass.original_hud_clip_coordinates_verified ||
-         !rex::cvar::Query<bool>("hulk_native_mnk") ||
-         !rex::cvar::Query<bool>("hulk_native_mnk_force") ||
+         !ui::PcPromptInputActive() ||
          source.view_kind!=OriginalTextureViewKind::Native2D ||
          !source.host_texture || source.original_mip_levels!=1u ||
          (fetch[4]>>2&255u) || (fetch[5]>>12&0x1ffffu))return nullptr;

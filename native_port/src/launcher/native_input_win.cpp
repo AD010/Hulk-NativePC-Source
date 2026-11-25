@@ -3,6 +3,7 @@
 // If a verified camera layout is supplied, mouse deltas update guest yaw/pitch directly.
 // Otherwise, the original right-stick fallback remains for playability.
 #include "native_input_map.h"
+#include "eor_native_ui_prompts.h"
 #include "native_pc_bindings.h"
 #include "native_pc_options_store.h"
 #include "native_camera_direct.h"
@@ -277,11 +278,18 @@ void CommitOriginalCameraMenuOption(bool yaw,bool value,uint8_t* base) noexcept 
 // Called after the real Xam pad read; returns true when a virtual pad was supplied.
 // Does not override a connected physical controller.
 bool NativeInputApply(uint32_t user, bool real_pad_connected, uint8_t* state, uint8_t* guest_base) {
-  if (user != 0 || !NativeInputEnabled() || !state) return false;
+  if (user != 0 || !state) return false;
+  if (!NativeInputEnabled()) {
+    eor::ui::PublishPcPromptInput(false);
+    return false;
+  }
   // The SDK can expose its own keyboard-as-XInput device (mnk_mode=true). In that case
   // Xam reports a connected pad and the previous bridge silently did nothing.
   // Do not override a physical controller unless the user opts in explicitly.
-  if (real_pad_connected && !REXCVAR_GET(hulk_native_mnk_force)) return false;
+  if (real_pad_connected && !REXCVAR_GET(hulk_native_mnk_force)) {
+    eor::ui::PublishPcPromptInput(false);
+    return false;
+  }
   input::Frame f{};
 #if defined(_WIN32)
   // The original Pause/Game Settings and PC controls share the exact USA
@@ -471,6 +479,7 @@ bool NativeInputApply(uint32_t user, bool real_pad_connected, uint8_t* state, ui
     }
     StorePacket(state, g_packet.load());
   }
+  eor::ui::PublishPcPromptInput(true);
   return true;
 }
 } // namespace hulk

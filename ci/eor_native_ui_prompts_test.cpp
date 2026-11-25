@@ -9,12 +9,38 @@ int main(){
   Check(PcPromptBinding(0x8353C9D7u)=="hulk_bind_secondary");
   Check(PcPromptBinding(0xD9E8AD12u)=="hulk_bind_lt");
   Check(PcPromptBinding(0x063884F1u)=="hulk_bind_rt");
+  Check(PcPromptBinding(0xAC9AA551u)=="hulk_bind_lb");
+  Check(PcPromptBinding(0x734A8CB2u)=="hulk_bind_rb");
+  Check(PcPromptBinding(0xB3951152u)=="hulk_bind_start");
+  Check(PcPromptBinding(0xEC6B934Cu)=="hulk_bind_select");
+  Check(PcPromptBinding(0xC76C7AB4u)=="hulk_bind_menu_up");
+  Check(PcPromptBinding(0x9E32DFE1u)=="hulk_bind_menu_down");
+  Check(PcPromptBinding(0x6E62BB29u)=="hulk_bind_menu_left");
+  Check(PcPromptBinding(0xEBDDBBC2u)=="hulk_bind_menu_right");
   Check(PcPromptBinding(0).empty());
+  Check(PcPromptBinding(0x6592347Eu).empty()); // composite D-pad is not one key
+  Check(!PcPromptInputActive());
+  for(unsigned i=0;i<1000;++i) {
+    PublishPcPromptInput(true);Check(PcPromptInputActive());
+    PublishPcPromptInput(false);Check(!PcPromptInputActive());
+  }
   Check(FirstPromptToken("bad, Space, Enter")=="Space");
   Check(PromptLabel("MouseLeft")=="LMB");
   Check(PromptLabel("Space")=="SPACE");
   Check(KnownPcPromptAsset("Space")=="ui_key_space_da");
   Check(KnownPcPromptAsset("MouseLeft")=="ui_mouse_leftbutton_da");
+  Check(KnownPcPromptAsset("MouseRight")=="ui_mouse_rightbutton_da");
+  Check(KnownPcPromptAsset("MouseMiddle")=="ui_mouse_middlebutton_da");
+  Check(KnownPcPromptAsset("Enter")=="ui_key_enter_da");
+  Check(KnownPcPromptAsset("Tab")=="ui_key_tab_da");
+  Check(KnownPcPromptAsset("Esc")=="ui_key_escape_da");
+  Check(KnownPcPromptAsset("F")=="ui_key_f_da");
+  Check(KnownPcPromptAsset("M")=="ui_key_m_da");
+  Check(KnownPcPromptAsset("1")=="ui_key_1_da");
+  Check(KnownPcPromptAsset("2")=="ui_key_2_da");
+  Check(KnownPcPromptAsset("3")=="ui_key_3_da");
+  Check(KnownPcPromptAsset("4")=="ui_key_4_da");
+  Check(KnownPcPromptAsset("Q").empty());
   for(auto key:hulk::options::kBindingTokens){
     auto image=RasterPcKeycap(key,64,64);
     Check(image.size()==64u*64u*4u);

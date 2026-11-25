@@ -1,4 +1,5 @@
 #include "eor_ui_original_dds.h"
+#include "eor_native_ui_prompts.h"
 #include "eor_archive.h"
 #include <algorithm>
 #include <stdexcept>
@@ -67,8 +68,12 @@ OriginalPcUiImage DecodePcTxflUi(
 OriginalPcUiImage LoadPcMenuArt(
     const std::filesystem::path& index_path,
     const std::filesystem::path& textures_path,std::string_view name) {
-  if(name!="ui_menubands_da" && name!="ui_menuitems_da" &&
-     name!="ui_key_space_da" && name!="ui_mouse_leftbutton_da")
+  const bool known_prompt=std::any_of(options::kBindingTokens.begin(),
+      options::kBindingTokens.end(),[&](std::string_view token) {
+        const auto asset=KnownPcPromptAsset(token);
+        return !asset.empty() && asset==name;
+      });
+  if(name!="ui_menubands_da" && name!="ui_menuitems_da" && !known_prompt)
     throw std::invalid_argument("Unrecognized original Hulk PC menu asset");
   auto idx=Index::Load(index_path);
   if(idx.byte_order()!=ByteOrder::Little)

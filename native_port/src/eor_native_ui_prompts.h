@@ -1,16 +1,26 @@
 #pragma once
-// Original EoR UI texture slots, not an overlay. Six original Xbox source
-// hashes are cross-checked in eor_ui_original_resource_map.csv. The label
+// Original EoR UI texture slots, not an overlay. Original hashes are
+// cross-checked in the decoded PC/Xbox360 texture indices. The label
 // must come from the same NativePC binding consumed by the input bridge.
 #include "native_pc_bindings.h"
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cstdint>
 #include <string>
 #include <string_view>
 #include <vector>
 
 namespace hulk::eor::ui {
+// Published by actual slot-zero input arbitration, not an assumption
+// from startup configuration. Remains stable during focus loss/pause.
+inline std::atomic<bool> g_pc_prompt_input_active{false};
+inline void PublishPcPromptInput(bool keyboard) noexcept {
+  g_pc_prompt_input_active.store(keyboard,std::memory_order_release);
+}
+inline bool PcPromptInputActive() noexcept {
+  return g_pc_prompt_input_active.load(std::memory_order_acquire);
+}
 inline std::string_view PcPromptBinding(uint32_t source_hash) noexcept {
   switch(source_hash) {
     case 0x16FEB6A7u:return "hulk_bind_confirm";
@@ -19,6 +29,14 @@ inline std::string_view PcPromptBinding(uint32_t source_hash) noexcept {
     case 0x8353C9D7u:return "hulk_bind_secondary";
     case 0xD9E8AD12u:return "hulk_bind_lt";
     case 0x063884F1u:return "hulk_bind_rt";
+    case 0xAC9AA551u:return "hulk_bind_lb";
+    case 0x734A8CB2u:return "hulk_bind_rb";
+    case 0xB3951152u:return "hulk_bind_start";
+    case 0xEC6B934Cu:return "hulk_bind_select";
+    case 0xC76C7AB4u:return "hulk_bind_menu_up";
+    case 0x9E32DFE1u:return "hulk_bind_menu_down";
+    case 0x6E62BB29u:return "hulk_bind_menu_left";
+    case 0xEBDDBBC2u:return "hulk_bind_menu_right";
     default:return {};
   }
 }
@@ -43,6 +61,17 @@ inline std::string_view KnownPcPromptAsset(std::string_view token) noexcept {
   // These names are actual retail PC archive entries, not invented hashes.
   if(token=="Space")return "ui_key_space_da";
   if(token=="MouseLeft")return "ui_mouse_leftbutton_da";
+  if(token=="MouseRight")return "ui_mouse_rightbutton_da";
+  if(token=="MouseMiddle")return "ui_mouse_middlebutton_da";
+  if(token=="Enter")return "ui_key_enter_da";
+  if(token=="Tab")return "ui_key_tab_da";
+  if(token=="Esc")return "ui_key_escape_da";
+  if(token=="F")return "ui_key_f_da";
+  if(token=="M")return "ui_key_m_da";
+  if(token=="1")return "ui_key_1_da";
+  if(token=="2")return "ui_key_2_da";
+  if(token=="3")return "ui_key_3_da";
+  if(token=="4")return "ui_key_4_da";
   return {};
 }
 inline constexpr std::array<std::array<uint8_t,7>,36> kKeyFont{{
