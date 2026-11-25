@@ -31,6 +31,7 @@ VerifiedSourceMipResolver::VerifiedSourceMipResolver(
     if(!Valid(item))
       throw std::invalid_argument("Unverified original Xbox mip witness metadata");
   std::sort(original_.begin(),original_.end(),Less);
+  size_t retained=0;
   for(size_t i=0;i<original_.size();) {
     size_t j=i+1;
     while(j<original_.size() && Key(original_[i].witness)==Key(original_[j].witness))
@@ -39,14 +40,23 @@ VerifiedSourceMipResolver::VerifiedSourceMipResolver(
     // AND storage archive. Identical bytes in a different level or archive
     // cannot be silently attributed to an arbitrary material.
     const auto& owner=original_[i];
+    bool ambiguous=false;
     for(size_t k=i+1;k<j;++k)
       if(original_[k].original_texture_hash!=owner.original_texture_hash ||
          original_[k].original_mip_level!=owner.original_mip_level ||
          original_[k].archived_stream!=owner.archived_stream) {
-        ++ambiguous_;break;
+        ambiguous=true;break;
       }
+    if(ambiguous)++ambiguous_;
+    else {
+      // Collapse identical owners and exclude the entire ambiguous group.
+      // The immutable live lookup needs only a binary search thereafter.
+      if(retained!=i)original_[retained]=owner;
+      ++retained;
+    }
     i=j;
   }
+  original_.resize(retained);
 }
 std::optional<OriginalMipIdentity> VerifiedSourceMipResolver::Find(
     const OriginalMipWitness& observed) const {
@@ -61,14 +71,6 @@ std::optional<OriginalMipIdentity> VerifiedSourceMipResolver::Find(
       });
   if(it==original_.end() || Key(it->witness)!=key)
     return std::nullopt;
-  auto first=it;
-  while(it!=original_.end() && Key(it->witness)==key) {
-    if(it->original_texture_hash!=first->original_texture_hash ||
-       it->original_mip_level!=first->original_mip_level ||
-       it->archived_stream!=first->archived_stream)
-      return std::nullopt;
-    ++it;
-  }
-  return *first;
+  return *it;
 }
 } // namespace hulk::eor::gpu
