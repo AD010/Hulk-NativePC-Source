@@ -229,6 +229,10 @@ class NativeEorLinkCoverage(unittest.TestCase):
         self.assertIn("g_frame_shader_complete.load(std::memory_order_relaxed)",capture)
         self.assertIn("const bool diagnostic_mesh=!replay",capture)
         self.assertIn("if(replay && !g_frame_shader_complete.load",capture)
+        self.assertIn("!learn_material_owner",capture)
+        self.assertIn("original_pass_sampler_slots_verified",capture.split("const bool learn_material_owner=",1)[1].split("if(replay",1)[0])
+        self.assertLess(capture.index("g_original_texture_owners.Remember"),capture.index("const bool need_shader_identity"))
+        self.assertIn("if(need_shader_identity && draw.observed_vs_matrices",capture)
         self.assertNotIn("capture_heavy=!replay",capture)
         self.assertIn("g_frame_shader_complete=true;",hook.split("void EndPpcHook(",1)[1])
 

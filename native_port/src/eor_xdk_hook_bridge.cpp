@@ -1036,7 +1036,14 @@ void CapturePpcDraw(Kind kind, uint32_t guest, const PPCContext& ctx,
   const bool replay=REXCVAR_GET(hulk_eor_vulkan_replay);
   const bool diagnostic_mesh=!replay &&
       REXCVAR_GET(hulk_eor_xdk_source_mesh_capture);
-  if(replay && !g_frame_shader_complete.load(std::memory_order_relaxed)) {
+  // A failed Present must not starve the genuine texture owner cache.
+  // Original EoR material scopes can establish immutable archive ownership
+  // even if another Draw made this frame ineligible for presentation.
+  const bool learn_material_owner=!g_source_shader_rejected_nesting &&
+      g_source_shader_method_depth &&
+      g_source_shader_method_stack[g_source_shader_method_depth-1].original_pass_sampler_slots_verified;
+  if(replay && !g_frame_shader_complete.load(std::memory_order_relaxed) &&
+     !learn_material_owner) {
     std::lock_guard lock(g_mutex);
     // Present may have advanced on a different PPC thread. Recheck
     // under the same lock that resets and owns the collector.
@@ -1232,7 +1239,10 @@ void CapturePpcDraw(Kind kind, uint32_t guest, const PPCContext& ctx,
     if(witness.asset)g_original_texture_owners.Remember(witness,ReadGuest,guest_base);
   // Read both objects from this Draw's device shadow. UI, intro and world
   // Draws can bind shaders outside an observed engine shader-method scope.
-  if(draw.observed_vs_matrices &&
+  const bool need_shader_identity=!replay || g_frame_shader_complete.load(std::memory_order_relaxed) ||
+      !g_offline_shader_pack || !g_offline_shader_pack->shaders ||
+      !g_offline_shader_pack->shaders->HasFullArchiveCoverage();
+  if(need_shader_identity && draw.observed_vs_matrices &&
      draw.observed_vs_matrices->original_guest_device==draw.gpr[0])
     ObserveBoundShaderIdentity(draw,draw.observed_vs_matrices->original_vs_guest_object,
                                draw.observed_vs_matrices->original_ps_guest_object,guest_base);
