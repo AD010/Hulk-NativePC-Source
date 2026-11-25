@@ -238,6 +238,15 @@ int main(){
         original_lfxt,ResourceHash(name),*inline_section,*parsed);
     assert(mip_plan && mip_plan->levels.size()>=parsed->levels.size() &&
            !mip_plan->absolute_source_offsets_proven);
+    // The public mip planner accepts a table supplied by its caller.
+    // Revalidate nonfinite metrics even when the parser was bypassed.
+    auto invalid_table=*parsed;
+    invalid_table.levels[0].original_level_metric=std::bit_cast<float>(0x7fc00000u);
+    assert(!textures::ReconstructOriginalLfxtMipPlan(
+        original_lfxt,ResourceHash(name),*inline_section,invalid_table));
+    invalid_table.levels[0].original_level_metric=std::bit_cast<float>(0x7f800000u);
+    assert(!textures::ReconstructOriginalLfxtMipPlan(
+        original_lfxt,ResourceHash(name),*inline_section,invalid_table));
     auto wrong_metric=original_lfxt;
     Replace32(wrong_metric,4+name.size()+1+9,0);
     assert(!textures::ReconstructOriginalLfxtMipPlan(

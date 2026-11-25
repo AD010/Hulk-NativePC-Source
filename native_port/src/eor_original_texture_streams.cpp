@@ -169,7 +169,7 @@ std::optional<OriginalLfxtMipPlan> ReconstructOriginalLfxtMipPlan(
   while(end<bytes.size() && bytes[end]!=std::byte{0}) ++end;
   if(end>=bytes.size())return std::nullopt;
   const size_t base=end+1;
-  if(base>bytes.size() || bytes.size()-base<9)
+  if(base>bytes.size() || bytes.size()-base<13)
     return std::nullopt;
   // Original EoR LFXT 16-bit BE resident mip width/height:
   // (NUL+1)+3 and (NUL+1)+7, including non-square 64x32, 128x32 etc.
@@ -219,7 +219,8 @@ std::optional<OriginalLfxtMipPlan> ReconstructOriginalLfxtMipPlan(
           static_cast<uint32_t>(width),static_cast<uint32_t>(height),shape);
       const auto& actual=streamed.levels[i];
       const double metric=std::sqrt(static_cast<double>(width)*height);
-      if(bytes_required!=actual.source_aligned_bytes ||
+      if(!std::isfinite(actual.original_level_metric) ||
+         bytes_required!=actual.source_aligned_bytes ||
          std::fabs(static_cast<double>(actual.original_level_metric)-metric)>
                std::max(0.01,metric*0.00002)) {
         valid=false;break;
