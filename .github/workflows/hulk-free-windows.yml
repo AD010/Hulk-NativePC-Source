@@ -6,6 +6,10 @@ on:
   # The previous push marker remains archived as source history but it
   # must never trigger another build by an unrelated commit.
   workflow_dispatch:
+  # Explicit one-shot owner-requested Release; no normal source push trigger.
+  push:
+    branches: [main]
+    paths: ['.github/hulk-release-request-171.txt']
 permissions:
   contents: write
 concurrency:
