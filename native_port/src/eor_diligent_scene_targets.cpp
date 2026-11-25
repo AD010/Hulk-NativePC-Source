@@ -328,7 +328,13 @@ bool DiligentSceneTargets::SetOriginalColorTarget(uint32_t guest) {
   if(it==state_->colors.end())return false;
   if(guest==state_->active_color)return true;
   state_->color=it->second;state_->active_color=guest;
-  return BindOriginalAttachments();
+  if(!BindOriginalAttachments()) {
+    // This source RT switch already changed our active guest owner.
+    // Do not let a failed Vulkan attachment change contaminate the next Draw.
+    AbortScene();
+    return false;
+  }
+  return true;
 }
 bool DiligentSceneTargets::SetOriginalDepthTarget(uint32_t guest) {
   if(!state_ || !state_->bound || !state_->formats.original_graph.active())return false;
@@ -337,7 +343,11 @@ bool DiligentSceneTargets::SetOriginalDepthTarget(uint32_t guest) {
   if(guest && it==state_->depths.end())return false;
   if(guest)state_->depth=it->second;else state_->depth.Release();
   state_->active_depth=guest;state_->depth_bound=guest!=0;
-  return BindOriginalAttachments();
+  if(!BindOriginalAttachments()) {
+    AbortScene();
+    return false;
+  }
+  return true;
 }
 bool DiligentSceneTargets::ResolveOriginalIntermediate(uint32_t guest,
     const std::optional<xdk::OriginalResolveRegion>& source_region) {
