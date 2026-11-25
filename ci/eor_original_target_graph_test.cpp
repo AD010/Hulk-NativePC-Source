@@ -98,6 +98,23 @@ int main() {
   const auto color_plan=gpu::PlanOriginalNativeTargets(color_only,1280,720);
   assert(color_plan && color_plan->format.original_graph.HasDepth(8));
   assert(color_plan->format.original_graph.extents.at(8).width==1280);
+  // The very first source pass can already retain the larger depth
+  // attachment. BeginScene must defer the incompatible Vulkan pair,
+  // rather than binding it before replay reaches the color-only clear.
+  auto initial_mismatch=mixed;
+  auto initial=*initial_mismatch.commands[1].captured_clear_targets;
+  initial.original_depth_guest_object=8;
+  initial.original_depth_extent=OriginalSurfaceExtent{1280,720};
+  initial_mismatch.commands[1].captured_clear_targets=
+      std::make_shared<const OriginalVsMatrices>(initial);
+  // Move the genuine depth selection ahead of the first clear.
+  std::swap(initial_mismatch.commands[1],initial_mismatch.commands[2]);
+  const auto initial_plan=gpu::PlanOriginalNativeTargets(initial_mismatch,1280,720);
+  assert(initial_plan);
+  const auto& initial_graph=initial_plan->format.original_graph;
+  assert(initial_graph.first_color==2 && initial_graph.first_depth==8);
+  assert(initial_graph.extents.at(2).width==320 &&
+         initial_graph.extents.at(8).width==1280);
   // The same mismatched pair is still NOT legal for a combined clear.
   auto bad_clear=mixed;
   auto bad=Clear(2,320,180);

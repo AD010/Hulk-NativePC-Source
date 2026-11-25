@@ -253,7 +253,14 @@ bool DiligentSceneTargets::BeginScene() {
     // A driver may bind the target and then throw (device loss/resize).
     // Record ownership first so AbortScene always attempts to detach it.
     state_->bound=true;
-    state_->context->SetRenderTargets(1,&rtv,dsv,Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+    if(state_->formats.original_graph.active()) {
+      // The first proven source pass may clear only color while retaining
+      // a differently sized depth surface for the following pass. Use the
+      // same deferred attachment binding as later XDK target changes.
+      if(!BindOriginalAttachments()) {AbortScene();return false;}
+    } else {
+      state_->context->SetRenderTargets(1,&rtv,dsv,Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+    }
     // Diligent's viewport constructor takes (left,top,width,height).
     // Passing just physical width/height must never be interpreted as a
     // top-left coordinate and lose the real screen-sized Vulkan viewport.
