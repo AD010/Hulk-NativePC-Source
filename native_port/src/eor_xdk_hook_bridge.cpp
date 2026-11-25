@@ -1507,8 +1507,28 @@ void CapturePpcDraw(Kind kind, uint32_t guest, const PPCContext& ctx,
                                draw.observed_vs_matrices->original_ps_guest_object,guest_base);
   if(replay && (!draw.observed_live_vertex_shader_header ||
                 !draw.observed_live_pixel_shader_header ||
-                !draw.observed_live_eor_effect_pass))
-    g_frame_shader_complete=false;
+                !draw.observed_live_eor_effect_pass)) {
+    // Preserve the very first failed original program pairing in a source
+    // Present. A later incomplete-frame shortcut must never hide WHICH
+    // genuine XDK Draw first blocked the independent EoR replay.
+    const bool first=g_frame_shader_complete.exchange(
+        false,std::memory_order_relaxed);
+    if(first) {
+      const auto frame=g_collector.NextFrameSequence();
+      if(frame<=5 || frame%120u==0u)
+        REXLOG_WARN("[HULK/EOR-FIRST-SHADER-GAP] frame={} draw={} "
+                    "XDK=0x{:08X} LR=0x{:08X} vs_object=0x{:08X} "
+                    "ps_object=0x{:08X} source_vs={} source_ps={} effect_pass={}",
+                    frame,g_collector.NextDrawOrdinal(),draw.function,draw.lr,
+                    draw.observed_vs_matrices ?
+                        draw.observed_vs_matrices->original_vs_guest_object : 0u,
+                    draw.observed_vs_matrices ?
+                        draw.observed_vs_matrices->original_ps_guest_object : 0u,
+                    bool(draw.observed_live_vertex_shader_header),
+                    bool(draw.observed_live_pixel_shader_header),
+                    bool(draw.observed_live_eor_effect_pass));
+    }
+  }
   const bool capture_heavy=diagnostic_mesh ||
       (replay && g_frame_shader_complete);
   if(replay && !capture_heavy)++g_frame_heavy_capture_skipped;
