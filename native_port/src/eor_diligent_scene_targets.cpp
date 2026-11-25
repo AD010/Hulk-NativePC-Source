@@ -394,7 +394,7 @@ bool DiligentSceneTargets::ResolveOriginalIntermediate(uint32_t guest,
       args.DstTextureTransitionMode=RESOURCE_STATE_TRANSITION_MODE_TRANSITION;
       state_->context->CopyTexture(args);
     }
-    if(!BindOriginalAttachments())return false;
+    if(!BindOriginalAttachments()) {AbortScene();return false;}
     state_->completed_intermediates.insert(guest);
     return true;
   } catch (...) {AbortScene();return false;}
@@ -457,9 +457,17 @@ bool DiligentSceneTargets::ClearVerifiedOriginalXdk(
           depth_view,flags,source.depth,source.stencil,
           Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
     }
-    if(mismatched_depth && !BindOriginalAttachments())return false;
+    if(mismatched_depth && !BindOriginalAttachments()) {
+      AbortScene();
+      return false;
+    }
     return true;
-  } catch (...) {return false;}
+  } catch (...) {
+    // A clear may already have changed attachments or issued GPU writes.
+    // Never leave a half-bound scene eligible for the next original Draw.
+    AbortScene();
+    return false;
+  }
 }
 bool DiligentSceneTargets::ResolveScene() {
   if(!state_ || !state_->prepared || !state_->bound || !state_->color || !state_->resolved)return false;
