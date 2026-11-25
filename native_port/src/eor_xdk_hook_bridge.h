@@ -1,6 +1,7 @@
 #pragma once
 #include "eor_xdk_draw_capture.h"
 #include "eor_original_pause_vm.h"
+#include "eor_original_camera_speed.h"
 #include "eor_original_audio_menu.h"
 #include "eor_usa_material_textures.h"
 #include "eor_native_draw_geometry.h"
@@ -34,6 +35,8 @@ std::optional<vm::AudioMenuChange> CaptureOriginalAudioMenuOption(
 void FinishOriginalAudioMenuOption(std::optional<vm::AudioMenuChange> change,
     uint8_t* base) noexcept;
 void RestoreOriginalSubtitleOption(const PPCContext& ctx,uint8_t* base) noexcept;
+std::optional<vm::CameraSpeedEvent> CaptureOriginalCameraSpeed(uint32_t method,const PPCContext& ctx,uint8_t* base) noexcept;
+void FinishOriginalCameraSpeed(std::optional<vm::CameraSpeedEvent> event,uint8_t* base) noexcept;
 void RestoreOriginalCameraGetter(uint32_t method,const PPCContext& ctx,uint8_t* base) noexcept;
 void ObserveOriginalHavokStep(uint32_t method,const PPCContext& ctx,uint8_t* base) noexcept;
 void ApplyOriginalHavokCatchup(const PPCContext& ctx,uint8_t* base) noexcept;

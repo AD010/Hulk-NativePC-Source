@@ -5,6 +5,8 @@
 #include "eor_original_pause_vm.h"
 #include "eor_native_ui_prompts.h"
 #include "native_pc_options_store.h"
+#include "native_pc_menu_actions.h"
+#include <string>
 #include "eor_original_havok_step.h"
 #include "eor_original_havok_catchup.h"
 #include "eor_usa_material_textures.h"
@@ -283,6 +285,55 @@ void FinishOriginalAudioMenuOption(std::optional<vm::AudioMenuChange> change,
   } catch (...) {}
 #else
   (void)change;(void)base;
+#endif
+}
+std::optional<vm::CameraSpeedEvent> CaptureOriginalCameraSpeed(uint32_t method,const PPCContext& ctx,uint8_t* base) noexcept {
+  if(!base)return {};
+  return vm::CaptureCameraSpeed(method,static_cast<uint32_t>(ctx.lr),ctx.r3.u32,
+      ctx.r31.u32,ctx.r27.u32,ctx.r28.u32,
+      [&](uint32_t a,uint8_t* b,size_t n){return ReadGuest(base,a,reinterpret_cast<std::byte*>(b),n);});
+}
+void FinishOriginalCameraSpeed(std::optional<vm::CameraSpeedEvent> event,uint8_t* base) noexcept {
+#ifdef _WIN32
+  if(!event || !base)return;
+  try {
+    const auto& e=*event;
+    const auto read=[&](uint32_t a,uint8_t* b,size_t n){return ReadGuest(base,a,reinterpret_cast<std::byte*>(b),n);};
+    const std::string key=e.method->horizontal?"hulk_mouse_horizontal_multiplier":"hulk_mouse_vertical_multiplier";
+    const auto current=rex::cvar::GetFlagByName(key);
+    if(e.method->setter) {
+      if(!vm::CameraSpeedApplied(e,read))return;
+      const auto value=std::to_string(vm::CameraSpeedMultiplier(e.value));
+      if(current==value)return;
+      const auto result=options::CommitLivePcMenuValue(key,value,
+          [](std::string_view k,std::string_view v){return rex::cvar::SetFlagByName(std::string(k),std::string(v));});
+      if(!result.persisted || !result.live_applied)
+        REXLOG_WARN("[HULK/UI] Original camera speed applied; PC setting update failed");
+      return;
+    }
+    // Original getter has already written its own VM return object.
+    // Replace only that verified output; do not multiply guest camera globals.
+    const auto previous=vm::CameraSpeedWord(e.output,0,read);
+    if(!previous || *previous>300)return;
+    const auto desired=vm::CameraSpeedSlider(std::stod(current));
+    if(*previous==desired)return;
+    if(e.output>UINTPTR_MAX-uintptr_t(base))return;
+    auto* dst=reinterpret_cast<uint8_t*>(uintptr_t(base)+e.output);
+    MEMORY_BASIC_INFORMATION info{};
+    if(VirtualQuery(dst,&info,sizeof(info))!=sizeof(info) || info.State!=MEM_COMMIT ||
+       (info.Protect&PAGE_GUARD))return;
+    const auto protection=info.Protect&0xffu;
+    if(protection!=PAGE_READWRITE && protection!=PAGE_WRITECOPY &&
+       protection!=PAGE_EXECUTE_READWRITE && protection!=PAGE_EXECUTE_WRITECOPY)return;
+    const auto start=uintptr_t(info.BaseAddress),at=uintptr_t(dst);
+    if(at<start || at-start>info.RegionSize || info.RegionSize-(at-start)<4u)return;
+    if(vm::CameraSpeedWord(e.output,0,read)!=previous)return;
+    std::array<uint8_t,4> bytes{};
+    for(unsigned i=0;i<4;++i)bytes[i]=uint8_t(desired>>(24-8*i));
+    std::memcpy(dst,bytes.data(),4);
+  }catch(...){}
+#else
+  (void)event;(void)base;
 #endif
 }
 void RestoreOriginalCameraGetter(uint32_t method,const PPCContext& ctx,uint8_t* base) noexcept {

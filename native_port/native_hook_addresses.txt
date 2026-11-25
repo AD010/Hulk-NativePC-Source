@@ -161,3 +161,9 @@
 82339D20
 82339D90
 82339E28
+
+# Original EoR integer camera speed setters/getters; verified USA source.
+82339C18
+82339C90
+82338AE8
+82338B20

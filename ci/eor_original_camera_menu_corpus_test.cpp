@@ -1,4 +1,5 @@
 #include "../native_port/src/eor_original_pause_vm.h"
+#include "../native_port/src/eor_original_camera_speed.h"
 #include "../native_port/src/eor_original_widget_api.h"
 #include <algorithm>
 #include <cstdlib>
@@ -107,6 +108,15 @@ int main(int argc,char** argv){
         heap[arg+12]=2;check(!CaptureCameraMenuChange(method,0x825ea158,vm,vm,desc,ctx,read));
       }
     }
+  }
+  for(uint32_t i=1;i<=300;++i)check(CameraSpeedSlider(CameraSpeedMultiplier(i))==i);
+  check(CameraSpeedMultiplier(1)==0.25 && CameraSpeedMultiplier(100)==1.0 && CameraSpeedMultiplier(300)==4.0);
+  put(def+12,0x141ed2a4u);
+  for(const auto& m:kCameraSpeedMethods) {
+    put(desc,m.thunk);put(arg+12,125);put(frame+4,0x5400);
+    const auto e=CaptureCameraSpeed(m.method,0x825ea158,vm,vm,desc,ctx,read);
+    check(e && e->method==&m && (m.setter?e->value==125:e->output==0x540c));
+    check(!CaptureCameraSpeed(m.method,0,vm,vm,desc,ctx,read));
   }
   put(def+12,0);yaw=0;heap[arg+12]=1;
   check(!CaptureCameraMenuChange(0x82339a08,0x825ea158,vm,vm,desc,ctx,read));
