@@ -1,4 +1,5 @@
 #include "../native_port/src/eor_original_pause_vm.h"
+#include "../native_port/src/eor_original_widget_api.h"
 #include <algorithm>
 #include <cstdlib>
 #include <fstream>
@@ -26,6 +27,8 @@ int main(int argc,char** argv){
     if(uint64_t(a)+n<=heap.size()){std::copy_n(heap.data()+a,n,dst);return true;}
     return false;
   };
+  check(hulk::eor::ui::VerifyOriginalWidgetAbi(read));
+  static_assert(hulk::eor::ui::WidgetSymbol("UIWidget_MenuItemTxt")==hulk::eor::ui::kMenuItemTemplate);
   put(vm,frame);put(frame,input);put(input+8,nested);put(nested,arg);
   put(ctx+20,page);put(vm+32,3);put(vm+4*(2093+3),page);
   put(page+124,res);put(res+8,def);put(def,0x8206a4d0);put(def+4,name|1);
