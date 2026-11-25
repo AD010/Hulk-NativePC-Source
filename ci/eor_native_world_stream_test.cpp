@@ -203,6 +203,23 @@ void CheckSourceReadAheadAndBoundedUpload() {
   for(const auto hash:requested)assert(stream.Resident(hash));
   assert(gpu.serial==15u);
 }
+void CheckCurrentDrawOvertakesStagedPrefetch() {
+  FakeGpu gpu;
+  NativeWorldStream stream(std::make_unique<Source>(),gpu,{});
+  const auto before=calls.load();
+  stream.RequestSourceVerifiedModels(std::array<uint32_t,4>{71u,72u,73u,74u});
+  RetryUntil([&]{return calls.load()>=before+4;});
+  // The fourth Load may still be finishing; the first three are staged.
+  stream.RequestSourceVerifiedModels(std::array<uint32_t,1>{73u},true);
+  RetryUntil([&]{return stream.TickSourceVerifiedModels();});
+  assert(stream.LastUploadedOriginalSourceModel()->original_resource_hash==73u);
+  assert(stream.Resident(73u) && !stream.Resident(71u));
+  for(const auto hash:std::array<uint32_t,3>{71u,72u,74u}) {
+    RetryUntil([&]{return stream.TickSourceVerifiedModels();});
+    assert(stream.Resident(hash));
+  }
+  assert(gpu.serial==12u);
+}
 void CheckPublicationRetryRetainsGpuIdentity() {
   FakeGpu gpu;
   NativeWorldStream stream(std::make_unique<Source>(),gpu,{});
@@ -262,5 +279,6 @@ int main() {
   CheckSharedGpuResidentLifetime();
   CheckSourceVerifiedWorldModels();
   CheckSourceReadAheadAndBoundedUpload();
+  CheckCurrentDrawOvertakesStagedPrefetch();
   CheckPublicationRetryRetainsGpuIdentity();
 }

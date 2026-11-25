@@ -3474,7 +3474,7 @@ native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(
              !owner_catalog->source_models->UsesGpuBackend(
                  owner_catalog->direct_gpu->OriginalModelUploader()))
             return Result::kNotReady;
-          owner_catalog->source_models->RequestSourceVerifiedModels(relevant);
+          owner_catalog->source_models->RequestSourceVerifiedModels(relevant,true);
         } else owner_catalog->request_source_models(relevant);
       }
     } catch (...) {

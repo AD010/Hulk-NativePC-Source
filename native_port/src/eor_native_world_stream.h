@@ -67,7 +67,8 @@ class NativeWorldStream {
   // gated by surface/material/VS/PS provenance on that exact Draw.
   // Call only on the render thread; one async model load/upload per Tick
   // preserves a bounded frame upload budget.
-  void RequestSourceVerifiedModels(std::span<const uint32_t> model_hashes);
+  void RequestSourceVerifiedModels(std::span<const uint32_t> model_hashes,
+                                   bool current_draw=false);
   const model::UploadedOriginalModel* Resident(uint32_t original_hash) const noexcept;
   // Strong original-source GPU ownership for an independently verified
   // EoR Draw frame. The caller keeps this reference until the Vulkan
@@ -96,6 +97,9 @@ class NativeWorldStream {
   // Protected by mutex_. Never drop a source-proven world model simply
   // because it is not the Hulk-only active/prefetch LOD tier.
   std::set<uint32_t> source_requested_;
+  // Current-frame demands may overtake speculative archive candidates
+  // already queued or staged. Never change model identities or LOD tiers.
+  std::set<uint32_t> source_urgent_;
   // Persistent provenance: a failed world-model load remains retryable even
   // after it is removed from the active request window.
   std::set<uint32_t> source_known_;

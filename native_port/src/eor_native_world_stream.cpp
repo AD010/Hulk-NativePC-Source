@@ -84,7 +84,7 @@ void NativeWorldStream::Queue(uint32_t hash, bool urgent) {
   wake_.notify_one();
 }
 void NativeWorldStream::RequestSourceVerifiedModels(
-    std::span<const uint32_t> hashes) {
+    std::span<const uint32_t> hashes,bool current_draw) {
   // The authenticated USA source archive enumerates 4,174 models; the
   // request window must support that full game catalogue, including
   // streamed city buildings, not merely the player LOD set.
@@ -109,13 +109,19 @@ void NativeWorldStream::RequestSourceVerifiedModels(
       // during provenance insertion or queue allocation.
       source_known_.insert(hash);
       const bool newly_requested = source_requested_.insert(hash).second;
-      if (!newly_requested) continue;
+      if (!newly_requested && !current_draw) continue;
+      // A live, independently verified current Draw can promote a model
+      // that was already requested as a speculative prefetch candidate.
+      if(current_draw)source_urgent_.insert(hash);
     }
     try {
-      Queue(hash,false); // urgent LOD stays ahead of background world models
+      Queue(hash,current_draw);
     } catch (...) {
       std::lock_guard lock(mutex_);
-      source_requested_.erase(hash);
+      if(!queued_.contains(hash)) {
+        source_requested_.erase(hash);
+        source_urgent_.erase(hash);
+      }
       throw;
     }
   }
@@ -129,8 +135,14 @@ LodDecision NativeWorldStream::Tick(double distance) {
   {
     std::lock_guard lock(mutex_);
     if (!staged_.empty()) {
-      prepared.emplace(std::move(staged_.front()));
-      staged_.pop_front();
+      auto next=staged_.begin();
+      if(!lod_) {
+        const auto urgent=std::find_if(staged_.begin(),staged_.end(),
+            [this](const auto& row){return source_urgent_.contains(row.first);});
+        if(urgent!=staged_.end())next=urgent;
+      }
+      prepared.emplace(std::move(*next));
+      staged_.erase(next);
     }
   }
   // Release the CPU staging slot before GPU buffer creation, so source
@@ -173,6 +185,7 @@ LodDecision NativeWorldStream::Tick(double distance) {
         std::lock_guard lock(mutex_);
         failed_.insert(hash);
         source_requested_.erase(hash);
+        source_urgent_.erase(hash);
       }
     }
     {
@@ -180,7 +193,10 @@ LodDecision NativeWorldStream::Tick(double distance) {
       queued_.erase(hash);
       // The immutable uploaded model now owns its buffers. Source hash
       // remains in the full EoR material catalogue, not in this queue.
-      if(gpu_.contains(hash))source_requested_.erase(hash);
+      if(gpu_.contains(hash)) {
+        source_requested_.erase(hash);
+        source_urgent_.erase(hash);
+      }
     }
     wake_.notify_one();
   }
@@ -230,6 +246,7 @@ void NativeWorldStream::Worker() {
         // An absent/corrupt original asset cannot permanently consume
         // a slot in the authentic world-model source request window.
         source_requested_.erase(hash);
+        source_urgent_.erase(hash);
       }
     }
     wake_.notify_all();
