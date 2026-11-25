@@ -53,7 +53,7 @@ inline std::optional<DecodedFsbPcm16> DecodeFsb4Pcm16(
       // FSOUND_16BITS, no unsigned/Delta/IT/IMA/VAG/XMA/GCADPCM.
       // A supported payload must contain exactly frame_count*channels
       // little-endian 16-bit samples, not a padded compressed stream.
-      constexpr uint32_t unsupported=0x00000f80u|0x00400000u|
+      constexpr uint32_t unsupported=0x00000e80u|0x00400000u|
           0x00800000u|0x01000000u|0x02000000u|0x04000000u;
       if(!(mode&0x10u) || (mode&unsupported) ||
          !frame_count || (channels!=1 && channels!=2) ||
