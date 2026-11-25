@@ -1317,30 +1317,15 @@ void CapturePpcDraw(Kind kind, uint32_t guest, const PPCContext& ctx,
   // A failed Present must not starve the genuine texture owner cache.
   // Original EoR material scopes can establish immutable archive ownership
   // even if another Draw made this frame ineligible for presentation.
-  const bool learn_material_owner=!g_source_shader_rejected_nesting &&
-      g_source_shader_method_depth &&
-      g_source_shader_method_stack[g_source_shader_method_depth-1].original_pass_sampler_slots_verified;
-  if(replay && !g_frame_shader_complete.load(std::memory_order_relaxed) &&
-     !learn_material_owner) {
-    std::lock_guard lock(g_mutex);
-    // Present may have advanced on a different PPC thread. Recheck
-    // under the same lock that resets and owns the collector.
-    if(!g_frame_shader_complete.load(std::memory_order_relaxed)) {
-      // A rejected frame cannot reach the independent presenter. Only
-      // an incomplete AOT corpus still benefits from shader demand
-      // discovery here. With the entire bank resident, avoid repeated
-      // guest-memory reads/hashes of thousands of unusable Draws.
-      const bool needs_demand=!g_offline_shader_pack ||
-          !g_offline_shader_pack->shaders ||
-          !g_offline_shader_pack->shaders->HasFullArchiveCoverage();
-      if(needs_demand)
-        if(const auto bindings=CaptureUsaShaderObjects(ctx.r3.u32,ReadGuest,guest_base))
-          ObserveBoundShaderIdentity(draw,bindings->vertex,bindings->pixel,guest_base);
-      ++g_frame_heavy_capture_skipped;
-      g_collector.Record(std::move(draw));
-      return;
-    }
-  }
+  // One unknown VS/PS/effect makes a Present ineligible, but must not
+  // suppress source authentication of later original Draws. Hulk can issue
+  // thousands of world/UI draws after an early unsupported source shader:
+  // skipping them hid their genuine XDK objects, engine-method ownership,
+  // material texture keys and geometry from the source-to-native bridge.
+  // Continue the normal lightweight per-Draw provenance capture so the
+  // complete source sequence can be accounted for. The expensive shader
+  // constant and mesh snapshots remain gated by g_frame_shader_complete
+  // below, and a failed shader still prohibits native GPU submission.
   // The engine shader virtual method was entered with its actual PPC
   // this object, and its first word matched the original USA vtable.
   // Preserve the CALLER of this inner original XDK draw. No new witness
