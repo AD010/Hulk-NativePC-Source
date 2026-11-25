@@ -1,4 +1,5 @@
 #pragma once
+#include "eor_spirv_literal_string.h"
 // Prove that the original scalar VS preserves the input clip-space X,Y,W.
 // The shared half-pixel vector is exactly zero in the host native ABI.
 #include <array>
@@ -15,13 +16,17 @@ inline bool ScalarPreservesClipXYW(std::span<const uint32_t> words) {
   std::map<uint32_t,uint32_t> widths,constants,locations,storage,types;
   std::map<uint32_t,std::string> names;
   uint32_t position=0,input=0,shared=0,glsl=0,fp=0;
-  auto name=[](std::span<const uint32_t> w){std::string s;for(auto v:w)for(unsigned j=0;j<4;++j){char c=char(v>>(j*8));if(!c)return s;s+=c;}return s;};
   for(size_t i=5;i<words.size();) {
     const auto n=words[i]>>16,op=words[i]&65535u;
     if(!n || n>words.size()-i)return false;
     auto w=words.subspan(i,n);i+=n;
-    if(op==5 && n>=3)names[w[1]]=name(w.subspan(2));
-    else if(op==11 && n>=3 && name(w.subspan(2))=="GLSL.std.450")glsl=w[1];
+    if(op==5 || op==11) {
+      if(n<3)return false;
+      const auto name=DecodeTerminalSpirvString(w.subspan(2));
+      if(!name)return false;
+      if(op==5)names[w[1]]=*name;
+      else if(*name=="GLSL.std.450")glsl=w[1];
+    }
     else if(op==22 && n==3 && w[2]==32){fp=w[1];widths[fp]=1;}
     else if(op==23 && n==4 && w[2]==fp && w[3]<=4)widths[w[1]]=w[3];
     else if(op==32 && n==4)types[w[1]]=w[3];

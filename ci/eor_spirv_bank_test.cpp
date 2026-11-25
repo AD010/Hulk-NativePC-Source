@@ -1,4 +1,6 @@
 #include "../native_port/src/eor_spirv_bank.h"
+#include "../native_port/src/eor_spirv_literal_string.h"
+#include <array>
 #include "../native_port/src/eor_spirv_point_size.h"
 #include "../native_port/src/eor_spirv_static_registers.h"
 #include "../native_port/src/eor_spirv_clip_position.h"
@@ -36,6 +38,13 @@ void Write(const std::filesystem::path& p,const std::vector<uint8_t>& bytes){
 }
 void Bad(std::function<void()> f) {bool threw=false;try{f();}catch(const std::invalid_argument&){threw=true;} assert(threw);}
 int main() {
+  assert(DecodeTerminalSpirvString(std::array<uint32_t,2>{0x6e69616du,0})=="main");
+  assert(DecodeTerminalSpirvString(std::array<uint32_t,1>{0x00636261u})=="abc");
+  assert(!DecodeTerminalSpirvString(std::array<uint32_t,1>{0x64636261u}));
+  assert(!DecodeTerminalSpirvString(std::array<uint32_t,1>{0x78006162u}));
+  assert(!DecodeTerminalSpirvString(std::array<uint32_t,2>{0x00000061u,0}));
+  assert(!DecodeTerminalSpirvString({}));
+
   {
     // Minimal synthetic instruction stream, no copyrighted program.
     std::vector<uint32_t> point{0x07230203u,0x10000u,0,16,0,

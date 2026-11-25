@@ -1,4 +1,5 @@
 #pragma once
+#include "eor_spirv_literal_string.h"
 #include <bitset>
 #include <cstdint>
 #include <map>
@@ -16,17 +17,11 @@ inline std::bitset<256> AnalyzeScalarRegisterReads(std::span<const uint32_t> wor
     const auto n=words[i]>>16,op=words[i]&65535u;
     if(!n || n>words.size()-i)return {};
     const auto* w=words.data()+i;
-    if(op==5u && n>=3) {
-      std::string name;
-      bool end=false;
-      for(size_t j=2;j<n && !end;++j)
-        for(unsigned b=0;b<4;++b) {
-          const auto c=static_cast<char>(w[j]>>(8*b));
-          if(!c){end=true;break;}
-          name+=c;
-        }
-      if(!end)return {};
-      if(name=="HulkVertexConstants")blocks.insert(w[1]);
+    if(op==5u) {
+      if(n<3)return {};
+      const auto name=DecodeTerminalSpirvString(words.subspan(i+2,n-2));
+      if(!name)return {};
+      if(*name=="HulkVertexConstants")blocks.insert(w[1]);
     } else if(op==43u && n==4u)constants.emplace(w[2],w[3]);
     i+=n;
   }

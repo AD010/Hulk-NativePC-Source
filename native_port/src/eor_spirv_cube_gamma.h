@@ -1,4 +1,5 @@
 #pragma once
+#include "eor_spirv_literal_string.h"
 #include <initializer_list>
 // Post-filter Xbox piecewise gamma conversion, specialized by authenticated live cube slots.
 // The original bank remains immutable. No texture re-encoding or sRGB approximation.
@@ -16,14 +17,18 @@ inline std::vector<uint32_t> LowerOriginalCubeGamma(std::span<const uint32_t> sr
   if(src.size()<5 || src[0]!=0x07230203u || !src[3] || src[3]>0x1000000u)fail();
   std::map<uint32_t,uint32_t> cubes,loads,sampled,vector_types;
   uint32_t fp=0,boolean=0,glsl=0;size_t function=0;uint16_t declared=0,converted=0;
-  auto name=[](std::span<const uint32_t> w){std::string s;for(auto v:w)for(unsigned j=0;j<4;++j){char c=char(v>>(j*8));if(!c)return s;s+=c;}return s;};
   for(size_t i=5;i<src.size();) {
     const uint32_t n=src[i]>>16,op=src[i]&65535u;if(!n || n>src.size()-i)fail();
     auto w=src.subspan(i,n);
-    if(op==5 && n>=3){auto s=name(w.subspan(2));constexpr auto prefix="HulkTextureCube_s";if(s.starts_with(prefix)){
+    if(op==5 || op==11){
+      if(n<3)fail();
+      const auto literal=DecodeTerminalSpirvString(w.subspan(2));
+      if(!literal)fail();
+      if(op==11) {if(*literal=="GLSL.std.450")glsl=w[1];}
+      else {const auto& s=*literal;constexpr auto prefix="HulkTextureCube_s";if(s.starts_with(prefix)){
       auto suffix=s.substr(17);if(suffix.empty() || suffix.size()>2 || suffix.find_first_not_of("0123456789")!=std::string::npos)fail();
       unsigned slot=std::stoul(suffix);if(slot>=16)fail();cubes[w[1]]=slot;declared|=uint16_t(1u<<slot);
-    }}else if(op==11 && n>=3 && name(w.subspan(2))=="GLSL.std.450")glsl=w[1];
+    }}}
     else if(op==20 && n==2)boolean=w[1];
     else if(op==22 && n==3 && w[2]==32)fp=w[1];
     else if(op==23 && n==4 && w[3]==4)vector_types[w[1]]=w[2];

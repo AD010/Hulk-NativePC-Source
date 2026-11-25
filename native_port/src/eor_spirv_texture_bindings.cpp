@@ -1,4 +1,5 @@
 #include "eor_spirv_texture_bindings.h"
+#include "eor_spirv_literal_string.h"
 #include <map>
 #include <charconv>
 #include <set>
@@ -16,21 +17,13 @@ struct Type {
 };
 struct Variable { uint32_t pointer=0;uint32_t id=0; };
 std::string Name(std::span<const uint32_t> words) {
-  std::string result;
-  bool terminated=false;
-  for(uint32_t word:words) {
-    for(unsigned byte=0;byte<4;++byte) {
-      const unsigned c=(word>>(8*byte))&255u;
-      if(c==0){terminated=true;break;}
-      if(c<0x21 || c>0x7e || c=='/' || c=='\\' || result.size()>=128)
-        throw std::invalid_argument("Unsupported original SPIR-V image resource variable name");
-      result.push_back(static_cast<char>(c));
-    }
-    if(terminated)break;
-  }
-  if(!terminated || result.empty())
-    throw std::invalid_argument("Unnamed original SPIR-V image resource");
-  return result;
+  auto result=DecodeTerminalSpirvString(words);
+  if(!result || result->empty() || result->size()>128)
+    throw std::invalid_argument("Unnamed or invalid original SPIR-V image resource");
+  for(unsigned char c:*result)
+    if(c<0x21 || c>0x7e || c=='/' || c=='\\')
+      throw std::invalid_argument("Unsupported original SPIR-V image resource variable name");
+  return std::move(*result);
 }
 const Type* FindImageType(uint32_t id, const std::map<uint32_t,Type>& types) {
   for(unsigned depth=0;depth<16;++depth) {
