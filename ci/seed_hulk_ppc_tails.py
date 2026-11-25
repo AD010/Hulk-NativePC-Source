@@ -25,10 +25,16 @@ HULK_TAIL_TARGETS = (
 )
 
 # New original source entrypoints have no historical native PE address.
-# Only admit these four when the existing local USA XEX matches the pinned
+# Only admit these exact entries when the existing local USA XEX matches the pinned
 # source. The actual generated bodies are still required by the hook generator.
 PINNED_USA_SHA256 = "346a73690303f6633bfdaf9850e78793fe07cdbfb8f849b89fbee320630b11f0"
-PINNED_SOURCE_HOOKS = frozenset((0x82338A00, 0x82338A18, 0x82885FF8, 0x82886428))
+PINNED_SOURCE_HOOKS = frozenset((
+    0x82338A00, 0x82338A18, 0x82885FF8, 0x82886428,
+    # Original camera-speed VM methods, pinned in eor_original_camera_speed.h.
+    0x82339C18, 0x82339C90, 0x82338AE8, 0x82338B20,
+    # Havok scheduler's actual floor helper, pinned at LR 0x8261187C.
+    0x82738B58,
+))
 
 FUNCTION = re.compile(r"(?m)^0x([0-9a-fA-F]{8})\s*=\s*\{\s*\}\s*$")
 RANGE = re.compile(

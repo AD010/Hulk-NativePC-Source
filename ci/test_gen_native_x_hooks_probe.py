@@ -175,4 +175,44 @@ with tempfile.TemporaryDirectory() as tmp:
     for address in segment_roles:
         assert "HULK_NATIVE_X_HOOK(" + address + "," in cpp
         assert "case 0x" + address + "u: return true;" in cpp
+# Seed preparation and actual hook generation must agree about new USA
+# entrypoints which did not exist in the old PE mapping. Failure here is
+# cheap, whereas discovering this drift on the private runner wastes a build.
+from seed_hulk_ppc_tails import PINNED_SOURCE_HOOKS, PINNED_USA_SHA256, required_hook_targets
+from unittest.mock import patch
+import hashlib
+expected = {0x82338A00,0x82338A18,0x82885FF8,0x82886428,
+            0x82339C18,0x82339C90,0x82338AE8,0x82338B20,0x82738B58}
+assert PINNED_SOURCE_HOOKS == expected
+assert {int(x,16) for x in compiled if x} - {int(x,16) for x in registered} <= expected
+for address in ("82339C18","82339C90","82338AE8","82338B20"):
+    assert "HULK_EOR_CAMERA_SPEED_HOOK(" + address + ")" in cpp
+    assert "HULK_NATIVE_X_HOOK(" + address not in cpp
+with tempfile.TemporaryDirectory() as tmp:
+    root = Path(tmp)
+    (root/"analysis").mkdir()
+    (root/"src/launcher").mkdir(parents=True)
+    (root/"game").mkdir()
+    (root/"analysis/guest_host_mapping.csv").write_text(
+        "guest_address,native_entry\n0x8289D730,0x140001000\n")
+    (root/"src/launcher/input_hook.cpp").write_text("REX_HOOK_RAW(sub_8289D730)")
+    hooks = root/"native_hook_addresses.txt"
+    hooks.write_text("\n".join(f"{a:08X}" for a in sorted(expected)))
+    (root/"game/default.xex").write_bytes(b"synthetic fixture only")
+    try:
+        required_hook_targets(root)
+    except ValueError as exc:
+        assert "pinned original USA XEX" in str(exc)
+    else:
+        raise AssertionError("Incorrect USA XEX accepted")
+    with patch.object(hashlib, "sha256") as digest:
+        digest.return_value.hexdigest.return_value = PINNED_USA_SHA256
+        assert set(required_hook_targets(root)) == expected | {0x8289D730}
+        hooks.write_text(hooks.read_text()+"\n82738B5C\n")
+        try:
+            required_hook_targets(root)
+        except ValueError as exc:
+            assert "0x82738B5C" in str(exc)
+        else:
+            raise AssertionError("Unknown PPC hook accepted")
 print("GPU strong-hook generator synthetic and full Hulk profile tests: OK")
