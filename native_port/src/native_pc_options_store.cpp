@@ -1,6 +1,7 @@
 // Atomic, bounded edit of the ONE existing NativePC TOML file.
 // Independent of RexGlue and of GPU/guest execution.
 #include "native_pc_options_store.h"
+#include "native_config_write_mutex.h"
 #include "native_audio_options.h"
 #include "native_pc_bindings.h"
 #include "native_resolution.h"
@@ -8,7 +9,6 @@
 #include <array>
 #include <charconv>
 #include <cmath>
-#include <cstdlib>
 #include <fstream>
 #include <iterator>
 #include <mutex>
@@ -31,6 +31,28 @@
 
 namespace hulk::options {
 namespace {
+
+// Menu values are unsigned decimal integers or fixed-point decimals.
+// Unlike strtod, this excludes hexadecimal floats, locale-dependent commas,
+// whitespace and malformed TOML such as .5, 01 or 1.
+bool ValidDecimal(std::string_view value,double minimum,double maximum) {
+  if(value.empty() || value.size()>24)return false;
+  const auto dot=value.find('.');
+  const auto whole=value.substr(0,dot);
+  if(whole.empty() || (whole.size()>1 && whole.front()=='0'))return false;
+  const auto digits=[](std::string_view part) {
+    if(part.empty())return false;
+    for(char c:part)if(c<'0' || c>'9')return false;
+    return true;
+  };
+  if(!digits(whole) ||
+     (dot!=std::string_view::npos && !digits(value.substr(dot+1))))return false;
+  double number=0;
+  const auto result=std::from_chars(value.data(),value.data()+value.size(),
+                                    number,std::chars_format::fixed);
+  return result.ec==std::errc{} && result.ptr==value.data()+value.size() &&
+         std::isfinite(number) && number>=minimum && number<=maximum;
+}
 
 bool Allowed(std::string_view key, std::string_view value) {
   // Exact source-supported native mouse/keyboard bindings, not arbitrary
@@ -70,20 +92,10 @@ bool Allowed(std::string_view key, std::string_view value) {
     return value == "off" || value == "fxaa" || value == "smaa";
   if (key == "hulk_mouse_horizontal_multiplier" ||
       key == "hulk_mouse_vertical_multiplier") {
-    if (value.empty() || value.size() > 24) return false;
-    const std::string copy(value);
-    char* end = nullptr;
-    const double number = std::strtod(copy.c_str(), &end);
-    return end == copy.c_str() + copy.size() &&
-           std::isfinite(number) && number >= 0.25 && number <= 4.0;
+    return ValidDecimal(value,0.25,4.0);
   }
   if (key == "native_x_renderer_sharpness") {
-    if (value.empty() || value.size() > 24) return false;
-    const std::string copy(value);
-    char* end = nullptr;
-    const double number = std::strtod(copy.c_str(), &end);
-    return end == copy.c_str() + copy.size() &&
-           std::isfinite(number) && number >= 0.0 && number <= 0.5;
+    return ValidDecimal(value,0.0,0.5);
   }
   return false;
 }
@@ -105,7 +117,6 @@ bool IsAssignment(std::string_view line, std::string_view key) {
 }
 
 using Setting = std::pair<std::string_view, std::string_view>;
-std::mutex g_config_write_mutex;
 std::mutex g_live_path_mutex;
 std::filesystem::path g_live_config_path;
 
@@ -119,7 +130,7 @@ bool SaveSettings(const std::filesystem::path& config_file,
   // The original guest UI can save from the game thread while the host
   // menu writes from the window thread. Serialize the entire read/edit/
   // atomic replace, not just the final rename of the common temp file.
-  std::lock_guard lock(g_config_write_mutex);
+  std::lock_guard lock(hulk::config::WriteMutex());
   std::error_code ec;
   if (!std::filesystem::is_regular_file(config_file, ec) || ec ||
       std::filesystem::file_size(config_file, ec) > (2u << 20) || ec)
@@ -172,6 +183,7 @@ bool SaveSettings(const std::filesystem::path& config_file,
     edited += ending;
   }
   if (edited == original) return true;
+  if (edited.size() > (2u << 20)) return false;
   auto temporary = config_file;
   temporary += ".nativepc-writing";
   {
@@ -179,7 +191,9 @@ bool SaveSettings(const std::filesystem::path& config_file,
     if (!out) return false;
     out.write(edited.data(), static_cast<std::streamsize>(edited.size()));
     out.flush();
-    if (!out) {
+    const bool flushed=out.good();
+    out.close();
+    if (!flushed || !out.good()) {
       std::filesystem::remove(temporary, ec);
       return false;
     }

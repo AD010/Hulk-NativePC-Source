@@ -1,5 +1,6 @@
 // Synthetic-only NativePC options write regression; no user TOML touched.
 #include "../native_port/src/native_pc_options_store.h"
+#include "../native_port/src/native_game_data_root_store.h"
 #include "../native_port/src/native_pc_menu_actions.h"
 #include "../native_port/src/native_pc_menu_rows.h"
 #include "../native_port/src/native_pc_bindings.h"
@@ -153,6 +154,12 @@ int main() {
       std::pair{"native_x_renderer_antialiasing", "on\\ninjected=true"},
       std::pair{"native_x_renderer_sharpness", "nan"},
       std::pair{"native_x_renderer_sharpness", "0.8"},
+      std::pair{"native_x_renderer_sharpness", "0x1p-2"},
+      std::pair{"native_x_renderer_sharpness", ".5"},
+      std::pair{"native_x_renderer_sharpness", "0."},
+      std::pair{"native_x_renderer_sharpness", "00.5"},
+      std::pair{"native_x_renderer_sharpness", "0,5"},
+      std::pair{"hulk_mouse_horizontal_multiplier", "01.0"},
       std::pair{"hulk_guest_swap_fps_cap", "-1"},
       std::pair{"game_data_root", "C:/untrusted"},
       std::pair{"hulk_bind_forward", "MouseWheelDown"},
@@ -269,6 +276,19 @@ int main() {
     Expect(original_ok && host_ok,"Concurrent original and PC option writes failed");
     Expect(Read(config)=="hulk_mouse_invert_x = true\nhulk_mouse_invert_y = false\nvsync = true\n",
            "Concurrent menu writes lost a setting");
+  }
+  // Asset-folder selection is another writer of the very same TOML.
+  // Verify cross-component concurrency, not just two calls to Save().
+  for(unsigned attempt=0;attempt<100;++attempt) {
+    Write(config,"game_data_root = \"old\"\nvsync = false\n");
+    bool folder_ok=false,setting_ok=false;
+    std::thread folder([&]{folder_ok=hulk::assets::config::SaveGameDataRoot(config,
+        std::filesystem::path("C:/Games/Hulk"));});
+    std::thread setting([&]{setting_ok=Save(config,"vsync","true");});
+    folder.join();setting.join();
+    Expect(folder_ok && setting_ok,"Concurrent asset root and setting writes failed");
+    Expect(Read(config)=="game_data_root = \"C:/Games/Hulk\"\nvsync = true\n",
+           "Asset root or setting lost during shared TOML transaction");
   }
   // The original EoR UI and ImGui can use the same settings transaction.
   // Rejected values must never reach the engine; restart-only values

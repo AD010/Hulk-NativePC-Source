@@ -1,4 +1,5 @@
 #include "native_game_data_root_store.h"
+#include "native_config_write_mutex.h"
 #include <fstream>
 #include <cstdint>
 #include <stdexcept>
@@ -57,6 +58,7 @@ bool SaveGameDataRoot(const std::filesystem::path& config,
   try {
     if (config.empty() || game_dir.empty()) return false;
     const auto quoted = Quote(game_dir);
+    std::lock_guard lock(hulk::config::WriteMutex());
     std::error_code ec;
     const bool exists = std::filesystem::exists(config, ec);
     if (ec || (exists && (!std::filesystem::is_regular_file(config, ec) ||
