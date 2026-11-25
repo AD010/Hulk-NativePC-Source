@@ -108,8 +108,17 @@ class OriginalWidgetApi {
     for(size_t i=0;i<matrix.size();i+=4)
       if((matrix[i]&0x7fu)==0x7fu && (matrix[i+1]&0x80u))return {};
     if(matrix[60]!=0x3f || matrix[61]!=0x80 || matrix[62] || matrix[63])return {};
-    if(auto existing=Find(parent,symbol))
-      return existing->definition==kMenuItemTemplate?existing:std::nullopt;
+    // A lookup failure is NOT absence. Do not create a duplicate when
+    // the live child table already contains a foreign or stale owner.
+    const std::array<uint32_t,2> lookup{parent,symbol};
+    const auto existing=invoke_(0x825B8270u,std::span<const uint32_t>(lookup));
+    if(!existing)return {};
+    if(*existing) {
+      const auto id=ReadOriginalWidget(*existing,read_);
+      if(!id || id->parent!=parent || id->symbol!=symbol ||
+         id->definition!=kMenuItemTemplate)return {};
+      return id;
+    }
     const std::array<uint32_t,6> args{parent,kMenuItemTemplate,0,orientation,1,symbol};
     const auto child=invoke_(0x825BDEE0u,std::span<const uint32_t>(args));
     if(!child || !*child)return {};
