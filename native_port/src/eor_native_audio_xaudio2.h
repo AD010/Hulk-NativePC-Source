@@ -30,6 +30,10 @@ class NativeXAudio2Mixer {
   bool Ready() const noexcept;
   bool PlayPcm16(Bus bus,std::span<const int16_t> samples,
                  uint32_t sample_rate,uint16_t channels,float gain=1.f);
+  // Real PCM16 sample from a validated original FMOD Ex FSB4 bank.
+  // XMA/ADPCM/MPEG requires its own decoder and is never misplayed as PCM.
+  bool PlayFsb4Pcm16(Bus bus,std::span<const std::byte> bank,
+                     uint32_t sample_index,float gain=1.f);
   bool SetBusVolume(Bus bus,float gain) noexcept;
   void SetMuted(bool muted) noexcept;
   void Update() noexcept;
