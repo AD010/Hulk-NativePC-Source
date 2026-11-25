@@ -8,7 +8,7 @@
 #include <string_view>
 
 namespace hulk::eor::vm {
-enum class PausePage : uint8_t { Unknown, Settings, GameSettings };
+enum class PausePage : uint8_t { Unknown, Settings, GameSettings, AudioSettings, CameraSettings };
 struct NativeOwner {
   uint32_t object=0, definition=0, key=0;
   PausePage page=PausePage::Unknown;
@@ -56,11 +56,18 @@ NativeOwner ResolveNativeOwner(uint32_t lr,uint32_t vm,uint32_t dispatcher_vm,
   if(!definition || !*definition)return result;
   const auto vtable=word(*definition,0),key=word(*definition,12);
   if(!vtable || *vtable!=0x8206A4D0u || !key)return result;
-  // The two names and CRC keys were independently present in the original
-  // serialized OBJECTS.ARC and in the loaded USA definition records.
-  const std::string_view expected=*key==0xD7A9E027u?"uipage_pause_settings":
-      *key==0x04AA3A30u?"uipage_pause_gamesettings":"";
-  if(expected.empty())return result;
+  // All four real pause-page names and CRC keys were verified against
+  // the loaded USA definition records. In particular the audio and camera
+  // callbacks execute in separate page owners, not only GameSettings.
+  std::string_view expected;
+  PausePage resolved=PausePage::Unknown;
+  switch(*key) {
+    case 0xD7A9E027u:expected="uipage_pause_settings";resolved=PausePage::Settings;break;
+    case 0x04AA3A30u:expected="uipage_pause_gamesettings";resolved=PausePage::GameSettings;break;
+    case 0xDD663BE3u:expected="uipage_pause_audiosettings";resolved=PausePage::AudioSettings;break;
+    case 0x141ED2A4u:expected="uipage_pause_camerasettings";resolved=PausePage::CameraSettings;break;
+    default:return result;
+  }
   const auto tagged=word(*definition,4);
   if(!tagged || !*tagged)return result;
   uint32_t name=*tagged;
@@ -86,7 +93,7 @@ NativeOwner ResolveNativeOwner(uint32_t lr,uint32_t vm,uint32_t dispatcher_vm,
     if(c!=static_cast<uint8_t>(expected[i]))return result;
   }
   result.object=*owner;result.definition=*definition;result.key=*key;
-  result.page=*key==0xD7A9E027u?PausePage::Settings:PausePage::GameSettings;
+  result.page=resolved;
   return result;
 }
 // The two registered native option thunks tail-call their original PPC
@@ -111,7 +118,8 @@ std::optional<OriginalCameraMenuChange> CaptureCameraMenuChange(
   if(!pinned(thunk,16,subtitles?0xc3d92cd101da085dull:yaw?0xa5cf706c175e0715ull:0xac8ad2efc6d2e862ull) ||
      !pinned(method,(subtitles||yaw)?36u:32u,subtitles?0x0a943a2be4f9fa55ull:yaw?0x1a17b8e895bd37b0ull:0x620fae1953ca8fe3ull))return {};
   const auto page=ResolveNativeOwner(lr,vm,dispatcher_vm,descriptor,context,read,thunk);
-  if(page.page==PausePage::Unknown)return {};
+  if(page.page==PausePage::Unknown || page.page==PausePage::AudioSettings ||
+     (subtitles && page.page==PausePage::CameraSettings))return {};
   const auto word=[&](uint32_t address,uint32_t offset)->std::optional<uint32_t> {
     if(!address || uint64_t(address)+offset>UINT32_MAX-3u)return {};
     std::array<uint8_t,4> raw{};
@@ -141,8 +149,9 @@ bool VerifySubtitleGetter(uint32_t lr,uint32_t vm,uint32_t dispatcher_vm,
     for(size_t i=0;i<length;++i)hash=(hash^bytes[i])*0x100000001b3ull;
     return hash==expected;
   };
-  return pin(0x82146A10u,16,0x42cf88a419a2c655ull) &&
-      pin(0x82338A38u,28,0x280b3f5d0b51d1feull) &&
-      ResolveNativeOwner(lr,vm,dispatcher_vm,descriptor,context,read,0x82146A10u).page!=PausePage::Unknown;
+  if(!pin(0x82146A10u,16,0x42cf88a419a2c655ull) ||
+     !pin(0x82338A38u,28,0x280b3f5d0b51d1feull))return false;
+  const auto page=ResolveNativeOwner(lr,vm,dispatcher_vm,descriptor,context,read,0x82146A10u).page;
+  return page==PausePage::GameSettings || page==PausePage::Settings;
 }
 } // namespace hulk::eor::vm

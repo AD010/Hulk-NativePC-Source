@@ -36,8 +36,8 @@ int main(int argc,char** argv){
   put(vm,frame);put(frame,input);put(input+8,nested);put(nested,arg);
   put(ctx+20,page);put(vm+32,3);put(vm+4*(2093+3),page);
   put(page+124,res);put(res+8,def);put(def,0x8206a4d0);put(def+4,name|1);
-  put(def+12,0x04aa3a30u);
-  const std::string_view label="UIPage_Pause_GameSettings";
+  put(def+12,0xdd663be3u);
+  const std::string_view label="UIPage_Pause_AudioSettings";
   std::copy(label.begin(),label.end(),heap.data()+name);
   for(unsigned ch=0;ch<3;++ch){
     const auto spec=kAudioMenuMethods[ch];put(desc,spec.thunk);
@@ -69,4 +69,10 @@ int main(int argc,char** argv){
   check(!PlanDeferredVolumeRestore(*change,{101,-1,20},read));
   volume(deferred,1,60);
   check(!PlanDeferredVolumeRestore(*change,{70,-1,20},read));
+  // A valid callback with the wrong real page owner is not an audio event.
+  put(def+12,0x141ed2a4u);
+  const std::string_view camera="UIPage_Pause_CameraSettings";
+  std::fill_n(heap.data()+name,32,0);std::copy(camera.begin(),camera.end(),heap.data()+name);
+  lock=0;heap[arg+12]=1;
+  check(!CaptureAudioMenuChange(spec.method,0x825ea158,vm,vm,desc,ctx,read));
 }

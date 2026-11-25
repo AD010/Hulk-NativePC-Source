@@ -455,6 +455,8 @@ void ObserveOriginalEorVmState_r(
   // mutate the shared state_r return or confuse it with a menu action.
   const char* page_name=page.page==vm::PausePage::Settings?"UIPage_Pause_Settings":
       page.page==vm::PausePage::GameSettings?"UIPage_Pause_GameSettings":
+      page.page==vm::PausePage::AudioSettings?"UIPage_Pause_AudioSettings":
+      page.page==vm::PausePage::CameraSettings?"UIPage_Pause_CameraSettings":
       "PAGE-OWNER UNKNOWN";
   static std::atomic<uint64_t> calls{0};
   const auto n=calls.fetch_add(1,std::memory_order_relaxed)+1u;

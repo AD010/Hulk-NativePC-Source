@@ -50,8 +50,9 @@ std::optional<AudioMenuChange> CaptureAudioMenuChange(uint32_t method,uint32_t l
     return h==expected;
   };
   if(!pin(spec->thunk,16,spec->thunk_hash) ||
-     !pin(spec->method,spec->size,spec->body_hash) ||
-     ResolveNativeOwner(lr,vm,dispatcher_vm,descriptor,context,read,spec->thunk).page==PausePage::Unknown)return {};
+     !pin(spec->method,spec->size,spec->body_hash))return {};
+  const auto page=ResolveNativeOwner(lr,vm,dispatcher_vm,descriptor,context,read,spec->thunk).page;
+  if(page==PausePage::Unknown || page==PausePage::CameraSettings)return {};
   const auto lock=ReadVolumeLock(read);
   if(!lock)return {};
   const auto word=[&](uint32_t a,uint32_t offset)->std::optional<uint32_t>{

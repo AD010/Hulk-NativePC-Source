@@ -22,8 +22,17 @@
     {
       "name": "UIPage_Pause_GameSettings",
       "key": "0x04AA3A30"
+    },
+    {
+      "name": "UIPage_Pause_AudioSettings",
+      "key": "0xDD663BE3"
+    },
+    {
+      "name": "UIPage_Pause_CameraSettings",
+      "key": "0x141ED2A4"
     }
   ],
   "evidence": "Original PPC owner resolution plus matching loaded page definitions in the user-owned USA dump. No fixed heap addresses or proprietary byte sequences stored.",
-  "live_pause_dispatch_observed": false
+  "live_pause_dispatch_observed": false,
+  "additional_source_evidence": "Both additional definitions verified in existing private USA dump: BE vtable 0x8206A4D0, exact CRC at +12 and tagged string at +4. No fixed heap address retained."
 }

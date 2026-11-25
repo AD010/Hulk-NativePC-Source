@@ -29,9 +29,11 @@ int main(int argc,char** argv){
   put(vm,frame);put(frame,input);put(input+8,nested);put(nested,arg);
   put(ctx+20,page);put(vm+32,3);put(vm+4*(2093+3),page);
   put(page+124,res);put(res+8,def);put(def,0x8206a4d0);put(def+4,name|1);
-  for(bool game:{false,true}){
-    put(def+12,game?0x04aa3a30u:0xd7a9e027u);
-    const std::string_view label=game?"UIPage_Pause_GameSettings":"UIPage_Pause_Settings";
+  for(const auto& [key,label]:std::array<std::pair<uint32_t,std::string_view>,3>{{
+      {0xd7a9e027u,"UIPage_Pause_Settings"},
+      {0x04aa3a30u,"UIPage_Pause_GameSettings"},
+      {0x141ed2a4u,"UIPage_Pause_CameraSettings"}}}){
+    put(def+12,key);
     std::fill_n(heap.data()+name,32,0);std::copy(label.begin(),label.end(),heap.data()+name);
     for(bool axis:{false,true}){
       const uint32_t method=axis?0x82339a08u:0x823399e8u;
@@ -48,5 +50,5 @@ int main(int argc,char** argv){
   }
   put(def+12,0);yaw=0;heap[arg+12]=1;
   check(!CaptureCameraMenuChange(0x82339a08,0x825ea158,vm,vm,desc,ctx,read));
-  std::cout<<"PASS: both original pages, both axes, true/false and rejected events\n";
+  std::cout<<"PASS: all three original camera/settings pages, both axes, true/false and rejected events\n";
 }
