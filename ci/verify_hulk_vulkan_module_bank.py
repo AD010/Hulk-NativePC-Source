@@ -111,6 +111,9 @@ def run(archive: Path):
                     raise RuntimeError(f'Shader module creation failed at entry {sum(counts.values())}: {result}')
                 destroy_module(device, module, None)
                 counts[filename.split('.')[-2]] += 1
+        with zipfile.ZipFile(archive) as z:
+            from verify_hulk_fillrect_vulkan import verify
+            verify(vk, device, z)
         if counts != {'vs': 2597, 'ps': 2597}:
             raise ValueError('Original shader stage counts differ')
         print(f'PASS: {counts["vs"]} vertex + {counts["ps"]} pixel shader modules created/destroyed')
