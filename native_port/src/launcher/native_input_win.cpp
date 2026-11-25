@@ -181,6 +181,13 @@ bool BindDown(std::string_view names) {
   const float value = std::strtof(p, &end);
   return end == p || !std::isfinite(value) ? fallback : std::clamp(value, 0.1f, 20.f);
 }
+void ClearPendingMouseInput() noexcept {
+  g_dx = g_dy = 0;
+  g_held_dx = g_held_dy = 0;
+  g_mouse_hold_until = 0;
+  g_pending_wheel = g_wheel_dir = 0;
+  g_wheel_hold_until = 0;
+}
 void StorePacket(uint8_t* state, uint32_t packet) {
   state[0] = uint8_t(packet >> 24);
   state[1] = uint8_t(packet >> 16);
@@ -220,17 +227,13 @@ void NativeInputAttachWindow(void* window) {
 }
 void NativeInputSetCapture(bool enabled) {
   g_capture.store(enabled);
-  g_dx = g_dy = 0;
-  g_held_dx = g_held_dy = 0;
-  g_mouse_hold_until = 0;
-  g_pending_wheel = g_wheel_dir = 0;
-  g_wheel_hold_until = 0;
+  ClearPendingMouseInput();
 }
 void NativeInputToggleCapture() { NativeInputSetCapture(!g_capture.load()); }
 void NativeInputReleaseCapture() { NativeInputSetCapture(false); }
 bool NativeInputCapturing() { return g_capture && NativeInputEnabled(); }
 void NativeInputWheel(int steps) {
-  if (!NativeInputCapturing() || !steps) return;
+  if (!NativeInputCapturing() || !steps || PcMenuIsOpen()) return;
   // Positive scroll = LB, negative = RB; keep the pulse long enough to
   // survive multiple XInput polls before the game updates its controls.
   // WM_MOUSEWHEEL may deliver multiple notches before the next game poll.
@@ -238,7 +241,7 @@ void NativeInputWheel(int steps) {
   g_pending_wheel.fetch_add(std::clamp(steps, -10, 10));
 }
 void NativeInputRawMouse(int dx, int dy) {
-  if (!NativeInputCapturing()) return;
+  if (!NativeInputCapturing() || PcMenuIsOpen()) return;
   const int x = std::clamp(dx,-2000,2000);
   const int y = std::clamp(dy,-2000,2000);
   g_dx.fetch_add(x, std::memory_order_relaxed);
@@ -357,7 +360,8 @@ bool NativeInputApply(uint32_t user, bool real_pad_connected, uint8_t* state, ui
   const bool focused = hwnd && GetForegroundWindow() == hwnd;
   // Neutral Xbox state while the PC host menu captures keyboard/mouse;
   // gameplay input is untouched once the menu closes.
-  if (focused && !PcMenuIsOpen()) {
+  const bool gameplay_input = focused && !PcMenuIsOpen();
+  if (gameplay_input) {
     const auto add = [&](std::string_view name, uint32_t bit) {
       if (BindDown(name)) f.keys |= bit;
     };
@@ -419,8 +423,7 @@ bool NativeInputApply(uint32_t user, bool real_pad_connected, uint8_t* state, ui
         }
       }
     } else {
-      g_dx = 0;
-      g_dy = 0;
+      ClearPendingMouseInput();
     }
     f.sensitivity = Sensitivity();
     // Relative axis sensitivity applies equally to the fallback and the
@@ -438,8 +441,9 @@ bool NativeInputApply(uint32_t user, bool real_pad_connected, uint8_t* state, ui
     const int level = std::clamp(REXCVAR_GET(hulk_move_speed_level), 0, 4);
     f.move_stick_strength = input::MovementStrength(walking ? 0 : level, min);
   } else {
-    g_dx = 0;
-    g_dy = 0;
+    // Do not replay a held look delta or wheel pulse after opening F10
+    // or changing foreground window.
+    ClearPendingMouseInput();
   }
 #endif
   // In a *validated* direct-camera profile the mouse writes yaw/pitch in guest
@@ -453,7 +457,7 @@ bool NativeInputApply(uint32_t user, bool real_pad_connected, uint8_t* state, ui
   // A game can poll XInput many times between rendered frames. Preserve small
   // mouse movements briefly *only for stick emulation*, not direct camera:
   // repeating guest yaw/pitch writes would over-rotate the native camera.
-  if (!direct_camera && g_capture.load() && focused) {
+  if (!direct_camera && g_capture.load() && gameplay_input) {
     const auto now = static_cast<uint64_t>(GetTickCount64());
     if (f.mouse_dx || f.mouse_dy) {
       g_held_dx.store(f.mouse_dx);
