@@ -3,6 +3,7 @@
 #include <stdexcept>
 #include <algorithm>
 #include <utility>
+#include <new>
 
 namespace hulk::eor::xdk {
 namespace {
@@ -512,6 +513,16 @@ Frame FrameCapture::Finish() {
   out.commands.swap(commands_);
   dropped_=0;
   dropped_commands_=0;
+  // Prime the next collector with the actual completed frame size, not
+  // the maximum budget. Avoid geometric relocations of large RawDraws
+  // every Present; the published frame keeps its own immutable storage.
+  try {
+    calls_.reserve(out.calls.size());
+    commands_.reserve(out.commands.size());
+  } catch(const std::bad_alloc&) {
+    // Reserving is optional: preserve the completed frame and let the
+    // next Record grow normally if memory pressure prevented the hint.
+  }
   return out;
 }
 void FrameCapture::Reset() {
