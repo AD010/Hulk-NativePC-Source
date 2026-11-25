@@ -22,12 +22,16 @@ workflow в публичном репозитории **AD010/Hulk-NativePC-Sour
 ## Запуск без оплаты
 
 1. Открой https://github.com/AD010/Hulk-NativePC-Source/actions
-2. Выбери **Hulk NativePC - Free Public Windows Builder**.
+2. Выбери **Hulk NativePC - Manual Windows Release**.
 3. Нажми **Run workflow**, ветка main → Run workflow.
 4. Бесплатный Windows runner скачает оригинальный XEX
    из **приватного** GitHub Release, проверит SHA-256, соберёт
-   NativeXRenderer, проверит ZIP и отправит результат в приватный
+   NativeXRenderer, проверит ZIP и отправит версионный архив
+   `Hulk-NativePC-Vulkan-PresentFix-<sha>.zip` в приватный
    https://github.com/AD010/hulk-cloud/releases/tag/hulk-ci-input-on-publish
+   Если приватный asset `Hulk-EoR-Offline-USA.zip` отсутствует, отдельно
+   установи уже подготовленный владельцем каталог `eor_offline` рядом
+   с EXE; такой ZIP сам по себе не содержит полного банка EoR.
 
 **ВАЖНО:** публичные Actions logs доступны всем. XEX и сгенерированный
 PPC-код не сохраняются в публичные artifacts, но сообщения об ошибках

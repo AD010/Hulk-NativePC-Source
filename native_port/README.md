@@ -12,10 +12,12 @@ MIT copyright notices in the repository root and this directory.
   (relative to the repository root). **Manual dispatch only**; source
   pushes, pull requests and schedules cannot trigger a build. There is no
   temporary one-shot push exception. Windows x64 Release only.
-- **Build on Windows:** `BUILD_WINDOWS.cmd -GameRoot "X:\\path\\to\\owned\\game"`
-  from this directory. Visual Studio C++/LLVM, CMake, Ninja, Python and
-  the original USA game inputs are required. Add `-NativeXLink` to build
-  the native Vulkan renderer integration; it does not prove correct GPU output.
+- **Build on Windows:** `BUILD_WINDOWS.cmd -GameRoot "X:\path\to\owned\game" -NativeXLink`
+  from this directory. Visual Studio C++/LLVM, CMake/CTest (3.25+), Ninja,
+  Git, Python 3.11+ and the exact SHA-pinned USA XEX are required. The
+  Vulkan test build still uses transitional runtime libraries; it does
+  not prove independent GPU output. Local PPC entry seeding now runs
+  before SDK compilation, just as in CI.
 - **Private outputs:** CI consumes owner-only inputs from `AD010/hulk-cloud`.
   Tested-for-packaging, versioned ZIP assets are delivered back to its
   private release; this public repository contains no game executable.
@@ -23,7 +25,14 @@ MIT copyright notices in the repository root and this directory.
 
 ## Confirmed and unconfirmed status
 
-As of 2026-11-14, GitHub Actions **#112** completed source validation,
+Current checkpoint (2026-11-25): **#179** completed internal Windows
+compilation without a release ZIP. **#180** was requested for testing all
+accumulated main changes; use its actual Actions status rather than assuming
+success. The complete private EoR shader bank is supplied separately when
+the optional release asset is absent. See
+`docs/NATIVE_PORT_REFERENCE_2026-11-25.md` for the current acceptance criteria.
+
+Historical checkpoint: on 2026-11-14, GitHub Actions **#112** completed source validation,
 Windows compilation, archive verification and versioned private delivery.
 The binary's scene rendering, missing menu text, colored flashes, texture
 clarity at 2x, native mouse behavior and physics above 30 FPS are **not**
@@ -40,7 +49,7 @@ XEX; never replace a full original game archive with a TU differential.
 The older technical reports under `docs/` are retained as audit history,
 not extra build configurations.
 
-## Current continuation (2026-11-15)
+## Historical continuation (2026-11-15)
 
 Latest recorded source updates: per-axis mouse controls and F10 bindings,
 EoR original UI CRC32/xref evidence collection, and one-workflow source tests.
@@ -111,7 +120,7 @@ This is original shader source adaptation, not verified Vulkan PSO binding;
 the 24 dynamic-flow shaders, all EoR material descriptors, game-time
 shader injections and GPU command routing still require source/runtime work.
 
-## Current continuation (2026-11-20)
+## Historical continuation (2026-11-20)
 
 Continuation was rebased on `274cc34` (original ShaderEffects / Xenia Edge
 dump crosswalk), not the historical #108/D140 revision. The USA port remains

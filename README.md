@@ -14,9 +14,11 @@ explicitly dispatch a Release. The original USA XEX stays in a separate
 private repository, and any validated ZIP is delivered privately, never
 attached as a public Actions artifact.
 
-The November 17, 2026 experimental Release attempts failed their source-only
-or MSVC regression/link checks. No ZIP from those attempts is being called
-ready, and no visible render improvement was verified. See
+The last confirmed internal Windows compilation was #179 (2026-11-25,
+commit b61cbe07348a). It did not publish a game ZIP. The next owner-requested
+test build #180 was started from 624591a71f44; see Actions for its result.
+Neither compilation nor ZIP verification establishes independent EoR
+gameplay rendering. See
 [`native_port/README.md`](native_port/README.md) for the consolidated
 NativeX patch dispatcher, cleanup and required pre-release gates.
 
