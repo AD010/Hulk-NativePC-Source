@@ -699,7 +699,10 @@ std::size_t DiligentEorDirectBackend::AdoptVerifiedOriginalMaterialPasses(
     s.material_lookup.emplace(key,verified);
     ++added;
   }
-  if(added)(void)PrewarmResidentOriginalPipelines(16);
+  // Per-Draw adoption may run thousands of times in the first complete
+  // native frame. Preflight creates exactly its needed PSOs/SRBs after
+  // all source Draws validate; never repeatedly prewarm here. Initial
+  // catalogue and resident mesh admission still have bounded prewarm.
   return added;
 }
 model::NativeMeshUploadBackend&
@@ -1352,14 +1355,19 @@ aot::BoundIndexedDraw DiligentEorDirectBackend::StageOriginalRuntimeDraw(
 void DiligentEorDirectBackend::ReleaseRuntimeDraws(uint64_t frame,bool completed) noexcept {
   if(!state_ || state_->scene_open || !frame)return;
   auto& s=*state_;
-  for(auto it=s.runtime_uploads.begin();it!=s.runtime_uploads.end();) {
-    if(completed ? it->first.first>frame : it->first.first!=frame){++it;continue;}
+  const auto first=completed ? s.runtime_uploads.begin() :
+      s.runtime_uploads.lower_bound({frame,0u});
+  for(auto it=first;it!=s.runtime_uploads.end() && it->first.first<=frame;) {
     const auto& owner=*it->second;
     s.draw_buffers.erase(owner.position);
     s.material_lookup.erase(owner.material);
     s.material_bindings.erase(owner.material);s.pipeline_cache.erase(owner.material);
-    for(auto p=s.pipeline_variants.begin();p!=s.pipeline_variants.end();)
-      if(p->first.first==owner.material)p=s.pipeline_variants.erase(p);else ++p;
+    // Variant keys are ordered by (material, exact register tuple).
+    // Retire only this owner's contiguous range, not the entire PSO map
+    // once per transient world Draw.
+    auto p=s.pipeline_variants.lower_bound({owner.material,{}});
+    while(p!=s.pipeline_variants.end() && p->first.first==owner.material)
+      p=s.pipeline_variants.erase(p);
     s.streamed_passes.erase(owner.material);
     it=s.runtime_uploads.erase(it);
   }
