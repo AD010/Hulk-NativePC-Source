@@ -83,6 +83,16 @@ int main() {
   assert(OriginalPixelMetadataKey(stripped)==metadata_key);
   stripped[68]=1;assert(OriginalPixelMetadataKey(stripped)!=metadata_key);
   stripped[68]=0;strip_word(28,1);assert(!OriginalPixelMetadataKey(stripped));
+  // The same source directory must be independently accepted for VS,
+  // while stage identity and all executable metadata remain significant.
+  strip_word(28,0);stripped[3]=1;debug[3]=1;
+  const auto vertex_debug=OriginalVertexDebugHeaderKey(debug);
+  const auto vertex_meta=OriginalVertexMetadataKey(debug);
+  assert(vertex_debug && vertex_meta && *vertex_debug!=*debug_key);
+  assert(OriginalVertexMetadataKey(stripped)==vertex_meta);
+  assert(!OriginalPixelDebugHeaderKey(debug) && !OriginalPixelMetadataKey(stripped));
+  stripped[68]=1;assert(OriginalVertexMetadataKey(stripped)!=vertex_meta);
+  stripped[68]=0;debug[3]=0;stripped[3]=0;
   // Independent Python hashlib reference SHA256 for a 36-byte Xenos
   // virtual stage header; no source program was embedded in the test.
   const auto vs=SourceHeader(Stage::Vertex),ps=SourceHeader(Stage::Pixel);

@@ -29,6 +29,9 @@ std::optional<Digest> OriginalPixelDebugHeaderKey(
 // top-level size/offset fields if the UPDB record changed length.
 std::optional<Digest> OriginalPixelMetadataKey(
     std::span<const uint8_t> header) noexcept;
+// Same verified UPDB directory layout for the 2,597 USA vertex containers.
+std::optional<Digest> OriginalVertexDebugHeaderKey(std::span<const uint8_t> header) noexcept;
+std::optional<Digest> OriginalVertexMetadataKey(std::span<const uint8_t> header) noexcept;
 class OriginalVirtualShaderIdentity {
  public:
   // HEORVRT1 + [count:LE32, version:LE32] +
@@ -57,6 +60,11 @@ class OriginalVirtualShaderIdentity {
   const PixelDebugAlias* FindPixelDebugAlias(
       std::span<const uint8_t> header,std::span<const uint8_t> physical,
       const Digest* paired_pixel_source=nullptr) const noexcept;
+  bool HasVertexDebugCandidate(std::span<const uint8_t> header) const noexcept;
+  const PixelDebugAlias* FindVertexDebugAlias(
+      std::span<const uint8_t> header,std::span<const uint8_t> physical) const noexcept;
+  size_t VertexDebugAliasCount() const noexcept {return vertex_alias_count_;}
+  size_t VertexMetadataAliasCount() const noexcept {return vertex_metadata_count_;}
   size_t PixelDebugAliasCount() const noexcept {return pixel_alias_count_;}
   size_t PixelMetadataAliasCount() const noexcept {return pixel_metadata_count_;}
   size_t size() const noexcept {return original_.size();}
@@ -70,6 +78,7 @@ class OriginalVirtualShaderIdentity {
   void Clear() noexcept {
     original_.clear();pixel_debug_aliases_.clear();pixel_metadata_aliases_.clear();
     pixel_alias_count_=pixel_metadata_count_=0;
+    vertex_alias_count_=vertex_metadata_count_=0;
   }
  private:
   struct Entry {Digest full_source_sha{};Stage stage=Stage::Vertex;
@@ -79,6 +88,10 @@ class OriginalVirtualShaderIdentity {
   std::map<Digest,std::vector<PixelDebugAlias>> pixel_debug_aliases_;
   std::map<Digest,std::vector<PixelDebugAlias>> pixel_metadata_aliases_;
   size_t pixel_alias_count_=0,pixel_metadata_count_=0;
+  size_t vertex_alias_count_=0,vertex_metadata_count_=0;
+  const PixelDebugAlias* FindShaderDebugAlias(
+      std::span<const uint8_t> header,std::span<const uint8_t> physical,
+      Stage stage,const Digest* paired_source) const noexcept;
 };
 // A live XDK shader object can be linked to a source SHA only when the
 // ORIGINAL guest object -> ShaderContainer header pointer ABI is proven,

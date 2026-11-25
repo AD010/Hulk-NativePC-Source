@@ -160,6 +160,7 @@ void OriginalVirtualShaderIdentity::Load(
   original_.swap(next); // Failed generation leaves older verified bank unchanged.
   pixel_debug_aliases_.clear();pixel_metadata_aliases_.clear();
   pixel_alias_count_=pixel_metadata_count_=0;
+  vertex_alias_count_=vertex_metadata_count_=0;
 }
 
 std::optional<Digest> OriginalVirtualShaderIdentity::FindOriginalSource(
@@ -180,15 +181,16 @@ std::optional<Digest> OriginalVirtualShaderIdentity::FindOriginalSource(
     return std::nullopt;
   return it->second.full_source_sha;
 }
-std::optional<Digest> OriginalPixelDebugHeaderKey(
-    std::span<const uint8_t> header) noexcept {
-  // All 2,597 original USA pixel containers have this exact UPDB record
+namespace {
+std::optional<Digest> DebugHeaderKey(
+    std::span<const uint8_t> header,Stage stage) noexcept {
+  // All 5,194 original USA vertex/pixel containers have this exact UPDB record
   // layout: +12 -> debug record, +16 -> next section; record flags and
   // filename length are BE32, followed by the filename and zero padding.
   // Only filename payload bytes may differ. Offsets, length, padding,
   // CTAB, instruction descriptors and all other fields remain significant.
   if(header.size()<44 || header.size()>(1u<<20) ||
-     Be32(header.data())!=0x102a1100u ||
+     Be32(header.data())!=(stage==Stage::Vertex?0x102a1101u:0x102a1100u) ||
      Be32(header.data()+4)!=header.size() || !Be32(header.data()+8) ||
      Be32(header.data()+12)!=36u || Be32(header.data()+36)!=0u)return {};
   const auto next=Be32(header.data()+16),length=Be32(header.data()+40);
@@ -214,14 +216,14 @@ std::optional<Digest> OriginalPixelDebugHeaderKey(
     return ExactHeaderDigest(canonical);
   } catch (...) {return {};}
 }
-std::optional<Digest> OriginalPixelMetadataKey(
-    std::span<const uint8_t> header) noexcept {
-  // The pinned 2597 PS containers use this exact 36-byte directory.
+std::optional<Digest> MetadataKey(
+    std::span<const uint8_t> header,Stage stage) noexcept {
+  // Both pinned USA stages use this exact 36-byte directory.
   // +4 virtual size, +12 UPDB, +16 CTAB, +20 optional definitions,
   // +24 instruction descriptor; +28/+32 are zero in EVERY source.
   // The CTAB and everything following it must remain byte-identical.
   if(header.size()<36 || header.size()>(1u<<20) ||
-     Be32(header.data())!=0x102a1100u ||
+     Be32(header.data())!=(stage==Stage::Vertex?0x102a1101u:0x102a1100u) ||
      Be32(header.data()+4)!=header.size() || !Be32(header.data()+8) ||
      Be32(header.data()+28) || Be32(header.data()+32))return {};
   const auto debug=Be32(header.data()+12),ctab=Be32(header.data()+16);
@@ -231,7 +233,7 @@ std::optional<Digest> OriginalPixelMetadataKey(
      (defs && (defs<ctab || defs>=desc)))return {};
   if(debug==0u) {
     if(ctab!=36u)return {};
-  } else if(debug!=36u || !OriginalPixelDebugHeaderKey(header))return {};
+  } else if(debug!=36u || !DebugHeaderKey(header,stage))return {};
   try {
     const auto removed=ctab-36u;
     std::vector<uint8_t> canonical(header.begin(),header.begin()+36);
@@ -245,10 +247,23 @@ std::optional<Digest> OriginalPixelMetadataKey(
     return ExactHeaderDigest(canonical);
   } catch (...) {return {};}
 }
+} // namespace
+std::optional<Digest> OriginalPixelDebugHeaderKey(std::span<const uint8_t> header) noexcept {
+  return DebugHeaderKey(header,Stage::Pixel);
+}
+std::optional<Digest> OriginalPixelMetadataKey(std::span<const uint8_t> header) noexcept {
+  return MetadataKey(header,Stage::Pixel);
+}
+std::optional<Digest> OriginalVertexDebugHeaderKey(std::span<const uint8_t> header) noexcept {
+  return DebugHeaderKey(header,Stage::Vertex);
+}
+std::optional<Digest> OriginalVertexMetadataKey(std::span<const uint8_t> header) noexcept {
+  return MetadataKey(header,Stage::Vertex);
+}
 size_t OriginalVirtualShaderIdentity::LoadOriginalPixelDebugAliases(
     const std::filesystem::path& root) noexcept {
   if(root.empty() || original_.size()!=5194u)return 0;
-  if(pixel_alias_count_)return pixel_alias_count_;
+  if(pixel_alias_count_ && vertex_alias_count_)return pixel_alias_count_;
   // Original USA ShaderEffects archive SHA-256 (private owner source).
   constexpr Digest archive_sha{
       0xc3,0x35,0xe0,0xad,0x39,0xbe,0x45,0x5e,
@@ -268,44 +283,55 @@ size_t OriginalVirtualShaderIdentity::LoadOriginalPixelDebugAliases(
          SourceSha256(bytes)!=archive_sha)continue;
       std::map<Digest,std::vector<PixelDebugAlias>> next,metadata;
       std::set<Digest> seen;
+      size_t vs_count=0,ps_count=0;
       for(size_t i=0;i+44<=bytes.size();++i) {
-        if(Be32(bytes.data()+i)!=0x102a1100u)continue;
+        const auto signature=Be32(bytes.data()+i);
+        if(signature!=0x102a1100u && signature!=0x102a1101u)continue;
+        const auto stage=signature==0x102a1101u?Stage::Vertex:Stage::Pixel;
         const auto v=Be32(bytes.data()+i+4),p=Be32(bytes.data()+i+8);
         if(v<44 || v>(1u<<20) || !p || p>(1u<<20) ||
            uint64_t(i)+v+p>bytes.size())continue;
         const auto header=std::span<const uint8_t>(bytes).subspan(i,v);
         const auto physical=std::span<const uint8_t>(bytes).subspan(i+v,p);
-        const auto source=FindOriginalSource(header,Stage::Pixel);
+        const auto source=FindOriginalSource(header,stage);
         if(!source || SourceSha256(std::span<const uint8_t>(bytes).subspan(i,v+p))!=*source)continue;
-        const auto key=OriginalPixelDebugHeaderKey(header);
-        const auto metadata_key=OriginalPixelMetadataKey(header);
+        const auto key=DebugHeaderKey(header,stage);
+        const auto metadata_key=MetadataKey(header,stage);
         if(!key || !metadata_key || !seen.insert(*source).second)return 0;
+        if(stage==Stage::Vertex)++vs_count;else ++ps_count;
         PixelDebugAlias entry{*source,SourceSha256(physical),
                               {header.begin(),header.end()}};
         next[*key].push_back(entry);
         metadata[*metadata_key].push_back(std::move(entry));
         i+=size_t(v)+p-1;
       }
-      if(seen.size()!=2597u)return 0;
+      if(seen.size()!=5194u || vs_count!=2597u || ps_count!=2597u)return 0;
       // Preserve every authenticated candidate, even when stripping UPDB
       // makes several source records identical. The unpaired lookup still
       // requires uniqueness; the live VS + HEORMAT2 pair may distinguish
       // candidates without guessing an effect or accepting different code.
-      const auto count_unambiguous=[](const auto& candidates) {
+      const auto count_unambiguous=[](const auto& candidates,Stage stage) {
         size_t admitted=0;
         for(const auto& [_,entries]:candidates) {
           std::map<Digest,size_t> counts;
           for(const auto& row:entries)++counts[row.physical_sha];
           for(const auto& row:entries)
-            if(counts.at(row.physical_sha)==1u)++admitted;
+            if(counts.at(row.physical_sha)==1u &&
+               Be32(row.original_header.data())==(stage==Stage::Vertex?0x102a1101u:0x102a1100u))++admitted;
         }
         return admitted;
       };
-      const auto admitted=count_unambiguous(next),
-                 metadata_admitted=count_unambiguous(metadata);
-      if(admitted!=2595u || metadata_admitted!=1601u)return 0;
+      const auto admitted=count_unambiguous(next,Stage::Pixel),
+                 metadata_admitted=count_unambiguous(metadata,Stage::Pixel),
+                 vertex_admitted=count_unambiguous(next,Stage::Vertex),
+                 vertex_metadata=count_unambiguous(metadata,Stage::Vertex);
+      // Counts independently checked against the already extracted 5194
+      // complete source containers. Stage stays in the normalized digest.
+      if(admitted!=2595u || metadata_admitted!=1601u ||
+         vertex_admitted!=2595u || vertex_metadata!=1598u)return 0;
       pixel_debug_aliases_.swap(next);pixel_alias_count_=admitted;
       pixel_metadata_aliases_.swap(metadata);pixel_metadata_count_=metadata_admitted;
+      vertex_alias_count_=vertex_admitted;vertex_metadata_count_=vertex_metadata;
       return admitted;
     }
   } catch (...) {}
@@ -318,10 +344,28 @@ bool OriginalVirtualShaderIdentity::HasPixelDebugCandidate(
   const auto metadata=OriginalPixelMetadataKey(header);
   return metadata && pixel_metadata_aliases_.contains(*metadata);
 }
+bool OriginalVirtualShaderIdentity::HasVertexDebugCandidate(
+    std::span<const uint8_t> header) const noexcept {
+  if(!vertex_alias_count_)return false;
+  if(const auto key=OriginalVertexDebugHeaderKey(header);key && pixel_debug_aliases_.contains(*key))return true;
+  const auto metadata=OriginalVertexMetadataKey(header);
+  return metadata && pixel_metadata_aliases_.contains(*metadata);
+}
 const OriginalVirtualShaderIdentity::PixelDebugAlias*
 OriginalVirtualShaderIdentity::FindPixelDebugAlias(
     std::span<const uint8_t> header,std::span<const uint8_t> physical,
     const Digest* paired_pixel_source) const noexcept {
+  return FindShaderDebugAlias(header,physical,Stage::Pixel,paired_pixel_source);
+}
+const OriginalVirtualShaderIdentity::PixelDebugAlias*
+OriginalVirtualShaderIdentity::FindVertexDebugAlias(
+    std::span<const uint8_t> header,std::span<const uint8_t> physical) const noexcept {
+  return FindShaderDebugAlias(header,physical,Stage::Vertex,nullptr);
+}
+const OriginalVirtualShaderIdentity::PixelDebugAlias*
+OriginalVirtualShaderIdentity::FindShaderDebugAlias(
+    std::span<const uint8_t> header,std::span<const uint8_t> physical,
+    Stage stage,const Digest* paired_pixel_source) const noexcept {
   if(pixel_debug_aliases_.empty() || header.size()<36 ||
      physical.empty() || physical.size()!=Be32(header.data()+8))return nullptr;
   const auto digest=ExactHeaderDigest(physical);
@@ -338,9 +382,9 @@ OriginalVirtualShaderIdentity::FindPixelDebugAlias(
     }
     return found;
   };
-  if(const auto* exact=find(pixel_debug_aliases_,OriginalPixelDebugHeaderKey(header)))
+  if(const auto* exact=find(pixel_debug_aliases_,DebugHeaderKey(header,stage)))
     return exact;
-  return find(pixel_metadata_aliases_,OriginalPixelMetadataKey(header));
+  return find(pixel_metadata_aliases_,MetadataKey(header,stage));
 }
 namespace {
 std::optional<uint32_t> UsaShaderHeaderAddress(uint32_t object, Stage stage) noexcept {
@@ -393,19 +437,25 @@ ObserveOriginalBoundXdkShader(
     // filename in their debug record. Require the exact live metadata
     // outside that record AND the complete live physical byte digest.
     // This does not accept unknown, stripped, or edited program code.
-    if(stage!=Stage::Pixel || physical_bytes>(1u<<20) ||
-       !identities.HasPixelDebugCandidate(header))return {};
+    if(physical_bytes>(1u<<20) ||
+       !(stage==Stage::Vertex?identities.HasVertexDebugCandidate(header):
+                              identities.HasPixelDebugCandidate(header)))return {};
+    // USA XDK GetVertexShaderFunction 82876EF8: +872 virtual header,
+    // lwz r4,32(r31) at 82876F40 supplies the physical program pointer.
+    // GetPixelShaderFunction 82876EA0 uses +40 header and +24 pointer.
+    // Both were checked against the owner's SHA-pinned USA executable.
     std::array<uint8_t,4> pointer{};
-    if(!reader(original_guest_base,object+24u,
+    if(!reader(original_guest_base,object+(stage==Stage::Vertex?32u:24u),
                reinterpret_cast<std::byte*>(pointer.data()),pointer.size()))return {};
     const auto physical_at=Be32(pointer.data());
     if(!physical_at || uint64_t(physical_at)+physical_bytes>(uint64_t{1}<<32))return {};
     std::vector<uint8_t> physical(physical_bytes);
     if(!reader(original_guest_base,physical_at,reinterpret_cast<std::byte*>(physical.data()),physical.size()))
       return {};
-    const auto* alias=identities.FindPixelDebugAlias(header,physical);
+    const auto* alias=stage==Stage::Vertex?identities.FindVertexDebugAlias(header,physical):
+        identities.FindPixelDebugAlias(header,physical);
     bool paired=false;
-    if(!alias && paired_pixel_source) {
+    if(!alias && stage==Stage::Pixel && paired_pixel_source) {
       alias=identities.FindPixelDebugAlias(header,physical,paired_pixel_source);
       paired=alias!=nullptr;
     }
@@ -551,11 +601,13 @@ std::optional<Digest> ResolveOriginalLiveXdkShaderSource(
   if(const auto direct=identities.FindOriginalSource(
       source.exact_original_guest_virtual_header,expected_stage))
     return source.alias_paired_pixel_source ? std::nullopt : direct;
-  if(expected_stage==Stage::Pixel && !source.alias_live_physical.empty())
-    if(const auto* alias=identities.FindPixelDebugAlias(
-         source.exact_original_guest_virtual_header,source.alias_live_physical,
-         source.alias_paired_pixel_source ? &*source.alias_paired_pixel_source : nullptr))
-      return alias->full_source_sha;
+  if(!source.alias_live_physical.empty()) {
+    const auto* alias=expected_stage==Stage::Vertex?
+        identities.FindVertexDebugAlias(source.exact_original_guest_virtual_header,source.alias_live_physical):
+        identities.FindPixelDebugAlias(source.exact_original_guest_virtual_header,source.alias_live_physical,
+            source.alias_paired_pixel_source ? &*source.alias_paired_pixel_source : nullptr);
+    if(alias)return alias->full_source_sha;
+  }
   return {};
 }
 
