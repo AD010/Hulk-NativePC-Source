@@ -104,6 +104,18 @@ class EffectCatalog {
     if(next!=reverse_.end() && next->first.first==vs)return {};
     return it->first.second;
   }
+  // Reverse recovery is allowed only when the independently authenticated
+  // pixel program identifies exactly one original vertex program.
+  std::optional<Digest> UniqueVertexForPixel(const Digest& ps) const noexcept {
+    std::optional<Digest> result;
+    for(const auto& [pair,pass]:reverse_) {
+      (void)pass;
+      if(pair.second!=ps)continue;
+      if(result && *result!=pair.first)return {};
+      result=pair.first;
+    }
+    return result;
+  }
   // Compare every original SHA pair/ordinal, not only the 233/5194
   // census. A different ShaderEffects generation may have the same counts.
   bool SameOriginalSources(const EffectCatalog& rhs) const noexcept {

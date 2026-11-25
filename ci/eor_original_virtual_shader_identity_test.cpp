@@ -200,6 +200,14 @@ int main() {
       "hulk-original-live-shader-effect-synthetic.bin";
   Write(effect_file,effect_blob);
   EffectCatalog effects;effects.Load(effect_file);
+  assert(effects.UniqueVertexForPixel(expected_pixel)==expected_vertex);
+  assert(!effects.UniqueVertexForPixel(Digest{}));
+  // A paired field without original physical program bytes cannot
+  // authorize a forged or circular original vertex identity.
+  auto forged_vertex=live;
+  forged_vertex.alias_paired_vertex_source=expected_vertex;
+  assert(!ResolveOriginalLiveEorEffectPass(bank,effects,forged_vertex,pixel_live,
+      0x81234000u,0x81235000u,17u,3u));
   auto live_pass=ResolveOriginalLiveEorEffectPass(
       bank,effects,live,pixel_live,0x81234000u,0x81235000u,17u,3u);
   assert(live_pass && live_pass->effect_hash==0x1234u &&

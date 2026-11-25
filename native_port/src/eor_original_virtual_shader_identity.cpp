@@ -359,8 +359,9 @@ OriginalVirtualShaderIdentity::FindPixelDebugAlias(
 }
 const OriginalVirtualShaderIdentity::PixelDebugAlias*
 OriginalVirtualShaderIdentity::FindVertexDebugAlias(
-    std::span<const uint8_t> header,std::span<const uint8_t> physical) const noexcept {
-  return FindShaderDebugAlias(header,physical,Stage::Vertex,nullptr);
+    std::span<const uint8_t> header,std::span<const uint8_t> physical,
+    const Digest* paired_vertex_source) const noexcept {
+  return FindShaderDebugAlias(header,physical,Stage::Vertex,paired_vertex_source);
 }
 const OriginalVirtualShaderIdentity::PixelDebugAlias*
 OriginalVirtualShaderIdentity::FindShaderDebugAlias(
@@ -455,8 +456,10 @@ ObserveOriginalBoundXdkShader(
     const auto* alias=stage==Stage::Vertex?identities.FindVertexDebugAlias(header,physical):
         identities.FindPixelDebugAlias(header,physical);
     bool paired=false;
-    if(!alias && stage==Stage::Pixel && paired_pixel_source) {
-      alias=identities.FindPixelDebugAlias(header,physical,paired_pixel_source);
+    if(!alias && paired_pixel_source) {
+      alias=stage==Stage::Vertex?
+          identities.FindVertexDebugAlias(header,physical,paired_pixel_source):
+          identities.FindPixelDebugAlias(header,physical,paired_pixel_source);
       paired=alias!=nullptr;
     }
     if(!alias)return {};
@@ -464,7 +467,10 @@ ObserveOriginalBoundXdkShader(
         object,header_address,true,std::move(header),
         exact_frame_sequence,exact_call_ordinal};
     result.alias_live_physical=std::move(physical);
-    if(paired)result.alias_paired_pixel_source=alias->full_source_sha;
+    if(paired) {
+      if(stage==Stage::Vertex)result.alias_paired_vertex_source=alias->full_source_sha;
+      else result.alias_paired_pixel_source=alias->full_source_sha;
+    }
     return result;
   } catch (...) {
     // A guest read, allocation or checksum error is never gameplay-fatal.
@@ -598,12 +604,17 @@ std::optional<Digest> ResolveOriginalLiveXdkShaderSource(
     return std::nullopt;
   if(source.alias_paired_pixel_source &&
      (expected_stage!=Stage::Pixel || source.alias_live_physical.empty()))return {};
+  if(source.alias_paired_vertex_source &&
+     (expected_stage!=Stage::Vertex || source.alias_live_physical.empty()))return {};
   if(const auto direct=identities.FindOriginalSource(
       source.exact_original_guest_virtual_header,expected_stage))
-    return source.alias_paired_pixel_source ? std::nullopt : direct;
+    return (source.alias_paired_pixel_source || source.alias_paired_vertex_source) ?
+        std::nullopt : direct;
   if(!source.alias_live_physical.empty()) {
     const auto* alias=expected_stage==Stage::Vertex?
-        identities.FindVertexDebugAlias(source.exact_original_guest_virtual_header,source.alias_live_physical):
+        identities.FindVertexDebugAlias(source.exact_original_guest_virtual_header,
+            source.alias_live_physical,source.alias_paired_vertex_source ?
+                &*source.alias_paired_vertex_source : nullptr):
         identities.FindPixelDebugAlias(source.exact_original_guest_virtual_header,source.alias_live_physical,
             source.alias_paired_pixel_source ? &*source.alias_paired_pixel_source : nullptr);
     if(alias)return alias->full_source_sha;
@@ -625,6 +636,13 @@ std::optional<OriginalEffectPass> ResolveOriginalLiveEorEffectPass(
       identities,pixel,bound_pixel_xdk_object,Stage::Pixel,
       exact_frame_sequence,exact_call_ordinal);
   if(!vs || !ps)return std::nullopt;
+  // Never admit a circular match in which both stages need the other
+  // to select a source digest. One stage must resolve independently.
+  if(vertex.alias_paired_vertex_source) {
+    if(pixel.alias_paired_pixel_source)return {};
+    const auto paired=effects.UniqueVertexForPixel(*ps);
+    if(!paired || *paired!=*vs || *paired!=*vertex.alias_paired_vertex_source)return {};
+  }
   if(pixel.alias_paired_pixel_source) {
     // Recheck the independent bound VS from this same frame/ordinal.
     // An asserted PS selection alone cannot authorize an original pass.

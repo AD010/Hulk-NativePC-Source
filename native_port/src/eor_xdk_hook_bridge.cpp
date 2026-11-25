@@ -1002,6 +1002,19 @@ static void ObserveBoundShaderIdentity(RawDraw& draw,uint32_t vertex,
     draw.observed_live_pixel_shader_header = aot::ObserveOriginalBoundXdkShader(
         sources, pixel, aot::Stage::Pixel,
         ReadGuest, guest_base, frame, ordinal,paired_pixel ? &*paired_pixel : nullptr);
+    // The PS can be the independent source witness too. Retry only the
+    // missing VS with its unique ledger partner, never with a guessed SHA.
+    if(!draw.observed_live_vertex_shader_header &&
+       draw.observed_live_pixel_shader_header &&
+       !draw.observed_live_pixel_shader_header->alias_paired_pixel_source &&
+       g_original_effect_capture_catalog) {
+      const auto live_ps=aot::ResolveOriginalLiveXdkShaderSource(sources,
+          *draw.observed_live_pixel_shader_header,pixel,aot::Stage::Pixel,frame,ordinal);
+      if(live_ps)
+        if(const auto paired_vs=g_original_effect_capture_catalog->UniqueVertexForPixel(*live_ps))
+          draw.observed_live_vertex_shader_header=aot::ObserveOriginalBoundXdkShader(
+              sources,vertex,aot::Stage::Vertex,ReadGuest,guest_base,frame,ordinal,&*paired_vs);
+    }
     if (draw.observed_live_vertex_shader_header &&
         draw.observed_live_pixel_shader_header && g_original_effect_capture_catalog)
       draw.observed_live_eor_effect_pass = aot::ResolveOriginalLiveEorEffectPass(

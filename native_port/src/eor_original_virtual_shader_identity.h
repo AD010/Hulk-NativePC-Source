@@ -62,7 +62,8 @@ class OriginalVirtualShaderIdentity {
       const Digest* paired_pixel_source=nullptr) const noexcept;
   bool HasVertexDebugCandidate(std::span<const uint8_t> header) const noexcept;
   const PixelDebugAlias* FindVertexDebugAlias(
-      std::span<const uint8_t> header,std::span<const uint8_t> physical) const noexcept;
+      std::span<const uint8_t> header,std::span<const uint8_t> physical,
+      const Digest* paired_vertex_source=nullptr) const noexcept;
   size_t VertexDebugAliasCount() const noexcept {return vertex_alias_count_;}
   size_t VertexMetadataAliasCount() const noexcept {return vertex_metadata_count_;}
   size_t PixelDebugAliasCount() const noexcept {return pixel_alias_count_;}
@@ -127,6 +128,9 @@ struct OriginalLiveXdkShaderHeaderWitness {
   // Set only when exact metadata + physical code were ambiguous alone.
   // The real paired VS and HEORMAT2 must confirm this digest at Draw.
   std::optional<Digest> alias_paired_pixel_source{};
+  // A unique independently authenticated PS may identify an ambiguous VS.
+  // Both fields must never be used to justify each other.
+  std::optional<Digest> alias_paired_vertex_source{};
 };
 // Read the inline ShaderContainer of the current USA XDK shader object and
 // establish archive ownership from the SHA-256 of the complete virtual bytes.
