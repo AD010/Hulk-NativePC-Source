@@ -1,6 +1,7 @@
 // Atomic, bounded edit of the ONE existing NativePC TOML file.
 // Independent of RexGlue and of GPU/guest execution.
 #include "native_pc_options_store.h"
+#include "native_audio_options.h"
 #include "native_pc_bindings.h"
 #include "native_resolution.h"
 
@@ -34,6 +35,7 @@ bool Allowed(std::string_view key, std::string_view value) {
   // Exact source-supported native mouse/keyboard bindings, not arbitrary
   // guest flags. All token values are single, known BindTokenDown names.
   if (IsBindingOption(key)) return IsBindingToken(value);
+  if (IsHostAudioOption(key)) return IsHostAudioValue(key,value);
   if (key == "vsync" || key == "fullscreen" ||
       key == "hulk_eor_vulkan_replay" ||
       key == "hulk_eor_xdk_capture" ||

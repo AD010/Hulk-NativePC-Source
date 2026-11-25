@@ -10,6 +10,12 @@ hulk_original_subtitles = -1
 hulk_mouse_horizontal_multiplier = 1.0
 hulk_mouse_vertical_multiplier = 1.0
 hulk_mouse_diagnostics = false
+# Native host output; original game FMOD mixer is preserved.
+audio_mute = false
+audio_maxqframes = 8
+audio_callback_min_interval_us = 3000
+audio_thread_priority = false
+audio_wasapi_exclusive = false
 vulkan_allow_present_mode_immediate = false
 vulkan_allow_present_mode_mailbox = false
 vulkan_allow_present_mode_fifo_relaxed = false

@@ -3,6 +3,7 @@
 // No modifications to gameplay input maps, GPU render hooks or guest assets.
 #include "pc_menu.h"
 #include "native_pc_options_store.h"
+#include "native_audio_options.h"
 #include "native_pc_bindings.h"
 #include "native_resolution.h"
 #include "native_gpu_autodiag.h"
@@ -480,9 +481,39 @@ class PcMenu final : public rex::ui::ImGuiDialog {
         case 3: {
           ImGui::TextUnformatted("Audio");
           ImGui::Separator();
-          ImGui::TextWrapped(
-              "Audio still uses the game's current mixer. Native volume "
-              "controls are not wired to a verified engine API yet.");
+          // Original FMOD remains game-owned. These host output controls
+          // are backed by the actual pinned SDK SDL/WASAPI/XMA services.
+          bool mute=rex::cvar::Query<bool>("audio_mute");
+          if(ImGui::Checkbox("Mute output",&mute))
+            Change("audio_mute",mute?"true":"false");
+          bool priority=PendingBool("audio_thread_priority");
+          if(ImGui::Checkbox("Audio worker priority (restart)",&priority))
+            Change("audio_thread_priority",priority?"true":"false");
+          bool exclusive=PendingBool("audio_wasapi_exclusive");
+          if(ImGui::Checkbox("WASAPI exclusive output (restart)",&exclusive))
+            Change("audio_wasapi_exclusive",exclusive?"true":"false");
+          ImGui::TextWrapped("Shared output is recommended for compatibility. Exclusive output can prevent other apps from playing sound.");
+          const auto queue=PendingInt("audio_maxqframes");
+          ImGui::Text("Audio buffer: %d blocks (restart)",queue);
+          for(const int32_t blocks:{4,8,12,16,32,64}) {
+            ImGui::PushID(blocks);
+            const auto label=std::to_string(blocks);
+            if(ImGui::RadioButton(label.c_str(),queue==blocks))
+              Change("audio_maxqframes",label);
+            ImGui::PopID();
+            if(blocks!=64)ImGui::SameLine();
+          }
+          ImGui::Separator();
+          const auto interval=PendingInt("audio_callback_min_interval_us");
+          ImGui::Text("FMOD callback spacing: %d us",interval);
+          if(ImGui::RadioButton("Unpaced",interval==0))
+            Change("audio_callback_min_interval_us","0");
+          if(ImGui::RadioButton("Balanced (3 ms)",interval==3000))
+            Change("audio_callback_min_interval_us","3000");
+          if(ImGui::RadioButton("Steady (4 ms)",interval==4000))
+            Change("audio_callback_min_interval_us","4000");
+          ImGui::TextWrapped("Pacing reduces burst callbacks that can replay stale FMOD ring blocks. If audio crackles, try a larger buffer or unpaced mode.");
+          ImGui::TextWrapped("Music, effects and dialogue volume still belong to the original game mixer.");
           ImGui::TextDisabled("No inactive sliders or fake apply buttons.");
           break;
         }
@@ -763,7 +794,8 @@ class PcMenu final : public rex::ui::ImGuiDialog {
     const std::string_view name(key);
     const bool hot=name.starts_with("hulk_bind_") ||
                    name.starts_with("hulk_mouse_") ||
-                   name=="vsync" || name=="hulk_guest_swap_fps_cap";
+                   name=="vsync" || name=="hulk_guest_swap_fps_cap" ||
+                   options::IsLiveHostAudioOption(name);
     const bool applied=hot && rex::cvar::SetFlagByName(key,value);
     REXLOG_INFO("[HULK/PCMENU-SAVE] key={} persisted=true "
                 "live_applied={} restart_required={} value={}",
