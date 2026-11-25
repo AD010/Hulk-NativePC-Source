@@ -27,6 +27,24 @@ int main(){
       check(p->debt+p->extra+base==debt+ticks);
       check(p->accumulator>=residual);
     }
+  // Repeated destruction stalls followed by high-refresh frames must
+  // preserve all whole-step debt within the supported recovery window.
+  for(unsigned fps:{60u,90u,120u,144u,165u,240u}) {
+    uint32_t debt=0,total_requested=0,total_admitted=0;
+    for(unsigned frame=0;frame<600;++frame) {
+      const float elapsed=frame%30==0?kOriginalStep*12.25f:1.0f/float(fps);
+      const auto whole=static_cast<uint32_t>(std::floor(elapsed/kOriginalStep));
+      const auto base=std::min(whole,3u);
+      const auto recovery=PlanOriginalCatchup(elapsed,kOriginalStep,0,debt);
+      check(bool(recovery));
+      total_requested+=whole;
+      total_admitted+=base+recovery->extra;
+      debt=recovery->debt;
+      check(total_admitted+debt==total_requested);
+      check(base+recovery->extra+1<=8);
+    }
+    check(debt==0);
+  }
   check(!PlanOriginalCatchup(0,kOriginalStep,0,1));
   check(!PlanOriginalCatchup(1,kOriginalStep,0,0));
   check(!PlanOriginalCatchup(0.1f,1.0f/30,0,0));

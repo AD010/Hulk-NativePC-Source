@@ -64,6 +64,10 @@ int main() {
          "Post-AA disable while retaining guest 4x MSAA failed");
   Expect(Save(config, "native_x_renderer_sharpness", "0.250000"),
          "Native sharpness update failed");
+  Expect(Save(config, "hulk_original_havok_catchup", "true"),
+         "Original fixed-step Havok option failed to persist");
+  Expect(!Save(config, "hulk_original_havok_catchup", "60"),
+         "Invalid Havok option value was accepted");
   Expect(Save(config, "hulk_guest_swap_fps_cap", "30"),
          "Native guest FPS cap update failed");
 
@@ -125,6 +129,8 @@ int main() {
          changed.find("hulk_eor_xdk_source_mesh_capture = true\r\n") !=
              std::string::npos,
          "Original source observer/mesh capture was not persisted in one TOML");
+  Expect(changed.find("hulk_original_havok_catchup = true") != std::string::npos,
+         "Havok option missing in persisted TOML");
   Expect(changed.find("hulk_guest_swap_fps_cap = 30\r\n") != std::string::npos,
          "FPS cap value did not persist");
   Expect(changed.find(R"toml(hulk_bind_forward = "Up")toml") != std::string::npos,

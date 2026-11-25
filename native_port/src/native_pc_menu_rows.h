@@ -21,6 +21,7 @@ inline constexpr PcMenuRow kPcMenuRows[] = {
   {"Fullscreen","fullscreen",PcMenuSection::Display,PcMenuRowKind::Choice,"false|true"},
   {"Window resolution","window_size",PcMenuSection::Display,PcMenuRowKind::WindowSize,""},
   {"Frame rate limit","hulk_guest_swap_fps_cap",PcMenuSection::Display,PcMenuRowKind::Choice,"30|60|90|120|144|0"},
+  {"60 Hz Havok catch-up (restart)","hulk_original_havok_catchup",PcMenuSection::Enhancements,PcMenuRowKind::Choice,"false|true"},
   {"Vertical synchronization","vsync",PcMenuSection::Display,PcMenuRowKind::Choice,"false|true"},
   {"Rendering scale","native_x_renderer_resolution_scale",PcMenuSection::Graphics,PcMenuRowKind::Choice,"0.0|1.0|2.0"},
   {"Post antialiasing","native_x_renderer_antialiasing",PcMenuSection::PostProcessing,PcMenuRowKind::Choice,"off|fxaa|smaa"},
