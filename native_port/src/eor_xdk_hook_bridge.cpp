@@ -85,8 +85,6 @@ namespace {
 std::mutex g_mutex;
 std::mutex g_subtitle_mutex;
 std::mutex g_original_audio_menu_mutex;
-uint8_t* g_original_audio_restored_base=nullptr;
-uint8_t* g_subtitle_restored_base=nullptr;
 std::atomic<uint64_t> g_eor_ready_backbuffers{0};
 std::atomic<uint64_t> g_eor_gpu_failures{0};
 OriginalEorSourceCoverage g_original_source_coverage; // guarded by g_mutex
@@ -211,7 +209,6 @@ void FinishOriginalCameraMenuOption(
     std::byte value{};
     if(!ReadGuest(base,0x82E53B3Eu,&value,1) ||
        std::to_integer<unsigned>(value)!=unsigned(change->value))return;
-    g_subtitle_restored_base=base;
     REXCVAR_SET(hulk_original_subtitles,change->value?1:0);
     if(!options::SaveOriginalSubtitles(change->value))
       REXLOG_WARN("[HULK/UI] Original subtitle preference applied; PC TOML save failed");
@@ -237,7 +234,9 @@ void FinishOriginalAudioMenuOption(std::optional<vm::AudioMenuChange> change,
       return ReadGuest(base,address,reinterpret_cast<std::byte*>(data),size);
     };
     if(change->channel==vm::AudioChannel::Lock) {
-      if(g_original_audio_restored_base==base)return;
+      // The VM may recreate its audio page or reset active volumes while
+      // retaining the same guest address space. Restore user preferences
+      // at every authenticated lock transition, not just the first one.
       const std::array<int32_t,3> prefs{
           REXCVAR_GET(hulk_original_music_volume),REXCVAR_GET(hulk_original_sfx_volume),
           REXCVAR_GET(hulk_original_dialog_volume)};
@@ -259,7 +258,6 @@ void FinishOriginalAudioMenuOption(std::optional<vm::AudioMenuChange> change,
            vm::ReadVolumeLock(read)!=std::optional<bool>{true})return;
         std::memcpy(dst,plan->after.data(),12);
       }
-      g_original_audio_restored_base=base;
       return;
     }
     if(!vm::OriginalVolumeApplied(*change,read))return;
@@ -351,7 +349,6 @@ void RestoreOriginalSubtitleOption(const PPCContext& ctx,uint8_t* base) noexcept
   if(!base)return;
   try {
     std::lock_guard lock(g_subtitle_mutex);
-    if(g_subtitle_restored_base==base)return;
     const auto desired=REXCVAR_GET(hulk_original_subtitles);
     if(desired<0 || desired>1)return;
     if(!vm::VerifySubtitleGetter(static_cast<uint32_t>(ctx.lr),ctx.r3.u32,
@@ -371,8 +368,10 @@ void RestoreOriginalSubtitleOption(const PPCContext& ctx,uint8_t* base) noexcept
     std::byte previous{};
     if(!ReadGuest(base,address,&previous,1) || std::to_integer<unsigned>(previous)>1u ||
        *dst!=std::to_integer<uint8_t>(previous))return;
-    *dst=static_cast<uint8_t>(desired);
-    g_subtitle_restored_base=base;
+    // Reopening the original page after a game reset must still reflect
+    // the host preference. Avoid a write when the original value agrees.
+    if(*dst!=static_cast<uint8_t>(desired))
+      *dst=static_cast<uint8_t>(desired);
   } catch (...) {}
 #else
   (void)ctx;(void)base;
