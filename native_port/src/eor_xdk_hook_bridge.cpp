@@ -2410,6 +2410,13 @@ std::optional<AutomaticSceneContract> OriginalTargetContract(
   // projection; screen-sized targets still require a proven view ABI.
   for(size_t ordinal=0;ordinal<frame.calls.size();++ordinal) {
     const auto& draw=frame.calls[ordinal];
+    // The target planner can be reached from immutable frames whose first
+    // missing shader prevented heavy register capture. A missing guest
+    // device snapshot or projection constants is not a valid 16:10 camera
+    // contract; reject before dereferencing either optional owner.
+    if(!draw.observed_vs_matrices ||
+       (aspect_change && !draw.observed_shader_constants))
+      return {};
     const auto& state=*draw.observed_vs_matrices;
     if(aspect_change) {
       if(!draw.observed_live_vertex_shader_header || !draw.observed_live_pixel_shader_header ||
