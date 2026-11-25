@@ -1,4 +1,5 @@
 #include "../native_port/src/eor_fsb4_pcm.h"
+#include <algorithm>
 #include <array>
 #include <cassert>
 #include <cstddef>
@@ -49,10 +50,29 @@ int main() {
   Put32(bank,8,64);
   assert(!DecodeFsb4Pcm16(bank,0));
   Put32(bank,8,80);
-  Put32(bank,20,2); // unknown basic-header directory layout
+  Put32(bank,20,2); // BASICHEADERS with one full header is also valid
+  assert(DecodeFsb4Pcm16(bank,0));
+  Put32(bank,20,0x40); // unverified aligned sample storage
   assert(!DecodeFsb4Pcm16(bank,0));
   Put32(bank,20,0);
   bank[3]=Byte{'5'};
   assert(!DecodeFsb4Pcm16(bank,0));
+  bank[3]=Byte{'4'};
+  // Real FSB4 BASICHEADERS layout: one 80-byte sample header followed
+  // by eight bytes (frames/data) for each subsequent same-format sample.
+  std::vector<Byte> basic(48u+88u+16u,Byte{0});
+  std::copy(bank.begin(),bank.begin()+128,basic.begin());
+  Put32(basic,4,2);Put32(basic,8,88);Put32(basic,12,16);
+  Put32(basic,20,2);
+  Put32(basic,128,2);Put32(basic,132,8);
+  for(size_t i=0;i<raw.size();++i) {
+    basic[136+i]=Byte(raw[i]);
+    basic[144+i]=Byte(raw[i]);
+  }
+  decoded=DecodeFsb4Pcm16(basic,1);
+  assert(decoded && decoded->sample_rate==48000 &&
+         decoded->channels==2 && decoded->pcm[1]==1000);
+  Put32(basic,132,0xffffffffu);
+  assert(!DecodeFsb4Pcm16(basic,1));
   std::cout << "Original FSB4 PCM16 to native audio contract PASS\n";
 }
