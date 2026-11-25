@@ -332,6 +332,12 @@ jobs:
             & $anisoTest
             if ($LASTEXITCODE -ne 0) { $cppFailures.Add('Original world anisotropy isolation regression failed') }
           }
+          $promptTest = Join-Path $env:RUNNER_TEMP 'hulk-native-ui-prompts-test.exe'
+          & cl.exe /nologo /std:c++20 /EHsc /W4 /WX /utf-8 "/Fe:$promptTest" ci/eor_native_ui_prompts_test.cpp
+          if ($LASTEXITCODE -ne 0) { $cppFailures.Add('Original EoR PC prompt compile failed') } else {
+            & $promptTest
+            if ($LASTEXITCODE -ne 0) { $cppFailures.Add('Original EoR PC prompt regression failed') }
+          }
           # EoR-only fixed-step clock and motion-vector math; no guest Havok claim.
           $temporalTest = Join-Path $env:RUNNER_TEMP 'hulk-eor-fixed-temporal-test.exe'
           $temporalArgs = @('/nologo','/std:c++20','/EHsc','/W4','/WX','/utf-8',

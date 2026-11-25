@@ -67,7 +67,8 @@ OriginalPcUiImage DecodePcTxflUi(
 OriginalPcUiImage LoadPcMenuArt(
     const std::filesystem::path& index_path,
     const std::filesystem::path& textures_path,std::string_view name) {
-  if(name!="ui_menubands_da" && name!="ui_menuitems_da")
+  if(name!="ui_menubands_da" && name!="ui_menuitems_da" &&
+     name!="ui_key_space_da" && name!="ui_mouse_leftbutton_da")
     throw std::invalid_argument("Unrecognized original Hulk PC menu asset");
   auto idx=Index::Load(index_path);
   if(idx.byte_order()!=ByteOrder::Little)

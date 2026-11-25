@@ -4,6 +4,10 @@
 #include "eor_host_vertex_layout.h"
 #include "eor_spirv_texture_bindings.h"
 #include "native_resolution.h"
+#include "eor_native_ui_prompts.h"
+#include "eor_ui_original_dds.h"
+#include <cstdlib>
+#include <filesystem>
 #include "RenderDevice.h"
 #include "DeviceContext.h"
 #include "Buffer.h"
@@ -305,6 +309,71 @@ struct DiligentEorDirectBackend::State {
   // ShaderEffect pair yet use different source-proven blend/depth/cull or
   // vertex input state. Sharing a PSO keyed by technique alone was unsafe.
   std::map<MaterialKey,const NativeEorPassResources*> material_lookup;
+  using PromptKey=std::tuple<uint32_t,std::string,uint32_t,uint32_t,Diligent::TEXTURE_FORMAT>;
+  std::map<PromptKey,Diligent::RefCntAutoPtr<Diligent::ITexture>> pc_prompt_images;
+  Diligent::ITextureView* AcquirePcPrompt(const UploadedEorTexture& source,
+      const VerifiedOriginalGraphicsPass& pass,const std::array<uint32_t,6>& fetch) noexcept {
+    try {
+      using namespace Diligent;
+      if(!pass.original_view_space_verified ||
+         pass.original_view_space!=VerifiedOriginalViewSpace::OriginalAspectHud ||
+         !pass.original_hud_clip_coordinates_verified ||
+         !rex::cvar::Query<bool>("hulk_native_mnk") ||
+         !rex::cvar::Query<bool>("hulk_native_mnk_force") ||
+         source.view_kind!=OriginalTextureViewKind::Native2D ||
+         !source.host_texture || source.original_mip_levels!=1u ||
+         (fetch[4]>>2&255u) || (fetch[5]>>12&0x1ffffu))return nullptr;
+      const auto key_name=ui::PcPromptBinding(source.original_texture_hash);
+      if(key_name.empty())return nullptr;
+      const auto bindings=rex::cvar::Query<std::string>(std::string(key_name).c_str());
+      const auto token=ui::FirstPromptToken(bindings);
+      if(token.empty())return nullptr;
+      const auto& original=source.host_texture->GetDesc();
+      if(original.MipLevels!=1u || original.ArraySize!=1u ||
+         original.Width<32 || original.Height<16 || original.Width>256 ||
+         original.Height>256 ||
+         (original.Format!=TEX_FORMAT_RGBA8_UNORM && original.Format!=TEX_FORMAT_BGRA8_UNORM))
+        return nullptr;
+      const PromptKey key{source.original_texture_hash,std::string(token),
+          original.Width,original.Height,original.Format};
+      if(const auto it=pc_prompt_images.find(key);it!=pc_prompt_images.end())
+        return it->second?it->second->GetDefaultView(TEXTURE_VIEW_SHADER_RESOURCE):nullptr;
+      // Limit cache ownership. Current Draw SRBs retain their own references
+      // independently; dropping a cache entry does not destroy a live image.
+      if(pc_prompt_images.size()>=128u)pc_prompt_images.clear();
+      std::vector<uint8_t> pixels;
+      const auto asset=ui::KnownPcPromptAsset(token);
+      if(!asset.empty()) {
+        try {
+          const char* root=std::getenv("HULK_PC2008_UI_DIR");
+          const auto folder=root&&*root?std::filesystem::path(root):std::filesystem::current_path();
+          auto archive=folder/"textures(1).arc";
+          if(!std::filesystem::is_regular_file(archive))archive=folder/"TEXTURES.ARC";
+          const auto image=ui::LoadPcMenuArt(folder/"indexPC.ind",archive,asset);
+          pixels=ui::FitPcPromptImage(image.rgba,image.width,image.height,
+                                      original.Width,original.Height);
+        } catch (...) {}
+      }
+      if(pixels.empty())pixels=ui::RasterPcKeycap(token,original.Width,original.Height);
+      if(pixels.empty())return nullptr;
+      if(original.Format==TEX_FORMAT_BGRA8_UNORM)
+        for(size_t i=0;i<pixels.size();i+=4)std::swap(pixels[i],pixels[i+2]);
+      TextureDesc desc{};
+      desc.Name="Native PC key in original EoR UI material";
+      desc.Type=RESOURCE_DIM_TEX_2D;desc.Format=original.Format;
+      desc.Width=original.Width;desc.Height=original.Height;
+      desc.ArraySize=1;desc.MipLevels=1;desc.SampleCount=1;
+      desc.Usage=USAGE_IMMUTABLE;desc.BindFlags=BIND_SHADER_RESOURCE;
+      TextureSubResData data{};data.pData=pixels.data();data.Stride=original.Width*4u;
+      TextureData initial{};initial.pSubResources=&data;initial.NumSubresources=1;
+      RefCntAutoPtr<ITexture> texture;
+      device->CreateTexture(desc,&initial,&texture);
+      auto view=texture?texture->GetDefaultView(TEXTURE_VIEW_SHADER_RESOURCE):nullptr;
+      if(!view)return nullptr;
+      pc_prompt_images.emplace(key,std::move(texture));
+      return view;
+    } catch (...) {return nullptr;}
+  }
   std::map<MaterialKey,OriginalVulkanPipeline> pipeline_cache;
   // The SAME authenticated surface/effect can legitimately change cull,
   // color write, depth and blend state between original Draw calls.
@@ -1594,7 +1663,8 @@ bool DiligentEorDirectBackend::PreflightOriginalScene(
           BindOriginalPixelImage2D(s.device,binding,*texture.uploaded,image->slot,
                                    captured.pixel_fetch[image->slot],(controls.point_slots&bit)!=0,
                                    (pass.original_xbox_cube_gamma_mask&bit)!=0,
-                                   world?rex::cvar::Query<int32_t>("anisotropic_override"):-1);
+                                   world?rex::cvar::Query<int32_t>("anisotropic_override"):-1,
+                                   s.AcquirePcPrompt(*texture.uploaded,pass,captured.pixel_fetch[image->slot]));
         }
         bound|=bit;
       }

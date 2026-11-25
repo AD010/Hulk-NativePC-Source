@@ -32,7 +32,7 @@ void BindUsaFontMainAtlas(Diligent::IRenderDevice* device,
 void BindOriginalPixelImage2D(Diligent::IRenderDevice* device,
     Diligent::IShaderResourceBinding* bindings,const UploadedEorTexture& texture,
     uint32_t slot,const std::array<uint32_t,6>& fetch,bool force_point,bool xbox_gamma_lowered,
-    int32_t world_anisotropy) {
+    int32_t world_anisotropy,Diligent::ITextureView* verified_pc_prompt) {
   using namespace Diligent;
   if(!device || !bindings || slot>=16 || !texture.host_texture || !texture.SRV() ||
      (texture.view_kind!=OriginalTextureViewKind::Native2D &&
@@ -136,7 +136,11 @@ void BindOriginalPixelImage2D(Diligent::IRenderDevice* device,
     texture.host_texture->CreateView(view,&resident_view);
     if(!resident_view)throw std::runtime_error("Original streamed mip view unavailable");
   }
-  resource->Set(resident_view?resident_view.RawPtr():texture.SRV());
+  if(verified_pc_prompt && (window->base || cube || one_dimensional ||
+      image.MipLevels!=1u || hi!=0u || lo!=0u))
+    throw std::invalid_argument("PC glyph replacement differs from original UI sampling contract");
+  resource->Set(verified_pc_prompt?verified_pc_prompt:
+      resident_view?resident_view.RawPtr():texture.SRV());
   sampler->Set(native);
 }
 
