@@ -2414,8 +2414,7 @@ std::optional<AutomaticSceneContract> OriginalTargetContract(
     // missing shader prevented heavy register capture. A missing guest
     // device snapshot or projection constants is not a valid 16:10 camera
     // contract; reject before dereferencing either optional owner.
-    if(!draw.observed_vs_matrices ||
-       (aspect_change && !draw.observed_shader_constants))
+    if(!draw.observed_vs_matrices)
       return {};
     const auto& state=*draw.observed_vs_matrices;
     if(aspect_change) {
@@ -2437,10 +2436,18 @@ std::optional<AutomaticSceneContract> OriginalTargetContract(
                 (state.original_color_extent->width==1280u && state.original_color_extent->height==720u)) {
         const auto* shader=pack.shaders->Find(*vs,aot::Stage::Vertex);
         const auto* reflection=pack.reflection->Find(*vs,aot::Stage::Vertex);
-        if(!shader || !reflection ||
-           (!(shader->scalar_preserves_clip_xyw ? *shader->scalar_preserves_clip_xyw :
-              aot::ScalarPreservesClipXYW(shader->spirv)) &&
-            !aot::IdentifyLiveScalarProjection(*shader,*reflection,*draw.observed_shader_constants,1280.0/720.0)))return {};
+        if(!shader || !reflection)return {};
+        const bool clip_xyw_preserved=shader->scalar_preserves_clip_xyw ?
+            *shader->scalar_preserves_clip_xyw :
+            aot::ScalarPreservesClipXYW(shader->spirv);
+        // A real Font_Main or already clip-space shader does not consume
+        // camera matrices for 16:10 projection. Perspective world Draws do:
+        // never dereference missing full registers or invent a FOV.
+        if(!clip_xyw_preserved &&
+           (!draw.observed_shader_constants ||
+            !aot::IdentifyLiveScalarProjection(*shader,*reflection,
+                *draw.observed_shader_constants,1280.0/720.0)))
+          return {};
       }
     }
   }
