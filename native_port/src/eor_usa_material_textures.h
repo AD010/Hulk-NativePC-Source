@@ -2,6 +2,7 @@
 #include "eor_xdk_guest_constants.h"
 #include <algorithm>
 #include <map>
+#include <vector>
 
 namespace hulk::eor::xdk {
 using OriginalPixelTextureKeys = std::array<uint32_t,16>;
@@ -45,30 +46,43 @@ class OriginalTextureOwnerCache {
   void Reset() noexcept {owners_.clear();}
   void Remember(const OriginalTextureOwner& owner,ReadGuestBytes read,void* user) noexcept {
     if(!owner.asset || !owner.hash || !owner.xdk)return;
-    auto current=ReadOriginalTextureOwner(owner.asset,owner.xdk,read,user);
+    const auto current=ReadOriginalTextureOwner(owner.asset,owner.xdk,read,user);
     if(!current || *current!=owner)return;
     auto it=owners_.find(owner.xdk);
     if(it==owners_.end()) {
       if(owners_.size()>=8192u)return;
-      try {owners_.emplace(owner.xdk,Entry{owner,false});}
-      catch(...) {} // optional capture must never terminate gameplay
-      return;
+      try {it=owners_.try_emplace(owner.xdk).first;}
+      catch(...) {return;}
     }
     auto& entry=it->second;
-    if(entry.ambiguous)return;
-    const auto previous=ReadOriginalTextureOwner(entry.owner.asset,owner.xdk,read,user);
-    if(previous && *previous==entry.owner && entry.owner.hash!=owner.hash)
-      entry.ambiguous=true;
-    else entry.owner=owner;
+    if(entry.saturated)return;
+    // Retain all independently observed live owners. An XDK address can
+    // be recycled after a scene/menu transition; ambiguity is a property
+    // of the current live owners, not of the address for the whole game.
+    auto& live=entry.live;
+    // Keep inactive witnesses too: an older owner can become live again
+    // without another observed material setter. Find always revalidates.
+    if(std::find(live.begin(),live.end(),owner)!=live.end())return;
+    if(live.size()>=8u) {entry.saturated=true;return;}
+    try {live.push_back(owner);}
+    catch(...) {entry.saturated=true;}
   }
   std::optional<OriginalTextureOwner> Find(uint32_t bound,ReadGuestBytes read,void* user) const noexcept {
     const auto it=owners_.find(bound);
-    if(it==owners_.end() || it->second.ambiguous)return {};
-    const auto current=ReadOriginalTextureOwner(it->second.owner.asset,bound,read,user);
-    return current && *current==it->second.owner ? current : std::nullopt;
+    if(it==owners_.end() || it->second.saturated)return {};
+    std::optional<OriginalTextureOwner> found;
+    for(const auto& old:it->second.live) {
+      const auto current=ReadOriginalTextureOwner(old.asset,bound,read,user);
+      if(!current || *current!=old)continue;
+      if(found && found->hash!=current->hash)return {};
+      found=current;
+    }
+    return found;
   }
  private:
-  struct Entry {OriginalTextureOwner owner;bool ambiguous=false;};
+  // On allocation failure or unbounded aliasing fail closed until Reset:
+  // a missing owner must never make a conflicting resource appear unique.
+  struct Entry {std::vector<OriginalTextureOwner> live;bool saturated=false;};
   std::map<uint32_t,Entry> owners_;
 };
 // 0x825F8A50 passes descriptor[0] and descriptor[2] to 0x825F87B0.

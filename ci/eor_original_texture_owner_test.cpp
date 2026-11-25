@@ -27,6 +27,12 @@ int main() {
   auto b=ReadOriginalTextureOwner(256,512,Read,&m);
   assert(b);c.Remember(*b,Read,&m);assert(c.Find(512,Read,&m)==b);
   Write(m,152,512);c.Remember(*a,Read,&m);assert(!c.Find(512,Read,&m));
+  Write(m,152,516);assert(c.Find(512,Read,&m)==b);
+  c.Remember(*b,Read,&m);
+  Write(m,152,512);assert(!c.Find(512,Read,&m));
+  Write(m,408,0);assert(c.Find(512,Read,&m)==a);
+  Write(m,152,516);assert(!c.Find(512,Read,&m));
+  Write(m,152,512);assert(c.Find(512,Read,&m)==a);
   c.Reset();c.Remember(*a,Read,&m);assert(c.Find(512,Read,&m)==a);
   Write(m,32,0);assert(!c.Find(512,Read,&m));
 }
