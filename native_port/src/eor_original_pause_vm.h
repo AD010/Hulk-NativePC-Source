@@ -92,14 +92,15 @@ NativeOwner ResolveNativeOwner(uint32_t lr,uint32_t vm,uint32_t dispatcher_vm,
 // The two registered native option thunks tail-call their original PPC
 // setters. Verify the live interpreter owner, source instructions and VM
 // boolean argument before accepting a persistent Windows option change.
-struct OriginalCameraMenuChange {bool yaw=false,value=false;};
+struct OriginalCameraMenuChange {bool yaw=false,value=false,subtitles=false;};
 template<class Read>
 std::optional<OriginalCameraMenuChange> CaptureCameraMenuChange(
     uint32_t method,uint32_t lr,uint32_t vm,uint32_t dispatcher_vm,
     uint32_t descriptor,uint32_t context,Read&& read) noexcept {
   const bool yaw=method==0x82339A08u;
-  if(!yaw && method!=0x823399E8u)return {};
-  const uint32_t thunk=yaw?0x821204B0u:0x8217E250u;
+  const bool subtitles=method==0x82339A30u;
+  if(!yaw && !subtitles && method!=0x823399E8u)return {};
+  const uint32_t thunk=subtitles?0x8218D470u:yaw?0x821204B0u:0x8217E250u;
   const auto pinned=[&](uint32_t address,size_t length,uint64_t expected) {
     std::array<uint8_t,36> bytes{};
     if(length>bytes.size() || !read(address,bytes.data(),length))return false;
@@ -107,8 +108,8 @@ std::optional<OriginalCameraMenuChange> CaptureCameraMenuChange(
     for(size_t i=0;i<length;++i)hash=(hash^bytes[i])*0x100000001b3ull;
     return hash==expected;
   };
-  if(!pinned(thunk,16,yaw?0xa5cf706c175e0715ull:0xac8ad2efc6d2e862ull) ||
-     !pinned(method,yaw?36u:32u,yaw?0x1a17b8e895bd37b0ull:0x620fae1953ca8fe3ull))return {};
+  if(!pinned(thunk,16,subtitles?0xc3d92cd101da085dull:yaw?0xa5cf706c175e0715ull:0xac8ad2efc6d2e862ull) ||
+     !pinned(method,(subtitles||yaw)?36u:32u,subtitles?0x0a943a2be4f9fa55ull:yaw?0x1a17b8e895bd37b0ull:0x620fae1953ca8fe3ull))return {};
   const auto page=ResolveNativeOwner(lr,vm,dispatcher_vm,descriptor,context,read,thunk);
   if(page.page==PausePage::Unknown)return {};
   const auto word=[&](uint32_t address,uint32_t offset)->std::optional<uint32_t> {
@@ -124,8 +125,24 @@ std::optional<OriginalCameraMenuChange> CaptureCameraMenuChange(
   uint8_t value=0,previous=0;
   if(!owner || !*owner || *owner>UINT32_MAX-12u ||
      !read(*owner+12u,&value,1) || value>1 ||
-     !read(yaw?0x82E53B3Du:0x82E53B3Cu,&previous,1) ||
+     !read(subtitles?0x82E53B3Eu:yaw?0x82E53B3Du:0x82E53B3Cu,&previous,1) ||
      previous>1 || previous==value)return {};
-  return OriginalCameraMenuChange{yaw,value!=0};
+  return OriginalCameraMenuChange{yaw,value!=0,subtitles};
+}
+// Restore the saved host subtitle preference only at the genuine original
+// pause-page getter. The original PPC still produces the returned VM value.
+template<class Read>
+bool VerifySubtitleGetter(uint32_t lr,uint32_t vm,uint32_t dispatcher_vm,
+    uint32_t descriptor,uint32_t context,Read&& read) noexcept {
+  const auto pin=[&](uint32_t address,size_t length,uint64_t expected) {
+    std::array<uint8_t,32> bytes{};
+    if(!read(address,bytes.data(),length))return false;
+    uint64_t hash=0xcbf29ce484222325ull;
+    for(size_t i=0;i<length;++i)hash=(hash^bytes[i])*0x100000001b3ull;
+    return hash==expected;
+  };
+  return pin(0x82146A10u,16,0x42cf88a419a2c655ull) &&
+      pin(0x82338A38u,28,0x280b3f5d0b51d1feull) &&
+      ResolveNativeOwner(lr,vm,dispatcher_vm,descriptor,context,read,0x82146A10u).page!=PausePage::Unknown;
 }
 } // namespace hulk::eor::vm

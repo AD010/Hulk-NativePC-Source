@@ -5,6 +5,8 @@ mnk_mode = false
 hulk_mouse_sensitivity = 4.0
 hulk_mouse_invert_y = false
 hulk_mouse_invert_x = false
+# -1 inherits original game settings until an explicit menu change.
+hulk_original_subtitles = -1
 hulk_mouse_horizontal_multiplier = 1.0
 hulk_mouse_vertical_multiplier = 1.0
 hulk_mouse_diagnostics = false

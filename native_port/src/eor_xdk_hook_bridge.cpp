@@ -3,6 +3,7 @@
 // This is an input provenance oracle, not a completed Vulkan renderer.
 #include "eor_xdk_hook_bridge.h"
 #include "eor_original_pause_vm.h"
+#include "native_pc_options_store.h"
 #include "eor_original_havok_step.h"
 #include "eor_original_havok_catchup.h"
 #include "eor_usa_material_textures.h"
@@ -63,12 +64,16 @@ REXCVAR_DEFINE_BOOL(hulk_original_havok_step_probe, false, "Hulk/Diagnostics",
                     "Verify original Havok world and split-step delta; does not modify timing");
 REXCVAR_DEFINE_BOOL(hulk_original_havok_catchup, false, "Hulk/Physics",
                     "Experimental bounded catch-up in original 60Hz EoR physics scheduler");
+REXCVAR_DEFINE_INT32(hulk_original_subtitles, -1, "Hulk/Original Settings",
+                    "Original subtitle preference: -1 inherits the game, 0 off, 1 on").range(-1,1);
 namespace hulk {
 void CommitOriginalCameraMenuOption(bool yaw,bool value,uint8_t* base) noexcept;
 }
 namespace hulk::eor::xdk {
 namespace {
 std::mutex g_mutex;
+std::mutex g_subtitle_mutex;
+uint8_t* g_subtitle_restored_base=nullptr;
 std::atomic<uint64_t> g_eor_ready_backbuffers{0};
 std::atomic<uint64_t> g_eor_gpu_failures{0};
 OriginalEorSourceCoverage g_original_source_coverage; // guarded by g_mutex
@@ -183,7 +188,54 @@ std::optional<vm::OriginalCameraMenuChange> CaptureOriginalCameraMenuOption(
 }
 void FinishOriginalCameraMenuOption(
     std::optional<vm::OriginalCameraMenuChange> change,uint8_t* base) noexcept {
-  if(change)hulk::CommitOriginalCameraMenuOption(change->yaw,change->value,base);
+  if(!change)return;
+  if(!change->subtitles) {
+    hulk::CommitOriginalCameraMenuOption(change->yaw,change->value,base);
+    return;
+  }
+  try {
+    std::lock_guard lock(g_subtitle_mutex);
+    std::byte value{};
+    if(!ReadGuest(base,0x82E53B3Eu,&value,1) ||
+       std::to_integer<unsigned>(value)!=unsigned(change->value))return;
+    g_subtitle_restored_base=base;
+    REXCVAR_SET(hulk_original_subtitles,change->value?1:0);
+    if(!options::SaveOriginalSubtitles(change->value))
+      REXLOG_WARN("[HULK/UI] Original subtitle preference applied; PC TOML save failed");
+  } catch (...) {}
+}
+
+void RestoreOriginalSubtitleOption(const PPCContext& ctx,uint8_t* base) noexcept {
+#ifdef _WIN32
+  if(!base)return;
+  try {
+    std::lock_guard lock(g_subtitle_mutex);
+    if(g_subtitle_restored_base==base)return;
+    const auto desired=REXCVAR_GET(hulk_original_subtitles);
+    if(desired<0 || desired>1)return;
+    if(!vm::VerifySubtitleGetter(static_cast<uint32_t>(ctx.lr),ctx.r3.u32,
+        ctx.r31.u32,ctx.r27.u32,ctx.r28.u32,
+        [&](uint32_t address,uint8_t* data,size_t size) {
+          return ReadGuest(base,address,reinterpret_cast<std::byte*>(data),size);
+        }))return;
+    constexpr uint32_t address=0x82E53B3Eu;
+    if(address>UINTPTR_MAX-uintptr_t(base))return;
+    auto* dst=reinterpret_cast<uint8_t*>(uintptr_t(base)+address);
+    MEMORY_BASIC_INFORMATION info{};
+    if(VirtualQuery(dst,&info,sizeof(info))!=sizeof(info) ||
+       info.State!=MEM_COMMIT || (info.Protect&PAGE_GUARD))return;
+    const auto protection=info.Protect&0xffu;
+    if(protection!=PAGE_READWRITE && protection!=PAGE_WRITECOPY &&
+       protection!=PAGE_EXECUTE_READWRITE && protection!=PAGE_EXECUTE_WRITECOPY)return;
+    std::byte previous{};
+    if(!ReadGuest(base,address,&previous,1) || std::to_integer<unsigned>(previous)>1u ||
+       *dst!=std::to_integer<uint8_t>(previous))return;
+    *dst=static_cast<uint8_t>(desired);
+    g_subtitle_restored_base=base;
+  } catch (...) {}
+#else
+  (void)ctx;(void)base;
+#endif
 }
 
 void ApplyOriginalHavokCatchup(const PPCContext& ctx,uint8_t* base) noexcept {

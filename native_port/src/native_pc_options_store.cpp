@@ -40,6 +40,8 @@ bool Allowed(std::string_view key, std::string_view value) {
       key == "hulk_eor_xdk_source_mesh_capture" ||
       key == "hulk_mouse_invert_x" || key == "hulk_mouse_invert_y")
     return value == "true" || value == "false";
+  if (key == "hulk_original_subtitles")
+    return value == "-1" || value == "0" || value == "1";
   if (key == "hulk_guest_swap_fps_cap")
     return value == "0" || value == "30" || value == "60" ||
            value == "90" || value == "120" || value == "144";
@@ -213,6 +215,13 @@ void SetLiveConfigPath(const std::filesystem::path& path) noexcept {
     std::lock_guard lock(g_live_path_mutex);
     g_live_config_path=path;
   } catch (...) {}
+}
+bool SaveOriginalSubtitles(bool enabled) noexcept {
+  try {
+    std::filesystem::path path;
+    { std::lock_guard lock(g_live_path_mutex); path=g_live_config_path; }
+    return Save(path,"hulk_original_subtitles",enabled?"1":"0");
+  } catch (...) {return false;}
 }
 bool SaveOriginalLookInversion(std::optional<bool> yaw,
                                std::optional<bool> pitch) noexcept {

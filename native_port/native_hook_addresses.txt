@@ -142,3 +142,7 @@
 
 # Original EoR physics outer fixed-step update, source-pinned.
 82611740
+
+# Original subtitle setter and getter.
+82339A30
+82338A38

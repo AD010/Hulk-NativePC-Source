@@ -23,6 +23,7 @@ bool SaveWindowSize(const std::filesystem::path& config_file,
 // The original EoR options menu and the host settings share one resolved
 // configuration. Persist only the axes the game actually changed.
 void SetLiveConfigPath(const std::filesystem::path& path) noexcept;
+bool SaveOriginalSubtitles(bool enabled) noexcept;
 bool SaveOriginalLookInversion(std::optional<bool> yaw,
                                std::optional<bool> pitch) noexcept;
 
