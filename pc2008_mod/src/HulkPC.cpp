@@ -429,6 +429,8 @@ HRESULT STDMETHODCALLTYPE OnCreateDevice(IDirect3D9* api,UINT adapter,
   if(sizeChanged) {
     pp->BackBufferWidth=width;
     pp->BackBufferHeight=height;
+    // A refresh rate selected for the old resolution may be invalid.
+    pp->FullScreen_RefreshRateInHz=D3DPRESENT_RATE_DEFAULT;
   }
   if(intervalChanged)
     pp->PresentationInterval=D3DPRESENT_INTERVAL_IMMEDIATE;
@@ -534,6 +536,8 @@ HRESULT STDMETHODCALLTYPE OnReset(IDirect3DDevice9* dev,D3DPRESENT_PARAMETERS* p
     if(sizeChanged) {
       pp->BackBufferWidth=width;
       pp->BackBufferHeight=height;
+      // A refresh rate selected for the old resolution may be invalid.
+      pp->FullScreen_RefreshRateInHz=D3DPRESENT_RATE_DEFAULT;
     }
     if(intervalChanged)
       pp->PresentationInterval=D3DPRESENT_INTERVAL_IMMEDIATE;
