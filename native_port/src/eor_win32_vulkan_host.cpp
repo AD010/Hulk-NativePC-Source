@@ -35,7 +35,7 @@ struct EorWin32VulkanHost::State {
   Diligent::RefCntAutoPtr<Diligent::ISwapChain> swapchain;
 };
 EorWin32VulkanHost::EorWin32VulkanHost() noexcept=default;
-EorWin32VulkanHost::~EorWin32VulkanHost() noexcept=default;
+EorWin32VulkanHost::~EorWin32VulkanHost() noexcept {Shutdown();}
 bool EorWin32VulkanHost::Create(void* window) noexcept {
   if(state_ || !window)return false;
   HWND hwnd=static_cast<HWND>(window);
@@ -106,7 +106,19 @@ bool EorWin32VulkanHost::Present(bool vsync) noexcept {
     return true;
   } catch (...) {return false;}
 }
-void EorWin32VulkanHost::Shutdown() noexcept {state_.reset();}
+void EorWin32VulkanHost::Shutdown() noexcept {
+  if(!state_)return;
+  // The native EoR backend can have indexed Draws, resolved images and
+  // dynamically mapped constants still pending on the GPU. Wait before
+  // destroying the owning VkDevice/VkSwapchain; do not reuse guest fences.
+  try {
+    if(state_->context)state_->context->Flush();
+    if(state_->device)state_->device->IdleGPU();
+  } catch (...) {
+    // Driver loss still needs the host resources released.
+  }
+  state_.reset();
+}
 Diligent::IRenderDevice* EorWin32VulkanHost::Device() const noexcept {
   return state_?state_->device.RawPtr():nullptr;
 }
