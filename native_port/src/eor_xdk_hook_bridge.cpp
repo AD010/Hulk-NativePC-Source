@@ -2709,6 +2709,8 @@ struct OriginalEorGpuCompletion {
   }
 };
 struct AutomaticEorOwner {
+  native_x_renderer::Device& worker_host;
+  Diligent::ISwapChain* const owner_swapchain;
   std::shared_ptr<AutomaticEorResources> resources;
   const OfflineShaderPack& pack;
   AutomaticSceneContract contract;
@@ -2732,7 +2734,8 @@ struct AutomaticEorOwner {
 
   AutomaticEorOwner(native_x_renderer::Device& host,
       std::shared_ptr<AutomaticEorResources> source,AutomaticSceneContract source_contract)
-      :resources(std::move(source)),pack(resources->pack),contract(std::move(source_contract)),
+      :worker_host(host),owner_swapchain(host.swap_chain()),
+       resources(std::move(source)),pack(resources->pack),contract(std::move(source_contract)),
        scene(host.device(),host.context()),meshes(resources->meshes),
        shaders(resources->shaders),textures(resources->textures),
        // The real EoR presentation path receives native Diligent objects,
@@ -2788,7 +2791,16 @@ struct AutomaticEorOwner {
         host.device(),host.context(),backend.get());
 #endif
   }
+  bool SameWorkerHandles() const noexcept {
+    return owner_swapchain && owner_swapchain==worker_host.swap_chain() &&
+        backend && backend->UsesNativeHostGpu(worker_host.device(),worker_host.context());
+  }
   bool Accepts(const Frame& frame,native::Size size) {
+    // Same HWND/extent is not proof that the Vulkan owner survived a reset.
+    // Rebuild the catalog before dereferencing a replaced swapchain.
+    if(!SameWorkerHandles()) {
+      checked_accepts=false;checked_rebuild=true;return false;
+    }
     // A claimed source frame is immutable. Factory refresh, early worker
     // validation and final submission must not repeatedly decode its full
     // Draw/Resolve graph and inspect all source projection shaders.
@@ -3073,6 +3085,7 @@ std::shared_ptr<const VerifiedWorkerEorOwnerCatalog> BuildAutomaticOriginalOwner
       std::span<const aot::BoundIndexedDraw> draws,
       std::span<const std::shared_ptr<const model::UploadedOriginalModel>> models) {
     using Result=native_x_renderer::HulkEorPresentResult;
+    if(!owned->SameWorkerHandles())return Result::kNotReady;
     std::vector<std::shared_ptr<const void>> retained;
     retained.reserve(models.size());
     for(const auto& model:models)retained.emplace_back(model);

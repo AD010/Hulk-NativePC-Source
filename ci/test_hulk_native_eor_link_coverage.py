@@ -262,6 +262,26 @@ class NativeEorLinkCoverage(unittest.TestCase):
         self.assertLess(mixed.index("owner->gpu->CanReplayOriginalXdkTimeline(*snapshot)"),
                         mixed.index("aot::ReplayAotScene("))
 
+    def test_live_game_uses_native_frame_executor_without_second_present(self):
+        hook=(ROOT / "native_port/src/eor_xdk_hook_bridge.cpp").read_text()
+        cmake=(ROOT / "native_port/CMakeLists.txt").read_text()
+        executor=(ROOT / "native_port/src/eor_native_frame_executor.cpp").read_text()
+        self.assertIn("target_sources(incredible_hulk PRIVATE src/eor_native_frame_executor.cpp)",cmake)
+        self.assertIn("native_executor=std::make_unique<gpu::EorNativeFrameExecutor>(",hook)
+        self.assertIn("if(!owned->SameWorkerHandles())return Result::kNotReady;",hook)
+        self.assertIn("owner_swapchain==worker_host.swap_chain()",hook)
+        self.assertIn("owned->native_executor->Submit(",hook)
+        mixed=hook.split("HulkEorPresentResult ReplayVerifiedMixedOriginalFrame(",1)[1]
+        self.assertLess(mixed.index("PrepareOriginalMixedDraws(*snapshot,*owner,pack)"),
+                        mixed.index("owner->execute_original_frame("))
+        self.assertLess(mixed.index("owner->execute_original_frame("),
+                        mixed.index("aot::ReplayAotScene("))
+        self.assertIn("*snapshot,prepared.ordered,prepared.world",mixed)
+        self.assertIn("state_->host && !state_->host->ResizeToClient()",executor)
+        self.assertNotIn("->Present(",executor)
+        self.assertLess(executor.index("state_->pending.emplace_back()"),
+                        executor.index("aot::ReplayAotScene(frame,draws"))
+        
     def test_original_archive_graphics_indices_include_real_texstreams(self):
         index = (ROOT / "native_port/src/eor_usa_index.cpp").read_text()
         texture = (ROOT / "native_port/src/eor_original_texture_usa.cpp").read_text()
