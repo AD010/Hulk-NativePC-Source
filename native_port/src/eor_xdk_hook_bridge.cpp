@@ -5,6 +5,7 @@
 #include "eor_original_pause_vm.h"
 #include "eor_native_ui_prompts.h"
 #include "eor_original_pc_menu.h"
+#include "eor_original_item_draw_owner.h"
 #include "native_pc_options_store.h"
 #include "native_pc_menu_actions.h"
 #include <string>
@@ -1035,9 +1036,10 @@ ScopedOriginalEorShaderMethod::~ScopedOriginalEorShaderMethod() noexcept {
 ScopedOriginalEorRenderItem::ScopedOriginalEorRenderItem(
     uint32_t original_method_guest,const PPCContext& original_ctx,
     uint8_t* original_guest_base) noexcept {
+  const bool actual_draw=IsUsaItemDrawEntry(original_method_guest);
   if(!CaptureEnabled() || !g_source_shader_method_depth ||
      g_source_shader_rejected_nesting ||
-     !ProvenUsaEorRenderItemMethodEntry(original_method_guest))
+     (!actual_draw && !ProvenUsaEorRenderItemMethodEntry(original_method_guest)))
     return;
   shader_source_depth_=g_source_shader_method_depth;
   auto& parent=g_source_shader_method_stack[shader_source_depth_-1u];
@@ -1064,6 +1066,41 @@ ScopedOriginalEorRenderItem::ScopedOriginalEorRenderItem(
   parent.original_engine_render_item_material_guest=0u;
   parent.original_engine_item_material_source_verified=false;
   parent.original_engine_item_abi_verified=false;
+  if(actual_draw) {
+    if(!original_guest_base)return;
+    auto read=[&](uint32_t address,uint8_t* data,size_t bytes){
+      return ReadGuest(original_guest_base,address,reinterpret_cast<std::byte*>(data),bytes);
+    };
+    struct VerifiedCode {uint8_t* base=nullptr;bool valid=false;};
+    static thread_local VerifiedCode code;
+    if(code.base!=original_guest_base) {
+      code={original_guest_base,VerifyUsaItemDrawCode(read)};
+    }
+    if(!code.valid)return;
+    const UsaItemDrawRegisters regs{
+      original_method_guest,static_cast<uint32_t>(original_ctx.lr),
+      original_ctx.r3.u32,original_ctx.r4.u32,original_ctx.r31.u32,
+      original_ctx.r28.u32,original_ctx.r23.u32,original_ctx.r27.u32,
+      original_ctx.r30.u32,original_ctx.r24.u32,original_ctx.r19.u32};
+    const auto owner=ReadUsaItemDrawOwner(regs,read);
+    if(!owner || !parent.original_shader_method_vtable_verified ||
+       regs.shader!=parent.original_shader_instance_guest ||
+       owner->shader_vtable!=parent.original_shader_vtable_guest ||
+       !ProvenUsaEorRenderItemMethodVtablePair(owner->method,owner->shader_vtable))return;
+    parent.original_engine_item_method_guest=owner->method;
+    parent.original_engine_render_item_guest=regs.item;
+    parent.original_engine_render_item_context_guest=regs.context;
+    parent.original_engine_render_item_vtable_guest=owner->item_vtable;
+    parent.original_engine_render_item_material_guest=owner->material;
+    parent.original_engine_item_material_source_verified=owner->material!=0u;
+    parent.original_engine_item_abi_verified=true;
+    // 82642C08 reapplies this item's descriptor immediately before
+    // the real mesh draw. Keep that exact live binding, not an earlier
+    // virtual callback's material. Actual XDK slots are rechecked at Draw.
+    if(owner->material && prior_applied_material_.descriptor==owner->material)
+      g_applied_item_material=prior_applied_material_;
+    return;
+  }
   if(!original_guest_base || !original_ctx.r3.u32 ||
      !original_ctx.r4.u32 ||
      static_cast<uint32_t>(original_ctx.lr)!=0x82642BD8u ||

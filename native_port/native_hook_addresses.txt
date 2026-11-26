@@ -171,3 +171,6 @@
 825BAAC8
 # Original reference-returning VM method dispatcher; StateEnter only
 825BAC08
+# Original EoR indexed/nonindexed mesh submission from 82642A88
+82667648
+826676C0
