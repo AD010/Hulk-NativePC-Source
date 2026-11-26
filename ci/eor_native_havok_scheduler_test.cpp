@@ -2,8 +2,10 @@
 #include <cmath>
 #include <cstdlib>
 #include <functional>
+#include <future>
 #include <iostream>
 #include <stdexcept>
+#include <thread>
 using namespace hulk::eor::timing;
 static void Check(bool ok) { if(!ok)std::abort(); }
 static constexpr double kStep=1.0/60.0;
@@ -70,5 +72,31 @@ int main() {
   try {(void)failed.CatchUpAndRun();}
   catch(const std::logic_error&) {rejected=true;}
   Check(rejected);
+  // A competing Windows worker cannot simultaneously change the 60 Hz
+  // clock or reset a half-finished hkpWorld step.
+  std::promise<void> started,finish;
+  auto started_future=started.get_future();
+  auto finish_future=finish.get_future().share();
+  NativeHavokTickRunner concurrent(Proof(),[&](double) {
+    started.set_value();
+    finish_future.wait();
+    return true;
+  });
+  std::exception_ptr worker_error;
+  std::thread worker([&] {
+    try {(void)concurrent.AdvanceAndRun(kStep);}
+    catch (...) {worker_error=std::current_exception();}
+  });
+  started_future.wait();
+  bool raced=false;
+  try {(void)concurrent.AdvanceAndRun(kStep);}
+  catch(const std::logic_error&) {raced=true;}
+  Check(raced);
+  concurrent.ResetAfterOriginalWorldReset();
+  finish.set_value();
+  worker.join();
+  Check(concurrent.Faulted() && worker_error && !concurrent.CompletedTicks());
+  concurrent.ResetAfterOriginalWorldReset();
+  Check(!concurrent.Faulted() && concurrent.QueuedSeconds()==0.0);
   std::cout << "Native original Havok 60 Hz runner PASS\n";
 }

@@ -1,7 +1,9 @@
 #pragma once
 // EoR/Havok fixed-step transition contract: solver invocation needs verified USA ABI.
+#include <atomic>
 #include <cstdint>
 #include <functional>
+#include <mutex>
 namespace hulk::eor::timing {
 struct StepBatch {
   uint32_t simulation_steps = 0;
@@ -43,9 +45,15 @@ class NativeHavokTickRunner {
   StepBatch AdvanceAndRun(double real_elapsed_seconds);
   StepBatch CatchUpAndRun();
   void ResetAfterOriginalWorldReset() noexcept;
-  bool Faulted() const noexcept {return faulted_;}
-  uint64_t CompletedTicks() const noexcept {return total_ticks_;}
-  double QueuedSeconds() const noexcept {return pending_;}
+  bool Faulted() const noexcept {return faulted_.load(std::memory_order_acquire);}
+  uint64_t CompletedTicks() const {
+    std::lock_guard lock(mutex_);
+    return total_ticks_;
+  }
+  double QueuedSeconds() const {
+    std::lock_guard lock(mutex_);
+    return pending_;
+  }
  private:
   StepBatch Run();
   OriginalWorldStep step_world_;
@@ -53,9 +61,11 @@ class NativeHavokTickRunner {
   double pending_=0.0;
   uint32_t budget_=8;
   uint64_t total_ticks_=0;
-  bool faulted_=false;
-  // A world-step callback may synchronously run game code. Never permit
-  // recursive ticks or reset the clock while original Havok jobs are active.
+  // Guard the ORIGINAL world callback and every mutable clock field.
+  // A recursive mutex lets same-thread source callbacks inspect state and
+  // explicitly reject a nested tick/reset without deadlocking.
+  mutable std::recursive_mutex mutex_;
+  std::atomic<bool> faulted_{false};
   bool dispatching_=false;
 };
 } // namespace hulk::eor::timing

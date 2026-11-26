@@ -57,7 +57,10 @@ NativeHavokTickRunner::NativeHavokTickRunner(
     throw std::invalid_argument("Original Hulk USA Havok world/step ABI is unverified");
 }
 void NativeHavokTickRunner::ResetAfterOriginalWorldReset() noexcept {
-  if(dispatching_) {
+  // A concurrent reset must abort an in-flight world step instead of racing
+  // its accumulator. The callback will observe faulted_ before commit.
+  std::unique_lock lock(mutex_,std::try_to_lock);
+  if(!lock.owns_lock() || dispatching_) {
     // An original world reset cannot safely invalidate a running hkpWorld
     // callback or its job-completion barrier. Require a later explicit
     // reset once all original jobs have returned to the host.
@@ -69,8 +72,9 @@ void NativeHavokTickRunner::ResetAfterOriginalWorldReset() noexcept {
   faulted_=false;
 }
 StepBatch NativeHavokTickRunner::AdvanceAndRun(double elapsed) {
-  if(dispatching_)
-    throw std::logic_error("Reentrant original Havok world step");
+  std::unique_lock lock(mutex_,std::try_to_lock);
+  if(!lock.owns_lock() || dispatching_)
+    throw std::logic_error("Concurrent or reentrant original Havok world step");
   if(faulted_ || !std::isfinite(elapsed) || elapsed<0.0 || elapsed>10.0 ||
      pending_>std::numeric_limits<double>::max()-elapsed)
     throw std::invalid_argument("Unusable native Havok clock or elapsed time");
@@ -78,6 +82,9 @@ StepBatch NativeHavokTickRunner::AdvanceAndRun(double elapsed) {
   return Run();
 }
 StepBatch NativeHavokTickRunner::CatchUpAndRun() {
+  std::unique_lock lock(mutex_,std::try_to_lock);
+  if(!lock.owns_lock() || dispatching_)
+    throw std::logic_error("Concurrent or reentrant Havok catch-up");
   if(faulted_)
     throw std::logic_error("Cannot resubmit a partially failed native Havok world step");
   return Run();
