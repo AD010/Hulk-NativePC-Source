@@ -1532,8 +1532,17 @@ void CapturePpcDraw(Kind kind, uint32_t guest, const PPCContext& ctx,
                     bool(draw.observed_live_eor_effect_pass));
     }
   }
+  // An unrelated earlier XDK Draw may invalidate this Present, but it
+  // must not suppress real VS/PS constants and geometry from subsequent
+  // independently verified EoR programs. Otherwise even the good Draws
+  // can never enter the native source/material cache on later frames.
+  // Keep the full-frame gate ONLY for actual GPU submission.
+  const bool verified_draw_program=draw.observed_vs_matrices &&
+      draw.observed_live_vertex_shader_header &&
+      draw.observed_live_pixel_shader_header &&
+      draw.observed_live_eor_effect_pass;
   const bool capture_heavy=diagnostic_mesh ||
-      (replay && g_frame_shader_complete);
+      (replay && verified_draw_program);
   if(replay && !capture_heavy)++g_frame_heavy_capture_skipped;
   if(capture_heavy && draw.observed_vs_matrices) {
       // Store the full register bank only for a viable replay frame or
@@ -1557,7 +1566,7 @@ void CapturePpcDraw(Kind kind, uint32_t guest, const PPCContext& ctx,
         // Never crash game logic on a diagnostic snapshot allocation.
       }
   }
-  if(replay && g_frame_shader_complete && g_original_shader_capture_index) {
+  if(replay && verified_draw_program && g_original_shader_capture_index) {
     const auto& sources=*g_original_shader_capture_index;
     if(auto& pixel=draw.observed_live_pixel_shader_header;
        pixel && REXCVAR_GET(hulk_eor_vulkan_replay) && draw.observed_shader_constants) {
@@ -1588,12 +1597,11 @@ void CapturePpcDraw(Kind kind, uint32_t guest, const PPCContext& ctx,
   // only in the sampler loop above. Capture its live s0 descriptor now,
   // not before ownership recovery, or StageVerifiedOriginalFontDraw
   // rejects an otherwise complete original menu/HUD frame.
-  if(replay && g_frame_shader_complete)
+  if(replay && verified_draw_program)
     draw.original_font_fetch=CaptureUsaFontFetchAtDraw(draw,ReadGuest,guest_base);
   // Only a requested direct Vulkan render performs byte-exact guest
   // resource capture; diagnostics-only XDK observer is unaffected.
-  if((diagnostic_mesh || (replay && g_frame_shader_complete)) &&
-     draw.observed_vs_matrices) {
+  if(capture_heavy && draw.observed_vs_matrices) {
     try {
       const auto& state=*draw.observed_vs_matrices;
       // Source snapshots are deduplicated by the existing per-Present
