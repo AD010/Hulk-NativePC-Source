@@ -13,6 +13,9 @@
 #include "eor_original_havok_catchup.h"
 #include "eor_usa_material_textures.h"
 #include "eor_diligent_aot_backend.h"
+#ifdef _WIN32
+#include "eor_native_frame_executor.h"
+#endif
 #include "eor_diligent_host_output.h"
 #include "eor_live_material_producer.h"
 #include "eor_live_projection.h"
@@ -2719,6 +2722,9 @@ struct AutomaticEorOwner {
   std::shared_ptr<world::OriginalMaterialCandidateIndex> candidates;
   std::unique_ptr<gpu::DiligentEorDirectBackend> backend;
   std::unique_ptr<OriginalEorGpuCompletion> gpu_completion;
+#ifdef _WIN32
+  std::unique_ptr<gpu::EorNativeFrameExecutor> native_executor;
+#endif
   gpu::live::ScalarAnalysisCache& scalar_analysis;
   uint64_t checked_sequence=0;
   native::Size checked_size{};
@@ -2773,8 +2779,14 @@ struct AutomaticEorOwner {
         contract.output,contract.format,std::vector<gpu::NativeEorPassResources>{},
         std::vector<gpu::NativeEorDrawBuffers>{},std::move(bind),
         gpu::BindNativeEorVulkanBackbuffer(host_output));
+#ifdef _WIN32
+    native_executor=std::make_unique<gpu::EorNativeFrameExecutor>(
+        host.device(),host.context(),host.swap_chain(),*backend,
+        *pack.shaders,*pack.effects,*pack.reflection);
+#else
     gpu_completion=std::make_unique<OriginalEorGpuCompletion>(
         host.device(),host.context(),backend.get());
+#endif
   }
   bool Accepts(const Frame& frame,native::Size size) {
     // A claimed source frame is immutable. Factory refresh, early worker
@@ -3056,9 +3068,27 @@ std::shared_ptr<const VerifiedWorkerEorOwnerCatalog> BuildAutomaticOriginalOwner
     catch (...) {return false;}
   };
   catalog->needs_target_rebuild=[owned] {return owned->checked_rebuild;};
+#ifdef _WIN32
+  catalog->execute_original_frame=[owned](const Frame& frame,
+      std::span<const aot::BoundIndexedDraw> draws,
+      std::span<const std::shared_ptr<const model::UploadedOriginalModel>> models) {
+    using Result=native_x_renderer::HulkEorPresentResult;
+    std::vector<std::shared_ptr<const void>> retained;
+    retained.reserve(models.size());
+    for(const auto& model:models)retained.emplace_back(model);
+    const auto submitted=owned->native_executor->Submit(
+        owned->contract.output,draws,frame,std::move(retained));
+    switch(submitted) {
+      case gpu::NativeFrameSubmission::Submitted:return Result::kBackbufferReady;
+      case gpu::NativeFrameSubmission::FailedAfterGpu:return Result::kFailedAfterGpu;
+      default:return Result::kNotReady;
+    }
+  };
+#else
   catalog->submit_original_gpu_frame=[owned](uint64_t frame) {
     return owned->gpu_completion && owned->gpu_completion->Submit(frame);
   };
+#endif
   // The new backend was constructed against this exact source contract.
   owned->checked_sequence=source->sequence;
   owned->checked_size=backbuffer;
@@ -3323,6 +3353,19 @@ native_x_renderer::HulkEorPresentResult ReplayVerifiedMixedOriginalFrame(
     const auto& current=host.swap_chain()->GetDesc();
     if(current.Width!=owner->output.backbuffer.width ||
        current.Height!=owner->output.backbuffer.height)return Result::kNotReady;
+    if(owner->execute_original_frame) {
+      const auto result=owner->execute_original_frame(
+          *snapshot,prepared.ordered,prepared.world);
+      if(result==Result::kBackbufferReady) {
+        staged.active=false;
+        g_eor_ready_backbuffers.fetch_add(1,std::memory_order_relaxed);
+      } else if(result==Result::kFailedAfterGpu) {
+        staged.active=false;
+        g_eor_gpu_failures.fetch_add(1,std::memory_order_relaxed);
+      }
+      return result;
+    }
+    // External catalogue implementations keep their original replay path.
     aot::ReplayAotScene(owner->output,prepared.ordered,
         *pack.shaders,*pack.effects,*pack.reflection,*owner->gpu,
         snapshot.get(),&began_gpu);

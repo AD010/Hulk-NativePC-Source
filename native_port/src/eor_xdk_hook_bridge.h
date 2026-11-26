@@ -276,6 +276,12 @@ struct VerifiedWorkerEorOwnerCatalog {
   // fence and retains staged original Draw/font buffers until GPU work
   // finishes; external source catalogues keep their existing safe path.
   std::function<bool(uint64_t)> submit_original_gpu_frame;
+  // Full source-verified Draw sequence to the same native executor used
+  // by the independent Win32 host. Current worker still owns physical Present.
+  std::function<native_x_renderer::HulkEorPresentResult(
+      const Frame&,std::span<const aot::BoundIndexedDraw>,
+      std::span<const std::shared_ptr<const model::UploadedOriginalModel>>)>
+      execute_original_frame;
 };
 bool InstallVerifiedWorkerEorOwnerCatalog(
     std::shared_ptr<const VerifiedWorkerEorOwnerCatalog> catalog);

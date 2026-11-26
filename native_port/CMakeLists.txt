@@ -289,6 +289,7 @@ if(HULK_WITH_NATIVE_X)
         # library in BOTH modes: no duplicated implementation or game EXE.
         hulk_add_eor_vulkan_host_target()
         target_link_libraries(incredible_hulk PRIVATE hulk_eor_win32_vulkan_host)
+        target_sources(incredible_hulk PRIVATE src/eor_native_frame_executor.cpp)
     endif()
     target_link_libraries(incredible_hulk PRIVATE native_x_renderer::native_x_renderer)
     target_include_directories(incredible_hulk PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"

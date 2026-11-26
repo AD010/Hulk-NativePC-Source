@@ -21,6 +21,14 @@ class EorNativeFrameExecutor final {
       EorWin32VulkanHost& host,DiligentEorDirectBackend& backend,
       const aot::ShaderBank& shader_bank,const aot::EffectCatalog& effects,
       const aot::ReflectionBank& reflection) noexcept;
+  // Transitional game worker: borrow its existing native Vulkan handles.
+  // That worker retains exclusive resize/physical Present ownership.
+  // Handles and backend must outlive this executor and remain unchanged.
+  EorNativeFrameExecutor(
+      Diligent::IRenderDevice* device,Diligent::IDeviceContext* context,
+      Diligent::ISwapChain* swapchain,DiligentEorDirectBackend& backend,
+      const aot::ShaderBank& shader_bank,const aot::EffectCatalog& effects,
+      const aot::ReflectionBank& reflection) noexcept;
   ~EorNativeFrameExecutor() noexcept;
   EorNativeFrameExecutor(const EorNativeFrameExecutor&)=delete;
   EorNativeFrameExecutor& operator=(const EorNativeFrameExecutor&)=delete;

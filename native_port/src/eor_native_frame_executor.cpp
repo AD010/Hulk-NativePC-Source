@@ -15,6 +15,9 @@ struct EorNativeFrameExecutor::State {
     std::vector<std::shared_ptr<const void>> owners;
   };
   EorWin32VulkanHost* host=nullptr;
+  Diligent::IRenderDevice* device=nullptr;
+  Diligent::IDeviceContext* context=nullptr;
+  Diligent::ISwapChain* swapchain=nullptr;
   DiligentEorDirectBackend* backend=nullptr;
   const aot::ShaderBank* shaders=nullptr;
   const aot::EffectCatalog* effects=nullptr;
@@ -28,19 +31,29 @@ struct EorNativeFrameExecutor::State {
 EorNativeFrameExecutor::EorNativeFrameExecutor(
     EorWin32VulkanHost& host,DiligentEorDirectBackend& backend,
     const aot::ShaderBank& shaders,const aot::EffectCatalog& effects,
+    const aot::ReflectionBank& reflection) noexcept
+    :EorNativeFrameExecutor(host.Device(),host.Context(),host.SwapChain(),
+                            backend,shaders,effects,reflection) {
+  if(state_)state_->host=&host;
+}
+EorNativeFrameExecutor::EorNativeFrameExecutor(
+    Diligent::IRenderDevice* device,Diligent::IDeviceContext* context,
+    Diligent::ISwapChain* swapchain,DiligentEorDirectBackend& backend,
+    const aot::ShaderBank& shaders,const aot::EffectCatalog& effects,
     const aot::ReflectionBank& reflection) noexcept {
   try {
     auto state=std::make_unique<State>();
-    state->host=&host;state->backend=&backend;state->shaders=&shaders;
+    state->device=device;state->context=context;state->swapchain=swapchain;
+    state->backend=&backend;state->shaders=&shaders;
     state->effects=&effects;state->reflection=&reflection;
-    if(host.Device() && host.Context()) {
+    if(device && context && swapchain) {
       Diligent::FenceDesc desc{};
       desc.Name="Native EoR original Draw completion";
       desc.Type=Diligent::FENCE_TYPE_CPU_WAIT_ONLY;
       // Vulkan drivers may reject fence allocation during resize or under
       // GPU-memory pressure. Keep the executable native scene runner and
       // fall back to real WaitForIdle; do not silently disable all Draws.
-      try {host.Device()->CreateFence(desc,&state->fence);}
+      try {device->CreateFence(desc,&state->fence);}
       catch (...) {state->fence.Release();}
     }
     state_=std::move(state);
@@ -70,11 +83,12 @@ NativeFrameSubmission EorNativeFrameExecutor::Submit(
     const xdk::Frame& source,
     std::vector<std::shared_ptr<const void>> retained) noexcept {
   if(state_ && state_->completion_failed)return NativeFrameSubmission::FailedAfterGpu;
-  if(!state_ || !state_->host || !state_->backend ||
-     !state_->host->Device() || !state_->host->Context() ||
-     !state_->host->SwapChain() ||
-     !state_->backend->UsesNativeHostGpu(
-         state_->host->Device(),state_->host->Context()) ||
+  if(!state_ || !state_->backend || !state_->device ||
+     !state_->context || !state_->swapchain ||
+     (state_->host && (state_->host->Device()!=state_->device ||
+                       state_->host->Context()!=state_->context ||
+                       state_->host->SwapChain()!=state_->swapchain)) ||
+     !state_->backend->UsesNativeHostGpu(state_->device,state_->context) ||
      !state_->shaders || !state_->effects || !state_->reflection || !source.sequence ||
      draws.empty() || draws.size()!=source.calls.size() ||
      source.sequence<=state_->last_submitted_frame ||
@@ -90,8 +104,10 @@ NativeFrameSubmission EorNativeFrameExecutor::Submit(
        frame.backbuffer))
     return NativeFrameSubmission::IncompleteSource;
   // Resize BEFORE DrawIndexed, never inside Present.
-  if(!state_->host->ResizeToClient())return NativeFrameSubmission::IncompleteSource;
-  const auto& swap=state_->host->SwapChain()->GetDesc();
+  // Borrowed worker handles are already resized by their sole owner.
+  // Never resize or physically Present a swapchain owned by that worker.
+  if(state_->host && !state_->host->ResizeToClient())return NativeFrameSubmission::IncompleteSource;
+  const auto& swap=state_->swapchain->GetDesc();
   if(frame.backbuffer.width!=swap.Width ||
      frame.backbuffer.height!=swap.Height)
     return NativeFrameSubmission::IncompleteSource;
@@ -109,7 +125,7 @@ NativeFrameSubmission EorNativeFrameExecutor::Submit(
   try {
     aot::ReplayAotScene(frame,draws,*state_->shaders,*state_->effects,
         *state_->reflection,*state_->backend,&source,&began_gpu);
-    auto* context=state_->host->Context();
+    auto* context=state_->context;
     if(state_->fence && state_->last_signal!=UINT64_MAX) {
       const uint64_t signal=state_->last_signal+1;
       context->EnqueueSignal(state_->fence,signal);
@@ -137,7 +153,7 @@ NativeFrameSubmission EorNativeFrameExecutor::Submit(
       // a competing renderer, even if the completion barrier itself fails.
       state_->last_submitted_frame=source.sequence;
       try {
-        auto* context=state_->host->Context();
+        auto* context=state_->context;
         context->Flush();context->WaitForIdle();
         state_->pending.clear();
         state_->backend->RetireCompletedOriginalFontDraws(source.sequence);
@@ -157,7 +173,7 @@ void EorNativeFrameExecutor::Shutdown() noexcept {
   if(!state_)return;
   if(!state_->pending.empty()) {
     try {
-      auto* context=state_->host?state_->host->Context():nullptr;
+      auto* context=state_->context;
       if(context) {
         context->Flush();context->WaitForIdle();
         const auto last=state_->pending.back().source_frame;
