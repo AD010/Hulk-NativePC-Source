@@ -105,6 +105,49 @@ relaxing the source-only audit or suppressing compiler warnings.
 
 Read [the 2026-11-25 reference decisions and owner's acceptance criteria](native_port/docs/NATIVE_PORT_REFERENCE_2026-11-25.md) when resuming in a new session. Apply them to the remaining live runtime paths; do not turn the document into a repeat research or diagnostic stage.
 
+## Final Windows-native runtime — architectural clarification (2026-11-26)
+
+This clarifies the existing acceptance criteria, not a new workstream,
+restart, extraction pass, or change to the owner's Work execution order.
+Keep the independent live EoR/Vulkan frame and sole physical Present as
+the first priority, then the existing graphics, performance, menu,
+input/physics/audio/save and remaining runtime migration priorities.
+Retain verified, mutually exclusive transitional fallback until its
+functional replacement is validated; it is not an acceptable final path.
+
+- Extend independence beyond graphics to the complete Windows x64 game
+  runtime: replace guest XDK/kernel/CRT services, guest memory/address
+  handling, threading, timing, synchronization, file/profile I/O and
+  platform ABI adapters with appropriate Win32, MSVC/UCRT/STL and native
+  Windows libraries, preserving actual game semantics. Statically
+  recompiled gameplay logic is acceptable without a console runtime;
+  adapt verified boundaries incrementally, not by a wholesale rewrite.
+- Reuse existing private extracted resources and AOT banks. Prefer
+  offline conversion of platform-specific vertex/index layouts, texture
+  tiling/packing, formats, mip chains and material bindings, and native
+  SPIR-V shader/PSO preparation before drawing. When a specific automatic
+  shader translation is demonstrably wrong, reconstruct that original
+  effect from verified Xbox and PC 2008 evidence rather than substitute
+  a simplified effect. Use original PC assets/code behavior as a
+  technical reference, not a reason to downgrade Xbox visual quality.
+  Vulkan remains the primary backend; no new graphics backend is a
+  prerequisite for completing it. Offline analysis/conversion tools
+  may use console-format knowledge without becoming runtime dependencies.
+- Build #182 is a visual regression baseline: the owner reports that
+  colored flashes are practically absent. Preserve that improvement;
+  investigate only actual regressions and remaining defects, comparing
+  equivalent scenes/settings with #182 and the existing RPCS3 reference.
+  Do not attribute every performance or image defect to console heritage
+  without evidence.
+- Final acceptance must demonstrate native live execution, not just
+  a successful build, renamed wrapper or isolated GPU test: inspect
+  linked dependencies and exercised runtime paths for residual
+  Xenia/ReXGlue/NativeX, PM4/Xenos/EDRAM execution and Xbox system
+  emulation, with no hidden console fallback in final native mode.
+  Verify the actual game loop and image/physics/performance regression
+  gates already specified above. Do not remove working paths before
+  validated replacements or change the existing manual Release policy.
+
 ## Communication
 
 Record concrete changed source paths and tests actually run. Report
