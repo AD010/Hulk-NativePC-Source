@@ -143,7 +143,7 @@ void LoadConfig() {
                              L"1.333333333333333",value,64,ini);
     wchar_t* end=nullptr;
     const double aspect=wcstod(value,&end);
-    if(end!=value&&std::isfinite(aspect)&&aspect>=1.0&&aspect<=3.0)
+    if(end!=value && *end==L'\0' && std::isfinite(aspect) && aspect>=1.0 && aspect<=3.0)
       sourceAspect=aspect;
     // Keep Visual Studio Win32 ASI consistent with the freestanding x86
     // HulkPC.asi distributed in the DXVK 16:10 source package.
