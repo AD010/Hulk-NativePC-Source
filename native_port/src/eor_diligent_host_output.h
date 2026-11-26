@@ -42,6 +42,9 @@ class DiligentEorHostOutput final {
   bool CompositeAndPresent(Diligent::ITextureView* resolved_scene,
                            native::Rect destination,native::Size backbuffer);
   uint64_t PresentedFrames() const noexcept {return presented_;}
+  // Native swapchain's sync interval; compatibility-worker timing remains
+  // under its existing window owner. Default is the requested VSync-off.
+  void SetNativeVSync(bool enabled) noexcept {native_vsync_=enabled;}
  private:
   native_x_renderer::Device* device_=nullptr;
   Diligent::IRenderDevice* native_device_=nullptr;
@@ -49,6 +52,7 @@ class DiligentEorHostOutput final {
   Diligent::ISwapChain* native_swapchain_=nullptr;
   std::unique_ptr<native_x_renderer::Blitter> blitter_;
   bool initialized_=false;
+  bool native_vsync_=false;
   uint64_t presented_=0;
 };
 // An actual DiligentEorDirectBackend::CompositeOutput-compatible function.
