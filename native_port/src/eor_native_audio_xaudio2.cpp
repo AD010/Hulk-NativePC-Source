@@ -8,6 +8,7 @@
 #include <array>
 #include <cmath>
 #include <cstring>
+#include <fstream>
 #include <utility>
 #include <vector>
 
@@ -125,17 +126,40 @@ bool NativeXAudio2Mixer::PlayIndexedWaveBankPcm16(Bus bus,
     const hulk::eor::Index& index,
     const std::filesystem::path& wavebanks_arc,
     uint32_t resource_hash,uint32_t sample_index,float gain) {
-  if(!Ready() || index.byte_order()!=hulk::eor::ByteOrder::Big ||
-     !resource_hash)return false;
-  // The exact 2008 EoR WaveBanks index authenticates the guest resource
-  // bytes. Data must still be checked as supported FSB4 PCM before a
-  // host audio voice is allocated; XMA/other codecs are never guessed.
+  if(!Ready() || !resource_hash)return false;
+  // Accept a real Xbox USA (big-endian index) OR official PC 2008
+  // (little-endian index) WaveBanks archive. Shared resource hashes are
+  // names, not permission to mix indices and different platform ARC
+  // payloads. The original ARC's little-endian byte-count header must
+  // agree exactly with the selected index's highest WaveBanks ending.
+  // This provides the native PC audio-data branch without touching the
+  // running Xbox world, XEX shader set, or 32-bit FMOD binaries.
+  const auto group=index.groups().find("WaveBanks");
+  if(group==index.groups().end() || group->second.empty())return false;
   const auto record=index.FindHash("WaveBanks",resource_hash);
   if(!record || !record->size || record->reserved ||
      record->size>(64u<<20))return false;
+  uint64_t end=0;
+  for(const auto& entry:group->second) {
+    if(entry.reserved || entry.offset<4u || !entry.size)return false;
+    end=std::max(end,uint64_t(entry.offset)+entry.size);
+  }
+  if(end<4 || end>UINT32_MAX)return false;
   try {
+    const auto file_size=std::filesystem::file_size(wavebanks_arc);
+    if(file_size<end)return false;
+    std::ifstream archive(wavebanks_arc,std::ios::binary);
+    std::array<uint8_t,4> header{};
+    if(!archive.read(reinterpret_cast<char*>(header.data()),header.size()))
+      return false;
+    const auto declared=uint32_t(header[0])|
+        uint32_t(header[1])<<8u|uint32_t(header[2])<<16u|
+        uint32_t(header[3])<<24u;
+    if(declared!=end)return false;
     const auto data=hulk::eor::ReadResource(
         wavebanks_arc,*record,64u<<20);
+    // Signed/unsigned PCM8 and PCM16 are genuinely decoded. Xbox XMA and
+    // compressed PC banks remain excluded until a source-accurate decoder.
     return PlayFsb4Pcm16(bus,data,sample_index,gain);
   } catch (...) {
     return false;
