@@ -20,10 +20,17 @@ DiligentEorHostOutput::~DiligentEorHostOutput() noexcept=default;
 bool DiligentEorHostOutput::Initialize() {
   if(initialized_)return true;
   if(native_device_ && native_context_ && native_swapchain_ && !device_) {
-    // The independent EoR host needs no NativeX blitter or guest EDRAM.
-    // Device and physical swapchain lifetime remain with its Win32 owner.
-    initialized_=true;
-    return true;
+    // Native EoR owns the real Vulkan device and swapchain. For HDR/sRGB or
+    // BGRA8-to-RGBA8 conversion it may reuse the pre-existing Diligent
+    // fullscreen blitter, but never instantiates the NativeX Device,
+    // Xenos command processor, EDRAM, PM4 or an emulated guest frame.
+    try {
+      auto instance=std::make_unique<native_x_renderer::Blitter>();
+      if(!instance->Initialize(native_device_))return false;
+      blitter_=std::move(instance);
+      initialized_=true;
+      return true;
+    } catch (...) {return false;}
   }
   if(!device_ || !device_->device() || !device_->context() ||
      !device_->swap_chain())return false;
@@ -98,8 +105,9 @@ bool DiligentEorHostOutput::CompositeToBackbuffer(
       }
     }
   }
-  // No NativeX blitter exists in independent device mode: it must never
-  // submit a disguised scaled/converted guest frame.
+  // An independently owned native GPU uses the blitter only for real
+  // physical-resolution color format conversions. Scaling is prohibited by
+  // HasFullNativeCompositePixels() above.
   if(!blitter_)return false;
   // Keep the swapchain RTV detached on every exit, including exceptions
   // raised by the blitter or Present during a resize/device-loss transition.
