@@ -36,10 +36,10 @@ inline std::optional<DecodedFsbPcm16> DecodeFsb4Pcm16(
   const uint32_t flags=FsbLe32(fsb,20);
   const bool basic=(flags&2u)!=0;
   // FMOD Ex's BASICHEADERS means full metadata only for sample zero;
-  // subsequent entries carry exactly two 32-bit lengths. Bank mode bit
-  // 0x40 adds platform-specific data alignment; refuse it until its
-  // exact packing is established rather than playing the wrong bytes.
-  if(!count || count>4096 || ordinal>=count || (flags&0x40u) ||
+  // subsequent entries carry exactly two 32-bit lengths. FSB4 bank mode
+  // 0x40 aligns the next sample's absolute file offset to 32 bytes;
+  // consume that padding rather than treating it as PCM.
+  if(!count || count>4096 || ordinal>=count ||
      headers<80ull+uint64_t(count-1u)*(basic?8u:80u) ||
      uint64_t(48)+headers+bytes>fsb.size())return {};
   size_t cursor=48;
@@ -90,6 +90,8 @@ inline std::optional<DecodedFsbPcm16> DecodeFsb4Pcm16(
     }
     cursor+=size;
     data_offset+=payload_bytes;
+    if(flags&0x40u)
+      data_offset=(data_offset+31u)&~uint64_t(31u);
   }
   return {};
 }
