@@ -633,6 +633,12 @@ DiligentEorDirectBackend::DiligentEorDirectBackend(
   (void)PrewarmResidentOriginalPipelines(64);
 }
 DiligentEorDirectBackend::~DiligentEorDirectBackend() noexcept {AbortScene();}
+bool DiligentEorDirectBackend::UsesNativeHostGpu(
+    Diligent::IRenderDevice* device,Diligent::IDeviceContext* context) const noexcept {
+  return state_ && device && context &&
+      state_->device.RawPtr()==device &&
+      state_->context.RawPtr()==context;
+}
 std::size_t DiligentEorDirectBackend::AdoptVerifiedOriginalMaterialPasses(
     std::span<const VerifiedNativeMaterialPass> original_passes,
     DiligentOriginalTextureResidency& residency) {

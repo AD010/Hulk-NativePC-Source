@@ -70,8 +70,10 @@ NativeFrameSubmission EorNativeFrameExecutor::Submit(
     std::vector<std::shared_ptr<const void>> retained) noexcept {
   if(!state_ || !state_->host || !state_->backend ||
      !state_->host->Device() || !state_->host->Context() ||
-     !state_->host->SwapChain() || !state_->shaders ||
-     !state_->effects || !state_->reflection || !source.sequence ||
+     !state_->host->SwapChain() ||
+     !state_->backend->UsesNativeHostGpu(
+         state_->host->Device(),state_->host->Context()) ||
+     !state_->shaders || !state_->effects || !state_->reflection || !source.sequence ||
      draws.empty() || draws.size()!=source.calls.size() ||
      source.sequence<=state_->last_submitted_frame ||
      !xdk::ValidateOriginalCommandTimeline(source) ||

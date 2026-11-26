@@ -125,6 +125,10 @@ class DiligentEorDirectBackend final : public aot::ShaderBindingBackend {
   DiligentEorDirectBackend(const DiligentEorDirectBackend&)=delete;
   DiligentEorDirectBackend& operator=(const DiligentEorDirectBackend&)=delete;
   ~DiligentEorDirectBackend() noexcept override;
+  // The native Vulkan presenter and source-verified Draw/PSO backend must
+  // use one physical GPU device and ONE immediate submission context.
+  bool UsesNativeHostGpu(Diligent::IRenderDevice* device,
+                         Diligent::IDeviceContext* context) const noexcept;
   // Sonic/Blue Dragon-style asset-load pipeline prewarming. Uses ONLY
   // resident original model/material owners and exact AOT shader SHA+PSO
   // state; no effect-name guesses or all-game brute-force compilation.
