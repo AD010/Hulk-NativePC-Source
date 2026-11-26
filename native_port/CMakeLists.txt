@@ -89,9 +89,38 @@ if(WIN32)
     target_link_libraries(hulk_native_core PUBLIC shell32 ole32 xaudio2)
 endif()
 
+# Keep the single already-existing physical Vulkan host in one native
+# library. The very same target can be compiled independently of the XEX,
+# ReXGlue runtime and NativeX. No substitute renderer or second game EXE.
+function(hulk_add_eor_vulkan_host_target)
+    add_library(hulk_eor_win32_vulkan_host STATIC src/eor_win32_vulkan_host.cpp)
+    target_include_directories(hulk_eor_win32_vulkan_host PUBLIC
+        "${CMAKE_CURRENT_SOURCE_DIR}/src")
+    target_link_libraries(hulk_eor_win32_vulkan_host PUBLIC
+        Diligent-GraphicsEngineVk-static Diligent-GraphicsEngineInterface
+        Diligent-Common)
+endfunction()
+
 # This is a host library build, not a second game executable or a release.
 # It can be compiled and exercised without fetching any SDK or game bytes.
 option(HULK_NATIVE_CORE_ONLY "Build native host services without the transitional runtime" OFF)
+option(HULK_NATIVE_EOR_VULKAN_ONLY
+    "Build the existing Win32 EoR/Vulkan device and swapchain without ReXGlue or NativeX" OFF)
+if(HULK_NATIVE_EOR_VULKAN_ONLY)
+    if(NOT WIN32)
+        message(FATAL_ERROR "EoR Win32/Vulkan host target requires Windows")
+    endif()
+    set(HULK_NATIVE_X_SOURCE_DIR
+        "${CMAKE_CURRENT_SOURCE_DIR}/native_x_renderer" CACHE PATH "Existing DiligentCore checkout")
+    set(_hulk_diligent_source "${HULK_NATIVE_X_SOURCE_DIR}/thirdparty/diligent-core")
+    if(NOT EXISTS "${_hulk_diligent_source}/CMakeLists.txt")
+        message(FATAL_ERROR "The existing DiligentCore checkout is required")
+    endif()
+    add_subdirectory("${_hulk_diligent_source}"
+        "${CMAKE_CURRENT_BINARY_DIR}/hulk_native_eor_diligent")
+    hulk_add_eor_vulkan_host_target()
+    return()
+endif()
 if(HULK_NATIVE_CORE_ONLY)
     enable_testing()
     foreach(_test IN ITEMS
@@ -181,11 +210,10 @@ if(HULK_WITH_NATIVE_X)
         src/eor_diligent_host_output.cpp)
     target_link_libraries(incredible_hulk PRIVATE Diligent-GraphicsEngineInterface Diligent-Common)
     if(WIN32)
-        # A native Win32/Vulkan device and swapchain implementation, not an
-        # emulated Xbox D3D/EDRAM/PM4 owner. Keep the existing ReXGlue game
-        # executable path unchanged until the PPC/game services migrate.
-        target_sources(incredible_hulk PRIVATE src/eor_win32_vulkan_host.cpp)
-        target_link_libraries(incredible_hulk PRIVATE Diligent-GraphicsEngineVk-static)
+        # Existing physical host now builds as a separate native static
+        # library in BOTH modes: no duplicated implementation or game EXE.
+        hulk_add_eor_vulkan_host_target()
+        target_link_libraries(incredible_hulk PRIVATE hulk_eor_win32_vulkan_host)
     endif()
     target_link_libraries(incredible_hulk PRIVATE native_x_renderer::native_x_renderer)
     target_include_directories(incredible_hulk PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
