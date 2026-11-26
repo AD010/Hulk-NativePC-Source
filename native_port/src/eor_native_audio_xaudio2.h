@@ -5,9 +5,11 @@
 // XAudio2 voices and keeps their sample bytes resident through playback.
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
 #include <memory>
 #include <span>
 
+namespace hulk::eor {class Index;}
 namespace hulk::eor::audio {
 enum class Bus : uint8_t { Music=0, Sfx=1, Dialog=2 };
 inline constexpr bool ValidPcm16(std::span<const int16_t> pcm,
@@ -34,6 +36,11 @@ class NativeXAudio2Mixer {
   // XMA/ADPCM/MPEG requires its own decoder and is never misplayed as PCM.
   bool PlayFsb4Pcm16(Bus bus,std::span<const std::byte> bank,
                      uint32_t sample_index,float gain=1.f);
+  // Read a genuine WaveBanks resource through the source-authenticated USA
+  // index and native archive I/O; no guest Xbox memory or FMOD x86 DLL.
+  bool PlayIndexedWaveBankPcm16(Bus bus,const hulk::eor::Index& index,
+      const std::filesystem::path& wavebanks_arc,uint32_t resource_hash,
+      uint32_t sample_index,float gain=1.f);
   bool SetBusVolume(Bus bus,float gain) noexcept;
   void SetMuted(bool muted) noexcept;
   void Update() noexcept;
