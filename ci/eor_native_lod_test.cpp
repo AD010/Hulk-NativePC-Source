@@ -43,6 +43,28 @@ int main(){
  world.SetResident(101,true);
  d=world.Update(20);
  assert(d.active_model_hash==101);
+ // Residency fallback is not a camera-selected tier. At 95 the high
+ // tier is still required even when only a coarser model is resident.
+ ResidentLodSet streaming{Levels()};
+ streaming.SetResident(202,true);
+ for(int i=0;i<1200;++i) {
+   const auto pending=streaming.Update(i%2?96.0:95.0);
+   assert(pending.active_model_hash==202 && pending.desired_tier==0 &&
+          pending.request_model_hash==101 && pending.pending_upgrade);
+ }
+ streaming.SetResident(101,true);
+ assert(streaming.Update(95).active_model_hash==101);
+ streaming.SetResident(303,true);
+ assert(streaming.Update(500).active_model_hash==303);
+ // Crossing several thresholds must not retain the most distant tier
+ // merely because the camera ends up within the *nearest* boundary band.
+ assert(streaming.Update(95).active_model_hash==202);
+ assert(streaming.Update(87).active_model_hash==101);
+ streaming.SetResident(101,false);
+ assert(streaming.Update(95).request_model_hash==101);
+ streaming.Reset();
+ assert(!streaming.ActiveModel());
+ assert(streaming.Update(105).desired_tier==1);
  // More distant detail persists longer with user-selectable native policy.
  ResidentLodSet extended{Levels(), LodPolicy{3.0,0.1,0.25}};
  extended.SetResident(101,true);extended.SetResident(202,true);

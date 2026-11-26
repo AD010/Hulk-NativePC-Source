@@ -38,13 +38,13 @@ class ResidentLodSet {
                           LodPolicy policy = {});
   void SetResident(uint32_t original_model_hash, bool resident);
   LodDecision Update(double camera_distance_world_units);
-  void Reset() noexcept { active_.reset(); }
+  void Reset() noexcept { active_.reset(); desired_.reset(); }
   std::optional<uint32_t> ActiveModel() const noexcept;
   std::span<const LodTier> Tiers() const noexcept { return tiers_; }
  private:
   std::vector<LodTier> tiers_;
   std::vector<bool> resident_;
   LodPolicy policy_;
-  std::optional<size_t> active_;
+  std::optional<size_t> active_, desired_;
 };
 } // namespace hulk::eor::world

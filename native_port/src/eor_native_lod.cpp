@@ -54,16 +54,22 @@ LodDecision ResidentLodSet::Update(double distance) {
   size_t target = 0;
   while (target + 1 < tiers_.size() && d > tiers_[target].maximum_distance)
     ++target;
-  // Only a resident active model may delay the next switch. This avoids
-  // thrashing from camera jitter on both sides of an original threshold.
-  if (active_ && resident_[*active_]) {
-    if (target > *active_ &&
-        d <= tiers_[*active_].maximum_distance * (1.0 + policy_.hysteresis))
-      target = *active_;
-    else if (target < *active_ &&
-             d >= tiers_[target].maximum_distance * (1.0 - policy_.hysteresis))
-      target = *active_;
+  // Hysteresis belongs to the camera-selected tier, not the temporary
+  // resident fallback. Otherwise a low-detail fallback can cancel the
+  // pending high-detail request or prevent promotion after it loads.
+  // Cross each intervening boundary: a large camera jump must not retain
+  // a far tier just because it ends within a different boundary's band.
+  if (desired_) {
+    size_t stable = *desired_;
+    while (stable < target &&
+           d > tiers_[stable].maximum_distance * (1.0 + policy_.hysteresis))
+      ++stable;
+    while (stable > target &&
+           d < tiers_[stable - 1].maximum_distance * (1.0 - policy_.hysteresis))
+      --stable;
+    target = stable;
   }
+  desired_ = target;
   LodDecision result;
   result.desired_tier = target;
   if (resident_[target]) {
