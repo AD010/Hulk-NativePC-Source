@@ -78,7 +78,14 @@ inline std::optional<LivePerspectiveProjection> IdentifyLiveScalarProjection(
     if(!complete)continue;
     const auto convention=IdentifyLivePerspectiveStorage(matrix,guest_aspect);
     if(!convention)continue;
-    if(unique)return {};
+    if(unique) {
+      // Two reflection names may alias exactly the same four source
+      // registers. This is one verified matrix, not an ambiguous pair.
+      if(unique->registers.index==range.index &&
+         unique->registers.count==range.count &&
+         unique->proof.convention==*convention)continue;
+      return {}; // two distinct live perspective matrices remain ambiguous
+    }
     unique=LivePerspectiveProjection{range,{true,true,true,*convention}};
   }
   return unique;

@@ -128,6 +128,29 @@ int main() {
   auto ortho=perspective;
   ortho[14]=0;ortho[15]=1;
   assert(!aot::IdentifyLivePerspectiveStorage(ortho,16.0/9.0));
+  // Two reflected names at one register span are one camera owner.
+  // Two genuinely distinct live spans must still fail closed.
+  for(unsigned i=0;i<249;++i) {
+    aot::Blob blob;blob.scalar_register_reads.emplace();
+    xdk::OriginalShaderRegisters cap;cap.complete_float_banks=true;
+    aot::ReflectedShader ref;ref.view_projection={i,4};ref.sky_view_projection={i,4};
+    for(unsigned j=i;j<i+8;++j) {
+      blob.scalar_register_reads->set(j);
+      cap.finite_vertex[j/64]|=uint64_t{1}<<(j%64);
+    }
+    std::copy(perspective.begin(),perspective.end(),cap.vertex.begin()+i*4);
+    const auto actual=aot::IdentifyLiveScalarProjection(blob,ref,cap,16./9.);
+    assert(actual && actual->registers.index==i);
+    ref.sky_view_projection={i+4,4};
+    std::copy(perspective.begin(),perspective.end(),cap.vertex.begin()+(i+4)*4);
+    assert(!aot::IdentifyLiveScalarProjection(blob,ref,cap,16./9.));
+    cap.finite_vertex[(i+4)/64]&=~(uint64_t{1}<<((i+4)%64));
+    assert(aot::IdentifyLiveScalarProjection(blob,ref,cap,16./9.));
+    ref.sky_view_projection={i,4};cap.complete_float_banks=false;
+    assert(!aot::IdentifyLiveScalarProjection(blob,ref,cap,16./9.));
+    cap.complete_float_banks=true;blob.scalar_register_reads->reset(i);
+    assert(!aot::IdentifyLiveScalarProjection(blob,ref,cap,16./9.));
+  }
   // 21:9 and 32:9 must widen horizontal view, NOT crop vertically.
   const auto wider=aot::ExpandVerifiedOriginalPackedViewProjection(
       wide_values,wide,11,16.0/9.0,3440,1440,proof);
