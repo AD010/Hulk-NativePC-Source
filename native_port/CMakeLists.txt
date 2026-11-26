@@ -180,6 +180,13 @@ if(HULK_WITH_NATIVE_X)
         src/eor_diligent_texture_residency.cpp
         src/eor_diligent_host_output.cpp)
     target_link_libraries(incredible_hulk PRIVATE Diligent-GraphicsEngineInterface Diligent-Common)
+    if(WIN32)
+        # A native Win32/Vulkan device and swapchain implementation, not an
+        # emulated Xbox D3D/EDRAM/PM4 owner. Keep the existing ReXGlue game
+        # executable path unchanged until the PPC/game services migrate.
+        target_sources(incredible_hulk PRIVATE src/eor_win32_vulkan_host.cpp)
+        target_link_libraries(incredible_hulk PRIVATE Diligent-GraphicsEngineVk-static)
+    endif()
     target_link_libraries(incredible_hulk PRIVATE native_x_renderer::native_x_renderer)
     target_include_directories(incredible_hulk PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
         "${HULK_NATIVE_X_SOURCE_DIR}/src")
