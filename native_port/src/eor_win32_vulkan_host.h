@@ -4,7 +4,9 @@
 // The original game code and verified EoR draw backend can share its
 // DiligentCore handles; never create a second swapchain on the same HWND.
 #include <cstdint>
+#include <functional>
 #include <memory>
+#include "eor_native_frame.h"
 
 namespace Diligent {
 struct IRenderDevice;
@@ -39,4 +41,12 @@ class EorWin32VulkanHost final {
   struct State;
   std::unique_ptr<State> state_;
 };
+// The same signature accepted by DiligentEorDirectBackend::CompositeOutput.
+// Source-validated EoR Draw output reaches the native Win32 host without a
+// NativeX blitter, SDK guest frame or interim 16:9 render texture.
+// The callback borrows host; the owner must keep the host alive.
+using NativeWin32EorCompositeOutput=std::function<bool(
+    Diligent::ITextureView*,native::Rect,native::Size)>;
+NativeWin32EorCompositeOutput BindNativeWin32EorVulkanOutput(
+    EorWin32VulkanHost& host,bool vsync=false);
 } // namespace hulk::eor::gpu

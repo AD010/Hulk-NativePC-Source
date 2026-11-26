@@ -206,5 +206,21 @@ Diligent::IDeviceContext* EorWin32VulkanHost::Context() const noexcept {
 Diligent::ISwapChain* EorWin32VulkanHost::SwapChain() const noexcept {
   return state_?state_->swapchain.RawPtr():nullptr;
 }
+NativeWin32EorCompositeOutput BindNativeWin32EorVulkanOutput(
+    EorWin32VulkanHost& host,bool vsync) {
+  return [&host,vsync](Diligent::ITextureView* color,
+                       native::Rect rect,native::Size physical) {
+    if(!color || !color->GetTexture() || !host.SwapChain())return false;
+    const auto& src=color->GetTexture()->GetDesc();
+    // The backend must finish exactly the original 3D scene's *physical*
+    // frame; reject black-bar 16:9 output, upscales and stale dimensions.
+    if(!native::HasFullNativeCompositePixels(
+           {src.Width,src.Height},rect,physical))return false;
+    const auto& dst=host.SwapChain()->GetDesc();
+    if(dst.Width!=physical.width || dst.Height!=physical.height)
+      return false;
+    return host.PresentOriginalColor(color,vsync);
+  };
+}
 } // namespace hulk::eor::gpu
 #endif
