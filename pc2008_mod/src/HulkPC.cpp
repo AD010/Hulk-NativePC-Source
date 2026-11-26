@@ -595,8 +595,10 @@ HRESULT STDMETHODCALLTYPE OnPresent(IDirect3DDevice9* dev,const RECT* a,
     countedDevice=dev;
     frames=0;
     then=now;
-    if(!QueryPerformanceFrequency(&frequency) || frequency.QuadPart<=0)
+    if(!QueryPerformanceFrequency(&frequency) || frequency.QuadPart<=0) {
+      frequency.QuadPart=0;
       return realPresent(dev,a,b,c,d);
+    }
   }
   if(++frames>=300) {
     const double seconds=double(now.QuadPart-then.QuadPart)/frequency.QuadPart;
