@@ -1,4 +1,5 @@
 #include "eor_win32_vulkan_host.h"
+#include "eor_native_present_contract.h"
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -8,6 +9,8 @@
 #include "DeviceContext.h"
 #include "RenderDevice.h"
 #include "SwapChain.h"
+#include "Texture.h"
+#include "TextureView.h"
 #include <memory>
 #include <utility>
 
@@ -68,7 +71,10 @@ bool EorWin32VulkanHost::Create(void* window) noexcept {
     Diligent::SwapChainDesc desc{};
     desc.Width=static_cast<Diligent::Uint32>(rect.right-rect.left);
     desc.Height=static_cast<Diligent::Uint32>(rect.bottom-rect.top);
-    desc.ColorBufferFormat=Diligent::TEX_FORMAT_RGBA8_UNORM;
+    // Prefer the actual BGRA8 Win32/Vulkan surface format, also observed
+    // as vkFormat=44 on the owner's RTX 5070 Ti. Exact-copy presentation
+    // still compares the real allocated formats and never guesses.
+    desc.ColorBufferFormat=Diligent::TEX_FORMAT_BGRA8_UNORM;
     desc.DepthBufferFormat=Diligent::TEX_FORMAT_UNKNOWN;
     desc.BufferCount=3;
     desc.Usage=Diligent::SWAP_CHAIN_USAGE_RENDER_TARGET;
@@ -123,6 +129,60 @@ bool EorWin32VulkanHost::Present(bool vsync) noexcept {
     state_->swapchain->Present(vsync?1u:0u);
     return true;
   } catch (...) {return false;}
+}
+bool EorWin32VulkanHost::PresentOriginalColor(
+    Diligent::ITextureView* source,bool vsync) noexcept {
+  if(!state_ || !source || !source->GetTexture() ||
+     !IsWindow(state_->hwnd))return false;
+  PhysicalClientPixels physical;
+  RECT rect{};
+  if(!GetClientRect(state_->hwnd,&rect) ||
+     rect.right<=rect.left || rect.bottom<=rect.top)return false;
+  try {
+    const auto& desc=state_->swapchain->GetDesc();
+    if(desc.Width!=static_cast<Diligent::Uint32>(rect.right-rect.left) ||
+       desc.Height!=static_cast<Diligent::Uint32>(rect.bottom-rect.top))
+      return false; // the next frame must handle the resize
+    auto* current=state_->swapchain->GetCurrentBackBufferRTV();
+    if(!current || !current->GetTexture())return false;
+    const auto& src=source->GetTexture()->GetDesc();
+    const auto& dst=current->GetTexture()->GetDesc();
+    const auto from=NativeColorSurface{
+        src.Width,src.Height,static_cast<uint32_t>(src.Format),
+        static_cast<uint32_t>(source->GetDesc().Format),
+        src.SampleCount,src.ArraySize,src.MipLevels,
+        source->GetDesc().ViewType==Diligent::TEXTURE_VIEW_SHADER_RESOURCE,
+        source->GetDesc().ViewType==Diligent::TEXTURE_VIEW_RENDER_TARGET};
+    const auto to=NativeColorSurface{
+        dst.Width,dst.Height,static_cast<uint32_t>(dst.Format),
+        static_cast<uint32_t>(current->GetDesc().Format),
+        dst.SampleCount,dst.ArraySize,dst.MipLevels,
+        false,true};
+    const auto path=SelectNativeColorPresentPath(
+        from,to,source->GetTexture()==current->GetTexture());
+    if(path==NativeColorPresentPath::Reject)return false;
+    // A prior native Draw may still have the backbuffer bound as RTV.
+    // Detach without discarding its contents; it is already complete.
+    state_->context->SetRenderTargets(0,nullptr,nullptr,
+        Diligent::RESOURCE_STATE_TRANSITION_MODE_NONE);
+    if(path==NativeColorPresentPath::ExactCopy) {
+      Diligent::CopyTextureAttribs copy{};
+      copy.pSrcTexture=source->GetTexture();
+      copy.pDstTexture=current->GetTexture();
+      copy.SrcTextureTransitionMode=
+          Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION;
+      copy.DstTextureTransitionMode=
+          Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION;
+      state_->context->CopyTexture(copy);
+    }
+    // This method is the exclusive independent physical presenter;
+    // it is never invoked from NativeX's existing FinishPresent worker.
+    state_->swapchain->Present(vsync?1u:0u);
+    return true;
+  } catch (...) {
+    // A failed GPU copy is NOT permission to present an older guest frame.
+    return false;
+  }
 }
 void EorWin32VulkanHost::Shutdown() noexcept {
   if(!state_)return;

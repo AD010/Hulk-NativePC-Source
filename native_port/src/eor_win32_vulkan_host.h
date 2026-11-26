@@ -10,6 +10,7 @@ namespace Diligent {
 struct IRenderDevice;
 struct IDeviceContext;
 struct ISwapChain;
+struct ITextureView;
 }
 namespace hulk::eor::gpu {
 class EorWin32VulkanHost final {
@@ -20,10 +21,15 @@ class EorWin32VulkanHost final {
   EorWin32VulkanHost& operator=(const EorWin32VulkanHost&)=delete;
 
   // Source is an actual Win32 game HWND. The native host is its exclusive
-  // Vulkan swapchain owner; its color is RGBA8 UNORM (no guest gamma pass).
+  // Vulkan swapchain owner; its color is the native surface format (no guest gamma pass).
   bool Create(void* hwnd) noexcept;
   bool ResizeToClient() noexcept;
   bool Present(bool vsync) noexcept;
+  // A verified EoR backend must hand off its actual fully resolved,
+  // physical-sized color target. Copy exact Vulkan pixels (or accept an
+  // already-rendered native backbuffer), then ONE physical Present.
+  // No Xenos/EDRAM, NativeX blitter, guest upscaling or second swapchain.
+  bool PresentOriginalColor(Diligent::ITextureView* source,bool vsync) noexcept;
   void Shutdown() noexcept;
 
   Diligent::IRenderDevice* Device() const noexcept;
