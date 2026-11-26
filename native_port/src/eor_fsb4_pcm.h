@@ -1,6 +1,6 @@
 #pragma once
-// Decode source-owned FMOD Ex FSB4 *PCM16* entries for the native x64
-// XAudio2 backend. Compressed XMA/IMA/MPEG banks are deliberately rejected:
+// Decode source-owned FMOD Ex FSB4 8/16-bit PCM entries for the native x64
+// XAudio2 PCM16 backend. Compressed XMA/IMA/MPEG banks are deliberately rejected:
 // reading their sample bytes as PCM would produce garbage/noise.
 #include "eor_native_audio_xaudio2.h"
 #include <cstddef>
@@ -62,15 +62,21 @@ inline std::optional<DecodedFsbPcm16> DecodeFsb4Pcm16(
     }
     if(uint64_t(data_offset)+payload_bytes>uint64_t(48)+headers+bytes)return {};
     if(i==ordinal) {
-      // FSOUND_16BITS, no unsigned/Delta/IT/IMA/VAG/XMA/GCADPCM.
-      // A supported payload must contain exactly frame_count*channels
-      // little-endian 16-bit samples, not a padded compressed stream.
-      constexpr uint32_t unsupported=0x00000e80u|0x00400000u|
+      // Source FMOD may store ordinary signed 16-bit or signed/unsigned
+      // 8-bit PCM in FSB4. Convert either to the native XAudio2 PCM16 host
+      // buffer. Never interpret delta/IT/IMA/VAG/XMA/GCADPCM as PCM.
+      constexpr uint32_t compressed=0x00000e00u|0x00400000u|
           0x00800000u|0x01000000u|0x02000000u|0x04000000u;
-      if(!(mode&0x10u) || (mode&unsupported) ||
+      const bool pcm8=(mode&0x08u)!=0;
+      const bool pcm16=(mode&0x10u)!=0;
+      const bool is_unsigned=(mode&0x80u)!=0;
+      const bool is_signed=(mode&0x100u)!=0;
+      if(pcm8==pcm16 || (mode&compressed) ||
+         (pcm8 && (is_unsigned==is_signed)) ||
+         (pcm16 && (is_unsigned || !is_signed)) ||
          !frame_count || (channels!=1 && channels!=2) ||
          frame_count>1048576u/channels ||
-         uint64_t(frame_count)*channels*2u!=payload_bytes)
+         uint64_t(frame_count)*channels*(pcm8?1u:2u)!=payload_bytes)
         return {};
       DecodedFsbPcm16 result;
       result.sample_rate=rate;
@@ -78,12 +84,20 @@ inline std::optional<DecodedFsbPcm16> DecodeFsb4Pcm16(
       result.pcm.reserve(size_t(frame_count)*channels);
       const bool big_endian=(flags&0x8u)!=0;
       for(uint32_t n=0;n<frame_count*channels;++n) {
-        const auto a=std::to_integer<uint8_t>(fsb[size_t(data_offset)+2u*n]);
-        const auto b=std::to_integer<uint8_t>(fsb[size_t(data_offset)+2u*n+1u]);
-        const uint16_t word=big_endian?(uint16_t(a)<<8|b):
-                                  (uint16_t(b)<<8|a);
-        result.pcm.push_back(static_cast<int16_t>(
-            word<0x8000u?int32_t(word):int32_t(word)-65536));
+        if(pcm8) {
+          const auto sample=std::to_integer<uint8_t>(
+              fsb[size_t(data_offset)+n]);
+          const int32_t centered=is_unsigned?int32_t(sample)-128:
+              (sample<128u?int32_t(sample):int32_t(sample)-256);
+          result.pcm.push_back(static_cast<int16_t>(centered*256));
+        } else {
+          const auto a=std::to_integer<uint8_t>(fsb[size_t(data_offset)+2u*n]);
+          const auto b=std::to_integer<uint8_t>(fsb[size_t(data_offset)+2u*n+1u]);
+          const uint16_t word=big_endian?(uint16_t(a)<<8|b):
+                                    (uint16_t(b)<<8|a);
+          result.pcm.push_back(static_cast<int16_t>(
+              word<0x8000u?int32_t(word):int32_t(word)-65536));
+        }
       }
       if(!ValidPcm16(result.pcm,rate,channels))return {};
       return result;
