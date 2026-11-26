@@ -187,7 +187,8 @@ if(HULK_NATIVE_EOR_VULKAN_ONLY)
         src/eor_diligent_spirv_shaders.cpp
         src/eor_diligent_original_pipeline.cpp
         src/eor_diligent_aot_backend.cpp
-        src/eor_diligent_texture_residency.cpp)
+        src/eor_diligent_texture_residency.cpp
+        src/eor_native_frame_executor.cpp)
     target_include_directories(hulk_eor_native_gpu PUBLIC
         "${CMAKE_CURRENT_SOURCE_DIR}/src")
     target_link_libraries(hulk_eor_native_gpu PUBLIC
