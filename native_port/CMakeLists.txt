@@ -93,12 +93,12 @@ endif()
 # library. The very same target can be compiled independently of the XEX,
 # ReXGlue runtime and NativeX. No substitute renderer or second game EXE.
 function(hulk_add_eor_vulkan_host_target)
-    add_library(hulk_eor_win32_vulkan_host STATIC src/eor_win32_vulkan_host.cpp)
+    add_library(hulk_eor_win32_vulkan_host STATIC src/eor_win32_vulkan_host.cpp src/eor_vulkan_color_transfer.cpp)
     target_include_directories(hulk_eor_win32_vulkan_host PUBLIC
         "${CMAKE_CURRENT_SOURCE_DIR}/src")
     target_link_libraries(hulk_eor_win32_vulkan_host PUBLIC
-        Diligent-GraphicsEngineVk-static Diligent-GraphicsEngineInterface
-        Diligent-Common)
+        Diligent-GraphicsEngineVk-static Diligent-GraphicsEngineVkInterface
+        Diligent-Common PRIVATE volk::volk Vulkan::Headers)
 endfunction()
 
 # This is a host library build, not a second game executable or a release.

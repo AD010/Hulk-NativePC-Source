@@ -1,4 +1,5 @@
 // Offscreen Vulkan integration. Supply the original USA INDEX.IND and TEXTURES.ARC.
+#include "eor_vulkan_color_transfer.h"
 #include "eor_diligent_texture_residency.h"
 #include "eor_diligent_original_pipeline.h"
 #include "eor_diligent_aot_backend.h"
@@ -249,6 +250,35 @@ static void VerifyFillRectRegisters(IRenderDevice* device,IDeviceContext* contex
   std::cout<<"Original FillRect PS c21 matched both draws and all 2048 pixels\n";
 }
 
+// Channel order, row orientation, physical edges and alpha must survive
+// presentation with the production bytecode-only Vulkan build.
+static void VerifyNativeColorTransfer(IRenderDevice* device,IDeviceContext* context) {
+  eor::gpu::VulkanColorTransfer transfer;
+  if(!transfer.Initialize(device,context))throw std::runtime_error("Native color transfer unavailable");
+  TextureDesc desc{};
+  desc.Type=RESOURCE_DIM_TEX_2D;
+  desc.Width=31;desc.Height=17;
+  desc.MipLevels=1;desc.Format=TEX_FORMAT_RGBA8_UNORM;
+  desc.BindFlags=BIND_SHADER_RESOURCE;
+  std::vector<uint8_t> rgba(desc.Width*desc.Height*4);
+  for(size_t i=0;i<rgba.size();++i)rgba[i]=uint8_t(i*73u+i/11u);
+  TextureSubResData pixels{rgba.data(),desc.Width*4};
+  TextureData initial{&pixels,1};
+  RefCntAutoPtr<ITexture> source,converted;
+  device->CreateTexture(desc,&initial,&source);
+  desc.Format=TEX_FORMAT_BGRA8_UNORM;
+  desc.BindFlags=BIND_RENDER_TARGET;
+  device->CreateTexture(desc,nullptr,&converted);
+  if(!source || !converted ||
+     !transfer.Copy(source->GetDefaultView(TEXTURE_VIEW_SHADER_RESOURCE),
+                    converted->GetDefaultView(TEXTURE_VIEW_RENDER_TARGET)))
+    throw std::runtime_error("Native RGBA8 to BGRA8 conversion failed");
+  const auto result=ReadPixels(device,context,converted);
+  for(size_t i=0;i<rgba.size();i+=4)std::swap(rgba[i],rgba[i+2]);
+  if(result.size()!=rgba.size() || std::memcmp(result.data(),rgba.data(),rgba.size())!=0)
+    throw std::runtime_error("Native color transfer changed physical pixel values");
+}
+
 // Real GPU readback of the production target graph. Separate owner IDs
 // must retain distinct contents across intermediate Resolve and final output.
 static void VerifySequentialTargets(IRenderDevice* device,IDeviceContext* context) {
@@ -298,9 +328,12 @@ static void VerifySequentialTargets(IRenderDevice* device,IDeviceContext* contex
   // destination region and update only its 16x8 bottom-right corner.
   clear.color={0,0,1,1};
   const eor::xdk::OriginalResolveRegion region{{0,0,16,8},{16,8}};
-  if(!scene.ClearVerifiedOriginalXdk(clear,{w/2,h/2}) ||
-     !scene.SetOriginalDepthTarget(6) ||
-     scene.ClearVerifiedOriginalXdk(clear,{w/2,h/2}) ||
+  auto combined=clear;
+  combined.flags=0x11;
+  combined.color={0,1,0,1};
+  if(!scene.SetOriginalDepthTarget(6) ||
+     !scene.ClearVerifiedOriginalXdk(clear,{w/2,h/2}) ||
+     scene.ClearVerifiedOriginalXdk(combined,{w/2,h/2}) ||
      !scene.ResolveOriginalIntermediate(4,region) ||
      !scene.SetOriginalColorTarget(3))
     throw std::runtime_error("Partial FP16 MSAA Resolve failed");
@@ -988,6 +1021,7 @@ int main(int argc,char** argv) {
     if (!device || !context) throw std::runtime_error("Vulkan device unavailable");
     std::cout<<device->GetAdapterInfo().Description<<'\n';
     if(argc==2 && std::strcmp(argv[1],"--mixed-targets")==0) {
+      VerifyNativeColorTransfer(device,context);
       VerifySequentialTargets(device,context);
       return 0;
     }

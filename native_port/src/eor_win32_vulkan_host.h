@@ -32,6 +32,8 @@ class EorWin32VulkanHost final {
   // already-rendered native backbuffer), then ONE physical Present.
   // No Xenos/EDRAM, NativeX blitter, guest upscaling or second swapchain.
   bool PresentOriginalColor(Diligent::ITextureView* source,bool vsync) noexcept;
+  bool CompositeOriginalColor(Diligent::ITextureView* source,native::Rect rect,
+                              native::Size physical,bool vsync) noexcept;
   void Shutdown() noexcept;
 
   Diligent::IRenderDevice* Device() const noexcept;

@@ -44,6 +44,7 @@ if(HULK_DILIGENT_CORE)
     enable_language(C)
     add_subdirectory("${HULK_DILIGENT_CORE}" diligent EXCLUDE_FROM_ALL)
     add_executable(hulk_original_ui_vulkan_test eor_vulkan_original_ui_test.cpp
+        ../src/eor_vulkan_color_transfer.cpp
         ../src/eor_archive.cpp ../src/eor_usa_index.cpp ../src/eor_ui_original_dds.cpp
         ../src/eor_original_virtual_shader_identity.cpp
         ../src/eor_original_texture_usa.cpp ../src/eor_original_texture_assets.cpp
@@ -60,7 +61,7 @@ if(HULK_DILIGENT_CORE)
     target_compile_features(hulk_original_ui_vulkan_test PRIVATE cxx_std_23)
     target_include_directories(hulk_original_ui_vulkan_test PRIVATE ../src)
     target_link_libraries(hulk_original_ui_vulkan_test PRIVATE
-        Diligent-GraphicsEngineVk-static Diligent-GraphicsEngineVkInterface Diligent-Common)
+        Diligent-GraphicsEngineVk-static Diligent-GraphicsEngineVkInterface Diligent-Common volk::volk Vulkan::Headers)
     add_test(NAME original_mixed_targets_vulkan COMMAND hulk_original_ui_vulkan_test --mixed-targets)
     add_executable(hulk_original_pipeline_key_test eor_original_pipeline_key_test.cpp)
     target_compile_features(hulk_original_pipeline_key_test PRIVATE cxx_std_20)
