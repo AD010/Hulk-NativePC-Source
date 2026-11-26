@@ -272,6 +272,10 @@ struct VerifiedWorkerEorOwnerCatalog {
   // A valid live target graph differs from this scene, e.g. entering or
   // leaving the original pause menu. Do not wait a normal refresh period.
   std::function<bool()> needs_target_rebuild;
+  // Optional built-in native GPU completion owner. It owns a real Vulkan
+  // fence and retains staged original Draw/font buffers until GPU work
+  // finishes; external source catalogues keep their existing safe path.
+  std::function<bool(uint64_t)> submit_original_gpu_frame;
 };
 bool InstallVerifiedWorkerEorOwnerCatalog(
     std::shared_ptr<const VerifiedWorkerEorOwnerCatalog> catalog);

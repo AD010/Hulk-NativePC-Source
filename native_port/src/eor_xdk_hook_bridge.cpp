@@ -20,6 +20,8 @@
 #include "Buffer.h"
 #include "RenderDevice.h"
 #include "DeviceContext.h"
+#include "Fence.h"
+#include "RefCntAutoPtr.hpp"
 #include "ShaderResourceVariable.h"
 #include "eor_original_font_source.h"
 #include "eor_native_world_stream.h"
@@ -34,7 +36,9 @@
 #include <chrono>
 #include <array>
 #include <cstring>
+#include <deque>
 #include <exception>
+#include <stdexcept>
 #include <filesystem>
 #include <fstream>
 #include <cstdint>
@@ -2632,6 +2636,75 @@ struct AutomaticEorResources {
 // catalogue; only the existing sole Vulkan worker may read or replace it.
 thread_local std::weak_ptr<AutomaticEorResources> g_automatic_resources;
 
+// A per-owner GPU timeline replaces the forced vkQueueWaitIdle on EACH
+// correctly submitted EoR frame. Every dynamic font/physics debris Draw
+// keeps its original host VB/IB, PSO and shader bindings alive until the
+// actual Vulkan fence completes. This is not an elapsed-frame heuristic.
+struct OriginalEorGpuCompletion {
+  Diligent::RefCntAutoPtr<Diligent::IDeviceContext> context;
+  Diligent::RefCntAutoPtr<Diligent::IFence> fence;
+  gpu::DiligentEorDirectBackend* backend=nullptr; // owned by AutomaticEorOwner
+  std::deque<std::pair<uint64_t,uint64_t>> in_flight; // fence value, source frame
+  uint64_t last_signal=0;
+  OriginalEorGpuCompletion(Diligent::IRenderDevice* device,
+      Diligent::IDeviceContext* worker,gpu::DiligentEorDirectBackend* gpu)
+      :context(worker),backend(gpu) {
+    if(device) {
+      Diligent::FenceDesc desc{};
+      desc.Name="Original EoR native in-flight Draw retirement";
+      desc.Type=Diligent::FENCE_TYPE_CPU_WAIT_ONLY;
+      // A backend without fences falls back to the existing completion
+      // barrier. It must never fake GPU completion to release live VBs.
+      try {device->CreateFence(desc,&fence);} catch (...) {fence.Release();}
+    }
+  }
+  void Poll() {
+    if(!fence || !backend)return;
+    const auto completed=fence->GetCompletedValue();
+    uint64_t safe=0;
+    while(!in_flight.empty() && in_flight.front().first<=completed) {
+      safe=in_flight.front().second;
+      in_flight.pop_front();
+    }
+    if(safe)backend->RetireCompletedOriginalFontDraws(safe);
+  }
+  bool Submit(uint64_t original_frame) {
+    if(!context || !backend || !original_frame)return false;
+    if(!fence) {
+      context->Flush();
+      context->WaitForIdle();
+      backend->RetireCompletedOriginalFontDraws(original_frame);
+      return true;
+    }
+    if(last_signal==UINT64_MAX)return false;
+    // The worker and its immediate Vulkan context are single-threaded.
+    // Signal AFTER the last EoR Draw/Resolve/Composite, flush and check
+    // actual completion only; never free by source Present sequence alone.
+    const uint64_t value=last_signal+1;
+    context->EnqueueSignal(fence,value);
+    context->Flush();
+    last_signal=value;
+    in_flight.emplace_back(value,original_frame);
+    Poll();
+    if(in_flight.size()>3) {
+      // Bound VRAM and transient font allocations on a heavily loaded GPU.
+      // Only a real queue backlog needs the expensive completion barrier.
+      context->WaitForIdle();
+      Poll();
+    }
+    return true;
+  }
+  ~OriginalEorGpuCompletion() noexcept {
+    if(in_flight.empty() || !context)return;
+    try {
+      context->Flush();
+      context->WaitForIdle();
+      Poll(); // original backend is still alive: member destruction order
+    } catch (...) {
+      // On device loss keep references until the existing device teardown.
+    }
+  }
+};
 struct AutomaticEorOwner {
   std::shared_ptr<AutomaticEorResources> resources;
   const OfflineShaderPack& pack;
@@ -2645,6 +2718,7 @@ struct AutomaticEorOwner {
   std::shared_ptr<world::NativeWorldStream> source_models;
   std::shared_ptr<world::OriginalMaterialCandidateIndex> candidates;
   std::unique_ptr<gpu::DiligentEorDirectBackend> backend;
+  std::unique_ptr<OriginalEorGpuCompletion> gpu_completion;
   gpu::live::ScalarAnalysisCache& scalar_analysis;
   uint64_t checked_sequence=0;
   native::Size checked_size{};
@@ -2699,6 +2773,8 @@ struct AutomaticEorOwner {
         contract.output,contract.format,std::vector<gpu::NativeEorPassResources>{},
         std::vector<gpu::NativeEorDrawBuffers>{},std::move(bind),
         gpu::BindNativeEorVulkanBackbuffer(host_output));
+    gpu_completion=std::make_unique<OriginalEorGpuCompletion>(
+        host.device(),host.context(),backend.get());
   }
   bool Accepts(const Frame& frame,native::Size size) {
     // A claimed source frame is immutable. Factory refresh, early worker
@@ -2980,6 +3056,9 @@ std::shared_ptr<const VerifiedWorkerEorOwnerCatalog> BuildAutomaticOriginalOwner
     catch (...) {return false;}
   };
   catalog->needs_target_rebuild=[owned] {return owned->checked_rebuild;};
+  catalog->submit_original_gpu_frame=[owned](uint64_t frame) {
+    return owned->gpu_completion && owned->gpu_completion->Submit(frame);
+  };
   // The new backend was constructed against this exact source contract.
   owned->checked_sequence=source->sequence;
   owned->checked_size=backbuffer;
@@ -3247,21 +3326,20 @@ native_x_renderer::HulkEorPresentResult ReplayVerifiedMixedOriginalFrame(
     aot::ReplayAotScene(owner->output,prepared.ordered,
         *pack.shaders,*pack.effects,*pack.reflection,*owner->gpu,
         snapshot.get(),&began_gpu);
-    // The original resident-model owner and transient glyph GPU buffers
-    // must survive the host graphics completion fence. NativeX exposes
-    // no verified per-source fence to this bridge yet: use the existing
-    // Vulkan context's actual completion barrier rather than destroying
-    // still-in-flight resources. This costs CPU/GPU overlap for now; it
-    // does NOT alter guest Havok or forge a second window Present.
-    // The graphics queue now owns this source submission; never free its
-    // buffer by the pre-BeginScene discard path, even if WaitForIdle fails.
+    // GPU owns every source-authenticated Draw until the real Diligent
+    // fence, not just its CPU Present ordinal. Normal frames enqueue a
+    // signal and return immediately; a bounded backlog alone waits idle.
+    // The old synchronous completion path remains for external catalogue
+    // implementations that cannot provide an explicit completion fence.
     staged.active=false;
-    // WaitForIdle only covers commands already submitted to Vulkan. Flush
-    // the current immediate context first; otherwise transient UI buffers
-    // may be freed before the glyph DrawIndexed has reached the GPU queue.
-    host.context()->Flush();
-    host.context()->WaitForIdle();
-    owner->direct_gpu->RetireCompletedOriginalFontDraws(source_sequence);
+    if(owner->submit_original_gpu_frame) {
+      if(!owner->submit_original_gpu_frame(source_sequence))
+        throw std::runtime_error("Original EoR Vulkan frame fence submission failed");
+    } else {
+      host.context()->Flush();
+      host.context()->WaitForIdle();
+      owner->direct_gpu->RetireCompletedOriginalFontDraws(source_sequence);
+    }
     g_eor_ready_backbuffers.fetch_add(1,std::memory_order_relaxed);
     return Result::kBackbufferReady;
   } catch (...) {
