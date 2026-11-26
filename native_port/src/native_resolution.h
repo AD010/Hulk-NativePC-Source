@@ -15,6 +15,10 @@ namespace hulk::display {
 struct WindowPreset {
   std::string_view label;
   uint32_t width, height;
+
+  constexpr std::string_view Dimensions() const noexcept {
+    return label.substr(0,label.find(' '));
+  }
 };
 
 inline constexpr std::array<WindowPreset, 17> kWindowPresets = {{

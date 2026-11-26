@@ -3,6 +3,7 @@
 #include "../native_port/src/native_game_data_root_store.h"
 #include "../native_port/src/native_pc_menu_actions.h"
 #include "../native_port/src/native_pc_menu_rows.h"
+#include "../native_port/src/eor_original_pc_menu.h"
 #include "../native_port/src/native_pc_bindings.h"
 #include "../native_port/src/native_resolution.h"
 #include "../native_port/src/native_camera_projection.h"
@@ -315,6 +316,37 @@ int main() {
          persisted.find("fullscreen = true")!=std::string::npos &&
          persisted.find("vsync = false")!=std::string::npos,
          "Shared menu changes were not persisted");
+  {
+    using namespace hulk::eor::ui;
+    OriginalPcStorageMenu menu;
+    PcMenuVisual visual;
+    auto paint=[&](const PcMenuVisual& frame){visual=frame;return true;};
+    bool muted=false;
+    auto read=[&](std::string_view key) -> std::string {
+      if(key=="window_size")return "1920x1200";
+      return key=="audio_mute" && muted?"true":"false";
+    };
+    auto action=[&](std::string_view key,std::string_view value){
+      return hulk::options::CommitLivePcMenuValue(key,value,
+          [&](std::string_view k,std::string_view v){
+            Expect(k=="audio_mute","Restart-only setting applied while navigating");
+            muted=v=="true";return true;
+          });
+    };
+    auto event=[&](PcEvent ev){return menu.Handle(10,20,ev,true,paint,read,action);};
+    Expect(menu.Enter(10,20,paint) && event(PcEvent::Select) && event(PcEvent::Down),
+           "Original settings page did not select its resolution row");
+    Expect(event(PcEvent::Increase) && visual.compact.find("2560x1600 (restart)")!=std::string::npos,
+           "Original resolution action did not display its pending setting");
+    const auto text=Read(config);
+    Expect(text.find("window_width = 2560")!=std::string::npos &&
+           text.find("window_height = 1600")!=std::string::npos &&
+           text.find("window_size =")==std::string::npos,"Resolution transaction malformed");
+    Expect(event(PcEvent::Select) && visual.title.starts_with("Controls") &&
+           event(PcEvent::Select) && visual.title.starts_with("Audio") &&
+           event(PcEvent::Increase) && muted,"Original audio page failed to apply mute");
+    Expect(event(PcEvent::Back) && visual.count==0,"Original settings page failed to return");
+  }
   hulk::options::PcMenuPageSession page;
   unsigned bind_rows=0;
   for(const auto& row:hulk::options::kPcMenuRows)

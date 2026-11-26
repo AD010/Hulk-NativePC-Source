@@ -378,7 +378,14 @@ void DispatchOriginalPcMenu(PPCContext& ctx,uint8_t* base,PPCFunc* original,[[ma
         const auto selector=api.Find(row->object,ui::kSelectorChild);
         const bool focused=selector && scratch.Hidden(selector->object,read)==std::optional<bool>{false};
         return g_original_pc_storage_menu.Handle(event->root,row->object,event->event,focused,
-          paint,[](std::string_view key){return rex::cvar::GetFlagByName(std::string(key));},
+          paint,[](std::string_view key){
+            if(key=="window_size") {
+              const auto w=rex::cvar::Query<int32_t>("window_width");
+              const auto h=rex::cvar::Query<int32_t>("window_height");
+              return w>0 && h>0?std::to_string(w)+"x"+std::to_string(h):std::string{"Default"};
+            }
+            return rex::cvar::GetFlagByName(std::string(key));
+          },
           [](std::string_view key,std::string_view value){
             return options::CommitLivePcMenuValue(key,value,[](std::string_view k,std::string_view v){
               return rex::cvar::SetFlagByName(std::string(k),std::string(v));});

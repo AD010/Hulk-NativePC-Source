@@ -5,6 +5,7 @@
 #include "native_pc_options_store.h"
 #include "native_pc_bindings.h"
 #include "native_audio_options.h"
+#include "native_resolution.h"
 
 namespace hulk::options {
 struct PcMenuCommitResult {
@@ -29,6 +30,12 @@ PcMenuCommitResult CommitPcMenuValue(std::string_view key,std::string_view value
 }
 template<class Apply>
 PcMenuCommitResult CommitLivePcMenuValue(std::string_view key,std::string_view value,Apply&& apply) {
+  if(key=="window_size") {
+    for(const auto& preset:display::kWindowPresets)
+      if(value==preset.Dimensions())
+        return {SaveLiveWindowSize(preset.width,preset.height),false};
+    return {};
+  }
   return CommitPcMenuValue(key,value,SaveLiveOption,apply);
 }
 } // namespace hulk::options

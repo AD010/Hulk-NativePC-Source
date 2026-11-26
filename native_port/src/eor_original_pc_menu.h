@@ -87,25 +87,32 @@ std::optional<PcSettingsEvent> CapturePcSettingsEvent(uint32_t root,uint32_t con
   if(!VerifySettingsEventAbi(read))return {};
   return PcSettingsEvent{root,context,id->definition,event};
 }
-inline constexpr std::string_view kPcEntryText="PC Graphics / Controls";
+inline constexpr std::string_view kPcEntryText="PC Graphics / Controls / Audio";
 // Do not rebind the keys driving this same native menu while it is open.
 // Gameplay bindings, camera, display and graphics are editable here.
-inline bool PcStorageRowOption(const options::PcMenuRow& row,bool controls) noexcept {
+enum class PcSettingsSection { Entry, Graphics, Controls, Audio };
+inline bool PcStorageRowOption(const options::PcMenuRow& row,PcSettingsSection section) noexcept {
   using S=options::PcMenuSection;using K=options::PcMenuRowKind;
-  if(controls) {
+  if(section==PcSettingsSection::Audio)return row.section==S::Audio && row.kind==K::Choice;
+  if(section==PcSettingsSection::Controls) {
     if(row.section!=S::Controls)return false;
     const std::string_view key=row.key;
     return key!="hulk_bind_confirm" && key!="hulk_bind_back" &&
         key!="hulk_bind_alt_back" && key!="hulk_bind_start" &&
         key!="hulk_bind_select" && !key.starts_with("hulk_bind_menu_");
   }
-  return (row.section==S::Display || row.section==S::Graphics ||
+  return section==PcSettingsSection::Graphics && (row.section==S::Display || row.section==S::Graphics ||
           row.section==S::PostProcessing || row.section==S::Enhancements) &&
-         (row.kind==K::Choice || row.kind==K::Number);
+         (row.kind==K::Choice || row.kind==K::Number || row.kind==K::WindowSize);
 }
 inline std::vector<std::string_view> PcStorageChoices(const options::PcMenuRow& row) {
   using K=options::PcMenuRowKind;
   if(row.kind==K::Binding)return {options::kBindingTokens.begin(),options::kBindingTokens.end()};
+  if(row.kind==K::WindowSize) {
+    std::vector<std::string_view> sizes;
+    for(const auto& preset:display::kWindowPresets)sizes.push_back(preset.Dimensions());
+    return sizes;
+  }
   if(row.kind==K::Number) {
     if(std::string_view(row.key)=="native_x_renderer_sharpness")
       return {"0.0","0.1","0.2","0.3","0.4","0.5"};
@@ -143,7 +150,7 @@ inline std::string_view PcStorageNextValue(const options::PcMenuRow& row,
 // freshly authenticated native row visibility and selector focus.
 class OriginalPcStorageMenu {
  public:
-  void Leave() noexcept {owner_=row_=0;mode_=0;cursor_=0;}
+  void Leave() noexcept {owner_=row_=0;section_=PcSettingsSection::Entry;cursor_=0;}
   bool Owns(uint32_t owner,uint32_t row) const noexcept {
     return owner_ && row_ && owner_==owner && row_==row;
   }
@@ -156,19 +163,24 @@ class OriginalPcStorageMenu {
   bool Handle(uint32_t owner,uint32_t row,PcEvent event,bool focused,
       Paint&& paint,ReadValue&& read_value,Commit&& commit) {
     if(!Owns(owner,row))return false;
-    if(!focused) {if(mode_) {mode_=0;cursor_=0;(void)PaintPcMenuEntry(paint,kPcEntryText);}return false;}
-    if(!mode_) {
+    if(!focused) {if(section_!=PcSettingsSection::Entry) {section_=PcSettingsSection::Entry;cursor_=0;(void)PaintPcMenuEntry(paint,kPcEntryText);}return false;}
+    if(section_==PcSettingsSection::Entry) {
       if(event!=PcEvent::Select)return false;
-      mode_=1;cursor_=0;
+      section_=PcSettingsSection::Graphics;cursor_=0;
     } else if(event==PcEvent::Back) {
       if(!PaintPcMenuEntry(paint,kPcEntryText))return false;
-      mode_=0;cursor_=0;return true;
+      section_=PcSettingsSection::Entry;cursor_=0;return true;
     } else if(event==PcEvent::Select) {
-      mode_=mode_==1?2:1;cursor_=0;
+      switch(section_) {
+        case PcSettingsSection::Graphics:section_=PcSettingsSection::Controls;break;
+        case PcSettingsSection::Controls:section_=PcSettingsSection::Audio;break;
+        default:section_=PcSettingsSection::Graphics;break;
+      }
+      cursor_=0;
     } else if(event!=PcEvent::Up && event!=PcEvent::Down &&
               event!=PcEvent::Increase && event!=PcEvent::Decrease)return false;
     std::vector<const options::PcMenuRow*> rows;
-    for(const auto& r:options::kPcMenuRows)if(PcStorageRowOption(r,mode_==2))rows.push_back(&r);
+    for(const auto& r:options::kPcMenuRows)if(PcStorageRowOption(r,section_))rows.push_back(&r);
     if(rows.empty()){Leave();return false;}
     cursor_%=rows.size();
     if(event==PcEvent::Up)cursor_=(cursor_+rows.size()-1)%rows.size();
@@ -189,7 +201,9 @@ class OriginalPcStorageMenu {
         }
       }
     }
-    std::string text=mode_==1?"Graphics ":"Controls ";
+    const char* title=section_==PcSettingsSection::Graphics?"Graphics ":
+        section_==PcSettingsSection::Controls?"Controls ":"Audio ";
+    std::string text=title;
     text+=std::to_string(cursor_+1)+"/"+std::to_string(rows.size())+": ";
     text+=selected.label;text+=" = ";text+=value;
     if(failed)text+=" (save failed)";
@@ -197,7 +211,7 @@ class OriginalPcStorageMenu {
     PcMenuVisual frame;frame.compact=text;
     const size_t start=(cursor_/kNativePcPageRows)*kNativePcPageRows;
     frame.count=std::min(kNativePcPageRows,rows.size()-start);
-    frame.title=mode_==1?"Graphics ":"Controls ";
+    frame.title=title;
     frame.title+=std::to_string(start/kNativePcPageRows+1)+"/"+
         std::to_string((rows.size()+kNativePcPageRows-1)/kNativePcPageRows);
     for(size_t i=0;i<frame.count;++i) {
@@ -216,7 +230,7 @@ class OriginalPcStorageMenu {
     Leave();return committed;
   }
  private:
-  uint32_t owner_=0,row_=0;unsigned mode_=0;size_t cursor_=0;
+  uint32_t owner_=0,row_=0;PcSettingsSection section_=PcSettingsSection::Entry;size_t cursor_=0;
   std::map<std::string,std::string,std::less<>> pending_;
 };
 } // namespace hulk::eor::ui

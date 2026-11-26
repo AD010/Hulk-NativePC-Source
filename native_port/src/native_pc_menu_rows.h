@@ -68,6 +68,9 @@ inline constexpr const PcMenuRow* FindPcMenuRow(std::string_view key) noexcept {
   return nullptr;
 }
 inline bool IsPcMenuChoice(const PcMenuRow& row,std::string_view value) noexcept {
+  if(row.kind==PcMenuRowKind::WindowSize)
+    return std::any_of(display::kWindowPresets.begin(),display::kWindowPresets.end(),
+                       [&](const auto& preset){return preset.Dimensions()==value;});
   if(row.kind==PcMenuRowKind::Binding)return IsBindingToken(value);
   if(row.kind==PcMenuRowKind::Number)return !value.empty(); // store verifies finite bounds
   if(row.kind!=PcMenuRowKind::Choice || value.empty())return false;
