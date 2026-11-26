@@ -92,6 +92,15 @@ bool NativeXAudio2Mixer::PlayPcm16(Bus bus,std::span<const int16_t> samples,
   // Bound simultaneous live voices and copy only the source PCM retained by
   // its XAudio2 voice. Caller may release decoded FMOD bank memory at once.
   if(state_->voices.size()>=64u)return false;
+  // One bounded original PCM sample can be long-form dialogue or music.
+  // Cap TOTAL live voice memory as well; dozens of large simultaneous
+  // events must not exhaust RAM or make the game's 3D world stutter.
+  constexpr size_t kMaxLiveVoiceSamples=48u<<20; // 96 MiB PCM16
+  size_t retained=0;
+  for(const auto& active:state_->voices)
+    retained+=active->samples.size();
+  if(retained>kMaxLiveVoiceSamples ||
+     samples.size()>kMaxLiveVoiceSamples-retained)return false;
   auto voice=std::make_unique<State::Voice>();
   voice->bus=bus_id;
   voice->gain=gain;

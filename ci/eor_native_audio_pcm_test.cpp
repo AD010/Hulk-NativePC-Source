@@ -3,6 +3,7 @@
 #include <cassert>
 #include <cstdint>
 #include <iostream>
+#include <vector>
 using namespace hulk::eor::audio;
 int main() {
   constexpr std::array<int16_t,4> stereo{0,1000,-1000,0};
@@ -15,5 +16,9 @@ int main() {
   static_assert(!ValidPcm16(odd,48000,2));
   static_assert(!ValidPcm16(std::span<const int16_t>{},48000,1));
   assert(ValidPcm16(stereo,96000,2));
+  // Valid longer original dialogue/music is not an artificial one-second
+  // clip, while a single decoded allocation remains explicitly bounded.
+  std::vector<int16_t> long_sample(2u<<20);
+  assert(ValidPcm16(long_sample,48000,2));
   std::cout << "Native PCM16 audio buffer contract PASS\n";
 }

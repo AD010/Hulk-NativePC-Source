@@ -75,7 +75,7 @@ inline std::optional<DecodedFsbPcm16> DecodeFsb4Pcm16(
          (pcm8 && (is_unsigned==is_signed)) ||
          (pcm16 && (is_unsigned || !is_signed)) ||
          !frame_count || (channels!=1 && channels!=2) ||
-         frame_count>1048576u/channels ||
+         frame_count>kMaxNativePcmSamples/channels ||
          uint64_t(frame_count)*channels*(pcm8?1u:2u)!=payload_bytes)
         return {};
       DecodedFsbPcm16 result;

@@ -12,11 +12,14 @@
 namespace hulk::eor {class Index;}
 namespace hulk::eor::audio {
 enum class Bus : uint8_t { Music=0, Sfx=1, Dialog=2 };
+// EoR music and longer dialogue samples exceed one million PCM values.
+// Bounded native audio buffers: at most 16 MiB decoded per source voice.
+inline constexpr size_t kMaxNativePcmSamples=8u<<20;
 inline constexpr bool ValidPcm16(std::span<const int16_t> pcm,
     uint32_t sample_rate,uint16_t channels) noexcept {
   return (channels==1u || channels==2u) &&
          sample_rate>=8000u && sample_rate<=96000u &&
-         !pcm.empty() && pcm.size()<=1048576u &&
+         !pcm.empty() && pcm.size()<=kMaxNativePcmSamples &&
          pcm.size()%channels==0u;
 }
 
@@ -36,8 +39,8 @@ class NativeXAudio2Mixer {
   // XMA/ADPCM/MPEG requires its own decoder and is never misplayed as PCM.
   bool PlayFsb4Pcm16(Bus bus,std::span<const std::byte> bank,
                      uint32_t sample_index,float gain=1.f);
-  // Read a genuine WaveBanks resource through the source-authenticated USA
-  // index and native archive I/O; no guest Xbox memory or FMOD x86 DLL.
+  // Read WaveBanks through the selected original PC or USA Xbox 360
+  // index and native ARC I/O; never cross a PC index with Xbox archive bytes.
   bool PlayIndexedWaveBankPcm16(Bus bus,const hulk::eor::Index& index,
       const std::filesystem::path& wavebanks_arc,uint32_t resource_hash,
       uint32_t sample_index,float gain=1.f);
