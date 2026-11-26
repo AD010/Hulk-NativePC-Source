@@ -110,11 +110,25 @@ if(HULK_NATIVE_EOR_VULKAN_ONLY)
     if(NOT WIN32)
         message(FATAL_ERROR "EoR Win32/Vulkan host target requires Windows")
     endif()
-    set(HULK_NATIVE_X_SOURCE_DIR
-        "${CMAKE_CURRENT_SOURCE_DIR}/native_x_renderer" CACHE PATH "Existing DiligentCore checkout")
-    set(_hulk_diligent_source "${HULK_NATIVE_X_SOURCE_DIR}/thirdparty/diligent-core")
+    # DiligentCore is the native Vulkan API backend, not a NativeX runtime.
+    # Accept a standalone existing checkout; retain the old submodule only
+    # as a backward-compatible source location, never as a linked renderer.
+    set(HULK_NATIVE_DILIGENT_SOURCE_DIR "" CACHE PATH
+        "Existing standalone DiligentCore checkout (no NativeX required)")
+    if(HULK_NATIVE_DILIGENT_SOURCE_DIR)
+        set(_hulk_diligent_source "${HULK_NATIVE_DILIGENT_SOURCE_DIR}")
+    elseif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/diligent-core/CMakeLists.txt")
+        set(_hulk_diligent_source "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/diligent-core")
+    else()
+        set(HULK_NATIVE_X_SOURCE_DIR
+            "${CMAKE_CURRENT_SOURCE_DIR}/native_x_renderer" CACHE PATH
+            "Legacy location for already-checked-out DiligentCore")
+        set(_hulk_diligent_source "${HULK_NATIVE_X_SOURCE_DIR}/thirdparty/diligent-core")
+    endif()
     if(NOT EXISTS "${_hulk_diligent_source}/CMakeLists.txt")
-        message(FATAL_ERROR "The existing DiligentCore checkout is required")
+        message(FATAL_ERROR
+            "Native Vulkan requires an existing DiligentCore checkout; "
+            "pass -DHULK_NATIVE_DILIGENT_SOURCE_DIR=... (NativeX is not required)")
     endif()
     add_subdirectory("${_hulk_diligent_source}"
         "${CMAKE_CURRENT_BINARY_DIR}/hulk_native_eor_diligent")
