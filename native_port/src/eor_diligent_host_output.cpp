@@ -158,7 +158,7 @@ bool DiligentEorHostOutput::CompositeAndPresent(
   try {
     // Standalone/direct host ownership only. Do not use this entry when
     // invoked by NativeX's existing worker, which calls FinishPresent().
-    if(native_swapchain_)native_swapchain_->Present(1);
+    if(native_swapchain_)native_swapchain_->Present(native_vsync_?1u:0u);
     else device_->Present();
     ++presented_;
     return true;
