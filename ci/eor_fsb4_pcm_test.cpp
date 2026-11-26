@@ -86,5 +86,31 @@ int main() {
   basic.resize(168);
   Put32(basic,132,0xffffffffu);
   assert(!DecodeFsb4Pcm16(basic,1));
-  std::cout << "Original FSB4 PCM16 to native audio contract PASS\n";
+
+  // Unsigned 8-bit FMOD samples must be re-centered before XAudio2 PCM16.
+  // Two stereo frames, with explicitly declared FSOUND_UNSIGNED.
+  std::vector<Byte> pcm8(48u+80u+4u,Byte{0});
+  std::copy(bank.begin(),bank.begin()+128,pcm8.begin());
+  Put32(pcm8,4,1);Put32(pcm8,8,80);Put32(pcm8,12,4);
+  Put32(pcm8,48+32,2);Put32(pcm8,48+36,4);
+  Put32(pcm8,48+48,0xC8u); // FSOUND_8BITS | STEREO | UNSIGNED
+  pcm8[128]=Byte{0x80};pcm8[129]=Byte{0x00};
+  pcm8[130]=Byte{0x7f};pcm8[131]=Byte{0xff};
+  decoded=DecodeFsb4Pcm16(pcm8,0);
+  assert(decoded && decoded->pcm.size()==4 &&
+         decoded->pcm[0]==0 && decoded->pcm[1]==-32768 &&
+         decoded->pcm[2]==-256 && decoded->pcm[3]==32512);
+
+  // Signed PCM8 with the same bytes has a different, verified value map.
+  Put32(pcm8,48+48,0x148u); // FSOUND_8BITS | STEREO | SIGNED
+  decoded=DecodeFsb4Pcm16(pcm8,0);
+  assert(decoded && decoded->pcm[0]==-32768 &&
+         decoded->pcm[1]==0 && decoded->pcm[2]==32512 &&
+         decoded->pcm[3]==-256);
+
+  Put32(pcm8,48+48,0x1C8u); // ambiguous SIGNED | UNSIGNED
+  assert(!DecodeFsb4Pcm16(pcm8,0));
+  Put32(pcm8,48+48,0x01000148u); // XMA must not be played as PCM8
+  assert(!DecodeFsb4Pcm16(pcm8,0));
+  std::cout << "Original FSB4 PCM8/16 to native audio contract PASS\n";
 }
