@@ -9,6 +9,7 @@
 #include <cmath>
 #include <cstring>
 #include <fstream>
+#include <mutex>
 #include <utility>
 #include <vector>
 
@@ -40,6 +41,10 @@ struct NativeXAudio2Mixer::State {
   std::vector<std::unique_ptr<Voice>> voices;
   std::array<float,3> bus_volumes{1.f,1.f,1.f};
   bool muted=false;
+  // FMOD event callbacks can originate from different host worker threads.
+  // Protect live voice and bus state; recursive lock permits PlayPcm16()
+  // to prune completed voices through Update() without a second unsafe path.
+  mutable std::recursive_mutex mutex;
   ~State() noexcept {
     voices.clear();
     if(master)master->DestroyVoice();
@@ -75,6 +80,7 @@ bool NativeXAudio2Mixer::Ready() const noexcept {
 }
 void NativeXAudio2Mixer::Update() noexcept {
   if(!Ready())return;
+  std::lock_guard lock(state_->mutex);
   auto& v=state_->voices;
   v.erase(std::remove_if(v.begin(),v.end(),[](const auto& voice) {
     if(!voice || !voice->source)return true;
@@ -88,6 +94,7 @@ bool NativeXAudio2Mixer::PlayPcm16(Bus bus,std::span<const int16_t> samples,
   const auto bus_id=BusIndex(bus);
   if(!Ready() || bus_id>=3u || !ValidGain(gain) ||
      !ValidPcm16(samples,sample_rate,channels))return false;
+  std::lock_guard lock(state_->mutex);
   Update();
   // Bound simultaneous live voices and copy only the source PCM retained by
   // its XAudio2 voice. Caller may release decoded FMOD bank memory at once.
@@ -177,6 +184,7 @@ bool NativeXAudio2Mixer::PlayIndexedWaveBankPcm16(Bus bus,
 bool NativeXAudio2Mixer::SetBusVolume(Bus bus,float gain) noexcept {
   const unsigned index=BusIndex(bus);
   if(!Ready() || index>=3u || !ValidGain(gain))return false;
+  std::lock_guard lock(state_->mutex);
   state_->bus_volumes[index]=gain;
   for(auto& voice:state_->voices)if(voice->bus==index)
     state_->UpdateVolume(*voice);
@@ -184,14 +192,19 @@ bool NativeXAudio2Mixer::SetBusVolume(Bus bus,float gain) noexcept {
 }
 void NativeXAudio2Mixer::SetMuted(bool muted) noexcept {
   if(!Ready())return;
+  std::lock_guard lock(state_->mutex);
   state_->muted=muted;
   for(auto& voice:state_->voices)state_->UpdateVolume(*voice);
 }
 void NativeXAudio2Mixer::StopAll() noexcept {
-  if(Ready())state_->voices.clear();
+  if(!Ready())return;
+  std::lock_guard lock(state_->mutex);
+  state_->voices.clear();
 }
 size_t NativeXAudio2Mixer::ActiveVoices() const noexcept {
-  return Ready()?state_->voices.size():0u;
+  if(!Ready())return 0u;
+  std::lock_guard lock(state_->mutex);
+  return state_->voices.size();
 }
 } // namespace hulk::eor::audio
 #endif // _WIN32
