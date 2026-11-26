@@ -94,14 +94,32 @@ bool EorWin32VulkanHost::ResizeToClient() noexcept {
     const auto w=static_cast<Diligent::Uint32>(rect.right-rect.left);
     const auto h=static_cast<Diligent::Uint32>(rect.bottom-rect.top);
     const auto& old=state_->swapchain->GetDesc();
-    if(w!=old.Width || h!=old.Height)state_->swapchain->Resize(w,h);
+    if(w!=old.Width || h!=old.Height) {
+      // Vulkan backbuffers are still referenced by work submitted for the
+      // previous frame. Retire that work before replacing the swapchain.
+      state_->context->SetRenderTargets(0,nullptr,nullptr,
+          Diligent::RESOURCE_STATE_TRANSITION_MODE_NONE);
+      state_->context->Flush();
+      state_->device->IdleGPU();
+      state_->swapchain->Resize(w,h);
+    }
     return true;
   } catch (...) {return false;}
 }
 bool EorWin32VulkanHost::Present(bool vsync) noexcept {
-  if(!ResizeToClient())return false;
+  if(!state_ || !IsWindow(state_->hwnd))return false;
+  // Rendering targets the physical buffer captured at BeginScene. A resize
+  // between Draw/Resolve and Present invalidates that frame: never resize
+  // here and present undefined/stale pixels or start a second frame.
+  PhysicalClientPixels physical;
+  RECT rect{};
+  if(!GetClientRect(state_->hwnd,&rect) ||
+     rect.right<=rect.left || rect.bottom<=rect.top)return false;
   try {
-    if(!state_->swapchain->GetCurrentBackBufferRTV())return false;
+    const auto& desc=state_->swapchain->GetDesc();
+    if(desc.Width!=static_cast<Diligent::Uint32>(rect.right-rect.left) ||
+       desc.Height!=static_cast<Diligent::Uint32>(rect.bottom-rect.top) ||
+       !state_->swapchain->GetCurrentBackBufferRTV())return false;
     state_->swapchain->Present(vsync?1u:0u);
     return true;
   } catch (...) {return false;}
