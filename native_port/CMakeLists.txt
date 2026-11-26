@@ -131,6 +131,7 @@ if(HULK_NATIVE_CORE_ONLY)
         eor_fmod_catalog_test
         eor_native_audio_pcm_test
         eor_fsb4_pcm_test
+        eor_native_present_contract_test
         eor_havok_packfile_test
         eor_native_havok_scheduler_test
         eor_native_lod_test)
