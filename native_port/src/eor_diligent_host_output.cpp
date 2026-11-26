@@ -12,9 +12,19 @@
 namespace hulk::eor::gpu {
 DiligentEorHostOutput::DiligentEorHostOutput(native_x_renderer::Device& host)
     :device_(&host){}
+DiligentEorHostOutput::DiligentEorHostOutput(
+    Diligent::IRenderDevice& device,Diligent::IDeviceContext& context,
+    Diligent::ISwapChain& swapchain)
+    :native_device_(&device),native_context_(&context),native_swapchain_(&swapchain){}
 DiligentEorHostOutput::~DiligentEorHostOutput() noexcept=default;
 bool DiligentEorHostOutput::Initialize() {
   if(initialized_)return true;
+  if(native_device_ && native_context_ && native_swapchain_ && !device_) {
+    // The independent EoR host needs no NativeX blitter or guest EDRAM.
+    // Device and physical swapchain lifetime remain with its Win32 owner.
+    initialized_=true;
+    return true;
+  }
   if(!device_ || !device_->device() || !device_->context() ||
      !device_->swap_chain())return false;
   try {
@@ -33,12 +43,12 @@ bool DiligentEorHostOutput::CompositeToBackbuffer(
      !dest.width || !dest.height ||
      uint64_t(dest.left)+dest.width>output.width ||
      uint64_t(dest.top)+dest.height>output.height ||
-     !device_ || !blitter_)return false;
-  // The swapchain is the real output, not a scaled 720p guest buffer.
-  // The host can have been minimized or resized since the last XDK Draw.
-  if(!device_->UpdateSize())return false;
-  auto* chain=device_->swap_chain();
-  auto* context=device_->context();
+     (!device_ && !native_swapchain_))return false;
+  // Independent EoR has its own Vulkan device/context/swapchain; the
+  // compatibility path still uses NativeX's window-resize ownership.
+  if(device_ && !device_->UpdateSize())return false;
+  auto* chain=device_?device_->swap_chain():native_swapchain_;
+  auto* context=device_?device_->context():native_context_;
   if(!chain || !context)return false;
   const auto& desc=chain->GetDesc();
   if(desc.Width!=output.width || desc.Height!=output.height)
@@ -88,6 +98,9 @@ bool DiligentEorHostOutput::CompositeToBackbuffer(
       }
     }
   }
+  // No NativeX blitter exists in independent device mode: it must never
+  // submit a disguised scaled/converted guest frame.
+  if(!blitter_)return false;
   // Keep the swapchain RTV detached on every exit, including exceptions
   // raised by the blitter or Present during a resize/device-loss transition.
   bool rtv_bound=false;
@@ -145,7 +158,8 @@ bool DiligentEorHostOutput::CompositeAndPresent(
   try {
     // Standalone/direct host ownership only. Do not use this entry when
     // invoked by NativeX's existing worker, which calls FinishPresent().
-    device_->Present();
+    if(native_swapchain_)native_swapchain_->Present(1);
+    else device_->Present();
     ++presented_;
     return true;
   } catch (...) {return false;}
