@@ -476,7 +476,7 @@ HRESULT STDMETHODCALLTYPE OnCreateDevice(IDirect3D9* api,UINT adapter,
     anisotropicCaps2D=anisotropicCapsCube=anisotropicCapsVolume=0;
     maxAnisotropy=1;
     if(SUCCEEDED((*result)->GetDeviceCaps(&caps))) {
-      maxAnisotropy=std::max(1u,caps.MaxAnisotropy);
+      maxAnisotropy=std::max<DWORD>(1,caps.MaxAnisotropy);
       anisotropicCaps2D=caps.TextureFilterCaps & D3DPTFILTERCAPS_MINFANISOTROPIC;
       anisotropicCapsCube=caps.CubeTextureFilterCaps & D3DPTFILTERCAPS_MINFANISOTROPIC;
       anisotropicCapsVolume=caps.VolumeTextureFilterCaps & D3DPTFILTERCAPS_MINFANISOTROPIC;
@@ -1016,7 +1016,7 @@ HRESULT STDMETHODCALLTYPE OnSampler(IDirect3DDevice9* dev,DWORD sampler,
     }
   }
   if(anisotropy && capsValid && currentCaps.MaxAnisotropy>1 && sampler<16) {
-    const unsigned maximum=std::min(anisotropy,currentCaps.MaxAnisotropy);
+    const unsigned maximum=std::min<DWORD>(anisotropy,currentCaps.MaxAnisotropy);
     // Do not rewrite the game's independent MAXANISOTROPY requests.
     // The optional AF path sets its own maximum only when a compatible
     // bound texture actually accepts an anisotropic MIN filter. Rewriting
