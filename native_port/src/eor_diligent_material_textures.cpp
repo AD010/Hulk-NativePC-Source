@@ -19,6 +19,35 @@ Diligent::SHADER_TYPE Stage(OriginalSamplerStage stage) {
     default:throw std::invalid_argument("Unsupported original EoR shader texture stage");
   }
 }
+// Xenos texture-fetch dword 5 bits 0..1 select the border colour.
+// Use only the two colours that core Vulkan can represent exactly.
+// YCbCr borders require a separate verified shader/custom-border path.
+constexpr int OriginalBorderValue(uint32_t fetch5) noexcept {
+  const uint32_t color=fetch5&3u;
+  return color<2u ? int(color) : -1;
+}
+static_assert(OriginalBorderValue(0)==0 && OriginalBorderValue(1)==1);
+static_assert(OriginalBorderValue(2)==-1 && OriginalBorderValue(3)==-1);
+static_assert(OriginalBorderValue(0xfffffffdu)==1);
+Diligent::TEXTURE_ADDRESS_MODE OriginalAddressMode(uint32_t v) {
+  using namespace Diligent;
+  switch(v) {
+    case 0:return TEXTURE_ADDRESS_WRAP;
+    case 1:return TEXTURE_ADDRESS_MIRROR;
+    case 2:return TEXTURE_ADDRESS_CLAMP;
+    case 6:return TEXTURE_ADDRESS_BORDER;
+    default:throw std::invalid_argument("Unsupported original texture address mode");
+  }
+}
+void ApplyOriginalBorder(Diligent::SamplerDesc& desc,uint32_t fetch5) {
+  using namespace Diligent;
+  if(desc.AddressU!=TEXTURE_ADDRESS_BORDER &&
+     desc.AddressV!=TEXTURE_ADDRESS_BORDER &&
+     desc.AddressW!=TEXTURE_ADDRESS_BORDER)return;
+  const int value=OriginalBorderValue(fetch5);
+  if(value<0)throw std::invalid_argument("Original YCbCr border color has no core Vulkan representation");
+  for(auto& component:desc.BorderColor)component=static_cast<float>(value);
+}
 }
 void BindUsaFontMainAtlas(Diligent::IRenderDevice* device,
     Diligent::IShaderResourceBinding* bindings,const UploadedEorTexture& atlas,
@@ -66,22 +95,19 @@ void BindOriginalPixelImage2D(Diligent::IRenderDevice* device,
      !window || (cube && (image.ArraySize!=6u || image.Width!=image.Height || window->base!=0)) ||
      texture.original_mip_levels!=image.MipLevels || !image.MipLevels || (sampling>>28))
     throw std::invalid_argument("Original pixel fetch constant and resident image disagree");
-  auto address=[](uint32_t v) {
-    switch(v) {
-      case 0:return TEXTURE_ADDRESS_WRAP;
-      case 1:return TEXTURE_ADDRESS_MIRROR;
-      case 2:return TEXTURE_ADDRESS_CLAMP;
-      default:throw std::invalid_argument("Unsupported original texture address mode");
-    }
-  };
   auto filter=[](uint32_t v) {
     if(v>1)throw std::invalid_argument("Unsupported original texture filter");
     return v ? FILTER_TYPE_LINEAR:FILTER_TYPE_POINT;
   };
   SamplerDesc desc{};
-  desc.AddressU=address(fetch[0]>>10&7u);
-  desc.AddressV=one_dimensional ? TEXTURE_ADDRESS_CLAMP : address(fetch[0]>>13&7u);
-  desc.AddressW=cube ? address(fetch[0]>>16&7u) : TEXTURE_ADDRESS_CLAMP;
+  desc.AddressU=OriginalAddressMode(fetch[0]>>10&7u);
+  desc.AddressV=one_dimensional ? TEXTURE_ADDRESS_CLAMP : OriginalAddressMode(fetch[0]>>13&7u);
+  desc.AddressW=cube ? OriginalAddressMode(fetch[0]>>16&7u) : TEXTURE_ADDRESS_CLAMP;
+  // Cube addressing has different edge semantics; retain the verified subset.
+  if(cube && (desc.AddressU==TEXTURE_ADDRESS_BORDER ||
+      desc.AddressV==TEXTURE_ADDRESS_BORDER || desc.AddressW==TEXTURE_ADDRESS_BORDER))
+    throw std::invalid_argument("Original cube border sampling not verified");
+  ApplyOriginalBorder(desc,fetch[5]);
   desc.MagFilter=force_point ? FILTER_TYPE_POINT : filter(sampling>>19&3u);
   desc.MinFilter=force_point ? FILTER_TYPE_POINT : filter(sampling>>21&3u);
   const auto mip=force_point ? 0u : (sampling>>23&3u);
@@ -150,23 +176,16 @@ void PrepareOriginalResolvedPixelSampler(Diligent::IRenderDevice* device,
      (fetch[4]>>2&255u) || (fetch[3]>>28) ||
      !(fetch[1]>>12&0xfffffu))
     throw std::invalid_argument("Original full Resolve texture fetch contract differs from native image");
-  auto address=[](uint32_t value) {
-    switch(value) {
-      case 0:return TEXTURE_ADDRESS_WRAP;
-      case 1:return TEXTURE_ADDRESS_MIRROR;
-      case 2:return TEXTURE_ADDRESS_CLAMP;
-      default:throw std::invalid_argument("Unsupported original Resolve address mode");
-    }
-  };
   auto filter=[](uint32_t value) {
     if(value>1u)throw std::invalid_argument("Unsupported original Resolve filter");
     return value?FILTER_TYPE_LINEAR:FILTER_TYPE_POINT;
   };
   if((fetch[3]>>25&7u)>1u)throw std::invalid_argument("Original Resolve anisotropy unsupported");
   SamplerDesc desc{};
-  desc.AddressU=address(fetch[0]>>10&7u);
-  desc.AddressV=address(fetch[0]>>13&7u);
+  desc.AddressU=OriginalAddressMode(fetch[0]>>10&7u);
+  desc.AddressV=OriginalAddressMode(fetch[0]>>13&7u);
   desc.AddressW=TEXTURE_ADDRESS_CLAMP;
+  ApplyOriginalBorder(desc,fetch[5]);
   desc.MinFilter=force_point?FILTER_TYPE_POINT:filter(fetch[3]>>21&3u);
   desc.MagFilter=force_point?FILTER_TYPE_POINT:filter(fetch[3]>>19&3u);
   desc.MipFilter=FILTER_TYPE_POINT;
