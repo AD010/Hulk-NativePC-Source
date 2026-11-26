@@ -21,6 +21,7 @@ struct EorNativeFrameExecutor::State {
   const aot::ReflectionBank* reflection=nullptr;
   Diligent::RefCntAutoPtr<Diligent::IFence> fence;
   uint64_t last_signal=0;
+  uint64_t last_submitted_frame=0;
   std::deque<Pending> pending;
 };
 EorNativeFrameExecutor::EorNativeFrameExecutor(
@@ -68,6 +69,7 @@ NativeFrameSubmission EorNativeFrameExecutor::Submit(
      !state_->host->SwapChain() || !state_->shaders ||
      !state_->effects || !state_->reflection || !source.sequence ||
      draws.empty() || draws.size()!=source.calls.size() ||
+     source.sequence<=state_->last_submitted_frame ||
      !xdk::ValidateOriginalCommandTimeline(source) ||
      !state_->backend->CanReplayOriginalXdkTimeline(source))
     return NativeFrameSubmission::IncompleteSource;
@@ -112,6 +114,7 @@ NativeFrameSubmission EorNativeFrameExecutor::Submit(
       context->WaitForIdle();
       state_->backend->RetireCompletedOriginalFontDraws(source.sequence);
     }
+    state_->last_submitted_frame=source.sequence;
     return NativeFrameSubmission::Submitted;
   } catch (...) {
     if(began_gpu) {
@@ -120,8 +123,12 @@ NativeFrameSubmission EorNativeFrameExecutor::Submit(
       try {
         auto* context=state_->host->Context();
         context->Flush();context->WaitForIdle();
-        RetireCompleted();
+        // A signal may have been enqueued but failed to publish a fence
+        // value. WaitForIdle is now real GPU completion for ALL pending
+        // frames; empty retained host assets only after this barrier.
+        state_->pending.clear();
         state_->backend->RetireCompletedOriginalFontDraws(source.sequence);
+        state_->last_submitted_frame=source.sequence;
       } catch (...) {}
       return NativeFrameSubmission::FailedAfterGpu;
     }
