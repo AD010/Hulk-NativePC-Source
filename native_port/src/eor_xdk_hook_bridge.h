@@ -13,7 +13,7 @@
 #include <rex/ppc/context.h>
 #include <native_x_renderer/native_x_renderer.h>
 
-namespace hulk::eor::gpu {class DiligentEorDirectBackend;}
+namespace hulk::eor::gpu {class DiligentEorDirectBackend;class EorWin32VulkanHost;}
 namespace hulk::eor::world {class NativeWorldStream;class OriginalMaterialCandidateIndex;}
 namespace hulk::eor::xdk {
 void DispatchOriginalPcMenu(PPCContext& ctx,uint8_t* base,PPCFunc* original,bool direct_method);
@@ -331,6 +331,12 @@ struct OriginalEorSourceCoverage {
   bool complete_xdk_timeline=false;
 };
 OriginalEorSourceCoverage GetOriginalEorSourceCoverage() noexcept;
+#ifdef _WIN32
+// UI-thread entry points. post must enqueue asynchronously onto that thread.
+bool StartExclusiveEorFrames(std::unique_ptr<gpu::EorWin32VulkanHost> host,
+    std::function<bool(std::function<void()>)> post) noexcept;
+void StopExclusiveEorFrames() noexcept;
+#endif
 native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(
     native_x_renderer::Device& device) noexcept;
 }

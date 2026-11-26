@@ -115,6 +115,11 @@ uint32_t g_frame_heavy_capture_skipped=0; // guarded by g_mutex
 aot::OriginalPixelSamplerCache g_pixel_sampling;
 XdkCallsiteEvidence g_callsite_evidence;
 CompletedFrameMailbox g_frames_for_native;
+#ifdef _WIN32
+// Protected by g_mutex. Posts at most one deferred UI task; GPU operations
+// run after releasing the PPC capture lock.
+std::function<void()> g_notify_exclusive_frame;
+#endif
 std::shared_ptr<const VerifiedWorkerEorFrame> g_verified_worker_frame;
 std::shared_ptr<const VerifiedWorkerEorOwnerCatalog> g_worker_owner_catalog;
 // This callback belongs to the actual source-verified EoR material/mesh
@@ -1910,6 +1915,9 @@ void EndPpcHook(native_x_renderer::Call kind) {
   {
     std::lock_guard lock(g_mutex);
     g_frames_for_native.Publish(std::move(frame));
+#ifdef _WIN32
+    if(g_notify_exclusive_frame)g_notify_exclusive_frame();
+#endif
   }
 }
 bool InstallOriginalShaderCaptureIndex(
@@ -2600,13 +2608,13 @@ struct AutomaticEorResources {
   std::shared_ptr<world::OriginalMaterialCandidateIndex> candidates;
   gpu::live::ScalarAnalysisCache scalar_analysis;
 
-  AutomaticEorResources(native_x_renderer::Device& host,OfflineShaderPack source,
+  AutomaticEorResources(Diligent::IRenderDevice* render_device,OfflineShaderPack source,
       const AutomaticArchivePaths& paths,const std::filesystem::path& source_root,
       const std::filesystem::path& candidate_path)
-      :device(host.device()),pack(std::move(source)),root(source_root),
-       candidate_file(candidate_path),meshes(host.device()),shaders(host.device()),
+      :device(render_device),pack(std::move(source)),root(source_root),
+       candidate_file(candidate_path),meshes(render_device),shaders(render_device),
        assets(textures::OriginalXboxTextureAssets::OpenPinnedUsa(paths.index,paths.textures,paths.streams)),
-       textures(host.device(),assets) {
+       textures(render_device,assets) {
     if(!pack.shaders || !pack.effects || !pack.reflection ||
        !pack.virtual_ids || !pack.samplers)
       throw std::invalid_argument("Incomplete live EoR source resources");
@@ -2626,10 +2634,10 @@ struct AutomaticEorResources {
     }
     if(!cached)candidates->LoadFromOriginalXboxArchive(paths.index,paths.models);
   }
-  bool Matches(native_x_renderer::Device& host,const OfflineShaderPack& source,
+  bool Matches(Diligent::IRenderDevice* render_device,const OfflineShaderPack& source,
       const std::filesystem::path& source_root,
       const std::filesystem::path& candidate_path) const {
-    return device==host.device() && root==source_root && candidate_file==candidate_path &&
+    return device==render_device && root==source_root && candidate_file==candidate_path &&
         pack.shaders==source.shaders && pack.effects==source.effects &&
         pack.reflection==source.reflection && pack.samplers==source.samplers &&
         pack.virtual_ids==source.virtual_ids;
@@ -2708,8 +2716,32 @@ struct OriginalEorGpuCompletion {
     }
   }
 };
+struct OriginalFrameGpu {
+  native_x_renderer::Device* worker=nullptr;
+#ifdef _WIN32
+  gpu::EorWin32VulkanHost* window=nullptr;
+#endif
+  Diligent::IRenderDevice* device() const noexcept {
+#ifdef _WIN32
+    if(window)return window->Device();
+#endif
+    return worker->device();
+  }
+  Diligent::IDeviceContext* context() const noexcept {
+#ifdef _WIN32
+    if(window)return window->Context();
+#endif
+    return worker->context();
+  }
+  Diligent::ISwapChain* swap_chain() const noexcept {
+#ifdef _WIN32
+    if(window)return window->SwapChain();
+#endif
+    return worker->swap_chain();
+  }
+};
 struct AutomaticEorOwner {
-  native_x_renderer::Device& worker_host;
+  OriginalFrameGpu worker_host;
   Diligent::ISwapChain* const owner_swapchain;
   std::shared_ptr<AutomaticEorResources> resources;
   const OfflineShaderPack& pack;
@@ -2718,7 +2750,7 @@ struct AutomaticEorOwner {
   gpu::DiligentMeshUploadBackend& meshes;
   gpu::DiligentAotShaderModules& shaders;
   gpu::DiligentOriginalTextureResidency& textures;
-  gpu::DiligentEorHostOutput host_output;
+  std::unique_ptr<gpu::DiligentEorHostOutput> worker_output;
   Diligent::RefCntAutoPtr<Diligent::IBuffer> shared_constants;
   std::shared_ptr<world::NativeWorldStream> source_models;
   std::shared_ptr<world::OriginalMaterialCandidateIndex> candidates;
@@ -2732,20 +2764,29 @@ struct AutomaticEorOwner {
   native::Size checked_size{};
   bool checked_accepts=false,checked_rebuild=false;
 
-  AutomaticEorOwner(native_x_renderer::Device& host,
+  AutomaticEorOwner(OriginalFrameGpu host,
       std::shared_ptr<AutomaticEorResources> source,AutomaticSceneContract source_contract)
       :worker_host(host),owner_swapchain(host.swap_chain()),
        resources(std::move(source)),pack(resources->pack),contract(std::move(source_contract)),
        scene(host.device(),host.context()),meshes(resources->meshes),
        shaders(resources->shaders),textures(resources->textures),
-       // The real EoR presentation path receives native Diligent objects,
-       // not the NativeX Xenos renderer. The existing sole worker retains
-       // ownership of the physical window and calls Present only once.
-       host_output(*host.device(),*host.context(),*host.swap_chain()),
        source_models(resources->source_models),candidates(resources->candidates),
        scalar_analysis(resources->scalar_analysis) {
-    if(!host_output.Initialize())
-      throw std::invalid_argument("Incomplete live EoR scene output");
+    gpu::DiligentEorDirectBackend::CompositeOutput composite;
+#ifdef _WIN32
+    if(host.window) {
+      composite=[window=host.window](Diligent::ITextureView* color,native::Rect rect,native::Size size) {
+        return window->CompositeOriginalColor(color,rect,size,rex::cvar::Query<bool>("vsync"));
+      };
+    } else
+#endif
+    {
+      worker_output=std::make_unique<gpu::DiligentEorHostOutput>(
+          *host.device(),*host.context(),*host.swap_chain());
+      if(!worker_output->Initialize())
+        throw std::invalid_argument("Incomplete live EoR scene output");
+      composite=gpu::BindNativeEorVulkanBackbuffer(*worker_output);
+    }
     std::array<uint32_t,8> native_values{};
     Diligent::BufferDesc desc{};
     desc.Name="Hulk scalar host ABI constants";
@@ -2781,9 +2822,12 @@ struct AutomaticEorOwner {
         host.device(),host.context(),scene,meshes,shaders,*pack.shaders,*pack.effects,
         contract.output,contract.format,std::vector<gpu::NativeEorPassResources>{},
         std::vector<gpu::NativeEorDrawBuffers>{},std::move(bind),
-        gpu::BindNativeEorVulkanBackbuffer(host_output));
+        std::move(composite));
 #ifdef _WIN32
-    native_executor=std::make_unique<gpu::EorNativeFrameExecutor>(
+    if(host.window)
+      native_executor=std::make_unique<gpu::EorNativeFrameExecutor>(
+          *host.window,*backend,*pack.shaders,*pack.effects,*pack.reflection);
+    else native_executor=std::make_unique<gpu::EorNativeFrameExecutor>(
         host.device(),host.context(),host.swap_chain(),*backend,
         *pack.shaders,*pack.effects,*pack.reflection);
 #else
@@ -3032,6 +3076,86 @@ struct AutomaticEorOwner {
     return ordered;
   }
 };
+// Upload and publish on the same context on which the mesh was requested.
+void AdvanceOriginalMeshUploads(world::NativeWorldStream& stream,
+                                gpu::DiligentEorDirectBackend& backend) {
+  if(!stream.UsesGpuBackend(backend.OriginalModelUploader()))
+    throw std::logic_error("Original mesh stream belongs to a different GPU");
+  stream.TickAndPublishSourceVerifiedModels(4u,std::chrono::milliseconds(2),
+      [&](const auto& resident) {
+    if(!resident->original_resource_hash ||
+       resident->original_identity.platform!=model::Platform::Xbox360)
+      throw std::logic_error("Invalid original resident world model");
+    const model::UploadedOriginalModel* mesh=resident.get();
+    backend.AdoptVerifiedResidentWorldMeshes({&mesh,1});
+  });
+}
+
+#ifdef _WIN32
+class ExclusiveEorSession : public std::enable_shared_from_this<ExclusiveEorSession> {
+ public:
+  std::unique_ptr<gpu::EorWin32VulkanHost> host;
+  std::shared_ptr<AutomaticEorResources> resources;
+  std::unique_ptr<AutomaticEorOwner> owner;
+  std::function<bool(std::function<void()>)> post;
+  bool queued=false; // guarded by g_mutex
+
+  void NotifyLocked() noexcept {
+    if(queued)return;
+    try {
+      queued=true;
+      if(!post([weak=weak_from_this()] {if(auto self=weak.lock())self->Drain();}))
+        queued=false;
+    } catch (...) {queued=false;}
+  }
+ private:
+  void Drain() noexcept {
+    std::shared_ptr<const Frame> frame;
+    {
+      std::lock_guard lock(g_mutex);
+      queued=false;
+      const auto latest=g_frames_for_native.Peek();
+      if(!latest || latest->dropped || latest->dropped_commands)return;
+      frame=g_frames_for_native.ClaimLatestIndependentIfSequence(latest->sequence);
+    }
+    if(!frame)return;
+    bool staged=false;
+    try {
+      if(!ValidateOriginalCommandTimeline(*frame) || !host->ResizeToClient())return;
+      const auto& swap=host->SwapChain()->GetDesc();
+      const native::Size physical{swap.Width,swap.Height};
+      if(!owner || !owner->Accepts(*frame,physical)) {
+        if(owner && !owner->checked_rebuild)return;
+        const auto contract=OriginalTargetContract(*frame,physical,resources->pack);
+        if(!contract)return;
+        owner=std::make_unique<AutomaticEorOwner>(
+            OriginalFrameGpu{nullptr,host.get()},resources,*contract);
+      }
+      if(!owner->backend->CanReplayOriginalXdkTimeline(*frame))return;
+      AdvanceOriginalMeshUploads(*resources->source_models,*owner->backend);
+      std::vector<std::shared_ptr<const model::UploadedOriginalModel>> models;
+      staged=true;
+      auto draws=owner->Prepare(*frame,models);
+      std::vector<std::shared_ptr<const void>> retained(models.begin(),models.end());
+      const auto result=owner->native_executor->Submit(
+          owner->contract.output,draws,*frame,std::move(retained));
+      staged=result==gpu::NativeFrameSubmission::IncompleteSource;
+      if(result==gpu::NativeFrameSubmission::Submitted && !presented_) {
+        presented_=true;
+        REXLOG_INFO("[HULK/EOR-WIN32] submitted first original frame to swapchain Present: sequence={} draws={} pixels={}x{}",
+                    frame->sequence,draws.size(),physical.width,physical.height);
+      }
+      if(result==gpu::NativeFrameSubmission::FailedAfterGpu)
+        g_eor_gpu_failures.fetch_add(1,std::memory_order_relaxed);
+    } catch(const std::exception& error) {
+      if(frame->sequence<=5 || frame->sequence%120==0)
+        REXLOG_WARN("[HULK/EOR-WIN32] source frame {}: {}",frame->sequence,error.what());
+    } catch (...) {}
+    if(staged)owner->backend->DiscardUnsubmittedOriginalFontDraws(frame->sequence);
+  }
+  bool presented_=false;
+};
+#endif
 std::shared_ptr<const VerifiedWorkerEorOwnerCatalog> BuildAutomaticOriginalOwnerCatalogForFrame(
     native_x_renderer::Device& host,std::shared_ptr<const Frame> source) {
   if(!host.device() || !host.context() || !host.swap_chain())return {};
@@ -3055,12 +3179,12 @@ std::shared_ptr<const VerifiedWorkerEorOwnerCatalog> BuildAutomaticOriginalOwner
   const auto contract=OriginalTargetContract(*source,backbuffer,pack);
   if(!contract)return {};
   auto resources=g_automatic_resources.lock();
-  if(!resources || !resources->Matches(host,pack,root,candidate)) {
+  if(!resources || !resources->Matches(host.device(),pack,root,candidate)) {
     const auto paths=FindAutomaticArchives(root);
     if(!paths)return {};
-    resources=std::make_shared<AutomaticEorResources>(host,pack,*paths,root,candidate);
+    resources=std::make_shared<AutomaticEorResources>(host.device(),pack,*paths,root,candidate);
   }
-  auto owned=std::make_shared<AutomaticEorOwner>(host,resources,*contract);
+  auto owned=std::make_shared<AutomaticEorOwner>(OriginalFrameGpu{&host},resources,*contract);
   if(!owned->backend->CanReplayOriginalXdkTimeline(*source))return {};
   auto catalog=std::make_shared<VerifiedWorkerEorOwnerCatalog>();
   catalog->device=&host;catalog->output=contract->output;
@@ -3572,6 +3696,43 @@ bool AdoptNewPrivateOriginalSpirvIfSafe(
 }
 } // namespace
 
+#ifdef _WIN32
+bool StartExclusiveEorFrames(std::unique_ptr<gpu::EorWin32VulkanHost> host,
+    std::function<bool(std::function<void()>)> post) noexcept {
+  if(!host || !host->Device() || !host->Context() || !host->SwapChain() || !post)return false;
+  try {
+    OfflineShaderPack pack;
+    std::filesystem::path root,candidate;
+    {
+      std::lock_guard lock(g_mutex);
+      if(g_notify_exclusive_frame || !g_offline_shader_pack)return false;
+      pack=*g_offline_shader_pack;
+      root=g_original_game_asset_root;
+      candidate=g_original_material_candidate_index;
+    }
+    const auto paths=FindAutomaticArchives(root);
+    if(!paths)return false;
+    auto session=std::make_shared<ExclusiveEorSession>();
+    session->host=std::move(host);
+    session->resources=std::make_shared<AutomaticEorResources>(
+        session->host->Device(),pack,*paths,root,candidate);
+    session->post=std::move(post);
+    std::lock_guard lock(g_mutex);
+    if(g_notify_exclusive_frame)return false;
+    g_notify_exclusive_frame=[session] {session->NotifyLocked();};
+    return true;
+  } catch (...) {return false;}
+}
+void StopExclusiveEorFrames() noexcept {
+  // The window thread also owns Drain(). Unregister before disposing any
+  // fences or the swapchain. Already posted callbacks hold only weak refs.
+  std::function<void()> retired;
+  {
+    std::lock_guard lock(g_mutex);
+    retired.swap(g_notify_exclusive_frame);
+  }
+}
+#endif
 native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(
     native_x_renderer::Device& host) noexcept {
   using Result=native_x_renderer::HulkEorPresentResult;
@@ -4011,25 +4172,8 @@ native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(
   if(owner_catalog) {
     try {
       if(owner_catalog->source_models) {
-        if(!owner_catalog->direct_gpu ||
-           !owner_catalog->source_models->UsesGpuBackend(
-               owner_catalog->direct_gpu->OriginalModelUploader()))
-          return Result::kNotReady;
-        // Consume at most one prepared read-ahead window per Present,
-        // stopping before another upload if the render-thread budget expired.
-        // Current Draw requests already overtake speculative models.
-        owner_catalog->source_models->TickAndPublishSourceVerifiedModels(
-            4u,std::chrono::milliseconds(2),[&](const auto& newly_resident) {
-          // Adopt the SAME source GPU handles on the Vulkan worker.
-          // If publication fails, retry this resident before another upload
-          // can overwrite its identity. No partially owned frame is accepted.
-          if(!newly_resident->original_resource_hash ||
-             newly_resident->original_identity.platform!=model::Platform::Xbox360)
-            throw std::logic_error("Invalid original resident world model");
-          const model::UploadedOriginalModel* live=newly_resident.get();
-          owner_catalog->direct_gpu->AdoptVerifiedResidentWorldMeshes(
-              std::span<const model::UploadedOriginalModel* const>(&live,1));
-        });
+        if(!owner_catalog->direct_gpu)return Result::kNotReady;
+        AdvanceOriginalMeshUploads(*owner_catalog->source_models,*owner_catalog->direct_gpu);
       } else if(owner_catalog->advance_source_model_uploads)
         owner_catalog->advance_source_model_uploads();
     } catch (...) {return Result::kNotReady;}

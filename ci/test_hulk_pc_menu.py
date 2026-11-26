@@ -173,7 +173,7 @@ class TestHulkPcMenu(unittest.TestCase):
         self.assertIn("DLSS/DLAA requires verified scene", menu)
         config = (ROOT/"native_port/incredible_hulk.toml").read_text()
         self.assertIn('native_x_renderer_scaling = "bilinear"', config)
-        self.assertIn("native_x_renderer_sharpness = 0.0", config)
+        self.assertIn("native_x_renderer_sharpness = 0.18", config)
 
         self.assertIn('Change("hulk_guest_swap_fps_cap", "60")', menu)
         # The actual Xbox guest FPS limit, not a fake on-screen selection.

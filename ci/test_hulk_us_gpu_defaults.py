@@ -46,7 +46,7 @@ class TestHulkUsGpuDefaults(unittest.TestCase):
         self.assertIn("HULK/CPU-THREAD-PROBE", thread_patch)
         self.assertIn("XSUCCEEDED(result)", thread_patch)
         self.assertIn('thread->SetAffinity(affinity);', thread_patch)
-        self.assertEqual(config["native_x_renderer_antialiasing"], "off")
+        self.assertEqual(config["native_x_renderer_antialiasing"], "smaa")
         self.assertTrue(config["native_x_renderer_hulk_auto_scene_aa"])
         self.assertTrue(config["native_x_renderer_hulk_expand_msaa_sample_grid"])
         self.assertIn("[HULK/PIPELINE-CACHE-203]", app)
@@ -81,7 +81,7 @@ class TestHulkUsGpuDefaults(unittest.TestCase):
         # packaged scaling/AF/sharpness settings. Normalize unsupported
         # scaling names before NativeX reads its startup-only values.
         self.assertEqual(config["native_x_renderer_scaling"], "bilinear")
-        self.assertEqual(config["native_x_renderer_sharpness"], 0.0)
+        self.assertEqual(config["native_x_renderer_sharpness"], 0.18)
         # #211 exposes stale older TOML 0.90 despite the F10 CAS UI max 0.50.
         # Runtime changes are bounded and validated before Vulkan starts.
         self.assertIn("HULK/QUALITY-211-CAS", app)

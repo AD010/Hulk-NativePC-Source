@@ -232,21 +232,22 @@ class NativeEorLinkCoverage(unittest.TestCase):
     def test_failed_shader_pair_skips_unusable_heavy_capture(self):
         hook=(ROOT / "native_port/src/eor_xdk_hook_bridge.cpp").read_text()
         capture=hook.split("void CapturePpcDraw(",1)[1].split("void CapturePpcCommand(",1)[0]
-        self.assertLess(capture.index("g_frame_shader_complete=false"),
+        # A previous failed Draw must not hide a later genuine shader
+        # pair. Only the failing Draw skips the costly VB and register copy.
+        self.assertLess(capture.index("g_original_texture_owners.Remember"),
+                        capture.index("ObserveBoundShaderIdentity("))
+        self.assertLess(capture.index("ObserveBoundShaderIdentity("),
+                        capture.index("g_frame_shader_complete.exchange("))
+        self.assertNotIn("g_frame_shader_complete.load(",capture)
+        gate=capture.split("const bool verified_draw_program=",1)[1].split(";",1)[0]
+        for field in ("observed_vs_matrices","observed_live_vertex_shader_header",
+                      "observed_live_pixel_shader_header","observed_live_eor_effect_pass"):
+            self.assertIn("draw."+field,gate)
+        self.assertRegex(capture,r"capture_heavy=diagnostic_mesh\s*\|\|\s*\(replay && verified_draw_program\)")
+        self.assertLess(capture.index("if(capture_heavy && draw.observed_vs_matrices)"),
                         capture.index("CaptureUsaAllShaderRegisters("))
-        self.assertIn("diagnostic_mesh || (replay && g_frame_shader_complete)",capture)
-        self.assertIn("g_collector.Record(std::move(draw))",capture)
-        self.assertLess(capture.index("CaptureUsaShaderObjects("),
-                        capture.index("CaptureUsaVsMatrices("))
-        self.assertIn("ObserveBoundShaderIdentity(draw,bindings->vertex,bindings->pixel",capture)
-        self.assertIn("g_frame_shader_complete.load(std::memory_order_relaxed)",capture)
         self.assertIn("const bool diagnostic_mesh=!replay",capture)
-        self.assertIn("if(replay && !g_frame_shader_complete.load",capture)
-        self.assertIn("!learn_material_owner",capture)
-        self.assertIn("original_pass_sampler_slots_verified",capture.split("const bool learn_material_owner=",1)[1].split("if(replay",1)[0])
-        self.assertLess(capture.index("g_original_texture_owners.Remember"),capture.index("const bool need_shader_identity"))
-        self.assertIn("if(need_shader_identity && draw.observed_vs_matrices",capture)
-        self.assertNotIn("capture_heavy=!replay",capture)
+        self.assertIn("g_collector.Record(std::move(draw))",capture)
         self.assertIn("g_frame_shader_complete=true;",hook.split("void EndPpcHook(",1)[1])
 
     def test_built_in_eor_claims_before_archive_and_target_work(self):

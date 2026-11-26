@@ -367,6 +367,9 @@ class IncredibleHulkApp : public rex::ReXApp {
     // original offline AOT sources are released; GPU fences remain owned by
     // the active renderer, not by the guest PPC mailbox.
 #if defined(HULK_NATIVE_X_LINKED)
+#ifdef _WIN32
+    hulk::eor::xdk::StopExclusiveEorFrames();
+#endif
     native_x_renderer::SetHulkEorPresentCallback(nullptr);
     hulk::eor::xdk::ClearVerifiedWorkerEorFrame();
     hulk::eor::xdk::ClearVerifiedSourceShaderPack();

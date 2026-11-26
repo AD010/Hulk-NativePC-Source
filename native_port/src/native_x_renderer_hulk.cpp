@@ -6,7 +6,7 @@
 #include <native_x_renderer/native_x_renderer.h>
 #include <rex/logging.h>
 #include <rex/cvar.h>
-#include <rex/rex_app.h>
+#include <rex/ui/window.h>
 
 #include <cstdlib>
 #include <cmath>
@@ -22,6 +22,9 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
+#include "eor_win32_vulkan_host.h"
+#include <rex/system/interfaces/graphics.h>
+#include <rex/ui/windowed_app_context.h>
 #endif
 
 // Independent GPU register observer can run while Xenos still draws a
@@ -29,6 +32,11 @@
 // from native renderer output and never takes ownership of the swap chain.
 REXCVAR_DEFINE_BOOL(hulk_native_x_verify_only, false, "Hulk",
                     "Use NativeX Trace/Observer while Xenos still renders (no NativeX Vulkan display)");
+
+#ifdef _WIN32
+REXCVAR_DEFINE_BOOL(hulk_eor_exclusive_vulkan,false,"Hulk/Graphics",
+                    "Start with the independent Win32 EoR Vulkan presenter (requires restart)");
+#endif
 
 // HULK/GUEST-FPS-CAP: register one unique cvar in the Hulk executable.
 // The SDK kernel VdSwap module must only query its current value.
@@ -40,6 +48,7 @@ namespace {
 
 std::unique_ptr<nx::GameProfile> g_profile;
 bool g_initialized = false;
+bool g_exclusive_eor = false;
 
 // Resource 3001 is compiled from native_port/hulk_native_x_profile.ini.
 // The official standalone ZIP intentionally has no sidecar INI.
@@ -92,13 +101,12 @@ bool NativeXInitialize(
     const std::filesystem::path& source_root) {
 
   if (g_initialized)
-    return native_x_renderer::Renders();
+    return g_exclusive_eor || native_x_renderer::Renders();
 
   // A shipped release with an unverified 6534 GPU layout must not silently
   // take over the display or demand an experimental INI sidecar.
   // Keep renderer code compiled; opt in only when a validated profile exists.
-  // Direct original EoR Vulkan REQUIRES the same initialized Vulkan
-  // device/worker as NativeX, even when Xenos is the configured default.
+  // The compatibility path may borrow the existing NativeX Vulkan worker.
   // Previously selecting only the F10 "Direct EoR Vulkan" option returned
   // here before installing any worker or Vulkan backbuffer. Keep the
   // source-gated EoR worker separate from the NativeX compatibility
@@ -130,31 +138,9 @@ bool NativeXInitialize(
     }
   }
   bool native_requested = rex::cvar::Query<bool>("native_x_renderer");
-  if(direct_eor_requested && !native_requested) {
-    const bool selected=rex::cvar::SetFlagByName(
-        "native_x_renderer","true");
-    native_requested=selected &&
-        rex::cvar::Query<bool>("native_x_renderer");
-    if(!native_requested)
-      REXLOG_WARN("[HULK/EOR-WORKER] direct EoR requested but native "
-                  "Vulkan host could not be enabled; preserving Xenos");
-    else
-      REXLOG_INFO("[HULK/EOR-WORKER] enabling the shared native Vulkan "
-                  "device for direct original EoR replay");
-  }
-  const bool verify_only = rex::cvar::Query<bool>("hulk_native_x_verify_only") &&
-                           !native_requested;
-  // Allow high-level XDK call capture while the known Xenos path still
-  // renders: no competing Vulkan surface or PM4 redirection is installed.
-  const bool eor_observer_only =
-      rex::cvar::Query<bool>("hulk_eor_xdk_capture") &&
-      !native_requested && !verify_only;
-  if (!native_requested && !verify_only && !eor_observer_only) {
-    REXLOG_INFO("[HULK/GPU-MODE] Xenos selected; optional XDK observer disabled");
-    return false;
-  }
-  REXLOG_INFO("[HULK/GPU-MODE] NativeX={} verify_only={}",
-              rex::cvar::Query<bool>("native_x_renderer"), verify_only);
+  if(!direct_eor_requested && !native_requested &&
+     !rex::cvar::Query<bool>("hulk_native_x_verify_only") &&
+     !rex::cvar::Query<bool>("hulk_eor_xdk_capture"))return false;
 
   if (!graphics || !window) {
     REXLOG_ERROR(
@@ -198,6 +184,65 @@ bool NativeXInitialize(
     return false;
   }
 
+#ifdef _WIN32
+  // This choice is made on the window thread before guest execution or
+  // NativeX worker startup. Preserve the compatibility mode in existing configs.
+  if(direct_eor_requested && rex::cvar::Query<bool>("hulk_eor_exclusive_vulkan") &&
+     eor::xdk::HasVerifiedSourceShaderPack()) {
+    rex::cvar::SetFlagByName("hulk_eor_xdk_capture","true");
+    eor::xdk::InstallOriginalEorMaterialCandidateIndexPath(original_source_root/"HEORCND1.bin");
+    auto* hwnd=window->GetNativeWindowHandle();
+    if(hwnd && eor::xdk::CaptureEnabled()) {
+      auto host=std::make_unique<eor::gpu::EorWin32VulkanHost>();
+      auto& ui=window->app_context();
+      std::function<bool(std::function<void()>)> post=[&ui](std::function<void()> task) {
+        return ui.CallInUIThreadDeferred(std::move(task));
+      };
+      auto* previous=graphics->presenter();
+      window->SetPresenter(nullptr);
+      if(host->Create(hwnd) && graphics->SetHostRendering(false)) {
+        if(eor::xdk::StartExclusiveEorFrames(std::move(host),std::move(post))) {
+          g_profile=std::move(candidate);
+          nx::Install(g_profile.get());
+          g_exclusive_eor=true;
+          g_initialized=true;
+          REXLOG_INFO("[HULK/EOR-WIN32] exclusive Vulkan host initialized; awaiting original Draw sequence");
+          return true;
+        }
+        graphics->SetHostRendering(true);
+      }
+      host.reset();
+      window->SetPresenter(previous);
+      REXLOG_WARN("[HULK/EOR-WIN32] startup failed before game submission; restoring configured renderer");
+    }
+  }
+#endif
+  if(direct_eor_requested && !native_requested) {
+    const bool selected=rex::cvar::SetFlagByName(
+        "native_x_renderer","true");
+    native_requested=selected &&
+        rex::cvar::Query<bool>("native_x_renderer");
+    if(!native_requested)
+      REXLOG_WARN("[HULK/EOR-WORKER] direct EoR requested but native "
+                  "Vulkan host could not be enabled; preserving Xenos");
+    else
+      REXLOG_INFO("[HULK/EOR-WORKER] enabling the shared native Vulkan "
+                  "device for direct original EoR replay");
+  }
+  const bool verify_only = rex::cvar::Query<bool>("hulk_native_x_verify_only") &&
+                           !native_requested;
+  // Allow high-level XDK call capture while the known Xenos path still
+  // renders: no competing Vulkan surface or PM4 redirection is installed.
+  const bool eor_observer_only =
+      rex::cvar::Query<bool>("hulk_eor_xdk_capture") &&
+      !native_requested && !verify_only;
+  if (!native_requested && !verify_only && !eor_observer_only) {
+    REXLOG_INFO("[HULK/GPU-MODE] Xenos selected; optional XDK observer disabled");
+    return false;
+  }
+  REXLOG_INFO("[HULK/GPU-MODE] NativeX={} verify_only={}",
+              rex::cvar::Query<bool>("native_x_renderer"), verify_only);
+
   // AOT migration oracle: run exactly the verified USA XDK draw hooks while
   // Xenos remains the sole presenter. Hook raw arguments but never enter
   // NativeXRenderer, allocate host RTs, or alter the guest instruction path.
@@ -238,7 +283,7 @@ bool NativeXInitialize(
 
   // HULK/EFFECTIVE-QUALITY-203: the owner log203 ran with scaling="smaa",
   // 16x AF and full CAS despite the shipped TOML asking for bilinear, 8x
-  // and no CAS. A pre-existing user settings override may be active.
+  // and conservative CAS. A pre-existing user settings override may be active.
   // Only repair a renderer-invalid filter; preserve valid user choices.
   const std::string requested_scaling =
       rex::cvar::Query<std::string>("native_x_renderer_scaling");
@@ -295,7 +340,7 @@ bool NativeXInitialize(
               rex::cvar::Query<bool>("native_x_renderer_hulk_mip_probe"));
   if (effective_scaling == "bilinear" && effective_sharpness > 0.5) {
     REXLOG_WARN("[HULK/QUALITY-203] Strong full-screen CAS sharpening={} "
-                "can amplify edge ringing; the packaged default is 0.0",
+                "can amplify edge ringing; the packaged default is 0.18",
                 effective_sharpness);
   }
 
