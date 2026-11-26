@@ -23,11 +23,15 @@ int main(){
     check(p && !p->extra && !p->debt && p->accumulator==0);
   }
   auto p=PlanOriginalCatchup(kOriginalStep*7,kOriginalStep,0,0);
-  check(p && p->extra==4 && !p->debt);
+  check(p && p->extra==1 && p->debt==3);
   p=PlanOriginalCatchup(kOriginalStep*12,kOriginalStep,0,0);
-  check(p && p->extra==4 && p->debt==5);
+  check(p && p->extra==1 && p->debt==8);
   p=PlanOriginalCatchup(kOriginalStep,kOriginalStep,0,p->debt);
-  check(p && p->extra==5 && !p->debt);
+  check(p && p->extra==3 && p->debt==5);
+  p=PlanOriginalCatchup(kOriginalStep,kOriginalStep,0,p->debt);
+  check(p && p->extra==3 && p->debt==2);
+  p=PlanOriginalCatchup(kOriginalStep,kOriginalStep,0,p->debt);
+  check(p && p->extra==2 && !p->debt);
   for(uint32_t debt=0;debt<=100;++debt)
     for(unsigned ticks=1;ticks<=14;++ticks) {
       const float elapsed=kOriginalStep*(float(ticks)+0.25f);
@@ -35,7 +39,7 @@ int main(){
       p=PlanOriginalCatchup(elapsed,kOriginalStep,residual,debt);
       check(bool(p));
       const auto base=std::min(ticks,3u);
-      check(base+p->extra+1<=8);
+      check(base+p->extra+1<=kCatchupMaxTotalSteps);
       check(p->debt+p->extra+base==debt+ticks);
       check(p->accumulator>=residual);
     }
@@ -53,7 +57,7 @@ int main(){
       total_admitted+=base+recovery->extra;
       debt=recovery->debt;
       check(total_admitted+debt==total_requested);
-      check(base+recovery->extra+1<=8);
+      check(base+recovery->extra+1<=kCatchupMaxTotalSteps);
     }
     check(debt==0);
   }

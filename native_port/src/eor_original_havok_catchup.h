@@ -14,6 +14,11 @@
 namespace hulk::eor::havok {
 inline constexpr float kOriginalStep=std::bit_cast<float>(0x3c888889u);
 struct CatchupPlan {float accumulator=0;uint32_t debt=0,extra=0;};
+// Keep the original fixed step untouched. A destruction spike must not
+// schedule seven Havok updates inside its next delayed frame. A maximum
+// of four committed steps plus one possible original fractional carry
+// spreads recovery over subsequent frames without dropping time or jobs.
+inline constexpr uint32_t kCatchupMaxTotalSteps=5u;
 inline std::optional<CatchupPlan> PlanOriginalCatchup(
     float elapsed,float step,float remainder,uint32_t debt) noexcept {
   // Zero or large discontinuities (pause/load/debugger break) never add
@@ -24,9 +29,9 @@ inline std::optional<CatchupPlan> PlanOriginalCatchup(
   const auto whole=static_cast<uint32_t>(std::floor(elapsed/step));
   const auto admitted=std::min(whole,3u);
   const auto pending=debt+whole-admitted;
-  // Original fractional carry can add one step after the retail clamp.
-  // Reserve it and permit no more than eight total steps this update.
-  const auto extra=std::min(pending,8u-admitted-1u);
+  // Reserve one original fractional carry; never issue more than four
+  // whole physics steps per host frame. Keep the remaining exact debt.
+  const auto extra=std::min(pending,kCatchupMaxTotalSteps-admitted-1u);
   if(pending-extra>120u)return {}; // bounded debt, no spiral on long stalls
   return CatchupPlan{remainder+float(extra)*step,pending-extra,extra};
 }
