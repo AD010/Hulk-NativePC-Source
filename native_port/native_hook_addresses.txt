@@ -169,3 +169,5 @@
 82338B20
 # Original EoR method event dispatcher (PC settings, not XDK)
 825BAAC8
+# Original reference-returning VM method dispatcher; StateEnter only
+825BAC08

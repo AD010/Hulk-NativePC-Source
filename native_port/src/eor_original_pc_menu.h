@@ -41,6 +41,19 @@ bool VerifySettingsEventAbi(Read& read) {
   }
   return true;
 }
+template<class Read>
+bool VerifyDirectSettingsMethodAbi(Read& read) {
+  // 825BAC08 resolves the same original method as 825BAAC8, but returns
+  // the reference-counted VM result, NOT the event-dispatch boolean.
+  std::array<uint8_t,72> bytes{};
+  if(!read(0x825BAC08u,bytes.data(),bytes.size()))return false;
+  uint64_t h=0xcbf29ce484222325ull;
+  for(uint8_t b:bytes)h=(h^b)*0x100000001b3ull;
+  return h==0x6c1f3b011d2dd995ull;
+}
+inline constexpr bool OriginalSettingsEntrySucceeded(bool direct_method,uint32_t result) noexcept {
+  return direct_method ? result!=0u : result==1u;
+}
 struct PcSettingsEvent { uint32_t root=0, context=0, definition=0; PcEvent event=PcEvent::None; };
 template<class Read>
 std::optional<PcSettingsEvent> CapturePcSettingsEvent(uint32_t root,uint32_t context,Read& read) {

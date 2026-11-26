@@ -183,7 +183,7 @@ from unittest.mock import patch
 import hashlib
 expected_hooks = {0x82338A00,0x82338A18,0x82885FF8,0x82886428,
                   0x82339C18,0x82339C90,0x82338AE8,0x82338B20,0x82738B58,
-                  0x825BAAC8}
+                  0x825BAAC8,0x825BAC08}
 # Direct original widget routines must have codegen bodies but must not
 # become XDK hooks. Seed them automatically from the menu dispatcher.
 menu_calls = {0x825B8270,0x825B9528,0x825B9D98,0x8271D340,0x8271AA60}
@@ -192,6 +192,8 @@ assert PINNED_SOURCE_HOOKS == expected
 assert {int(x,16) for x in compiled if x} - {int(x,16) for x in registered} <= expected_hooks
 assert "HULK_EOR_PC_MENU_HOOK(825BAAC8)" in cpp
 assert "HULK_NATIVE_X_HOOK(825BAAC8," not in cpp
+assert "HULK_EOR_PC_MENU_HOOK(825BAC08)" in cpp
+assert "HULK_NATIVE_X_HOOK(825BAC08," not in cpp
 for address in menu_calls:
     assert f"{address:08X}" not in compiled
     assert f"HULK_NATIVE_X_HOOK({address:08X}," not in cpp
@@ -218,8 +220,12 @@ with tempfile.TemporaryDirectory() as tmp:
     with patch.object(hashlib, "sha256") as digest:
         digest.return_value.hexdigest.return_value = PINNED_USA_SHA256
         assert set(required_hook_targets(root)) == expected | {0x8289D730}
-        hooks.write_text("\n".join(f"{a:08X}" for a in sorted(expected_hooks - {0x825BAAC8})))
-        assert set(required_hook_targets(root)) == (expected_hooks - {0x825BAAC8}) | {0x8289D730}
+        for entry in (0x825BAAC8,0x825BAC08):
+            hooks.write_text("\n".join(f"{a:08X}" for a in sorted(expected_hooks - {entry})))
+            assert set(required_hook_targets(root)) == (expected - {entry}) | {0x8289D730}
+        no_menu=expected_hooks - {0x825BAAC8,0x825BAC08}
+        hooks.write_text("\n".join(f"{a:08X}" for a in sorted(no_menu)))
+        assert set(required_hook_targets(root)) == no_menu | {0x8289D730}
         hooks.write_text("\n".join(f"{a:08X}" for a in sorted(expected_hooks))+"\n82738B5C\n")
         try:
             required_hook_targets(root)

@@ -14,7 +14,7 @@ SOURCE_PINNED_SEGMENT_HOOKS = {"82886428": "KickSegment", "82885FF8": "NewSegmen
 SOURCE_EOR_CAMERA_GETTERS = {"82338A00", "82338A18"}
 SOURCE_EOR_CAMERA_SPEED = {"82339C18", "82339C90", "82338AE8", "82338B20"}
 SOURCE_EOR_HAVOK_FLOOR = {"82738B58"}
-SOURCE_EOR_PC_MENU_EVENTS = {"825BAAC8"}
+SOURCE_EOR_PC_MENU_EVENTS = {"825BAAC8", "825BAC08"}
 SOURCE_EOR_PC_MENU_CALLS = {"825B8270", "825B9528", "825B9D98", "8271D340", "8271AA60"}
 def verify_pinned_codegen(directory, addresses):
     if not addresses:
@@ -329,7 +329,7 @@ h += r"""
 #define HULK_EOR_PC_MENU_HOOK(addr) \
     REX_EXTERN(__imp__sub_##addr); \
     REX_HOOK_RAW(sub_##addr) { \
-        ::hulk::eor::xdk::DispatchOriginalPcMenu(ctx,base,&__imp__sub_##addr); \
+        ::hulk::eor::xdk::DispatchOriginalPcMenu(ctx,base,&__imp__sub_##addr,0x##addr==0x825BAC08u); \
     }
 """
 Path(sys.argv[3]).parent.mkdir(parents=True,exist_ok=True)

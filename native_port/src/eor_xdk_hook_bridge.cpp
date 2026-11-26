@@ -308,7 +308,7 @@ thread_local bool g_pc_menu_dispatching=false;
 #endif
 } // namespace
 
-void DispatchOriginalPcMenu(PPCContext& ctx,uint8_t* base,PPCFunc* original) {
+void DispatchOriginalPcMenu(PPCContext& ctx,uint8_t* base,PPCFunc* original,[[maybe_unused]] bool direct_method) {
 #ifdef _WIN32
   // Nested source calls and unrelated script events must run normally.
   if(!g_pc_menu_dispatching && base) {
@@ -317,6 +317,12 @@ void DispatchOriginalPcMenu(PPCContext& ctx,uint8_t* base,PPCFunc* original) {
     };
     std::optional<ui::PcSettingsEvent> event;
     try {event=ui::CapturePcSettingsEvent(ctx.r3.u32,ctx.r4.u32,read);}catch(...){}
+    if(event && direct_method) {
+      // Unlike the event wrapper, the original direct method route returns
+      // a VM object with ownership. Never synthesize or swallow that result.
+      if(event->event!=ui::PcEvent::Enter || !ui::VerifyDirectSettingsMethodAbi(read))
+        event.reset();
+    }
     if(event) {
       const auto apply=[&](bool entering)->bool {
         struct Scope {Scope(){g_pc_menu_dispatching=true;}~Scope(){g_pc_menu_dispatching=false;}} scope;
@@ -346,10 +352,16 @@ void DispatchOriginalPcMenu(PPCContext& ctx,uint8_t* base,PPCFunc* original) {
           return scratch.Paint(api,row->object,frame.compact);
         };
         if(entering)return g_original_pc_storage_menu.Enter(event->root,row->object,paint);
-        if(!g_original_pc_storage_menu.Owns(event->root,row->object))return false;
         const std::array<uint32_t,2> lookup{event->root,event->context};
         const auto method=scratch.Invoke(0x825B9528u,lookup);
         if(!method || !*method || !scratch.BindOwner(event->context,event->root))return false;
+        // Some retail StateEnter paths are already executing before the
+        // host session exists. Recover on the next authenticated UI event,
+        // without stealing focus or consuming the original Back action.
+        if(!g_original_pc_storage_menu.Owns(event->root,row->object)) {
+          if(event->event==ui::PcEvent::Back || g_original_pc_page_view.Active() ||
+             !g_original_pc_storage_menu.Enter(event->root,row->object,paint))return false;
+        }
         const auto selector=api.Find(row->object,ui::kSelectorChild);
         const bool focused=selector && scratch.Hidden(selector->object,read)==std::optional<bool>{false};
         return g_original_pc_storage_menu.Handle(event->root,row->object,event->event,focused,
@@ -372,8 +384,15 @@ void DispatchOriginalPcMenu(PPCContext& ctx,uint8_t* base,PPCFunc* original) {
           }
           g_original_pc_page_view.Discard();
         }
-        (*original)(ctx,base);
-        if(ctx.r3.u32==1u)try{(void)apply(true);}catch(...){}
+        // Suppress only nested PC-menu interception during the original
+        // entry routine. Preserve all of the real VM register/return state.
+        struct EnterScope {
+          EnterScope(){g_pc_menu_dispatching=true;}
+          ~EnterScope(){g_pc_menu_dispatching=false;}
+        };
+        { EnterScope guard; (*original)(ctx,base); }
+        if(ui::OriginalSettingsEntrySucceeded(direct_method,ctx.r3.u32))
+          try{(void)apply(true);}catch(...){}
         return;
       }
       try {
