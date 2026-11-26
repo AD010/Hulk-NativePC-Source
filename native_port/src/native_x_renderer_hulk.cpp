@@ -115,12 +115,25 @@ bool NativeXInitialize(
       hulk::eor::source::ResolvePackRoot(cache,{}) : source_root;
   bool direct_eor_requested =
       rex::cvar::Query<bool>("hulk_eor_vulkan_replay");
+#ifdef _WIN32
+  const bool exclusive_requested=rex::cvar::Query<bool>("hulk_eor_exclusive_vulkan");
+  if(exclusive_requested && !direct_eor_requested) {
+    REXLOG_ERROR("[HULK/EOR-WIN32] exclusive mode requires hulk_eor_vulkan_replay");
+    return false;
+  }
+#endif
   if(direct_eor_requested) {
     // Reuse the app's authenticated immutable shader pack. Only attempt a
     // directory reload when startup did not already register all five banks.
     const bool available=hulk::eor::xdk::HasVerifiedSourceShaderPack() ||
         hulk::eor::xdk::InstallVerifiedSourceShaderPackFromDirectory(original_source_root);
     if(!available) {
+#ifdef _WIN32
+      if(exclusive_requested) {
+        REXLOG_ERROR("[HULK/EOR-WIN32] original shader pack unavailable for exclusive replay");
+        return false;
+      }
+#endif
       // The app installs authentic HEORVRT1/HEORMAT2 even before DXC
       // produces its first pair. Keep the worker and source capture alive
       // so real Draws can feed HEORREQ1 and hot-adopt the resulting bank.
@@ -169,7 +182,7 @@ bool NativeXInitialize(
 
   if (!loaded) {
     REXLOG_ERROR(
-        "[HULK/VULKAN] Profile validation failed; retaining Xenos fallback: {}",
+        "[HULK/VULKAN] Profile validation failed: {}",
         candidate->error);
     return false;
   }
@@ -180,41 +193,43 @@ bool NativeXInitialize(
     // Do not let GPU-MODE NativeX=true be mistaken for active native drawing.
     REXLOG_ERROR(
         "[HULK/GPU-MODE] NativeX NOT ACTIVE: compiled XDK hook validation "
-        "failed; Xenos Vulkan fallback is presenting the game");
+        "failed before renderer startup");
     return false;
   }
 
 #ifdef _WIN32
   // This choice is made on the window thread before guest execution or
   // NativeX worker startup. Preserve the compatibility mode in existing configs.
-  if(direct_eor_requested && rex::cvar::Query<bool>("hulk_eor_exclusive_vulkan") &&
-     eor::xdk::HasVerifiedSourceShaderPack()) {
+  if(exclusive_requested) {
+    if(graphics->has_presentation() || graphics->presenter()) {
+      REXLOG_ERROR("[HULK/EOR-WIN32] SDK already owns presentation; exclusive startup rejected");
+      return false;
+    }
     rex::cvar::SetFlagByName("hulk_eor_xdk_capture","true");
     eor::xdk::InstallOriginalEorMaterialCandidateIndexPath(original_source_root/"HEORCND1.bin");
     auto* hwnd=window->GetNativeWindowHandle();
-    if(hwnd && eor::xdk::CaptureEnabled()) {
-      auto host=std::make_unique<eor::gpu::EorWin32VulkanHost>();
-      auto& ui=window->app_context();
-      std::function<bool(std::function<void()>)> post=[&ui](std::function<void()> task) {
-        return ui.CallInUIThreadDeferred(std::move(task));
-      };
-      auto* previous=graphics->presenter();
-      window->SetPresenter(nullptr);
-      if(host->Create(hwnd) && graphics->SetHostRendering(false)) {
-        if(eor::xdk::StartExclusiveEorFrames(std::move(host),std::move(post))) {
-          g_profile=std::move(candidate);
-          nx::Install(g_profile.get());
-          g_exclusive_eor=true;
-          g_initialized=true;
-          REXLOG_INFO("[HULK/EOR-WIN32] exclusive Vulkan host initialized; awaiting original Draw sequence");
-          return true;
-        }
-        graphics->SetHostRendering(true);
-      }
-      host.reset();
-      window->SetPresenter(previous);
-      REXLOG_WARN("[HULK/EOR-WIN32] startup failed before game submission; restoring configured renderer");
+    if(!hwnd || !eor::xdk::CaptureEnabled()) {
+      REXLOG_ERROR("[HULK/EOR-WIN32] missing game window or original Draw capture");
+      return false;
     }
+    auto host=std::make_unique<eor::gpu::EorWin32VulkanHost>();
+    if(!graphics->SetHostRendering(false) || !host->Create(hwnd)) {
+      REXLOG_ERROR("[HULK/EOR-WIN32] could not start sync-only guest GPU and native swapchain");
+      return false;
+    }
+    auto& ui=window->app_context();
+    if(!eor::xdk::StartExclusiveEorFrames(std::move(host),[&ui](std::function<void()> task) {
+         return ui.CallInUIThreadDeferred(std::move(task));
+       })) {
+      REXLOG_ERROR("[HULK/EOR-WIN32] could not bind original resources to the exclusive host");
+      return false;
+    }
+    g_profile=std::move(candidate);
+    nx::Install(g_profile.get());
+    g_exclusive_eor=true;
+    g_initialized=true;
+    REXLOG_INFO("[HULK/EOR-WIN32] exclusive Vulkan host initialized; awaiting original Draw sequence");
+    return true;
   }
 #endif
   if(direct_eor_requested && !native_requested) {

@@ -25,6 +25,7 @@
 #include "pc_menu.h"
 
 #include <rex/rex_app.h>
+#include <rex/cvar.h>
 #include <rex/logging.h>
 #include <rex/system/xmemory.h>
 
@@ -99,6 +100,13 @@ class IncredibleHulkApp : public rex::ReXApp {
     }
 #endif
   }
+#if defined(_WIN32) && defined(HULK_NATIVE_X_LINKED)
+  bool ConstructRuntime(const rex::PathConfig& paths) override {
+    // The SDK calls OnPostSetup before LaunchModule. Return its normal setup
+    // failure here so guest code cannot start on a different presenter.
+    return rex::ReXApp::ConstructRuntime(paths) && !exclusive_start_failed_;
+  }
+#endif
   // After the runtime's own exception handlers are in place (crash_report.cpp).
   void OnPostSetup() override {
     hulk::InstallCrashReport();
@@ -333,6 +341,13 @@ class IncredibleHulkApp : public rex::ReXApp {
         window(), runtime() ? runtime()->cache_root() : std::filesystem::path{},
         eor_source_pack_root_);
     if (!vulkan_active) {
+#ifdef _WIN32
+      if(rex::cvar::Query<bool>("hulk_eor_exclusive_vulkan")) {
+        REXLOG_ERROR("[HULK/EOR-WIN32] exclusive renderer unavailable; cancelling game startup");
+        exclusive_start_failed_=true;
+        return;
+      }
+#endif
       if (const char* strict = std::getenv("HULK_REQUIRE_NATIVE_GPU");
           strict && strict[0] == '1') {
         // Native-only launches fail instead of silently reverting to EDRAM/Xenos.
@@ -390,6 +405,9 @@ class IncredibleHulkApp : public rex::ReXApp {
   // void OnShutdown() override {}
   // void OnConfigurePaths(rex::PathConfig& paths) override {}
  private:
+#if defined(_WIN32) && defined(HULK_NATIVE_X_LINKED)
+  bool exclusive_start_failed_=false;
+#endif
   std::shared_ptr<hulk::eor::aot::ShaderBank> eor_aot_;
   std::shared_ptr<hulk::eor::aot::EffectCatalog> eor_effects_;
   std::shared_ptr<hulk::eor::aot::ReflectionBank> eor_reflection_;

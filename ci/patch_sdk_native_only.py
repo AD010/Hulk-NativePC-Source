@@ -40,6 +40,30 @@ def patch_sdk(path: Path) -> None:
             raise ValueError(f"unexpected upstream SDL config (missing/duplicated {before[:75]})")
     path.write_text(source, encoding="utf-8", newline="\n")
 
+def patch_presenter_ownership(sdk: Path) -> None:
+    # ReXApp creates a presenter before the window opens. Runtime::Setup can
+    # create another one later unless it takes the pinned SDK's headless GPU path.
+    changes = (
+        ("src/ui/rex_app.cpp", "if (config_.graphics) {\n    X_STATUS status = config_.graphics->SetupPresentation",
+         'if (config_.graphics && !rex::cvar::Query<bool>("hulk_eor_exclusive_vulkan")) {\n'
+         '    X_STATUS status = config_.graphics->SetupPresentation'),
+        ("src/system/runtime.cpp", "bool with_presentation = (app_context_ != nullptr);",
+         'bool with_presentation = app_context_ != nullptr &&\n'
+         '        !rex::cvar::Query<bool>("hulk_eor_exclusive_vulkan");'),
+    )
+    pending = []
+    for name, before, after in changes:
+        path = sdk / name
+        source = path.read_text(encoding="utf-8")
+        if source.count(after) == 1 and before not in source:
+            continue
+        if source.count(before) != 1 or after in source:
+            raise ValueError(f"unexpected presenter initialization in {name}")
+        pending.append((path, source.replace(before, after)))
+    for path, source in pending:
+        path.write_text(source, encoding="utf-8", newline="\n")
+
+
 def main() -> int:
     if len(sys.argv) != 2:
         print("Usage: patch_sdk_native_only.py PATH_TO_REXGLUE_SDK", file=sys.stderr)
@@ -50,9 +74,10 @@ def main() -> int:
         print(f"Missing vendored SDL configuration: {path}", file=sys.stderr)
         return 1
     try:
+        patch_presenter_ownership(sdk)
         patch_sdk(path)
-    except ValueError as exc:
-        print(f"Refusing to silently ignore SDL configuration: {exc}", file=sys.stderr)
+    except (OSError, ValueError) as exc:
+        print(f"Refusing to silently ignore SDK configuration: {exc}", file=sys.stderr)
         return 1
     print("ReXGlue SDK: SDL_RENDER ON; SDL_JOYSTICK OFF; SDL_GAMEPAD OFF; SDL_VULKAN ON")
     return 0

@@ -10,6 +10,9 @@ This runs before private game data is downloaded, without a release build.
 from pathlib import Path
 import re
 import unittest
+import tempfile
+
+from patch_sdk_native_only import patch_presenter_ownership
 
 ROOT = Path(__file__).resolve().parents[1]
 TARGET = ROOT / "native_port" / "CMakeLists.txt"
@@ -512,6 +515,27 @@ class NativeEorLinkCoverage(unittest.TestCase):
                         source.index('if (!native_requested && !verify_only && !eor_observer_only)'))
         self.assertIn('native_requested=selected &&',source)
         self.assertIn('preserving Xenos',source)
+
+    def test_exclusive_startup_covers_both_sdk_presenter_entry_points(self):
+        with tempfile.TemporaryDirectory() as directory:
+            sdk=Path(directory)
+            app=sdk / "src/ui/rex_app.cpp"
+            runtime=sdk / "src/system/runtime.cpp"
+            for file in (app,runtime):
+                file.parent.mkdir(parents=True)
+            app.write_text("if (config_.graphics) {\n    X_STATUS status = config_.graphics->SetupPresentation(ctx);")
+            runtime.write_text("bool with_presentation = true;")
+            before=app.read_text()
+            with self.assertRaises(ValueError):
+                patch_presenter_ownership(sdk)
+            self.assertEqual(app.read_text(),before)
+            runtime.write_text("bool with_presentation = (app_context_ != nullptr);")
+            patch_presenter_ownership(sdk)
+            first=(app.read_text(),runtime.read_text())
+            patch_presenter_ownership(sdk)
+            self.assertEqual(first,(app.read_text(),runtime.read_text()))
+            for initialization in first:
+                self.assertIn('!rex::cvar::Query<bool>("hulk_eor_exclusive_vulkan")',initialization)
 
     def test_native_backend_resets_viewport_and_scissor_per_actual_eor_draw(self):
         source=(ROOT / "native_port/src/eor_diligent_aot_backend.cpp").read_text()
