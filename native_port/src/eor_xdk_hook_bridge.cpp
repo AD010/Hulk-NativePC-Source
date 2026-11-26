@@ -2590,7 +2590,11 @@ struct AutomaticEorOwner {
       std::shared_ptr<AutomaticEorResources> source,AutomaticSceneContract source_contract)
       :resources(std::move(source)),pack(resources->pack),contract(std::move(source_contract)),
        scene(host.device(),host.context()),meshes(resources->meshes),
-       shaders(resources->shaders),textures(resources->textures),host_output(host),
+       shaders(resources->shaders),textures(resources->textures),
+       // The real EoR presentation path receives native Diligent objects,
+       // not the NativeX Xenos renderer. The existing sole worker retains
+       // ownership of the physical window and calls Present only once.
+       host_output(*host.device(),*host.context(),*host.swap_chain()),
        source_models(resources->source_models),candidates(resources->candidates),
        scalar_analysis(resources->scalar_analysis) {
     if(!host_output.Initialize())
