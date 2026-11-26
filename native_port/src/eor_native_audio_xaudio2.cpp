@@ -1,5 +1,6 @@
 #include "eor_native_audio_xaudio2.h"
 #include "eor_fsb4_pcm.h"
+#include "eor_archive.h"
 #ifdef _WIN32
 #include <xaudio2.h>
 #include <objbase.h>
@@ -119,6 +120,26 @@ bool NativeXAudio2Mixer::PlayFsb4Pcm16(Bus bus,
   const auto decoded=DecodeFsb4Pcm16(bank,sample_index);
   return decoded && PlayPcm16(bus,decoded->pcm,
       decoded->sample_rate,decoded->channels,gain);
+}
+bool NativeXAudio2Mixer::PlayIndexedWaveBankPcm16(Bus bus,
+    const hulk::eor::Index& index,
+    const std::filesystem::path& wavebanks_arc,
+    uint32_t resource_hash,uint32_t sample_index,float gain) {
+  if(!Ready() || index.byte_order()!=hulk::eor::ByteOrder::Big ||
+     !resource_hash)return false;
+  // The exact 2008 EoR WaveBanks index authenticates the guest resource
+  // bytes. Data must still be checked as supported FSB4 PCM before a
+  // host audio voice is allocated; XMA/other codecs are never guessed.
+  const auto record=index.FindHash("WaveBanks",resource_hash);
+  if(!record || !record->size || record->reserved ||
+     record->size>(64u<<20))return false;
+  try {
+    const auto data=hulk::eor::ReadResource(
+        wavebanks_arc,*record,64u<<20);
+    return PlayFsb4Pcm16(bus,data,sample_index,gain);
+  } catch (...) {
+    return false;
+  }
 }
 bool NativeXAudio2Mixer::SetBusVolume(Bus bus,float gain) noexcept {
   const unsigned index=BusIndex(bus);
