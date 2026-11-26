@@ -11,12 +11,17 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
-namespace Diligent {struct ITextureView;}
+namespace Diligent {struct ITextureView;struct IRenderDevice;struct IDeviceContext;struct ISwapChain;}
 namespace native_x_renderer {class Device;class Blitter;}
 namespace hulk::eor::gpu {
 class DiligentEorHostOutput final {
  public:
   explicit DiligentEorHostOutput(native_x_renderer::Device& host);
+  // Independent Vulkan owner: Diligent device/context/swapchain belong to
+  // the native Win32 host, not NativeX's Xenos/EDRAM presenter. Only exact
+  // same-format full-size frames can be copied by this overload.
+  DiligentEorHostOutput(Diligent::IRenderDevice& device,
+      Diligent::IDeviceContext& context,Diligent::ISwapChain& swapchain);
   DiligentEorHostOutput(const DiligentEorHostOutput&)=delete;
   DiligentEorHostOutput& operator=(const DiligentEorHostOutput&)=delete;
   ~DiligentEorHostOutput() noexcept;
@@ -39,6 +44,9 @@ class DiligentEorHostOutput final {
   uint64_t PresentedFrames() const noexcept {return presented_;}
  private:
   native_x_renderer::Device* device_=nullptr;
+  Diligent::IRenderDevice* native_device_=nullptr;
+  Diligent::IDeviceContext* native_context_=nullptr;
+  Diligent::ISwapChain* native_swapchain_=nullptr;
   std::unique_ptr<native_x_renderer::Blitter> blitter_;
   bool initialized_=false;
   uint64_t presented_=0;
