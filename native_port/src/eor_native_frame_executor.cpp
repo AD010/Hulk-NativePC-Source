@@ -22,6 +22,7 @@ struct EorNativeFrameExecutor::State {
   Diligent::RefCntAutoPtr<Diligent::IFence> fence;
   uint64_t last_signal=0;
   uint64_t last_submitted_frame=0;
+  bool completion_failed=false;
   std::deque<Pending> pending;
 };
 EorNativeFrameExecutor::EorNativeFrameExecutor(
@@ -53,7 +54,7 @@ void EorNativeFrameExecutor::RetireCompleted() noexcept {
   try {
     const uint64_t done=state_->fence->GetCompletedValue();
     uint64_t last=0;
-    while(!state_->pending.empty() &&
+    while(!state_->pending.empty() && state_->pending.front().value &&
           state_->pending.front().value<=done) {
       last=state_->pending.front().source_frame;
       state_->pending.pop_front();
@@ -68,6 +69,7 @@ NativeFrameSubmission EorNativeFrameExecutor::Submit(
     std::span<const aot::BoundIndexedDraw> draws,
     const xdk::Frame& source,
     std::vector<std::shared_ptr<const void>> retained) noexcept {
+  if(state_ && state_->completion_failed)return NativeFrameSubmission::FailedAfterGpu;
   if(!state_ || !state_->host || !state_->backend ||
      !state_->host->Device() || !state_->host->Context() ||
      !state_->host->SwapChain() ||
@@ -95,6 +97,14 @@ NativeFrameSubmission EorNativeFrameExecutor::Submit(
     return NativeFrameSubmission::IncompleteSource;
 
   RetireCompleted();
+  // Allocate the ownership record BEFORE ReplayAotScene can submit any GPU
+  // work. Moving owners into a temporary deque element after Draw can free
+  // them on allocation failure before the exception handler waits for idle.
+  try {state_->pending.emplace_back();}
+  catch (...) {return NativeFrameSubmission::IncompleteSource;}
+  auto& current=state_->pending.back();
+  current.source_frame=source.sequence;
+  current.owners.swap(retained); // nonthrowing; value=0 means not fenced yet
   bool began_gpu=false;
   try {
     aot::ReplayAotScene(frame,draws,*state_->shaders,*state_->effects,
@@ -102,12 +112,9 @@ NativeFrameSubmission EorNativeFrameExecutor::Submit(
     auto* context=state_->host->Context();
     if(state_->fence && state_->last_signal!=UINT64_MAX) {
       const uint64_t signal=state_->last_signal+1;
-      // Reserve the retained ownership BEFORE GPU submission: if memory
-      // allocation fails, the exception handler waits for GPU completion.
-      state_->pending.push_back(State::Pending{signal,source.sequence,
-                                               std::move(retained)});
       context->EnqueueSignal(state_->fence,signal);
       context->Flush();
+      current.value=signal;
       state_->last_signal=signal;
       RetireCompleted();
       if(state_->pending.size()>3) {
@@ -117,27 +124,31 @@ NativeFrameSubmission EorNativeFrameExecutor::Submit(
       }
     } else {
       // No Vulkan fence available: retain all owners through completion.
+      context->Flush();
       context->WaitForIdle();
+      state_->pending.clear();
       state_->backend->RetireCompletedOriginalFontDraws(source.sequence);
     }
     state_->last_submitted_frame=source.sequence;
     return NativeFrameSubmission::Submitted;
   } catch (...) {
     if(began_gpu) {
-      // The GPU may have consumed original model/font buffers already.
-      // Never allow fallback/cleanup while an unordered Draw is in flight.
+      // A partially submitted frame must never be replayed or replaced by
+      // a competing renderer, even if the completion barrier itself fails.
+      state_->last_submitted_frame=source.sequence;
       try {
         auto* context=state_->host->Context();
         context->Flush();context->WaitForIdle();
-        // A signal may have been enqueued but failed to publish a fence
-        // value. WaitForIdle is now real GPU completion for ALL pending
-        // frames; empty retained host assets only after this barrier.
         state_->pending.clear();
         state_->backend->RetireCompletedOriginalFontDraws(source.sequence);
-        state_->last_submitted_frame=source.sequence;
-      } catch (...) {}
+      } catch (...) {
+        // Retain unfenced owners, forbid further submissions on this
+        // executor, and require host/device recovery before reuse.
+        state_->completion_failed=true;
+      }
       return NativeFrameSubmission::FailedAfterGpu;
     }
+    state_->pending.pop_back(); // no GPU work consumed this record
     state_->backend->DiscardUnsubmittedOriginalFontDraws(source.sequence);
     return NativeFrameSubmission::IncompleteSource;
   }
@@ -149,7 +160,9 @@ void EorNativeFrameExecutor::Shutdown() noexcept {
       auto* context=state_->host?state_->host->Context():nullptr;
       if(context) {
         context->Flush();context->WaitForIdle();
-        RetireCompleted();
+        const auto last=state_->pending.back().source_frame;
+        state_->pending.clear();
+        state_->backend->RetireCompletedOriginalFontDraws(last);
       }
     } catch (...) {}
   }
