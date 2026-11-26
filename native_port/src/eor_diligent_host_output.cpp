@@ -24,13 +24,11 @@ bool DiligentEorHostOutput::Initialize() {
     // BGRA8-to-RGBA8 conversion it may reuse the pre-existing Diligent
     // fullscreen blitter, but never instantiates the NativeX Device,
     // Xenos command processor, EDRAM, PM4 or an emulated guest frame.
-    try {
-      auto instance=std::make_unique<native_x_renderer::Blitter>();
-      if(!instance->Initialize(native_device_))return false;
-      blitter_=std::move(instance);
-      initialized_=true;
-      return true;
-    } catch (...) {return false;}
+    // Exact-format EoR frames use CopyTexture and have no dependency on
+    // NativeX's blit pipelines. Delay utility shader creation until a real
+    // color-space conversion requires it.
+    initialized_=true;
+    return true;
   }
   if(!device_ || !device_->device() || !device_->context() ||
      !device_->swap_chain())return false;
@@ -80,6 +78,15 @@ bool DiligentEorHostOutput::CompositeToBackbuffer(
   // order) still goes through the existing proven blitter, never a fake
   // same-format copy.
   auto* backbuffer=target->GetTexture();
+  // A native producer is allowed to render directly to this backbuffer.
+  // Sampling its own active RTV with a fullscreen pass would introduce a
+  // Vulkan read/write feedback hazard. In this one case the desired pixels
+  // are already present; do not issue another GPU command.
+  if(backbuffer && source->GetTexture()==backbuffer &&
+     source->GetDesc().Format==target->GetDesc().Format &&
+     dest.left==0 && dest.top==0 &&
+     dest.width==output.width && dest.height==output.height)
+    return true;
   if(backbuffer && source->GetTexture()!=backbuffer &&
      dest.left==0 && dest.top==0 && dest.width==output.width &&
      dest.height==output.height) {
@@ -107,10 +114,17 @@ bool DiligentEorHostOutput::CompositeToBackbuffer(
       }
     }
   }
-  // An independently owned native GPU uses the blitter only for real
-  // physical-resolution color format conversions. Scaling is prohibited by
-  // HasFullNativeCompositePixels() above.
-  if(!blitter_)return false;
+  // Native EoR can perform the exact GPU copy without constructing any
+  // compatibility utility shader. Only verified physical-pixel
+  // HDR/sRGB/format conversions still need the small blit pipeline.
+  if(!blitter_) {
+    try {
+      auto instance=std::make_unique<native_x_renderer::Blitter>();
+      auto* render_device=device_?device_->device():native_device_;
+      if(!render_device || !instance->Initialize(render_device))return false;
+      blitter_=std::move(instance);
+    } catch (...) {return false;}
+  }
   // Keep the swapchain RTV detached on every exit, including exceptions
   // raised by the blitter or Present during a resize/device-loss transition.
   bool rtv_bound=false;
