@@ -85,7 +85,9 @@ bool DiligentEorHostOutput::CompositeToBackbuffer(
      dest.height==output.height) {
     const auto& back=backbuffer->GetDesc();
     if(original.Width==back.Width && original.Height==back.Height &&
-       original.Format==back.Format && back.SampleCount==1 &&
+       original.Format==back.Format &&
+       source->GetDesc().Format==target->GetDesc().Format &&
+       back.SampleCount==1 &&
        original.ArraySize==1 && back.ArraySize==1 &&
        original.MipLevels==1 && back.MipLevels==1) {
       try {
