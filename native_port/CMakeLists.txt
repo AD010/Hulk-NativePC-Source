@@ -119,6 +119,47 @@ if(HULK_NATIVE_EOR_VULKAN_ONLY)
     add_subdirectory("${_hulk_diligent_source}"
         "${CMAKE_CURRENT_BINARY_DIR}/hulk_native_eor_diligent")
     hulk_add_eor_vulkan_host_target()
+    # Original EoR archives, models, materials, LOD, image decoding,
+    # ShaderEffects, SPIR-V bank, source Draw and render-target chronology.
+    # Every source is the SAME file used in the current game executable,
+    # compiled without a generated PPC table, ReXGlue or NativeX.
+    add_library(hulk_eor_native_resources STATIC
+        src/eor_usa_index.cpp
+        src/eor_verified_sampler_bindings.cpp
+        src/eor_model_resource.cpp
+        src/eor_model_material_refs.cpp
+        src/eor_model_surfaces.cpp
+        src/eor_native_mesh_geometry.cpp
+        src/eor_native_attributes.cpp
+        src/eor_native_mesh_upload.cpp
+        src/eor_model_surface_materials.cpp
+        src/eor_original_model_assets.cpp
+        src/eor_original_texture_assets.cpp
+        src/eor_original_texture_streams.cpp
+        src/eor_original_texture_mip_ranges.cpp
+        src/eor_original_texture_gpu_layout.cpp
+        src/eor_source_mip_resolver.cpp
+        src/eor_xenos_texture_mips.cpp
+        src/eor_original_texture_usa.cpp
+        src/eor_original_model_upload.cpp
+        src/eor_native_world_stream.cpp
+        src/eor_native_archive_source.cpp
+        src/eor_font_pack.cpp
+        src/eor_native_font_geometry.cpp
+        src/eor_motion_vectors.cpp
+        src/eor_native_frame.cpp
+        src/eor_spirv_bank.cpp
+        src/eor_original_virtual_shader_identity.cpp
+        src/eor_native_shader_constants.cpp
+        src/eor_spirv_texture_bindings.cpp
+        src/eor_aot_draw_bridge.cpp
+        src/eor_native_draw_geometry.cpp
+        src/eor_xdk_draw_capture.cpp
+        src/eor_ui_asset_catalog.cpp
+        src/eor_ui_original_dds.cpp)
+    target_include_directories(hulk_eor_native_resources PUBLIC
+        "${CMAKE_CURRENT_SOURCE_DIR}/src")
+    target_link_libraries(hulk_eor_native_resources PUBLIC hulk_native_core)
     # Compile the actual existing native EoR DrawIndexed, SPIR-V/PSO,
     # textures, model buffers and intermediate Resolve pipeline here too.
     # This reuses SAME sources as the current game; it imports NO ReXGlue,
@@ -136,7 +177,7 @@ if(HULK_NATIVE_EOR_VULKAN_ONLY)
     target_include_directories(hulk_eor_native_gpu PUBLIC
         "${CMAKE_CURRENT_SOURCE_DIR}/src")
     target_link_libraries(hulk_eor_native_gpu PUBLIC
-        hulk_eor_win32_vulkan_host hulk_native_core)
+        hulk_eor_win32_vulkan_host hulk_eor_native_resources hulk_native_core)
     return()
 endif()
 if(HULK_NATIVE_CORE_ONLY)
