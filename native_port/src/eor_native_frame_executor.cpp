@@ -36,7 +36,11 @@ EorNativeFrameExecutor::EorNativeFrameExecutor(
       Diligent::FenceDesc desc{};
       desc.Name="Native EoR original Draw completion";
       desc.Type=Diligent::FENCE_TYPE_CPU_WAIT_ONLY;
-      host.Device()->CreateFence(desc,&state->fence);
+      // Vulkan drivers may reject fence allocation during resize or under
+      // GPU-memory pressure. Keep the executable native scene runner and
+      // fall back to real WaitForIdle; do not silently disable all Draws.
+      try {host.Device()->CreateFence(desc,&state->fence);}
+      catch (...) {state->fence.Release();}
     }
     state_=std::move(state);
   } catch (...) {
