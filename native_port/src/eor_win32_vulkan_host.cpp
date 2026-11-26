@@ -12,6 +12,22 @@
 #include <utility>
 
 namespace hulk::eor::gpu {
+namespace {
+// A 175% Windows scaling setting must not silently turn requested host
+// pixels into virtualized logical coordinates during swapchain creation.
+// Restore the worker's DPI context after querying the window so the game
+// input/menu thread is unaffected.
+struct PhysicalClientPixels {
+  DPI_AWARENESS_CONTEXT previous=nullptr;
+  PhysicalClientPixels() noexcept {
+    previous=SetThreadDpiAwarenessContext(
+        DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+  }
+  ~PhysicalClientPixels() noexcept {
+    if(previous)SetThreadDpiAwarenessContext(previous);
+  }
+};
+}
 struct EorWin32VulkanHost::State {
   HWND hwnd=nullptr;
   Diligent::RefCntAutoPtr<Diligent::IRenderDevice> device;
@@ -23,6 +39,7 @@ EorWin32VulkanHost::~EorWin32VulkanHost() noexcept=default;
 bool EorWin32VulkanHost::Create(void* window) noexcept {
   if(state_ || !window)return false;
   HWND hwnd=static_cast<HWND>(window);
+  PhysicalClientPixels physical;
   RECT rect{};
   if(!IsWindow(hwnd) || !GetClientRect(hwnd,&rect) ||
      rect.right<=rect.left || rect.bottom<=rect.top ||
@@ -67,6 +84,7 @@ bool EorWin32VulkanHost::Create(void* window) noexcept {
 }
 bool EorWin32VulkanHost::ResizeToClient() noexcept {
   if(!state_ || !IsWindow(state_->hwnd))return false;
+  PhysicalClientPixels physical;
   RECT rect{};
   if(!GetClientRect(state_->hwnd,&rect) ||
      rect.right<=rect.left || rect.bottom<=rect.top ||
