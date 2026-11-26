@@ -119,6 +119,24 @@ if(HULK_NATIVE_EOR_VULKAN_ONLY)
     add_subdirectory("${_hulk_diligent_source}"
         "${CMAKE_CURRENT_BINARY_DIR}/hulk_native_eor_diligent")
     hulk_add_eor_vulkan_host_target()
+    # Compile the actual existing native EoR DrawIndexed, SPIR-V/PSO,
+    # textures, model buffers and intermediate Resolve pipeline here too.
+    # This reuses SAME sources as the current game; it imports NO ReXGlue,
+    # NativeX renderer device, Xenia or guest OS services. No second game
+    # executable or automated release workflow is introduced.
+    add_library(hulk_eor_native_gpu STATIC
+        src/eor_diligent_mesh_buffers.cpp
+        src/eor_diligent_scene_targets.cpp
+        src/eor_diligent_xenos_textures.cpp
+        src/eor_diligent_material_textures.cpp
+        src/eor_diligent_spirv_shaders.cpp
+        src/eor_diligent_original_pipeline.cpp
+        src/eor_diligent_aot_backend.cpp
+        src/eor_diligent_texture_residency.cpp)
+    target_include_directories(hulk_eor_native_gpu PUBLIC
+        "${CMAKE_CURRENT_SOURCE_DIR}/src")
+    target_link_libraries(hulk_eor_native_gpu PUBLIC
+        hulk_eor_win32_vulkan_host hulk_native_core)
     return()
 endif()
 if(HULK_NATIVE_CORE_ONLY)
