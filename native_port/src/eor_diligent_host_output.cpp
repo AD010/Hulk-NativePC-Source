@@ -55,6 +55,39 @@ bool DiligentEorHostOutput::CompositeToBackbuffer(
      !native::HasFullNativeCompositePixels(
          {original.Width,original.Height},dest,output))
     return false;
+  // Original EoR already produced the finished physical-resolution image.
+  // When its Vulkan format exactly matches the physical swapchain, use a
+  // native GPU texture copy instead of NativeX's rasterizing blitter. This
+  // bypasses the compatibility renderer for the common unscaled path, and
+  // avoids an extra full-screen shader draw. Conversion (HDR/sRGB/channel
+  // order) still goes through the existing proven blitter, never a fake
+  // same-format copy.
+  auto* backbuffer=target->GetTexture();
+  if(backbuffer && source->GetTexture()!=backbuffer &&
+     dest.left==0 && dest.top==0 && dest.width==output.width &&
+     dest.height==output.height) {
+    const auto& back=backbuffer->GetDesc();
+    if(original.Width==back.Width && original.Height==back.Height &&
+       original.Format==back.Format && back.SampleCount==1 &&
+       original.ArraySize==1 && back.ArraySize==1 &&
+       original.MipLevels==1 && back.MipLevels==1) {
+      try {
+        context->SetRenderTargets(0,nullptr,nullptr,
+            Diligent::RESOURCE_STATE_TRANSITION_MODE_NONE);
+        Diligent::CopyTextureAttribs copy{};
+        copy.pSrcTexture=source->GetTexture();
+        copy.pDstTexture=backbuffer;
+        copy.SrcTextureTransitionMode=Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION;
+        copy.DstTextureTransitionMode=Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION;
+        context->CopyTexture(copy);
+        return true;
+      } catch (...) {
+        // The swapchain may be lost/resized; do not draw another composite
+        // over a possibly partially submitted direct copy.
+        return false;
+      }
+    }
+  }
   // Keep the swapchain RTV detached on every exit, including exceptions
   // raised by the blitter or Present during a resize/device-loss transition.
   bool rtv_bound=false;
