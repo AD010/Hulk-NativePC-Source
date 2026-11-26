@@ -52,8 +52,8 @@ int main() {
   Put32(bank,8,80);
   Put32(bank,20,2); // BASICHEADERS with one full header is also valid
   assert(DecodeFsb4Pcm16(bank,0));
-  Put32(bank,20,0x40); // unverified aligned sample storage
-  assert(!DecodeFsb4Pcm16(bank,0));
+  Put32(bank,20,0x40); // one sample requires no alignment gap
+  assert(DecodeFsb4Pcm16(bank,0));
   Put32(bank,20,0);
   bank[3]=Byte{'5'};
   assert(!DecodeFsb4Pcm16(bank,0));
@@ -72,6 +72,18 @@ int main() {
   decoded=DecodeFsb4Pcm16(basic,1);
   assert(decoded && decoded->sample_rate==48000 &&
          decoded->channels==2 && decoded->pcm[1]==1000);
+  // FMOD 0x40 aligns each subsequent FSB4 sample to the next 32-byte
+  // absolute file offset. Initial payload starts at 136, first ends
+  // at 144 and the second sample begins at 160 (16 bytes of padding).
+  basic.resize(168,Byte{0});
+  Put32(basic,12,32);
+  Put32(basic,20,0x42u); // BASICHEADERS | aligned
+  for(size_t i=0;i<raw.size();++i)basic[160+i]=Byte(raw[i]);
+  decoded=DecodeFsb4Pcm16(basic,1);
+  assert(decoded && decoded->pcm[1]==1000 && decoded->pcm[2]==-1000);
+  basic.resize(159);
+  assert(!DecodeFsb4Pcm16(basic,1));
+  basic.resize(168);
   Put32(basic,132,0xffffffffu);
   assert(!DecodeFsb4Pcm16(basic,1));
   std::cout << "Original FSB4 PCM16 to native audio contract PASS\n";
