@@ -4,6 +4,7 @@
 #include "eor_original_pc_page_view.h"
 #include "native_pc_menu_rows.h"
 #include <charconv>
+#include <cmath>
 #include <map>
 #include <string>
 #include <vector>
@@ -129,6 +130,7 @@ inline std::vector<std::string_view> PcStorageChoices(const options::PcMenuRow& 
 }
 inline bool PcStorageSameValue(std::string_view a,std::string_view b) noexcept {
   if(a==b || options::KeyNameEquals(a,b))return true;
+  if(a.empty() || b.empty())return false;
   double x=0,y=0;
   const auto p=std::from_chars(a.data(),a.data()+a.size(),x);
   const auto q=std::from_chars(b.data(),b.data()+b.size(),y);
@@ -144,6 +146,27 @@ inline std::string_view PcStorageNextValue(const options::PcMenuRow& row,
   }
   for(size_t i=0;i<values.size();++i)if(PcStorageSameValue(current,values[i]))
     return values[(i+(forward?1u:values.size()-1u))%values.size()];
+  // A valid custom numeric value can lie between two menu presets.
+  // Step in the requested direction rather than jumping to the opposite end.
+  if(row.kind==options::PcMenuRowKind::Number && !current.empty()) {
+    double number=0;
+    const auto parsed=std::from_chars(current.data(),current.data()+current.size(),number);
+    if(parsed.ec==std::errc{} && parsed.ptr==current.data()+current.size() && std::isfinite(number)) {
+      std::string_view nearest;
+      double nearest_value=0;
+      for(const auto value:values) {
+        double candidate=0;
+        const auto p=std::from_chars(value.data(),value.data()+value.size(),candidate);
+        if(p.ec!=std::errc{} || p.ptr!=value.data()+value.size() || !std::isfinite(candidate))continue;
+        if(forward ? candidate<=number : candidate>=number)continue;
+        if(nearest.empty() || (forward ? candidate<nearest_value : candidate>nearest_value)) {
+          nearest=value;nearest_value=candidate;
+        }
+      }
+      if(!nearest.empty())return nearest;
+      return forward?values.back():values.front();
+    }
+  }
   return forward?values.front():values.back();
 }
 // Session is called ONLY on the original owning game/VM thread, with
