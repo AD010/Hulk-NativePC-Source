@@ -3131,14 +3131,27 @@ class ExclusiveEorSession : public std::enable_shared_from_this<ExclusiveEorSess
     } catch (...) {queued=false;}
   }
  private:
+  void ReportRejected(uint64_t sequence,const char* reason) {
+    // Log transitions as well as periodic samples. The first five guest
+    // Presents may be empty; a later rejection must not remain invisible.
+    if(last_rejection_!=reason || sequence<=5 || sequence%120==0) {
+      REXLOG_WARN("[HULK/EOR-WIN32] frame={} not presented: {}",sequence,reason);
+      last_rejection_=reason;
+    }
+  }
   void Drain() noexcept {
     std::shared_ptr<const Frame> frame;
     {
       std::lock_guard lock(g_mutex);
       queued=false;
       const auto latest=g_frames_for_native.Peek();
-      if(!latest || latest->dropped || latest->dropped_commands)return;
+      if(!latest)return;
+      if(latest->dropped || latest->dropped_commands) {
+        ReportRejected(latest->sequence,"dropped original commands");
+        return;
+      }
       frame=g_frames_for_native.ClaimLatestIndependentIfSequence(latest->sequence);
+      if(!frame)ReportRejected(latest->sequence,"source frame not independently claimable");
     }
     if(!frame)return;
     bool staged=false;
@@ -3150,7 +3163,14 @@ class ExclusiveEorSession : public std::enable_shared_from_this<ExclusiveEorSess
         std::lock_guard lock(g_mutex);
         current=g_offline_shader_pack;
       }
-      if(!current || !current->samplers || !current->virtual_ids)return;
+      if(!current || !current->samplers || !current->virtual_ids) {
+        ReportRejected(frame->sequence,"verified shader bank or metadata unavailable");
+        return;
+      }
+      if(frame->calls.empty()) {
+        ReportRejected(frame->sequence,"no original XDK Draw calls");
+        return;
+      }
       if(!resources) {
         resources=std::make_shared<AutomaticEorResources>(
             host->Device(),*current,archives,root,candidate);
@@ -3161,17 +3181,33 @@ class ExclusiveEorSession : public std::enable_shared_from_this<ExclusiveEorSess
         resources->shaders.Clear();
         resources->pack=*current;
       }
-      if(!ValidateOriginalCommandTimeline(*frame) || !host->ResizeToClient())return;
+      if(!ValidateOriginalCommandTimeline(*frame)) {
+        ReportRejected(frame->sequence,"incomplete original XDK command timeline");
+        return;
+      }
+      if(!host->ResizeToClient()) {
+        ReportRejected(frame->sequence,"host swapchain resize unavailable");
+        return;
+      }
       const auto& swap=host->SwapChain()->GetDesc();
       const native::Size physical{swap.Width,swap.Height};
       if(!owner || !owner->Accepts(*frame,physical)) {
-        if(owner && !owner->checked_rebuild)return;
+        if(owner && !owner->checked_rebuild) {
+          ReportRejected(frame->sequence,"existing target owner rejected source frame");
+          return;
+        }
         const auto contract=OriginalTargetContract(*frame,physical,resources->pack);
-        if(!contract)return;
+        if(!contract) {
+          ReportRejected(frame->sequence,"original target contract incomplete");
+          return;
+        }
         owner=std::make_unique<AutomaticEorOwner>(
             OriginalFrameGpu{nullptr,host.get()},resources,*contract);
       }
-      if(!owner->backend->CanReplayOriginalXdkTimeline(*frame))return;
+      if(!owner->backend->CanReplayOriginalXdkTimeline(*frame)) {
+        ReportRejected(frame->sequence,"backend cannot replay complete original timeline");
+        return;
+      }
       AdvanceOriginalMeshUploads(*resources->source_models,*owner->backend);
       std::vector<std::shared_ptr<const model::UploadedOriginalModel>> models;
       staged=true;
@@ -3180,6 +3216,10 @@ class ExclusiveEorSession : public std::enable_shared_from_this<ExclusiveEorSess
       const auto result=owner->native_executor->Submit(
           owner->contract.output,draws,*frame,std::move(retained));
       staged=result==gpu::NativeFrameSubmission::IncompleteSource;
+      if(result!=gpu::NativeFrameSubmission::Submitted)
+        ReportRejected(frame->sequence,staged?"incomplete original GPU source":"native GPU submission failed");
+      else
+        last_rejection_.clear();
       if(result==gpu::NativeFrameSubmission::Submitted && !presented_) {
         presented_=true;
         REXLOG_INFO("[HULK/EOR-WIN32] submitted first original frame to swapchain Present: sequence={} draws={} pixels={}x{}",
@@ -3194,6 +3234,7 @@ class ExclusiveEorSession : public std::enable_shared_from_this<ExclusiveEorSess
     if(staged)owner->backend->DiscardUnsubmittedOriginalFontDraws(frame->sequence);
   }
   bool presented_=false;
+  std::string last_rejection_;
 };
 #endif
 std::shared_ptr<const VerifiedWorkerEorOwnerCatalog> BuildAutomaticOriginalOwnerCatalogForFrame(

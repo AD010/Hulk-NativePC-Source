@@ -63,6 +63,23 @@ class IncredibleHulkApp : public rex::ReXApp {
       std::function<void(rex::PathConfig)> resume) override {
     (void)resume;
     auto paths = defaults;
+#if defined(_WIN32) && defined(HULK_NATIVE_X_LINKED)
+    // The SDK reads this flag before creating its presenter. A persisted
+    // experimental flag alone must not disable the only visible renderer.
+    // Independent swapchain ownership still needs a real submitted game frame.
+    if(rex::cvar::Query<bool>("hulk_eor_exclusive_vulkan")) {
+      const char* opt_in=std::getenv("HULK_EXPERIMENTAL_EXCLUSIVE_VULKAN");
+      if(!opt_in || opt_in[0]!='1' || opt_in[1]!='\0') {
+        rex::cvar::SetFlagByName("hulk_eor_exclusive_vulkan","false");
+        if(rex::cvar::Query<bool>("hulk_eor_exclusive_vulkan")) {
+          REXLOG_ERROR("[HULK/EOR-STARTUP-GUARD] cannot disable unverified exclusive presenter");
+          app_context().RequestDeferredQuit();
+          return std::nullopt;
+        }
+        REXLOG_WARN("[HULK/EOR-STARTUP-GUARD] unverified exclusive presenter disabled for this session; retaining shared Vulkan worker");
+      }
+    }
+#endif
     // Use the actual resolved config path, not a guessed executable folder.
     native_pc_config_ = paths.config_path;
     hulk::options::SetLiveConfigPath(native_pc_config_);

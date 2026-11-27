@@ -276,6 +276,20 @@ class NativeEorLinkCoverage(unittest.TestCase):
         self.assertLess(mixed.index("owner->gpu->CanReplayOriginalXdkTimeline(*snapshot)"),
                         mixed.index("aot::ReplayAotScene("))
 
+    def test_exclusive_startup_guard_precedes_runtime_and_preserves_config(self):
+        app=(ROOT / "native_port/src/incredible_hulk_app.h").read_text()
+        finalize=app.split("OnFinalizePaths(",1)[1].split("void OnPostLoadXexImage()",1)[0]
+        self.assertIn('std::getenv("HULK_EXPERIMENTAL_EXCLUSIVE_VULKAN")',finalize)
+        self.assertIn('SetFlagByName("hulk_eor_exclusive_vulkan","false")',finalize)
+        self.assertLess(finalize.index('SetFlagByName("hulk_eor_exclusive_vulkan","false")'),
+                        finalize.index("LocateOrSelectGameData("))
+        self.assertNotIn("SaveLiveOption",finalize)
+        bridge=(ROOT / "native_port/src/eor_xdk_hook_bridge.cpp").read_text()
+        drain=bridge.split("void Drain() noexcept",1)[1].split("bool presented_",1)[0]
+        for reason in ("no original XDK Draw calls", "incomplete original XDK command timeline",
+                       "original target contract incomplete", "incomplete original GPU source"):
+            self.assertIn(reason,drain)
+
     def test_exclusive_window_feeds_incremental_shaders_before_replay(self):
         hook=(ROOT / "native_port/src/eor_xdk_hook_bridge.cpp").read_text()
         drain=hook.split("void Drain() noexcept",1)[1].split("bool presented_",1)[0]
