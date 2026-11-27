@@ -15,6 +15,30 @@ namespace hulk::eor::gpu::live {
 inline std::vector<uint32_t> CompactRuntimeIndices(std::vector<uint32_t>& indices) {
   if(indices.empty() || indices.size()>1048576u)
     throw std::invalid_argument("Invalid original transient index sequence");
+  // Dense dynamic geometry (including repeated triangle indices) needs
+  // only a bounded direct rank table. Preserve the same ascending owners
+  // and index order as the sparse sort path. The 64-bit range calculation
+  // also handles effective indices near UINT32_MAX without wraparound.
+  const auto [minimum,maximum]=std::minmax_element(indices.begin(),indices.end());
+  const uint32_t first=*minimum;
+  const uint64_t range=uint64_t(*maximum)-first+1u;
+  if(range<=indices.size()) {
+    std::vector<uint32_t> ranks(static_cast<size_t>(range),UINT32_MAX);
+    size_t count=0;
+    for(const auto index:indices) {
+      auto& rank=ranks[index-first];
+      if(rank==UINT32_MAX) {rank=0;++count;}
+    }
+    std::vector<uint32_t> owners;
+    owners.reserve(count);
+    for(size_t i=0;i<ranks.size();++i) {
+      if(ranks[i]==UINT32_MAX)continue;
+      ranks[i]=static_cast<uint32_t>(owners.size());
+      owners.push_back(first+static_cast<uint32_t>(i));
+    }
+    for(auto& index:indices)index=ranks[index-first];
+    return owners;
+  }
   auto owners=indices;
   std::sort(owners.begin(),owners.end());
   owners.erase(std::unique(owners.begin(),owners.end()),owners.end());
