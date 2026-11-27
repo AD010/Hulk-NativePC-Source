@@ -260,9 +260,14 @@ class NativeEorLinkCoverage(unittest.TestCase):
         self.assertLess(capture.index("ObserveBoundShaderIdentity("),
                         capture.index("const bool capture_heavy="))
         gate=capture.split("const bool verified_draw_program=",1)[1].split(";",1)[0]
-        for field in ("observed_vs_matrices","observed_live_vertex_shader_header",
-                      "observed_live_pixel_shader_header","observed_live_eor_effect_pass"):
-            self.assertIn("draw."+field,gate)
+        self.assertIn("draw.observed_vs_matrices",gate)
+        self.assertIn("HasOriginalDrawProgram(draw)",gate)
+        raw=(ROOT / "native_port/src/eor_xdk_draw_capture.h").read_text()
+        programs=raw.split("bool HasOriginalDrawProgram(",1)[1].split("\n}",1)[0]
+        for field in ("observed_live_vertex_shader_header","observed_live_pixel_shader_header",
+                      "observed_live_eor_effect_pass"):
+            self.assertIn("draw."+field,programs)
+        self.assertIn("IsVerifiedVertexOnlyDepthDraw(draw)",programs)
         self.assertRegex(capture,r"capture_heavy=diagnostic_mesh\s*\|\|\s*\(replay && verified_draw_program &&")
         self.assertIn("g_frame_shader_complete.load(std::memory_order_relaxed)",capture)
         self.assertIn("replay && capture_heavy && verified_draw_program",capture)
@@ -288,6 +293,15 @@ class NativeEorLinkCoverage(unittest.TestCase):
         self.assertIn("CreateOrReuseOriginalGraphicsPipeline(vertex,nullptr",pipeline)
         self.assertIn("ResolveOriginalLiveXdkShaderSource(identities,witness",pipeline)
         self.assertIn("VertexOnlyDepthStencil",pipeline)
+        producer=(ROOT / "native_port/src/eor_live_material_producer.h").read_text()
+        backend=(ROOT / "native_port/src/eor_diligent_aot_backend.cpp").read_text()
+        replay=(ROOT / "native_port/src/eor_aot_draw_bridge.cpp").read_text()
+        self.assertIn("ProduceOriginalVertexOnlyMaterial(call,frame.sequence,ordinal",bridge)
+        self.assertIn("DecodeOriginalRuntimeGeometry(call,analysis.interface)",producer)
+        self.assertIn("result.draw.original_vertex_only=bool(pass.original_vertex_only)",backend)
+        self.assertIn("packed.ps_abi=d.original_vertex_only ? FloatRegisterAbi::Unused",backend)
+        self.assertIn("target_.BindOriginalVertexOnlyProgram(",replay)
+        self.assertIn("target_.DrawIndexed(draw)",replay)
 
     def test_built_in_eor_claims_before_archive_and_target_work(self):
         hook=(ROOT / "native_port/src/eor_xdk_hook_bridge.cpp").read_text()

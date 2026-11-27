@@ -1900,7 +1900,7 @@ bool DiligentEorDirectBackend::BindOriginalVertexOnlyProgram(
   if(pipeline==s.pipeline_cache.end() || binding==s.material_bindings.end() ||
      !pipeline->second.pipeline || !binding->second)return false;
   s.active.pipeline=pipeline->second.pipeline;s.active.bindings=binding->second;
-  s.vertex=reflection;s.pixel={};s.pixel.stage=aot::Stage::Pixel;
+  s.vertex=reflection;s.pixel=aot::ReflectedShader{};s.pixel.stage=aot::Stage::Pixel;
   s.constants_ready=true;s.program_ready=true;s.textures_ready=false;
   return true;
 }

@@ -3071,7 +3071,7 @@ struct AutomaticEorOwner {
         // independently verified against its actual declaration, VB/IB and
         // original material setter, not treated as an approximate archive match.
         std::optional<gpu::live::ProducedWorldMaterial> archived;
-        if(!runtime_required.contains(i)) {
+        if(!IsVerifiedVertexOnlyDepthDraw(call) && !runtime_required.contains(i)) {
           try {
             archived=gpu::live::ProduceOriginalWorldMaterial(frame,ordinal,
                 borrowed,mesh_lookup,*pack.shaders,*pack.effects,*pack.virtual_ids,*pack.samplers,

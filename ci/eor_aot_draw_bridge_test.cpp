@@ -39,7 +39,15 @@ struct Backend final:ShaderBindingBackend {
     return !refuse_preflight && !draws.empty();
   }
   Digest received_vs{},received_ps{};
-  unsigned verified_program_pairs=0;
+  unsigned verified_program_pairs=0,verified_vertex_only_programs=0;
+  bool BindOriginalRuntimeSurface(uint32_t model,uint32_t ordinal) override {
+    return BindOriginalSurface(model,ordinal);
+  }
+  bool BindOriginalVertexOnlyProgram(const Digest& vs_id,const Blob& vs,
+                                    const ReflectedShader& reflected) override {
+    assert(vs.stage==Stage::Vertex && reflected.stage==Stage::Vertex);
+    received_vs=vs_id;++verified_vertex_only_programs;return true;
+  }
   bool BindVerifiedProgramPair(const Digest& vs_id,const Blob& vs,
                                const Digest& ps_id,const Blob& ps) override {
     assert(vs.stage==Stage::Vertex && ps.stage==Stage::Pixel);
@@ -273,6 +281,39 @@ int main(){
     assert(refused && rejected.preflights==0 && rejected.begin==0 &&
            rejected.draw==0 && rejected.original_gpu_commands.empty());
   };
+  // A real null-PS depth/stencil command is not a fabricated VS/PS pair.
+  // Keep it in the original order and reject a false null-stage assertion
+  // before touching any backend render target.
+  {
+    auto depth_source=source_frame;
+    auto depth_draw=captured;
+    depth_draw.draw.original_vertex_only=true;
+    depth_draw.draw.pixel_shader=0;
+    depth_draw.draw.guest_vs_matrices->original_ps_guest_object=0;
+    depth_draw.draw.guest_vs_matrices->original_depth_guest_object=0x8200D000u;
+    depth_draw.effect_hash=0;depth_draw.pass_index=0;
+    depth_draw.pixel_source_sha256={};
+    depth_draw.original_model_hash=real_call.gpr[0];
+    depth_draw.original_runtime_draw=true;
+    depth_draw.original_direct_xdk_runtime=true;
+    auto& original=depth_source.calls[0];
+    original.observed_vs_matrices=depth_draw.draw.guest_vs_matrices;
+    original.observed_shader_constants=depth_draw.draw.guest_shader_constants;
+    original.observed_live_vertex_shader_header=OriginalLiveXdkShaderHeaderWitness{};
+    original.original_pixel_stage=xdk::OriginalPixelStageKind::VertexOnlyDepthStencil;
+    Backend depth_backend;depth_backend.accept_original_timeline=true;
+    ReplayAotScene(geometry,std::span<const BoundIndexedDraw>(&depth_draw,1),
+                   shaders,effects,reflection,depth_backend,&depth_source);
+    assert(depth_backend.verified_vertex_only_programs==1 &&
+           depth_backend.verified_program_pairs==0 && depth_backend.draw==1 &&
+           depth_backend.composite==1);
+    original.original_pixel_stage=xdk::OriginalPixelStageKind::Unknown;
+    RejectSourceMismatch(depth_source,{depth_draw});
+    original.original_pixel_stage=xdk::OriginalPixelStageKind::VertexOnlyDepthStencil;
+    auto false_pair=depth_draw;
+    false_pair.pixel_source_sha256.fill(0x22);
+    RejectSourceMismatch(depth_source,{false_pair});
+  }
   auto wrong_count=source_frame;
   wrong_count.calls[0].gpr[4]=9;
   wrong_count.commands[2].gpr=wrong_count.calls[0].gpr;
