@@ -245,18 +245,27 @@ class NativeEorLinkCoverage(unittest.TestCase):
     def test_failed_shader_pair_skips_unusable_heavy_capture(self):
         hook=(ROOT / "native_port/src/eor_xdk_hook_bridge.cpp").read_text()
         capture=hook.split("void CapturePpcDraw(",1)[1].split("void CapturePpcCommand(",1)[0]
-        # A previous failed Draw must not hide a later genuine shader
-        # pair. Only the failing Draw skips the costly VB and register copy.
+        # A previous failed Draw must not hide later authentic shader
+        # identities. It must stop expensive register/VB copies unless
+        # explicit mesh research is enabled.
         self.assertLess(capture.index("g_original_texture_owners.Remember"),
                         capture.index("ObserveBoundShaderIdentity("))
         self.assertLess(capture.index("ObserveBoundShaderIdentity("),
                         capture.index("g_frame_shader_complete.exchange("))
-        self.assertNotIn("g_frame_shader_complete.load(",capture)
+        self.assertLess(capture.index("ObserveBoundShaderIdentity("),
+                        capture.index("g_frame_shader_complete.load("))
         gate=capture.split("const bool verified_draw_program=",1)[1].split(";",1)[0]
         for field in ("observed_vs_matrices","observed_live_vertex_shader_header",
                       "observed_live_pixel_shader_header","observed_live_eor_effect_pass"):
             self.assertIn("draw."+field,gate)
-        self.assertRegex(capture,r"capture_heavy=diagnostic_mesh\s*\|\|\s*\(replay && verified_draw_program\)")
+        self.assertRegex(capture,r"capture_heavy=diagnostic_mesh\s*\|\|\s*\(replay && verified_draw_program &&")
+        self.assertIn("g_frame_shader_complete.load(std::memory_order_relaxed)",capture)
+        self.assertIn("replay && capture_heavy && verified_draw_program",capture)
+        worker=hook.split("native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(",1)[1]
+        self.assertLess(worker.index("RecordObservedOriginalAotPairDemand(*source_snapshot)"),
+                        worker.index("!std::all_of(source_snapshot->calls.begin()"))
+        self.assertLess(worker.index("!std::all_of(source_snapshot->calls.begin()"),
+                        worker.index("owner_catalog->accepts_live_source(*source_snapshot"))
         self.assertLess(capture.index("if(capture_heavy && draw.observed_vs_matrices)"),
                         capture.index("CaptureUsaAllShaderRegisters("))
         self.assertIn("const bool diagnostic_mesh=!replay",capture)

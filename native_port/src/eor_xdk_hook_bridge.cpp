@@ -1608,17 +1608,18 @@ void CapturePpcDraw(Kind kind, uint32_t guest, const PPCContext& ctx,
                     bool(draw.observed_live_eor_effect_pass));
     }
   }
-  // An unrelated earlier XDK Draw may invalidate this Present, but it
-  // must not suppress real VS/PS constants and geometry from subsequent
-  // independently verified EoR programs. Otherwise even the good Draws
-  // can never enter the native source/material cache on later frames.
-  // Keep the full-frame gate ONLY for actual GPU submission.
+  // Keep observing later genuine shader/material identities after the first
+  // gap, but do not repeatedly copy full guest registers and mesh allocations
+  // for an already unpresentable frame. Explicit mesh research can still
+  // request those copies, independent of normal gameplay.
   const bool verified_draw_program=draw.observed_vs_matrices &&
       draw.observed_live_vertex_shader_header &&
       draw.observed_live_pixel_shader_header &&
       draw.observed_live_eor_effect_pass;
   const bool capture_heavy=diagnostic_mesh ||
-      (replay && verified_draw_program);
+      (replay && verified_draw_program &&
+       (g_frame_shader_complete.load(std::memory_order_relaxed) ||
+        REXCVAR_GET(hulk_eor_xdk_source_mesh_capture)));
   if(replay && !capture_heavy)++g_frame_heavy_capture_skipped;
   if(capture_heavy && draw.observed_vs_matrices) {
       // Store the full register bank only for a viable replay frame or
@@ -1642,7 +1643,7 @@ void CapturePpcDraw(Kind kind, uint32_t guest, const PPCContext& ctx,
         // Never crash game logic on a diagnostic snapshot allocation.
       }
   }
-  if(replay && verified_draw_program && g_original_shader_capture_index) {
+  if(replay && capture_heavy && verified_draw_program && g_original_shader_capture_index) {
     const auto& sources=*g_original_shader_capture_index;
     if(auto& pixel=draw.observed_live_pixel_shader_header;
        pixel && REXCVAR_GET(hulk_eor_vulkan_replay) && draw.observed_shader_constants) {
@@ -1673,7 +1674,7 @@ void CapturePpcDraw(Kind kind, uint32_t guest, const PPCContext& ctx,
   // only in the sampler loop above. Capture its live s0 descriptor now,
   // not before ownership recovery, or StageVerifiedOriginalFontDraw
   // rejects an otherwise complete original menu/HUD frame.
-  if(replay && verified_draw_program)
+  if(replay && capture_heavy && verified_draw_program)
     draw.original_font_fetch=CaptureUsaFontFetchAtDraw(draw,ReadGuest,guest_base);
   // Only a requested direct Vulkan render performs byte-exact guest
   // resource capture; diagnostics-only XDK observer is unaffected.
@@ -1886,7 +1887,7 @@ void EndPpcHook(native_x_renderer::Call kind) {
                 frame.sequence,original_header_vs,original_header_ps,
                 original_header_pairs,original_effect_passes,
                 frame.calls.size());
-    REXLOG_INFO("[HULK/EOR-CAPTURE-COST] frame={} full_snapshot_skipped={} (missing original shader pair)",frame.sequence,heavy_skipped);
+    REXLOG_INFO("[HULK/EOR-CAPTURE-COST] frame={} full_snapshot_skipped={} (missing pair or already rejected frame)",frame.sequence,heavy_skipped);
     for (const auto& site: hot) {
       REXLOG_INFO("[HULK/EOR-XDK-CALLSITE] XDK=0x{:08X} LR=0x{:08X} "
                   "kind={} draws={} frames={} first={} last={} "
@@ -3889,11 +3890,20 @@ native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(
   // exact VS+PS for private offline AOT even if the full material owner is
   // not yet assembled and the current frame uses the renderer fallback.
   RecordObservedOriginalAotPairDemand(*source_snapshot);
-  // The built-in factory cannot construct its first native target graph
-  // from an invalid original timeline. Avoid archive/PSO work on such
-  // frames; keep an existing owner eligible for legitimate streaming.
-  if(built_in_source && !owner_catalog &&
-     !ValidateOriginalCommandTimeline(*source_snapshot))
+  // Full-frame replay cannot succeed when any Draw has an unresolved
+  // program. The authenticated identity/AOT demand above remains intact.
+  // Do not build target graphs, upload models or prepare GPU state for a
+  // frame already known to require the existing renderer.
+  if(built_in_source &&
+     (source_snapshot->calls.empty() || source_snapshot->dropped ||
+      source_snapshot->dropped_commands ||
+      !std::all_of(source_snapshot->calls.begin(),source_snapshot->calls.end(),
+          [](const RawDraw& draw) {
+            return draw.observed_live_vertex_shader_header &&
+                   draw.observed_live_pixel_shader_header &&
+                   draw.observed_live_eor_effect_pass;
+          }) ||
+      !ValidateOriginalCommandTimeline(*source_snapshot)))
     return Result::kNotReady;
   // A valid captured Draw alone is not a complete GPU catalogue.
   // Without a registered source-authenticated material/mesh factory or an
