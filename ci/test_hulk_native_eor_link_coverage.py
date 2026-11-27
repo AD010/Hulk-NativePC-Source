@@ -113,10 +113,20 @@ class NativeEorLinkCoverage(unittest.TestCase):
                   "eor_aot_draw_bridge.cpp").read_text(encoding="utf-8")
         self.assertIn("if(captured_source && !exact_original_timeline)", bridge)
         self.assertIn("Live original EoR Draw requires exact XDK frame timeline", bridge)
+        replay = bridge.split("void ReplayAotScene(", 1)[1]
         self.assertLess(
-            bridge.index("if(captured_source && !exact_original_timeline)"),
-            bridge.index("backend.PreflightOriginalScene(draws)"),
-            "Missing live chronology must fail before GPU resource preparation")
+            replay.index("if(captured_source && !exact_original_timeline)"),
+            replay.index("native::ReplayNativeScene(frame,commands,forward)"),
+            "Missing live chronology must fail before native frame validation")
+        begin = bridge.split("bool BeginScene(native::Size size,uint32_t samples) override {", 1)[1]
+        begin = begin.split("void AbortScene()", 1)[0]
+        self.assertLess(begin.index("target_.PreflightOriginalScene(draws_)"),
+                        begin.index("return target_.BeginScene(size,samples);"))
+        native_frame = (ROOT / "native_port/src/eor_native_frame.cpp").read_text()
+        native_replay = native_frame.split("void ReplayNativeScene(", 1)[1]
+        self.assertLess(native_replay.index("for (const auto& draw : draws)"),
+                        native_replay.index("backend.BeginScene(frame.world, frame.samples)"))
+        self.assertNotIn("backend.PreflightOriginalScene(draws)", replay)
 
     def test_original_sampler_bijection_rejected_before_gpu_begin(self):
         backend = (ROOT / "native_port" / "src" /
@@ -609,7 +619,9 @@ class NativeEorLinkCoverage(unittest.TestCase):
                         begin.index("return target_.BeginScene(size,samples);"))
         replay = bridge.split("void ReplayAotScene(", 1)[1]
         self.assertLess(replay.index("if(scene_begin_attempted)*scene_begin_attempted=false;"),
-                        replay.index("backend.PreflightOriginalScene(draws)"))
+                        replay.index("native::ReplayNativeScene(frame,commands,forward)"))
+        self.assertLess(begin.index("target_.PreflightOriginalScene(draws_)"),
+                        begin.index("if(scene_begin_attempted_)*scene_begin_attempted_=true;"))
         worker = worker.split("bool ReplayNextVerifiedPpcFrame(", 1)[1]
         worker = worker.split("void CapturePpcDraw(", 1)[0]
         self.assertNotIn("if(reached_gpu)*reached_gpu=true;", worker)
