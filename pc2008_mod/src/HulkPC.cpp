@@ -944,6 +944,33 @@ HRESULT STDMETHODCALLTYPE OnSetTexture(IDirect3DDevice9* dev,DWORD stage,
   }
   return hr;
 }
+// Only enhance mipmapped source textures, never render/depth surfaces.
+bool IsFilterableSourceTexture(IDirect3DBaseTexture9* texture) {
+  if(!texture || texture->GetLevelCount()<2)return false;
+  DWORD usage=0;
+  switch(texture->GetType()) {
+    case D3DRTYPE_TEXTURE: {
+      D3DSURFACE_DESC desc{};
+      if(FAILED(static_cast<IDirect3DTexture9*>(texture)->GetLevelDesc(0,&desc)))return false;
+      usage=desc.Usage;
+      break;
+    }
+    case D3DRTYPE_CUBETEXTURE: {
+      D3DSURFACE_DESC desc{};
+      if(FAILED(static_cast<IDirect3DCubeTexture9*>(texture)->GetLevelDesc(0,&desc)))return false;
+      usage=desc.Usage;
+      break;
+    }
+    case D3DRTYPE_VOLUMETEXTURE: {
+      D3DVOLUME_DESC desc{};
+      if(FAILED(static_cast<IDirect3DVolumeTexture9*>(texture)->GetLevelDesc(0,&desc)))return false;
+      usage=desc.Usage;
+      break;
+    }
+    default:return false;
+  }
+  return (usage & (D3DUSAGE_RENDERTARGET | D3DUSAGE_DEPTHSTENCIL))==0;
+}
 HRESULT STDMETHODCALLTYPE OnSampler(IDirect3DDevice9* dev,DWORD sampler,
                                     D3DSAMPLERSTATETYPE type,DWORD value) {
   if(!realSampler)return D3DERR_INVALIDCALL;
@@ -1016,9 +1043,9 @@ HRESULT STDMETHODCALLTYPE OnSampler(IDirect3DDevice9* dev,DWORD sampler,
       // Preserve the original filter on single-level textures (often HUD,
       // fonts or UI atlases). Trilinear filtering only has meaning when at
       // least two source mip levels exist; do not manufacture new mipmaps.
-      const UINT levels=texture->GetLevelCount();
+      const bool source=IsFilterableSourceTexture(texture);
       texture->Release();
-      if(supported && levels>1)value=D3DTEXF_LINEAR;
+      if(supported && source)value=D3DTEXF_LINEAR;
     }
   }
   if(anisotropy && capsValid && currentCaps.MaxAnisotropy>1 && sampler<16) {
@@ -1041,7 +1068,7 @@ HRESULT STDMETHODCALLTYPE OnSampler(IDirect3DDevice9* dev,DWORD sampler,
         }
         // Preserve single-level UI atlases, render targets and depth textures.
         // AF is intended for mipmapped scene textures, not screen-space passes.
-        if(bound->GetLevelCount() < 2) supported=0;
+        if(!IsFilterableSourceTexture(bound)) supported=0;
         bound->Release();
       }
       if(supported) {
