@@ -799,7 +799,7 @@ std::vector<VerifiedXdkResourceWitness> AttachLiveEorShaderMethodParents(
 // numbering may differ. Unobserved slots and vertex samplers stay unknown.
 static bool MaterialPixelTexturesAgree(
     const xdk::RawDraw& call, const VerifiedXdkResourceWitness& witness,
-    const VerifiedDrawSource& source) {
+    const VerifiedDrawSource& source,uint16_t& archive_mask) {
   const uint16_t mask=witness.source_verified_texture_slot_mask;
   // This XDK mask describes PIXEL SetTexture bindings only. A material
   // can also sample textures in its vertex shader: those source samplers
@@ -817,33 +817,41 @@ static bool MaterialPixelTexturesAgree(
     return true;
   if (std::popcount(mask)!=pixel_count)
     return false;
-  if(pixel_count==0)return true;
-  std::array<uint32_t,16> actual{}, expected{};
-  size_t count=0;
-  for (uint32_t slot=0;slot<16;++slot) {
-    if (!(mask & (1u<<slot))) continue;
-    if (!call.original_pixel_texture_keys[slot]) return false;
-    actual[count++]=call.original_pixel_texture_keys[slot];
-  }
-  size_t pixel=0;
-  for (const auto& sampler:source.original_sampler_slots) {
-    if (sampler.stage!=gpu::OriginalSamplerStage::Pixel)continue;
-    if (!sampler.original_texture_hash ||
-        !sampler.original_material_ownership_verified)
+  archive_mask=mask;
+  uint16_t remaining=mask;
+  std::array<uint32_t,16> actual{},expected{};
+  size_t unknown=0;
+  for(const auto& sampler:source.original_sampler_slots) {
+    if(sampler.stage!=gpu::OriginalSamplerStage::Pixel)continue;
+    if(!sampler.original_material_ownership_verified ||
+       bool(sampler.original_texture_hash)==bool(sampler.original_resolved_guest_object))
       return false;
-    // For native scalar PS images the translator explicitly encodes the
-    // original stage-local CTAB slot. The same set of hashes in reversed
-    // slots is a different material (for example, albedo and normal).
-    if(const auto fixed=aot::DecodeFixedAotImageSlot(sampler.exact_shader_variable_name)) {
-      if(fixed->slot!=sampler.original_fetch_register || !(mask&(1u<<fixed->slot)) ||
-         call.original_pixel_texture_keys[fixed->slot]!=sampler.original_texture_hash)
-        return false;
+    const auto fixed=aot::DecodeFixedAotImageSlot(sampler.exact_shader_variable_name);
+    if(!fixed) {
+      // Legacy names may supply an unordered archive hash. Only a
+      // stage-local scalar slot can authenticate a resolved attachment.
+      if(sampler.original_resolved_guest_object)return false;
+      expected[unknown++]=sampler.original_texture_hash;
+      continue;
     }
-    expected[pixel++]=sampler.original_texture_hash;
+    const auto bit=static_cast<uint16_t>(1u<<fixed->slot);
+    if(fixed->slot!=sampler.original_fetch_register || !(remaining&bit))return false;
+    remaining&=static_cast<uint16_t>(~bit);
+    if(sampler.original_resolved_guest_object) {
+      if(fixed->dimension!=1u || !call.observed_vs_matrices ||
+         call.observed_vs_matrices->original_texture_guest_objects[fixed->slot]!=
+             sampler.original_resolved_guest_object)return false;
+      archive_mask&=static_cast<uint16_t>(~bit);
+    } else if(call.original_pixel_texture_keys[fixed->slot]!=sampler.original_texture_hash) {
+      return false;
+    }
   }
-  if(pixel!=count)return false;
-  std::sort(actual.begin(),actual.end());
-  std::sort(expected.begin(),expected.end());
+  size_t count=0;
+  for(uint32_t slot=0;slot<16;++slot)
+    if(remaining&(1u<<slot))actual[count++]=call.original_pixel_texture_keys[slot];
+  if(count!=unknown)return false;
+  std::sort(actual.begin(),actual.begin()+count);
+  std::sort(expected.begin(),expected.begin()+unknown);
   return actual==expected;
 }
 
@@ -1036,15 +1044,15 @@ std::vector<VerifiedDrawSource> ResolveCapturedResourceDraws(
           [](const auto& w)->const VerifiedDrawSource&{
             return w.native_draw;
           },candidate.original_source_submission);
-      if (!MaterialPixelTexturesAgree(call,candidate,candidate_source)) continue;
+      uint16_t archive_mask=0;
+      if(!MaterialPixelTexturesAgree(call,candidate,candidate_source,archive_mask))continue;
       // A true game material setter can supply an additional independent
       // cross-check: if its live XDK texture hashes identify ONE original
       // MODELS.ARC surface in the byte-exact source model, another shader-
       // compatible surface must not claim that same indexed Draw.
       // Unknown/ambiguous texture-to-surface identity remains undecided;
       // it can NEVER by itself manufacture a verified source witness.
-      if(exact && candidate.original_xdk_texture_slot_mapping_verified &&
-         candidate.source_verified_texture_slot_mask) {
+      if(exact && archive_mask) {
         const model::UploadedOriginalModel* live_model=nullptr;
         for(const auto* resident:residents)
           if(resident && resident->original_resource_hash==exact->model_hash) {
@@ -1052,7 +1060,7 @@ std::vector<VerifiedDrawSource> ResolveCapturedResourceDraws(
           }
         if(live_model) {
           const auto source_surface=IdentifyLiveOriginalXdkMaterialSurface(
-              *live_model,call,candidate.source_verified_texture_slot_mask);
+              *live_model,call,archive_mask);
           if(source_surface &&
              *source_surface!=candidate_source.original_surface_ordinal)
             continue;

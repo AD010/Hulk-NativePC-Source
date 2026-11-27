@@ -602,6 +602,22 @@ int main(){
   twoSlotFrame.calls[0].observed_vs_matrices->original_texture_guest_objects[1]=0x83009A10;
   twoSlot.original_resources.textures[1]=0x83009A10;
   assert(native::ResolveCapturedResourceDraws(twoSlotFrame,twoSlotOwners,models).size()==1);
+  // A resolved attachment has an XDK object and a shader slot, but no
+  // TEXTURES.ARC hash. The diffuse map still identifies the archive surface.
+  auto resolveFrame=twoSlotFrame;
+  auto mixedOwners=twoSlotOwners;
+  auto& resolved=std::get<native::VerifiedXdkIndexedSubmission>(
+      mixedOwners[0].original_source_submission).native_draw.original_sampler_slots[1];
+  resolved.original_resolved_guest_object=mixedOwners[0].original_resources.textures[1];
+  resolved.original_texture_hash=0;
+  resolveFrame.calls[0].original_pixel_texture_keys[1]=0;
+  const auto mixedSources=native::ResolveCapturedResourceDraws(resolveFrame,mixedOwners,models);
+  assert(native::BindVerifiedGeometryDraws(mixedSources,models,effects).size()==1);
+  resolved.original_resolved_guest_object+=4;
+  Reject([&]{(void)native::ResolveCapturedResourceDraws(resolveFrame,mixedOwners,models);});
+  resolved.original_resolved_guest_object-=4;
+  resolved.exact_shader_variable_name="HulkTextureCube_s1";
+  Reject([&]{(void)native::ResolveCapturedResourceDraws(resolveFrame,mixedOwners,models);});
   std::swap(twoSlotFrame.calls[0].original_pixel_texture_keys[0],
             twoSlotFrame.calls[0].original_pixel_texture_keys[1]);
   Reject([&]{(void)native::ResolveCapturedResourceDraws(twoSlotFrame,twoSlotOwners,models);});
