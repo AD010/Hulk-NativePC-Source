@@ -402,7 +402,22 @@ int main(){
                        nullptr,&refused_before_gpu); }
   catch(const std::runtime_error&) { preflight_rejected=true; }
   assert(preflight_rejected && !refused_before_gpu && no_pso.preflights==1 &&
-         no_pso.begin==0 && no_pso.draw==0);
+         no_pso.begin==0 && no_pso.draw==0 && no_pso.abort==0);
+  // Invalid physical geometry must not leave an active material/PSO
+  // preflight epoch. The same backend can accept the next valid frame.
+  auto invalid_geometry=geometry;
+  invalid_geometry.samples=3;
+  Backend retry;
+  bool geometry_rejected=false;
+  bool geometry_began=true;
+  try { ReplayAotScene(invalid_geometry,draws,shaders,effects,reflection,retry,
+                       nullptr,&geometry_began); }
+  catch(const std::invalid_argument&) { geometry_rejected=true; }
+  assert(geometry_rejected && !geometry_began && retry.preflights==0 &&
+         retry.begin==0 && retry.draw==0 && retry.abort==0);
+  ReplayAotScene(geometry,draws,shaders,effects,reflection,retry);
+  assert(retry.preflights==1 && retry.begin==1 && retry.draw==1 &&
+         retry.resolve==1 && retry.composite==1 && retry.abort==0);
   assert(target.surfaces==1 &&
          target.surface_history[0]==std::make_pair(0xCAFEu,0u));
   assert(target.received_vs==entry.vertex_source_sha256 &&
