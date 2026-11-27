@@ -1439,9 +1439,21 @@ void CapturePpcDraw(Kind kind, uint32_t guest, const PPCContext& ctx,
   // at +1920; capture the 3D World/ViewProj/Previous/Sky registers before
   // the original Draw executes. Do not infer original EoR model identity,
   // camera owner, or SPIR-V UBO layout from these register values.
+  std::optional<OriginalShaderObjects> identity_only;
   if(kind==Kind::DrawIndexedVertices || kind==Kind::DrawVertices || kind==Kind::EndVertices) {
-    draw.observed_vs_matrices=CaptureUsaVsMatrices(
-        ctx.r3.u32,ReadGuest,guest_base);
+    // The owner log shows hundreds of vertex-only draws in rejected
+    // city frames. Preserve their real VS identity and ordinal, but do
+    // not collect unused surfaces/matrices without a live pixel object.
+    // Full research capture and engine material scopes retain all data.
+    if(replay && !g_frame_shader_complete.load(std::memory_order_relaxed) &&
+       !draw.original_engine_shader_method &&
+       !REXCVAR_GET(hulk_eor_xdk_source_mesh_capture)) {
+      const auto objects=CaptureUsaShaderObjects(ctx.r3.u32,ReadGuest,guest_base);
+      if(objects && objects->vertex && !objects->pixel)identity_only=objects;
+    }
+    if(!identity_only)
+      draw.observed_vs_matrices=CaptureUsaVsMatrices(
+          ctx.r3.u32,ReadGuest,guest_base);
     if(draw.observed_vs_matrices) {
       if(draw.original_engine_shader_method) {
         auto& owner=*draw.original_engine_shader_method;
@@ -1610,6 +1622,8 @@ void CapturePpcDraw(Kind kind, uint32_t guest, const PPCContext& ctx,
      draw.observed_vs_matrices->original_guest_device==draw.gpr[0])
     ObserveBoundShaderIdentity(draw,draw.observed_vs_matrices->original_vs_guest_object,
                                draw.observed_vs_matrices->original_ps_guest_object,guest_base);
+  else if(identity_only)
+    ObserveBoundShaderIdentity(draw,identity_only->vertex,identity_only->pixel,guest_base);
   if(replay && (!draw.observed_live_vertex_shader_header ||
                 !draw.observed_live_pixel_shader_header ||
                 !draw.observed_live_eor_effect_pass)) {

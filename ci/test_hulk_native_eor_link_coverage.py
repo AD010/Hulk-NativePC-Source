@@ -252,8 +252,13 @@ class NativeEorLinkCoverage(unittest.TestCase):
                         capture.index("ObserveBoundShaderIdentity("))
         self.assertLess(capture.index("ObserveBoundShaderIdentity("),
                         capture.index("g_frame_shader_complete.exchange("))
+        # The cheap rejected-frame vertex-only path must still authenticate
+        # the source VS. The heavy replay gate remains after authentication.
+        self.assertIn("CaptureUsaShaderObjects(ctx.r3.u32,ReadGuest,guest_base)",capture)
+        self.assertIn("objects->vertex && !objects->pixel",capture)
+        self.assertIn("ObserveBoundShaderIdentity(draw,identity_only->vertex,identity_only->pixel",capture)
         self.assertLess(capture.index("ObserveBoundShaderIdentity("),
-                        capture.index("g_frame_shader_complete.load("))
+                        capture.index("const bool capture_heavy="))
         gate=capture.split("const bool verified_draw_program=",1)[1].split(";",1)[0]
         for field in ("observed_vs_matrices","observed_live_vertex_shader_header",
                       "observed_live_pixel_shader_header","observed_live_eor_effect_pass"):
