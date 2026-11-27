@@ -1630,9 +1630,7 @@ void CapturePpcDraw(Kind kind, uint32_t guest, const PPCContext& ctx,
         {live.original_vs_guest_object,live.original_ps_guest_object},ReadGuest,guest_base);
   } else if(identity_only)
     draw.original_pixel_stage=CaptureUsaPixelStageKind(draw.gpr[0],*identity_only,ReadGuest,guest_base);
-  if(replay && (!draw.observed_live_vertex_shader_header ||
-                !draw.observed_live_pixel_shader_header ||
-                !draw.observed_live_eor_effect_pass)) {
+  if(replay && !HasOriginalDrawProgram(draw)) {
     // Preserve the very first failed original program pairing in a source
     // Present. A later incomplete-frame shortcut must never hide WHICH
     // genuine XDK Draw first blocked the independent EoR replay.
@@ -1658,10 +1656,7 @@ void CapturePpcDraw(Kind kind, uint32_t guest, const PPCContext& ctx,
   // gap, but do not repeatedly copy full guest registers and mesh allocations
   // for an already unpresentable frame. Explicit mesh research can still
   // request those copies, independent of normal gameplay.
-  const bool verified_draw_program=draw.observed_vs_matrices &&
-      draw.observed_live_vertex_shader_header &&
-      draw.observed_live_pixel_shader_header &&
-      draw.observed_live_eor_effect_pass;
+  const bool verified_draw_program=draw.observed_vs_matrices && HasOriginalDrawProgram(draw);
   const bool capture_heavy=diagnostic_mesh ||
       (replay && verified_draw_program &&
        (g_frame_shader_complete.load(std::memory_order_relaxed) ||
@@ -1943,7 +1938,7 @@ void EndPpcHook(native_x_renderer::Call kind) {
                 frame.calls.size());
     REXLOG_INFO("[HULK/EOR-STAGE-COVERAGE] frame={} effect_pairs={} "
                 "vertex_only_depth_stencil={} vertex_only_no_color={} unresolved={} "
-                "vertex-only replay integration still required",
+                "vertex-only stages classified separately from effect pairs",
                 frame.sequence,original_effect_passes,vertex_only_depth,vertex_only_no_color,unresolved_stage);
     REXLOG_INFO("[HULK/EOR-CAPTURE-COST] frame={} full_snapshot_skipped={} (missing pair or already rejected frame)",frame.sequence,heavy_skipped);
     for (const auto& site: hot) {
@@ -2566,17 +2561,21 @@ std::optional<AutomaticSceneContract> OriginalTargetContract(
       return {};
     const auto& state=*draw.observed_vs_matrices;
     if(aspect_change) {
-      if(!draw.observed_live_vertex_shader_header || !draw.observed_live_pixel_shader_header ||
-         !draw.observed_live_eor_effect_pass)return {};
+      if(!HasOriginalDrawProgram(draw))return {};
       const auto vs=aot::ResolveOriginalLiveXdkShaderSource(*pack.virtual_ids,
           *draw.observed_live_vertex_shader_header,state.original_vs_guest_object,
           aot::Stage::Vertex,frame.sequence,static_cast<uint32_t>(ordinal));
-      const auto ps=aot::ResolveOriginalLiveXdkShaderSource(*pack.virtual_ids,
-          *draw.observed_live_pixel_shader_header,state.original_ps_guest_object,
-          aot::Stage::Pixel,frame.sequence,static_cast<uint32_t>(ordinal));
-      const auto effect=*draw.observed_live_eor_effect_pass;
-      if(!vs || !ps || !pack.effects->HasPair(effect.effect_hash,effect.pass_index,*vs,*ps))return {};
-      if(ui::MatchesOriginalUsaFontMainProgram(effect.effect_hash,effect.pass_index,*vs,*ps)) {
+      if(!vs)return {};
+      bool font_program=false;
+      if(!IsVerifiedVertexOnlyDepthDraw(draw)) {
+        const auto ps=aot::ResolveOriginalLiveXdkShaderSource(*pack.virtual_ids,
+            *draw.observed_live_pixel_shader_header,state.original_ps_guest_object,
+            aot::Stage::Pixel,frame.sequence,static_cast<uint32_t>(ordinal));
+        const auto effect=*draw.observed_live_eor_effect_pass;
+        if(!ps || !pack.effects->HasPair(effect.effect_hash,effect.pass_index,*vs,*ps))return {};
+        font_program=ui::MatchesOriginalUsaFontMainProgram(effect.effect_hash,effect.pass_index,*vs,*ps);
+      }
+      if(font_program) {
         const auto font=draw.kind==Kind::EndVertices ? ui::ResolveUsaInlineFontLayout(draw) :
                                                       ui::ResolveUsaBufferedFontLayout(draw);
         if(!font)return {};
@@ -3134,7 +3133,13 @@ struct AutomaticEorOwner {
           pipeline.source_main_view=gpu::VerifiedOriginalMainView{
               projection->proof,projection->registers.index,1280.0/720.0,true};
         };
-        if(archived) {
+        if(IsVerifiedVertexOnlyDepthDraw(call)) {
+          auto produced=gpu::live::ProduceOriginalVertexOnlyMaterial(call,frame.sequence,ordinal,
+              *pack.shaders,pack.virtual_ids,contract.format,scalar_analysis);
+          project(produced.material.original_pipeline,produced.material.original_pipeline.original_vertex_shader_sha256);
+          ordered.push_back(backend->StageOriginalRuntimeDraw(call,frame.sequence,ordinal,
+              produced.material,produced.geometry,textures));
+        } else if(archived) {
           auto& produced=*archived;
           project(produced.material.original_pipeline,produced.draw.vertex_source_sha256);
           backend->AdoptVerifiedOriginalMaterialPasses({&produced.material,1},textures);
@@ -3612,7 +3617,7 @@ native_x_renderer::HulkEorPresentResult ReplayVerifiedMixedOriginalFrame(
       return Result::kNotReady;
     for(const auto& draw:prepared.ordered)
       if(!pack.shaders->Find(draw.vertex_source_sha256,aot::Stage::Vertex) ||
-         !pack.shaders->Find(draw.pixel_source_sha256,aot::Stage::Pixel))
+         (!draw.draw.original_vertex_only && !pack.shaders->Find(draw.pixel_source_sha256,aot::Stage::Pixel)))
         return Result::kNotReady;
     // The claimed source frame is immutable, including all Draw constants
     // and buffer bytes. A newer guest Present belongs to the next worker
@@ -3957,9 +3962,7 @@ native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(
       source_snapshot->dropped_commands ||
       !std::all_of(source_snapshot->calls.begin(),source_snapshot->calls.end(),
           [](const RawDraw& draw) {
-            return draw.observed_live_vertex_shader_header &&
-                   draw.observed_live_pixel_shader_header &&
-                   draw.observed_live_eor_effect_pass;
+            return HasOriginalDrawProgram(draw);
           }) ||
       !ValidateOriginalCommandTimeline(*source_snapshot)))
     return Result::kNotReady;

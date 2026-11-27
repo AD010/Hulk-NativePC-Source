@@ -222,6 +222,24 @@ OriginalVulkanPipeline CreateOriginalVulkanPipeline(
     const aot::ShaderBank& bank,
     const aot::EffectCatalog& original_effects,
     const VerifiedOriginalGraphicsPass& pass) {
+  if(pass.original_vertex_only) {
+    const auto& source=*pass.original_vertex_only;
+    if(!source.identities || !pass.material_pass_verified ||
+       !pass.original_render_state_verified || !pass.original_host_vertex_layout_verified ||
+       !pass.original_runtime_draw_verified || source.frame!=pass.original_runtime_frame ||
+       pass.original_effect_hash || pass.original_pass_index!=0 ||
+       pass.original_pixel_shader_sha256!=aot::Digest{} ||
+       !MatchesOriginalXdkGraphicsState(pass,source.fixed) ||
+       aot::ResolveOriginalLiveXdkShaderSource(*source.identities,source.witness,
+         source.live.original_vs_guest_object,aot::Stage::Vertex,source.frame,source.ordinal)
+         !=std::optional<aot::Digest>{pass.original_vertex_shader_sha256})
+      throw std::invalid_argument("Invalid original vertex-only material proof");
+    auto graphics=pass.exact_render_state;
+    graphics.InputLayout.NumElements=static_cast<Diligent::Uint32>(pass.exact_host_input_layout.size());
+    graphics.InputLayout.LayoutElements=pass.exact_host_input_layout.data();
+    return CreateOriginalVertexOnlyVulkanPipeline(device,shaders,bank,*source.identities,
+        source.witness,source.live,source.fixed,source.frame,source.ordinal,graphics);
+  }
   if(!device || device->GetDeviceInfo().Type != Diligent::RENDER_DEVICE_TYPE_VULKAN ||
      !pass.original_effect_hash || pass.original_pass_index==UINT32_MAX ||
      !pass.material_pass_verified || !pass.original_render_state_verified ||

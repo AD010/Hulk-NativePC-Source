@@ -226,12 +226,15 @@ inline VerifiedOriginalGraphicsPass OriginalScalarPass(
   using namespace Diligent;
   if(point_list && !xdk::IsOriginalRuntimePointDraw(call))
     throw std::invalid_argument("Unverified original point topology");
-  if(!call.observed_live_eor_effect_pass || !call.observed_vs_matrices ||
+  if((!call.observed_live_eor_effect_pass && !xdk::IsVerifiedVertexOnlyDepthDraw(call)) ||
+     !call.observed_vs_matrices ||
      !call.observed_shader_constants || !call.observed_shader_constants->fixed_graphics_state)
     throw std::invalid_argument("Original scalar material state not captured");
   VerifiedOriginalGraphicsPass pass;
-  pass.original_effect_hash=call.observed_live_eor_effect_pass->effect_hash;
-  pass.original_pass_index=call.observed_live_eor_effect_pass->pass_index;
+  if(call.observed_live_eor_effect_pass) {
+    pass.original_effect_hash=call.observed_live_eor_effect_pass->effect_hash;
+    pass.original_pass_index=call.observed_live_eor_effect_pass->pass_index;
+  } else pass.original_pass_index=0;
   pass.original_vertex_shader_sha256=vs;pass.original_pixel_shader_sha256=ps;
   pass.original_depth_unbound=!call.observed_vs_matrices->original_depth_guest_object;
   pass.original_color_owner=format.original_graph.active()?call.observed_vs_matrices->original_rt0_guest_object:0u;
@@ -650,6 +653,45 @@ struct ProducedRuntimeMaterial {
   VerifiedNativeMaterialPass material;
   DecodedRuntimeGeometry geometry;
 };
+inline ProducedRuntimeMaterial ProduceOriginalVertexOnlyMaterial(
+    const xdk::RawDraw& call,uint64_t frame,uint32_t ordinal,const aot::ShaderBank& bank,
+    std::shared_ptr<const aot::OriginalVirtualShaderIdentity> identities,
+    const VerifiedSceneFormat& format,ScalarAnalysisCache& cache) {
+  if(!identities || !xdk::IsVerifiedVertexOnlyDepthDraw(call) ||
+     !call.observed_shader_constants || !call.observed_shader_constants->fixed_graphics_state ||
+     !call.captured_vertex_bindings || !call.vertex_declaration)
+    throw std::invalid_argument("Original vertex-only geometry or registers unavailable");
+  const auto& live=*call.observed_vs_matrices;
+  const auto& fixed=*call.observed_shader_constants->fixed_graphics_state;
+  const auto mask=fixed.ReadOriginalXenosRegister(0x2104u);
+  const auto depth=fixed.ReadOriginalXenosRegister(0x2200u);
+  const auto color=fixed.ReadOriginalXenosRegister(0x2202u);
+  if(!mask || !depth || !color ||
+     xdk::ClassifyOriginalPixelStage(live.original_vs_guest_object,live.original_ps_guest_object,
+       live.original_depth_guest_object,*mask,*depth,*color)!=xdk::OriginalPixelStageKind::VertexOnlyDepthStencil)
+    throw std::invalid_argument("Original vertex-only fixed-state proof changed");
+  const auto vs=aot::ResolveOriginalLiveXdkShaderSource(*identities,*call.observed_live_vertex_shader_header,
+      live.original_vs_guest_object,aot::Stage::Vertex,frame,ordinal);
+  if(!vs)throw std::invalid_argument("Original depth VS identity unavailable");
+  const auto& analysis=cache.Get(bank,*vs,aot::Stage::Vertex);
+  if(!analysis.interface.supported || !analysis.images.empty() ||
+     ((analysis.interface.shared_members&1u) && !xdk::PackOriginalScalarBooleans(*call.observed_shader_constants)))
+    throw std::invalid_argument("Original depth VS ABI unsupported");
+  ProducedRuntimeMaterial out;
+  out.geometry=DecodeOriginalRuntimeGeometry(call,analysis.interface);
+  auto& material=out.material;
+  material.original_model_hash=live.original_guest_device;material.original_surface_ordinal=ordinal;
+  auto& pass=material.original_pipeline;
+  pass=OriginalScalarPass(call,*vs,aot::Digest{},format,out.geometry.point_list);
+  pass.exact_host_input_layout=out.geometry.layout;
+  pass.original_host_vertex_layout_verified=true;
+  pass.original_runtime_draw_verified=true;pass.original_runtime_frame=frame;
+  pass.original_direct_xdk_runtime=true;pass.material_pass_verified=true;
+  pass.original_vertex_only=std::make_shared<const OriginalVertexOnlyPipelineSource>(
+      OriginalVertexOnlyPipelineSource{std::move(identities),*call.observed_live_vertex_shader_header,
+        live,fixed,frame,ordinal});
+  return out;
+}
 inline ProducedRuntimeMaterial ProduceOriginalRuntimeMaterial(
     const xdk::RawDraw& call,uint64_t frame,uint32_t ordinal,
     const aot::ShaderBank& bank,const aot::EffectCatalog& effects,

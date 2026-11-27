@@ -192,6 +192,8 @@ class DiligentEorDirectBackend final : public aot::ShaderBindingBackend {
   bool BindOriginalSurface(uint32_t model,uint32_t ordinal) override;
   bool BindOriginalRuntimeSurface(uint32_t material,uint32_t ordinal) override;
   bool BindOriginalEffect(uint32_t effect,uint32_t pass) override;
+  bool BindOriginalVertexOnlyProgram(const aot::Digest&,const aot::Blob&,
+                                      const aot::ReflectedShader&) override;
   bool BindOriginalConstants(const aot::ReflectedShader& vertex,
                              const aot::ReflectedShader& pixel) override;
   // Never accept anonymous bytecode lacking the original effect identity.

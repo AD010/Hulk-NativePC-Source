@@ -193,7 +193,9 @@ std::vector<NativeEorPassResources> AcquireVerifiedNativeMaterialPasses(
   for(const auto& p:verified) {
     const auto& pass=p.original_pipeline;
     if(!p.original_model_hash || p.original_surface_ordinal==UINT32_MAX ||
-       !pass.original_effect_hash || pass.original_pass_index==UINT32_MAX ||
+       (pass.original_vertex_only ? (pass.original_effect_hash || pass.original_pass_index!=0 ||
+                                     !p.original_images.empty()) :
+                                    (!pass.original_effect_hash || pass.original_pass_index==UINT32_MAX)) ||
        !pass.material_pass_verified || !pass.original_render_state_verified ||
        !pass.original_host_vertex_layout_verified ||
        !keys.insert(PassKey(p.original_model_hash,p.original_surface_ordinal,pass)).second)
@@ -488,6 +490,7 @@ static void ValidateSourceOriginalMaterialPass(
     // from a Texture2D binding (or vice versa); one wrong view corrupts
     // the whole material even though the source bytes are correct.
     for(const auto stage:{aot::Stage::Vertex,aot::Stage::Pixel}) {
+      if(pass.original_vertex_only && stage==aot::Stage::Pixel)continue;
       const auto* binary=bank.Find(
           stage==aot::Stage::Vertex ? pass.original_vertex_shader_sha256 :
                                       pass.original_pixel_shader_sha256,stage);
@@ -559,7 +562,18 @@ static void ValidateSourceOriginalMaterialPass(
       throw std::invalid_argument(
           "EoR original vertex layout overruns or aliases actual host GPU attribute buffers");
     }
-    if(!effects.HasPair(pass.original_effect_hash,pass.original_pass_index,
+    if(pass.original_vertex_only) {
+      const auto& proof=*pass.original_vertex_only;
+      if(!proof.identities || !owner.original_textures.empty() ||
+         proof.frame!=pass.original_runtime_frame || proof.ordinal!=owner.original_surface_ordinal ||
+         proof.live.original_guest_device!=owner.original_model_hash ||
+         pass.original_effect_hash || pass.original_pass_index!=0 ||
+         pass.original_pixel_shader_sha256!=aot::Digest{} ||
+         aot::ResolveOriginalLiveXdkShaderSource(*proof.identities,proof.witness,
+             proof.live.original_vs_guest_object,aot::Stage::Vertex,proof.frame,proof.ordinal)
+             !=std::optional<aot::Digest>{pass.original_vertex_shader_sha256})
+        throw std::invalid_argument("Native vertex-only source ownership mismatch");
+    } else if(!effects.HasPair(pass.original_effect_hash,pass.original_pass_index,
                         pass.original_vertex_shader_sha256,
                         pass.original_pixel_shader_sha256))
       throw std::invalid_argument("Native EoR shader/pass provenance mismatched");
@@ -1287,7 +1301,8 @@ aot::BoundIndexedDraw DiligentEorDirectBackend::StageOriginalRuntimeDraw(
   if(!state_ || state_->scene_open || state_->frame_preflight_ready ||
      !frame || ordinal==UINT32_MAX || !call.observed_vs_matrices ||
      !call.observed_shader_constants ||
-     !call.observed_live_eor_effect_pass || !material.original_pipeline.original_runtime_draw_verified ||
+     (!call.observed_live_eor_effect_pass && !xdk::IsVerifiedVertexOnlyDepthDraw(call)) ||
+     !material.original_pipeline.original_runtime_draw_verified ||
      material.original_pipeline.original_runtime_frame!=frame ||
      material.original_surface_ordinal!=ordinal || cpu.layout.size()!=cpu.attributes.size() ||
      cpu.layout.size()!=cpu.integer_attributes.size() || !cpu.vertex_count || cpu.indices.empty() ||
@@ -1299,7 +1314,15 @@ aot::BoundIndexedDraw DiligentEorDirectBackend::StageOriginalRuntimeDraw(
   auto& s=*state_;
   const auto& live=*call.observed_vs_matrices;
   const auto& pass=material.original_pipeline;
-  if(pass.original_direct_xdk_runtime) {
+  if(pass.original_vertex_only) {
+    const auto& proof=*pass.original_vertex_only;
+    if(!xdk::IsVerifiedVertexOnlyDepthDraw(call) || proof.frame!=frame || proof.ordinal!=ordinal ||
+       material.original_model_hash!=live.original_guest_device || !material.original_images.empty() ||
+       proof.live.original_vs_guest_object!=live.original_vs_guest_object ||
+       !call.observed_shader_constants->fixed_graphics_state ||
+       proof.fixed.original_register_values!=call.observed_shader_constants->fixed_graphics_state->original_register_values)
+      throw std::invalid_argument("Vertex-only transient draw proof mismatch");
+  } else if(pass.original_direct_xdk_runtime) {
     std::vector<VerifiedEorSampler> bindings;
     for(const auto& image:material.original_images) {
       if(image.original_binding.original_resolved_guest_object &&
@@ -1313,10 +1336,12 @@ aot::BoundIndexedDraw DiligentEorDirectBackend::StageOriginalRuntimeDraw(
             !call.original_engine_shader_method->original_pass_vs_ps_xdk_binding_verified ||
             material.original_model_hash!=call.original_engine_shader_method->original_pass_material_context_guest)
     throw std::invalid_argument("Transient original material context mismatch");
-  if(pass.original_effect_hash!=call.observed_live_eor_effect_pass->effect_hash ||
-     pass.original_pass_index!=call.observed_live_eor_effect_pass->pass_index ||
-     !s.effects.HasPair(pass.original_effect_hash,pass.original_pass_index,
-                        pass.original_vertex_shader_sha256,pass.original_pixel_shader_sha256) ||
+  if((!pass.original_vertex_only &&
+      (!call.observed_live_eor_effect_pass ||
+       pass.original_effect_hash!=call.observed_live_eor_effect_pass->effect_hash ||
+       pass.original_pass_index!=call.observed_live_eor_effect_pass->pass_index ||
+       !s.effects.HasPair(pass.original_effect_hash,pass.original_pass_index,
+                        pass.original_vertex_shader_sha256,pass.original_pixel_shader_sha256))) ||
      !MatchesVerifiedOriginalXdkDrawTargets(live,s.format,!pass.original_depth_unbound) ||
      pass.exact_host_input_layout.size()!=cpu.layout.size() ||
      !std::all_of(cpu.indices.begin(),cpu.indices.end(),[&](uint32_t i){return i<cpu.vertex_count;}))
@@ -1373,6 +1398,7 @@ aot::BoundIndexedDraw DiligentEorDirectBackend::StageOriginalRuntimeDraw(
     aot::BoundIndexedDraw result{};
     result.draw={position,index,live.original_vs_guest_object,live.original_ps_guest_object,
       count,0,0,frame,ordinal,live,call.observed_shader_constants};
+    result.draw.original_vertex_only=bool(pass.original_vertex_only);
     result.vertex_source_sha256=pass.original_vertex_shader_sha256;
     result.pixel_source_sha256=pass.original_pixel_shader_sha256;
     result.effect_hash=pass.original_effect_hash;result.pass_index=pass.original_pass_index;
@@ -1476,9 +1502,9 @@ bool DiligentEorDirectBackend::PreflightOriginalScene(
       saw_anonymous_draw=true;
     }
     if(!d.vertex_buffer || !d.index_buffer || !d.vertex_shader ||
-       !d.pixel_shader || !d.index_count || !item.original_model_hash ||
-       item.original_surface_ordinal==UINT32_MAX || !item.effect_hash ||
-       item.pass_index==UINT32_MAX)
+       (d.original_vertex_only ? (d.pixel_shader || item.effect_hash || item.pass_index!=0) :
+                                 (!d.pixel_shader || !item.effect_hash || item.pass_index==UINT32_MAX)) ||
+       !d.index_count || !item.original_model_hash || item.original_surface_ordinal==UINT32_MAX)
       return false;
     if(!d.guest_vs_matrices)return false;
     const auto key=DrawPassKey(item,s.format.original_graph.active());
@@ -1486,6 +1512,7 @@ bool DiligentEorDirectBackend::PreflightOriginalScene(
     const NativeEorPassResources* selected=
         owner==s.material_lookup.end()?nullptr:owner->second;
     if(!selected ||
+       bool(selected->pipeline.original_vertex_only)!=d.original_vertex_only ||
        selected->pipeline.original_vertex_shader_sha256!=item.vertex_source_sha256 ||
        selected->pipeline.original_pixel_shader_sha256!=item.pixel_source_sha256 ||
        selected->pipeline.original_direct_xdk_runtime!=item.original_direct_xdk_runtime ||
@@ -1541,7 +1568,7 @@ bool DiligentEorDirectBackend::PreflightOriginalScene(
         // images, but fixed-function state belongs to the actual Draw.
         // Derive an additional PSO only from that immutable XDK snapshot.
         // EFont stages its own SRB against the same exact variant key.
-        if(!pass.original_render_state_verified)return false;
+        if(!pass.original_render_state_verified || pass.original_vertex_only)return false;
         const auto derived=DeriveOriginalXdkGraphicsPipelineState(
             live_state,pass.exact_render_state);
         const auto variant=OriginalPipelineVariantKey(key,live_state);
@@ -1571,8 +1598,8 @@ bool DiligentEorDirectBackend::PreflightOriginalScene(
       };
       packed.vs_abi=prepare(aot::Stage::Vertex,item.vertex_source_sha256,
                             pass.original_vs_float_layout,packed.vertex);
-      packed.ps_abi=prepare(aot::Stage::Pixel,item.pixel_source_sha256,
-                            pass.original_ps_float_layout,packed.pixel);
+      packed.ps_abi=d.original_vertex_only ? FloatRegisterAbi::Unused :
+          prepare(aot::Stage::Pixel,item.pixel_source_sha256,pass.original_ps_float_layout,packed.pixel);
       if(s.frame.widescreen_camera &&
          pass.original_view_space==VerifiedOriginalViewSpace::MainPerspective && pass.source_main_view) {
         const auto& view=*pass.source_main_view;
@@ -1853,6 +1880,28 @@ bool DiligentEorDirectBackend::BindOriginalEffect(uint32_t effect,uint32_t pass)
        s.requested_runtime?s.prepared_frame:0u});
   if(item==s.material_lookup.end())return false;
   s.selected=item->second;
+  return true;
+}
+bool DiligentEorDirectBackend::BindOriginalVertexOnlyProgram(
+    const aot::Digest& digest,const aot::Blob& vertex,const aot::ReflectedShader& reflection) {
+  auto& s=*state_;
+  if(!s.scene_open || s.finished || !s.surface_ready || !s.requested_runtime ||
+     reflection.stage!=aot::Stage::Vertex || s.bank.Find(digest,aot::Stage::Vertex)!=&vertex)
+    return false;
+  const auto item=s.material_lookup.find(
+      {s.requested_model,s.requested_surface,0u,0u,!s.scene.DepthBound(),true,
+       s.format.original_graph.active()?s.scene.ActiveOriginalColor():0u,s.prepared_frame});
+  if(item==s.material_lookup.end() || !item->second->pipeline.original_vertex_only ||
+     item->second->pipeline.original_vertex_shader_sha256!=digest)return false;
+  s.selected=item->second;
+  const auto key=PassKey(*s.selected);
+  const auto pipeline=s.pipeline_cache.find(key);
+  const auto binding=s.material_bindings.find(key);
+  if(pipeline==s.pipeline_cache.end() || binding==s.material_bindings.end() ||
+     !pipeline->second.pipeline || !binding->second)return false;
+  s.active.pipeline=pipeline->second.pipeline;s.active.bindings=binding->second;
+  s.vertex=reflection;s.pixel={};s.pixel.stage=aot::Stage::Pixel;
+  s.constants_ready=true;s.program_ready=true;s.textures_ready=false;
   return true;
 }
 bool DiligentEorDirectBackend::BindOriginalConstants(

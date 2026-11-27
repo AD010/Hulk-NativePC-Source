@@ -575,6 +575,19 @@ struct RawDraw {
   std::optional<OriginalGeometryWrapperOwner> original_geometry_wrapper;
   OriginalPixelStageKind original_pixel_stage=OriginalPixelStageKind::Unknown;
 };
+// This classification is not itself a GPU submission authorization.
+inline bool IsVerifiedVertexOnlyDepthDraw(const RawDraw& draw) noexcept {
+  return draw.original_pixel_stage==OriginalPixelStageKind::VertexOnlyDepthStencil &&
+      draw.observed_vs_matrices && draw.observed_live_vertex_shader_header &&
+      !draw.observed_live_pixel_shader_header && !draw.observed_live_eor_effect_pass &&
+      !draw.observed_vs_matrices->original_ps_guest_object &&
+      draw.observed_vs_matrices->original_depth_guest_object;
+}
+inline bool HasOriginalDrawProgram(const RawDraw& draw) noexcept {
+  return draw.observed_live_vertex_shader_header &&
+      ((draw.observed_live_pixel_shader_header && draw.observed_live_eor_effect_pass) ||
+       IsVerifiedVertexOnlyDepthDraw(draw));
+}
 // Original USA Decal direct XDK call is at guest 0x8265B538.
 // An engine render-item->geometry witness, if present, must match the
 // SAME live original PPC Draw device's bound VB/IB guest object identity.

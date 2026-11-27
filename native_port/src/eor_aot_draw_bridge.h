@@ -150,6 +150,9 @@ class ShaderBindingBackend : public native::Backend {
                                   uint32_t pass_index) = 0;
   // The original float4 constant-register layouts, not Sonic's hardcoded
   // shader assumptions. Backend must bind actual game VS/PS constants.
+  // Explicitly absent PS: no synthetic effect or pixel shader digest.
+  virtual bool BindOriginalVertexOnlyProgram(const Digest&,const Blob&,
+                                              const ReflectedShader&) {return false;}
   virtual bool BindOriginalConstants(const ReflectedShader& vertex,
                                      const ReflectedShader& pixel) = 0;
   // Called after selecting the correct native shader/PSO but before Draw.

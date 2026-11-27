@@ -92,6 +92,7 @@ struct IndexedDraw {
   // Complete immutable VS/PS float4 banks captured on the SAME PPC Draw.
   // Shared through native staging without copying 8 KiB per handoff.
   std::shared_ptr<const xdk::OriginalShaderRegisters> guest_shader_constants;
+  bool original_vertex_only=false;
 };
 
 // All methods operate on host-native resources and draw calls; no GPU

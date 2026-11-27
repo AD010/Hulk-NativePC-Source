@@ -26,12 +26,24 @@ bool MatchesOriginalXdkDraw(
        recorded.original_ps_guest_object!=bound.original_ps_guest_object)
       return false;
   }
+  if(draw.original_vertex_only) {
+    if(!source.observed_shader_constants || !draw.guest_shader_constants ||
+       source.observed_shader_constants!=draw.guest_shader_constants ||
+       !xdk::IsVerifiedVertexOnlyDepthDraw(source) || !host.original_runtime_draw ||
+       host.effect_hash || host.pass_index!=0 || host.pixel_source_sha256!=Digest{} ||
+       !host.original_samplers.empty() || !source.observed_vs_matrices ||
+       host.original_model_hash!=source.gpr[0] ||
+       host.original_model_hash!=source.observed_vs_matrices->original_guest_device)
+      return false;
+  }
   if(host.original_runtime_draw) {
     const auto& method=source.original_engine_shader_method;
     if(host.original_point_list!=xdk::IsOriginalRuntimePointDraw(source))return false;
     if(host.original_surface_ordinal!=draw.source_ordinal ||
        host.original_mesh_header_offset!=SIZE_MAX || host.original_dynamic_font_draw)return false;
-    if(host.original_direct_xdk_runtime) {
+    if(draw.original_vertex_only) {
+      if(!host.original_direct_xdk_runtime)return false;
+    } else if(host.original_direct_xdk_runtime) {
       if(!ProvesDirectXdkRuntimeBindings(source,host.original_samplers,host.original_model_hash) ||
          source.observed_live_pixel_shader_header->pixel_sampling->source!=host.pixel_source_sha256)return false;
     } else if(!method || !method->original_pass_vs_ps_xdk_binding_verified ||
@@ -97,6 +109,7 @@ class ForwardingBackend final : public native::Backend {
        pair.draw.index_buffer!=draw.index_buffer ||
        pair.draw.vertex_shader!=draw.vertex_shader ||
        pair.draw.pixel_shader!=draw.pixel_shader ||
+       pair.draw.original_vertex_only!=draw.original_vertex_only ||
        pair.draw.first_index!=draw.first_index ||
        pair.draw.index_count!=draw.index_count ||
        pair.draw.base_vertex!=draw.base_vertex ||
@@ -107,7 +120,7 @@ class ForwardingBackend final : public native::Backend {
     const auto* ps=bank_.Find(pair.pixel_source_sha256,Stage::Pixel);
     const auto* vr=reflection_.Find(pair.vertex_source_sha256,Stage::Vertex);
     const auto* pr=reflection_.Find(pair.pixel_source_sha256,Stage::Pixel);
-    if(!vs || !ps || !vr || !pr)
+    if(!vs || !vr || (!draw.original_vertex_only && (!ps || !pr)))
       throw std::logic_error("Unknown original Xenos shader or constant layout");
     // Missing original shader/reflection evidence must not replay GPU events.
     const auto draw_context=
@@ -126,6 +139,13 @@ class ForwardingBackend final : public native::Backend {
     if(!(pair.original_runtime_draw ? target_.BindOriginalRuntimeSurface(pair.original_model_hash,pair.original_surface_ordinal) :
              target_.BindOriginalSurface(pair.original_model_hash,pair.original_surface_ordinal)))
       return reject("BindOriginalSurface");
+    if(draw.original_vertex_only) {
+      if(!target_.BindOriginalVertexOnlyProgram(pair.vertex_source_sha256,*vs,*vr))
+        return reject("BindOriginalVertexOnlyProgram");
+      if(!target_.BindOriginalSamplers({}) || !target_.DrawIndexed(draw))
+        return reject("VertexOnlyDrawIndexed");
+      return true;
+    }
     if(!target_.BindOriginalEffect(pair.effect_hash,pair.pass_index))
       return reject("BindOriginalEffect");
     if(!target_.BindOriginalConstants(*vr,*pr))
@@ -299,6 +319,19 @@ void ReplayAotScene(const native::FrameGeometry& frame,
     if (!value.original_model_hash ||
         value.original_surface_ordinal == UINT32_MAX)
       throw std::invalid_argument("Original EoR Draw has no model/surface owner");
+    if(value.draw.original_vertex_only) {
+      const auto* vs=bank.Find(value.vertex_source_sha256,Stage::Vertex);
+      const auto* vr=reflection.Find(value.vertex_source_sha256,Stage::Vertex);
+      if(!exact_original_timeline || !value.draw.source_frame || !vs || !vr ||
+         value.effect_hash || value.pass_index!=0 || value.draw.pixel_shader ||
+         value.pixel_source_sha256!=Digest{} || !value.original_samplers.empty() ||
+         !InspectSpirvImageResources(vs->spirv,Stage::Vertex).empty() ||
+         !ExtractOriginalDrawVsMatrices(*vr,value.draw) ||
+         !ValidateCapturedOriginalShaderRegisters(*vr,value.draw))
+        throw std::invalid_argument("Incomplete source vertex-only Draw");
+      commands.push_back(value.draw);
+      continue;
+    }
     gpu::ValidateOriginalEorSamplers(value.original_samplers);
     // Fail closed for ORIGINAL sampled images that have no resident material
     // ownership. The shader's Vulkan resource name is not its Xenos register.

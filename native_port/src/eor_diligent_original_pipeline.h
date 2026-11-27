@@ -36,6 +36,14 @@ struct VerifiedOriginalMainView {
   // and validates the actual perspective matrix each Draw.
   bool live_scalar_matrix_proof=false;
 };
+struct OriginalVertexOnlyPipelineSource {
+  std::shared_ptr<const aot::OriginalVirtualShaderIdentity> identities;
+  aot::OriginalLiveXdkShaderHeaderWitness witness;
+  xdk::OriginalVsMatrices live;
+  xdk::OriginalXdkFixedGraphicsState fixed;
+  uint64_t frame=0;
+  uint32_t ordinal=UINT32_MAX;
+};
 struct VerifiedOriginalGraphicsPass {
   uint32_t original_effect_hash=0;
   uint32_t original_pass_index=UINT32_MAX;
@@ -77,6 +85,7 @@ struct VerifiedOriginalGraphicsPass {
   // Mutable bindings and decoded streams belong to this captured frame.
   // Static archive passes keep zero and can share across frames.
   uint64_t original_runtime_frame=0;
+  std::shared_ptr<const OriginalVertexOnlyPipelineSource> original_vertex_only;
 };
 struct OriginalVulkanPipeline {
   Diligent::RefCntAutoPtr<Diligent::IPipelineState> pipeline;

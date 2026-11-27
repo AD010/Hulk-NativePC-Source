@@ -126,7 +126,7 @@ void ReplayNativeScene(const FrameGeometry& frame,
   // that could appear as flicker or poison the following frame.
   for (const auto& draw : draws) {
     if (!draw.vertex_buffer || !draw.index_buffer || !draw.vertex_shader ||
-        !draw.pixel_shader || !draw.index_count ||
+        (draw.original_vertex_only ? (draw.pixel_shader || !draw.source_frame) : !draw.pixel_shader) || !draw.index_count ||
         uint64_t(draw.first_index) + draw.index_count > UINT32_MAX)
       throw std::invalid_argument("Incomplete actual EoR geometry/shader submission");
   }
