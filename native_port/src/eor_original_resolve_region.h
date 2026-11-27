@@ -23,6 +23,12 @@ inline bool ValidOriginalResolveRegion(const OriginalResolveRegion& r,
      int64_t(d[0])+s[2]-s[0]>dw || int64_t(d[1])+s[3]-s[1]>dh)return false;
   return true;
 }
+// Map the edge of a half-open source texel interval to the physical pixel grid.
+// A pixel centered exactly on an edge belongs to the interval starting there.
+inline int32_t MapOriginalTexelEdge(int32_t edge,uint32_t original,uint32_t host) noexcept {
+  const uint64_t n=uint64_t(edge)*host;
+  return static_cast<int32_t>(n/original+((n%original)*2u>original?1u:0u));
+}
 inline std::optional<OriginalResolveRegion> MapOriginalResolveRegion(
     const OriginalResolveRegion& r,uint32_t sw,uint32_t sh,
     uint32_t dw,uint32_t dh,uint32_t host_sw,uint32_t host_sh,
@@ -44,26 +50,17 @@ inline std::optional<OriginalResolveRegion> MapOriginalResolveRegion(
   };
   if(!phase(r.source[0],r.destination[0],sw,dw,host_sw,host_dw) ||
      !phase(r.source[1],r.destination[1],sh,dh,host_sh,host_dh))return {};
-  auto scale=[](int32_t v,uint32_t original,uint32_t host)->std::optional<int32_t>{
-    const uint64_t n=uint64_t(v)*host;
-    const uint64_t rounded=n/original+((n%original)*2u>original?1u:0u);
-    if(rounded>INT32_MAX)return {};
-    return static_cast<int32_t>(rounded);
-  };
   OriginalResolveRegion result;
   for(unsigned i=0;i<4;++i) {
-    auto v=scale(r.source[i],i%2?sh:sw,i%2?host_sh:host_sw);
-    if(!v)return {};
-    result.source[i]=*v;
+    result.source[i]=MapOriginalTexelEdge(r.source[i],i%2?sh:sw,i%2?host_sh:host_sw);
   }
   for(unsigned i=0;i<2;++i) {
-    auto v=scale(r.destination[i],i?dh:dw,i?host_dh:host_dw);
-    if(!v)return {};
-    result.destination[i]=*v;
+    const auto v=MapOriginalTexelEdge(r.destination[i],i?dh:dw,i?host_dh:host_dw);
+    result.destination[i]=v;
     const auto end=int64_t(r.destination[i])+r.source[i+2]-r.source[i];
     if(end>INT32_MAX)return {};
-    auto mapped_end=scale(static_cast<int32_t>(end),i?dh:dw,i?host_dh:host_dw);
-    if(!mapped_end || *mapped_end-*v!=result.source[i+2]-result.source[i])return {};
+    const auto mapped_end=MapOriginalTexelEdge(static_cast<int32_t>(end),i?dh:dw,i?host_dh:host_dw);
+    if(mapped_end-v!=result.source[i+2]-result.source[i])return {};
   }
   return ValidOriginalResolveRegion(result,host_sw,host_sh,host_dw,host_dh)?
       std::optional<OriginalResolveRegion>(result):std::nullopt;

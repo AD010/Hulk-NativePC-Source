@@ -315,6 +315,17 @@ static void VerifySequentialTargets(IRenderDevice* device,IDeviceContext* contex
   graph.partial_msaa_sources.insert(2);
   graph.first_color=2;graph.final_color=3;graph.front_buffer=5;
   gpu::DiligentSceneTargets scene(device,context);
+  const auto& depth_caps=device->GetTextureFormatInfoExt(TEX_FORMAT_D24_UNORM_S8_UINT);
+  const bool has_d24=(depth_caps.BindFlags&BIND_DEPTH_STENCIL) && (depth_caps.SampleCounts&1u);
+  if(!has_d24) {
+    if(scene.Prepare(frame,format) || scene.BeginScene())
+      throw std::runtime_error("Unsupported D24S8 was accepted as original depth");
+    // The FP16 MSAA and RGBA8 color-only sequence is valid on this device.
+    format.depth=gpu::NativeDepthFormat::None;
+    format.original_screen.guest_depth=0;
+    graph.depths.clear();graph.extents.erase(6);graph.sample_counts.erase(6);
+    std::cout<<"Verified rejection of unavailable D24S8 before replay\n";
+  }
   eor::xdk::OriginalXdkClearF clear{};
   clear.flags=1;clear.has_color=true;clear.color={1,0,0,1};
   if(!scene.Prepare(frame,format) || !scene.BeginScene() ||
@@ -331,14 +342,23 @@ static void VerifySequentialTargets(IRenderDevice* device,IDeviceContext* contex
   auto combined=clear;
   combined.flags=0x11;
   combined.color={0,1,0,1};
-  if(!scene.SetOriginalDepthTarget(6) ||
+  auto rect_clear=clear;
+  rect_clear.has_rect=true;
+  rect_clear.rect={4,2,12,6};
+  rect_clear.color={0,1,0,1};
+  if(!scene.SetOriginalDepthTarget(has_d24?6u:0u) ||
      !scene.ClearVerifiedOriginalXdk(clear,{w/2,h/2}) ||
      scene.ClearVerifiedOriginalXdk(combined,{w/2,h/2}) ||
+     !scene.ClearVerifiedOriginalXdk(rect_clear,{w/2,h/2}) ||
      !scene.ResolveOriginalIntermediate(4,region) ||
      !scene.SetOriginalColorTarget(3))
     throw std::runtime_error("Partial FP16 MSAA Resolve failed");
   clear.color={0,0,1,1};
-  if(!scene.ClearVerifiedOriginalXdk(clear,size) || !scene.ResolveScene())
+  if(!scene.ClearVerifiedOriginalXdk(clear,size) || !scene.ClearVerifiedOriginalXdk(rect_clear,size))
+    throw std::runtime_error("Partial RGBA8 clear failed");
+  rect_clear.rect={8,4,17,11};
+  rect_clear.color={1,0,0,1};
+  if(!scene.ClearVerifiedOriginalXdk(rect_clear,size) || !scene.ResolveScene())
     throw std::runtime_error("Sequential native target final resolve failed");
   const auto first=ReadPixels(device,context,scene.IntermediateColorSRV(4)->GetTexture());
   const auto final=ReadPixels(device,context,scene.ResolvedColorSRV()->GetTexture());
@@ -351,13 +371,21 @@ static void VerifySequentialTargets(IRenderDevice* device,IDeviceContext* contex
   const std::array blue16{std::byte{0},std::byte{0},std::byte{0},std::byte{0},
                           std::byte{0},std::byte{0x3c},std::byte{0},std::byte{0x3c}};
   for(uint32_t y=0;y<h/2;++y)for(uint32_t x=0;x<w/2;++x) {
-    const auto& expected=x>=16 && y>=8 ? blue16:red;
+    const std::array green16{std::byte{0},std::byte{0},std::byte{0},std::byte{0x3c},
+                             std::byte{0},std::byte{0},std::byte{0},std::byte{0x3c}};
+    const auto& expected=x>=20 && x<28 && y>=10 && y<14 ? green16 :
+                         x>=16 && y>=8 ? blue16:red;
     if(!std::equal(expected.begin(),expected.end(),first.begin()+(size_t(y)*(w/2)+x)*8))
       throw std::runtime_error("Partial MSAA Resolve changed pixels outside exact region");
   }
-  for(size_t i=0;i<final.size();i+=4)
-    if(!std::equal(blue.begin(),blue.end(),final.begin()+i))
-      throw std::runtime_error("Final target contents changed");
+  const std::array green8{std::byte{0},std::byte{255},std::byte{0},std::byte{255}};
+  const std::array red8{std::byte{255},std::byte{0},std::byte{0},std::byte{255}};
+  for(uint32_t y=0;y<h;++y)for(uint32_t x=0;x<w;++x) {
+    const auto& expected=x>=8 && x<17 && y>=4 && y<11 ? red8 :
+                         x>=4 && x<12 && y>=2 && y<6 ? green8 : blue;
+    if(!std::equal(expected.begin(),expected.end(),final.begin()+(size_t(y)*w+x)*4))
+      throw std::runtime_error("Overlapping partial clears lost pixels of the final RGBA8 target");
+  }
   if(!scene.Prepare(frame,format) || !scene.BeginScene() || scene.IntermediateColorSRV(4))
     throw std::runtime_error("Stale intermediate target survived into the next frame");
   scene.AbortScene();
@@ -367,7 +395,8 @@ static void VerifySequentialTargets(IRenderDevice* device,IDeviceContext* contex
 // Controlled XDK state for the original shader integration fixture only.
 // Production Draws read these words from the real USA device shadow.
 static eor::xdk::OriginalXdkFixedGraphicsState FixtureFixedState(
-    uint32_t device,uint32_t color_mask=15,uint32_t samples=0) {
+    uint32_t device,uint32_t color_mask=15,uint32_t samples=0,
+    uint32_t pitch=0,uint32_t depth_control=0,uint32_t stencil_ref_mask=0) {
   using State=eor::xdk::OriginalXdkFixedGraphicsState;
   State result{};
   result.original_guest_device=device;
@@ -383,7 +412,9 @@ static eor::xdk::OriginalXdkFixedGraphicsState FixtureFixedState(
     }
     throw std::runtime_error("Fixture XDK register outside captured groups");
   };
-  set(0x2000,samples<<16); // RGBA8/D24S8, exact sample count
+  set(0x2200,depth_control);
+  set(0x210d,stencil_ref_mask);
+  set(0x2000,(samples<<16)|pitch); // RGBA8/D24S8, exact sample count
   set(0x2104,color_mask);
   set(0x2201,1u|(1u<<16)); // opaque: ONE/ZERO, ADD for color and alpha
   return result;
@@ -532,6 +563,56 @@ static void VerifyMaterialReplay(IRenderDevice* device,IDeviceContext* context,
   eor::aot::ReplayAotScene(frame,draws,bank,effects,reflection,backend,&timeline);
   if(composites!=4 || pixels!=separate_surfaces)
     throw std::runtime_error("Base PSO was contaminated by the live state variant");
+  // Keep the real FillRect VS/PS and geometry. A strict LESS test (z=0)
+  // and stencil EQUAL 7 reveal both cleared planes through the color output.
+  auto planes=timeline;
+  auto plane_draws=draws;
+  for(size_t i=0;i<planes.calls.size();++i) {
+    auto& call=planes.calls[i];
+    auto& live=*call.observed_vs_matrices;
+    live.original_color_extent=xdk::OriginalSurfaceExtent{width,height};
+    if(i==0)live.original_depth_extent=live.original_color_extent;
+    auto regs=std::make_shared<xdk::OriginalShaderRegisters>(*call.observed_shader_constants);
+    regs->fixed_graphics_state=FixtureFixedState(screen.guest_device,15,0,width,
+        i==0 ? 3u|(1u<<4)|(2u<<8) : 0u,0xff07u);
+    call.observed_shader_constants=regs;
+    plane_draws[i].draw.guest_vs_matrices=live;
+    plane_draws[i].draw.guest_shader_constants=regs;
+  }
+  auto& full=*planes.commands[0].captured_clear;
+  full.flags=planes.commands[0].gpr[1]=0x31;
+  full.depth=1;full.stencil=7;
+  auto depth_rect=planes.commands[0];
+  depth_rect.gpr[1]=depth_rect.captured_clear->flags=0x10;
+  depth_rect.gpr[2]=0x1000;
+  depth_rect.captured_clear->has_rect=true;
+  depth_rect.captured_clear->rect={10,30,70,120};
+  depth_rect.captured_clear->depth=0;
+  auto stencil_rect=depth_rect;
+  stencil_rect.gpr[1]=stencil_rect.captured_clear->flags=0x20;
+  stencil_rect.captured_clear->rect={50,70,110,155};
+  stencil_rect.captured_clear->stencil=2;
+  planes.commands.insert(planes.commands.begin()+1,{depth_rect,stencil_rect});
+  const auto graph=gpu::PlanOriginalNativeTargets(planes,width,height);
+  if(!graph)throw std::runtime_error("Graph rejected first full clear followed by depth/stencil rectangles");
+  pass.original_color_owner=overlay.original_color_owner=screen.guest_rt0;
+  gpu::DiligentEorDirectBackend plane_backend(device,context,scene,meshes,shaders,bank,effects,
+      frame,graph->format,{{model,0,pass,{}},{model,0,overlay,{}}},{buffers},constants,output);
+  eor::aot::ReplayAotScene(frame,plane_draws,bank,effects,reflection,plane_backend,&planes);
+  if(composites!=5 || pixels.size()!=width*height*4)
+    throw std::runtime_error("Depth/stencil rectangle replay failed to composite");
+  for(uint32_t y=0;y<height;++y)for(uint32_t x=0;x<width;++x) {
+    const bool blocked=(x>=10 && x<70 && y>=30 && y<120) ||
+                       (x>=50 && x<110 && y>=70 && y<155);
+    const bool green=x>=width/2;
+    const std::array expected{std::byte(!green && !blocked?255:0),std::byte(green?255:0),
+                              std::byte(blocked?255:0),std::byte{255}};
+    if(!std::equal(expected.begin(),expected.end(),pixels.begin()+(size_t(y)*width+x)*4))
+      throw std::runtime_error("Selective D24S8 clear mismatch at "+std::to_string(x)+","+std::to_string(y)+
+          " rgb="+std::to_string(int(pixels[(size_t(y)*width+x)*4]))+","+
+          std::to_string(int(pixels[(size_t(y)*width+x)*4+1]))+","+
+          std::to_string(int(pixels[(size_t(y)*width+x)*4+2])));
+  }
   std::cout<<"Depth-bound and color-only draws shared the same material, all 64000 pixels matched\n";
   std::cout<<"Direct EoR backend replayed two fixture surfaces with original FillRect shaders, "
              "64000 pixels matched in one offscreen composite\n";

@@ -806,7 +806,7 @@ bool DiligentEorDirectBackend::CanReplayOriginalXdkCommand(
           (s.format.original_graph.active() ?
             std::any_of(s.format.original_graph.colors.begin(),s.format.original_graph.colors.end(),
               [&](uint32_t id){const auto size=s.format.original_graph.SourceExtent(id,s.frame.original_guest);
-                return xdk::IsOriginalFullTargetClear(*cmd.captured_clear,size.width,size.height);}) :
+                return xdk::IsValidOriginalTargetClear(*cmd.captured_clear,size.width,size.height);}) :
             xdk::IsOriginalFullTargetClear(*cmd.captured_clear,s.frame.original_guest.width,
                                                           s.frame.original_guest.height)) &&
           (!(cmd.captured_clear->flags&0x30u) || s.format.depth!=NativeDepthFormat::None) &&
@@ -880,8 +880,7 @@ bool DiligentEorDirectBackend::CanReplayOriginalXdkTimeline(
         // similarly-shaped color attachment.
         const auto extent=graph.SourceExtent(active,state_->frame.original_guest);
         if(!cmd.captured_clear ||
-           !xdk::IsOriginalFullTargetClear(*cmd.captured_clear,
-                                           extent.width,extent.height))
+           !xdk::IsValidOriginalTargetClear(*cmd.captured_clear,extent.width,extent.height))
           return false;
       }
       if(cmd.kind!=xdk::CommandKind::Resolve)continue;

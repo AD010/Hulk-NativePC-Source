@@ -343,18 +343,21 @@ inline std::optional<OriginalSourceTargetFormat> PlanOriginalNativeTargets(
         const auto extent=graph.extents.at(active_color);
         // Only a depth/stencil clear requires a compatible depth image.
         // Color-only clears are valid between independent XDK rebinds.
-        if(!xdk::IsOriginalFullTargetClear(*cmd.captured_clear,extent.width,extent.height) ||
+        if(!xdk::IsValidOriginalTargetClear(*cmd.captured_clear,extent.width,extent.height) ||
            ((cmd.captured_clear->flags&0x30u) &&
              (!active_depth || !*active_depth || !graph.extents.contains(*active_depth) ||
               (graph.extents.at(*active_depth)!=extent || graph.sample_counts.at(*active_depth)!=graph.sample_counts.at(active_color)))))return {};
-        if(cmd.captured_clear->flags&1u) {
-          if(!active_color)return {};
-          initialized_color.insert(active_color);
-        }
-        if(cmd.captured_clear->flags&0x30u) {
-          if(!active_depth || !*active_depth)return {};
-          if(cmd.captured_clear->flags&0x10u)initialized_depth.insert(*active_depth);
-          if(cmd.captured_clear->flags&0x20u)initialized_stencil.insert(*active_depth);
+        const bool full=xdk::IsOriginalFullTargetClear(*cmd.captured_clear,extent.width,extent.height);
+        const auto flags=cmd.captured_clear->flags;
+        // A rectangular re-clear preserves the other pixels of each plane.
+        // Those contents must have an owner and a full initialization in this frame.
+        if(!full && (((flags&1u) && !initialized_color.contains(active_color)) ||
+                     ((flags&0x10u) && !initialized_depth.contains(*active_depth)) ||
+                     ((flags&0x20u) && !initialized_stencil.contains(*active_depth))))return {};
+        if(full) {
+          if(flags&1u)initialized_color.insert(active_color);
+          if(flags&0x10u)initialized_depth.insert(*active_depth);
+          if(flags&0x20u)initialized_stencil.insert(*active_depth);
         }
         break;
       }

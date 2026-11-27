@@ -1,10 +1,16 @@
 #include "eor_diligent_scene_targets.h"
+#include "volk.h"
+#include "RenderDeviceVk.h"
+#include "DeviceContextVk.h"
+#include "RenderPass.h"
+#include "Framebuffer.h"
 #include "RenderDevice.h"
 #include "DeviceContext.h"
 #include "Texture.h"
 #include "TextureView.h"
 #include "RefCntAutoPtr.hpp"
-#include <cmath>
+#include <algorithm>
+#include <tuple>
 #include <limits>
 #include <map>
 #include <stdexcept>
@@ -35,11 +41,119 @@ struct DiligentSceneTargets::State {
   std::map<uint32_t,Diligent::RefCntAutoPtr<Diligent::ITexture>> colors,depths,intermediates,partial_msaa_scratch;
   std::set<uint32_t> completed_intermediates;
   uint32_t active_color=0,active_depth=0;
+  Diligent::RefCntAutoPtr<Diligent::IDeviceContextVk> vk_context;
+  PFN_vkCmdClearAttachments clear_attachments=nullptr;
+  using PassKey=std::tuple<Diligent::TEXTURE_FORMAT,Diligent::TEXTURE_FORMAT,Diligent::Uint8>;
+  std::map<PassKey,Diligent::RefCntAutoPtr<Diligent::IRenderPass>> clear_passes;
+  // The guest IDs name fixed native textures until Prepare replaces the graph.
+  std::map<std::pair<uint32_t,uint32_t>,Diligent::RefCntAutoPtr<Diligent::IFramebuffer>> clear_frames;
+  Diligent::IFramebuffer* ClearFramebuffer(Diligent::ITextureView* rtv,Diligent::ITextureView* dsv);
+  bool ClearRectangle(const xdk::OriginalXdkClearF& source,Diligent::ITextureView* rtv,
+                      Diligent::ITextureView* dsv,const VkClearRect& rect);
   native::Size physical{},original{};
   VerifiedSceneFormat formats{};
   uint32_t samples=0;
   bool prepared=false, bound=false, depth_bound=false, ready=false;
 };
+Diligent::IFramebuffer* DiligentSceneTargets::State::ClearFramebuffer(
+    Diligent::ITextureView* rtv,Diligent::ITextureView* dsv) {
+  using namespace Diligent;
+  const auto owners=std::make_pair(rtv?active_color:0u,dsv?active_depth:0u);
+  if(auto found=clear_frames.find(owners);found!=clear_frames.end())return found->second;
+  const auto samples=static_cast<Uint8>((rtv?rtv:dsv)->GetTexture()->GetDesc().SampleCount);
+  const PassKey key{rtv?rtv->GetDesc().Format:TEX_FORMAT_UNKNOWN,
+                    dsv?dsv->GetDesc().Format:TEX_FORMAT_UNKNOWN,samples};
+  auto pass=clear_passes.find(key);
+  if(pass==clear_passes.end()) {
+    RenderPassAttachmentDesc attachments[2];
+    AttachmentReference color_ref{0,RESOURCE_STATE_RENDER_TARGET};
+    AttachmentReference depth_ref{rtv?1u:0u,RESOURCE_STATE_DEPTH_WRITE};
+    SubpassDesc subpass;
+    auto add=[&](ITextureView* view,const AttachmentReference& ref) {
+      auto& a=attachments[ref.AttachmentIndex];
+      a.Format=view->GetDesc().Format;
+      a.SampleCount=samples;
+      a.InitialState=a.FinalState=ref.State;
+      // LOAD/STORE all planes, including untouched D24S8 depth or stencil.
+    };
+    if(rtv) {
+      add(rtv,color_ref);
+      subpass.RenderTargetAttachmentCount=1;
+      subpass.pRenderTargetAttachments=&color_ref;
+    }
+    if(dsv) {
+      add(dsv,depth_ref);
+      subpass.pDepthStencilAttachment=&depth_ref;
+    }
+    const auto stages=PIPELINE_STAGE_FLAG_RENDER_TARGET | PIPELINE_STAGE_FLAG_EARLY_FRAGMENT_TESTS |
+                      PIPELINE_STAGE_FLAG_LATE_FRAGMENT_TESTS;
+    const auto accesses=ACCESS_FLAG_RENDER_TARGET_READ | ACCESS_FLAG_RENDER_TARGET_WRITE |
+                        ACCESS_FLAG_DEPTH_STENCIL_READ | ACCESS_FLAG_DEPTH_STENCIL_WRITE;
+    const SubpassDependencyDesc deps[]={{SUBPASS_EXTERNAL,0,stages,stages,accesses,accesses},
+                                        {0,SUBPASS_EXTERNAL,stages,stages,accesses,accesses}};
+    RenderPassDesc desc;
+    desc.Name="EoR rectangular ClearF";
+    desc.AttachmentCount=(rtv?1u:0u)+(dsv?1u:0u);
+    desc.pAttachments=attachments;
+    desc.SubpassCount=1;
+    desc.pSubpasses=&subpass;
+    desc.DependencyCount=2;
+    desc.pDependencies=deps;
+    RefCntAutoPtr<IRenderPass> created;
+    device->CreateRenderPass(desc,&created);
+    if(!created)return nullptr;
+    pass=clear_passes.emplace(key,std::move(created)).first;
+  }
+  ITextureView* views[]={rtv?rtv:dsv,dsv};
+  FramebufferDesc desc;
+  desc.Name="EoR rectangular ClearF attachments";
+  desc.pRenderPass=pass->second;
+  desc.AttachmentCount=pass->second->GetDesc().AttachmentCount;
+  desc.ppAttachments=views;
+  RefCntAutoPtr<IFramebuffer> framebuffer;
+  device->CreateFramebuffer(desc,&framebuffer);
+  if(!framebuffer)return nullptr;
+  return clear_frames.emplace(owners,std::move(framebuffer)).first->second;
+}
+bool DiligentSceneTargets::State::ClearRectangle(const xdk::OriginalXdkClearF& source,
+    Diligent::ITextureView* rtv,Diligent::ITextureView* dsv,const VkClearRect& rect) {
+  using namespace Diligent;
+  if(!clear_attachments) {
+    RefCntAutoPtr<IRenderDeviceVk> vk_device(device,IID_RenderDeviceVk);
+    vk_context=RefCntAutoPtr<IDeviceContextVk>(context,IID_DeviceContextVk);
+    if(!vk_device || !vk_context || !vkGetInstanceProcAddr)return false;
+    const auto get_device=reinterpret_cast<PFN_vkGetDeviceProcAddr>(
+        vkGetInstanceProcAddr(vk_device->GetVkInstance(),"vkGetDeviceProcAddr"));
+    if(!get_device)return false;
+    clear_attachments=reinterpret_cast<PFN_vkCmdClearAttachments>(
+        get_device(vk_device->GetVkDevice(),"vkCmdClearAttachments"));
+    if(!clear_attachments)return false;
+  }
+  auto* framebuffer=ClearFramebuffer(rtv,dsv);
+  if(!framebuffer)return false;
+  VkClearAttachment attachments[2]{};
+  uint32_t count=0;
+  if(rtv) {
+    auto& a=attachments[count++];
+    a.aspectMask=VK_IMAGE_ASPECT_COLOR_BIT;
+    std::copy(source.color.begin(),source.color.end(),a.clearValue.color.float32);
+  }
+  if(dsv) {
+    auto& a=attachments[count++];
+    if(source.flags&0x10u)a.aspectMask|=VK_IMAGE_ASPECT_DEPTH_BIT;
+    if(source.flags&0x20u)a.aspectMask|=VK_IMAGE_ASPECT_STENCIL_BIT;
+    a.clearValue.depthStencil={source.depth,source.stencil};
+  }
+  BeginRenderPassAttribs begin;
+  begin.pRenderPass=framebuffer->GetDesc().pRenderPass;
+  begin.pFramebuffer=framebuffer;
+  begin.StateTransitionMode=RESOURCE_STATE_TRANSITION_MODE_TRANSITION;
+  context->BeginRenderPass(begin);
+  const auto commands=vk_context->GetVkCommandBuffer();
+  if(commands)clear_attachments(commands,count,attachments,1,&rect);
+  context->EndRenderPass();
+  return commands!=VK_NULL_HANDLE;
+}
 DiligentSceneTargets::DiligentSceneTargets(Diligent::IRenderDevice* d,Diligent::IDeviceContext* c)
     :state_(d && c ? std::make_unique<State>(d,c) : nullptr) {
   if (!state_) throw std::invalid_argument("Host EoR Vulkan device/context absent");
@@ -59,6 +173,7 @@ void DiligentSceneTargets::AbortScene() noexcept {
 void DiligentSceneTargets::Reset() noexcept {
   if(!state_)return;
   AbortScene();
+  state_->clear_frames.clear();state_->clear_passes.clear();
   state_->resolved.Release();state_->depth.Release();state_->color.Release();
   state_->colors.clear();state_->depths.clear();state_->intermediates.clear();state_->partial_msaa_scratch.clear();
   state_->active_color=state_->active_depth=0;
@@ -138,6 +253,18 @@ bool DiligentSceneTargets::Prepare(const native::FrameGeometry& frame,
     if(graph.active() && (!Same(graph.HostExtent(graph.final_color,frame),frame.world) ||
          graph.Samples(graph.final_color,frame.samples)!=frame.samples ||
          graph.ColorFormat(graph.final_color,verified.color)!=verified.color))return false;
+    // Some Vulkan implementations create handles for unsupported depth
+    // formats. Validate the advertised attachment and sample count before
+    // allocating any target, even if the first draw disables depth testing.
+    if(verified.depth!=NativeDepthFormat::None) {
+      const auto& caps=state_->device->GetTextureFormatInfoExt(Depth(verified.depth));
+      if(!(caps.BindFlags&Diligent::BIND_DEPTH_STENCIL))return false;
+      if(graph.active()) {
+        if(graph.depths.empty())return false;
+        for(auto id:graph.depths)
+          if(!(caps.SampleCounts&graph.Samples(id,0)))return false;
+      } else if(!(caps.SampleCounts&frame.samples))return false;
+    }
     state_->device->CreateTexture(desc,nullptr,&new_color);
     if(!new_color || !new_color->GetDefaultView(Diligent::TEXTURE_VIEW_RENDER_TARGET))return false;
     if(graph.active()) {
@@ -221,6 +348,7 @@ bool DiligentSceneTargets::Prepare(const native::FrameGeometry& frame,
       }
     }
   } catch (...) {return false;}
+  state_->clear_frames.clear();
   state_->color=std::move(new_color);
   state_->depth=std::move(new_depth);
   state_->resolved=std::move(new_resolved);
@@ -420,7 +548,7 @@ bool DiligentSceneTargets::ClearVerifiedOriginalXdk(
   if(state_)guest=ActiveSourceExtent(guest);
   if(!state_ || !state_->prepared || !state_->bound ||
      !state_->color || ((source.flags&0x30u) && !state_->depth_bound) ||
-     !xdk::IsOriginalFullTargetClear(source,guest.width,guest.height))
+     !xdk::IsValidOriginalTargetClear(source,guest.width,guest.height))
     return false;
   if(state_->depth_bound && !state_->depth)return false;
   const bool mismatched_depth=state_->depth_bound &&
@@ -428,17 +556,7 @@ bool DiligentSceneTargets::ClearVerifiedOriginalXdk(
        state_->depth->GetDesc().Height!=state_->color->GetDesc().Height ||
        state_->depth->GetDesc().SampleCount!=state_->color->GetDesc().SampleCount);
   if(mismatched_depth && (source.flags&0x30u))return false;
-  if((source.flags&0x0eu)!=0)
-    return false; // native EoR scene owns RT0 only, never guest RT1..RT3
-  if((source.flags&0x20u) &&
-     state_->formats.depth!=NativeDepthFormat::D24S8)
-    return false; // no stencil plane on an original D32Float depth RT
-  if((source.flags&1u)!=0)
-    for(const float channel:source.color)
-      if(!std::isfinite(channel))return false;
-  // Depth is consumed only by depth clears; stencil-only clears remain valid.
-  if((source.flags&0x10u) &&
-     (!std::isfinite(source.depth) || source.depth<0.f || source.depth>1.f))
+  if((source.flags&0x20u) && state_->formats.depth!=NativeDepthFormat::D24S8)
     return false;
   // Validate both attachments before the first GPU clear so a missing depth
   // view cannot turn a combined original clear into a partial color clear.
@@ -449,6 +567,22 @@ bool DiligentSceneTargets::ClearVerifiedOriginalXdk(
   if(((source.flags&1u) && !color_view) ||
      ((source.flags&0x30u) && !depth_view))return false;
   try {
+    if(!xdk::IsOriginalFullTargetClear(source,guest.width,guest.height)) {
+      if(!state_->formats.original_graph.active())return false;
+      const auto size=ActiveHostExtent();
+      const auto& r=source.rect;
+      const int32_t left=xdk::MapOriginalTexelEdge(r[0],guest.width,size.width);
+      const int32_t top=xdk::MapOriginalTexelEdge(r[1],guest.height,size.height);
+      const int32_t right=xdk::MapOriginalTexelEdge(r[2],guest.width,size.width);
+      const int32_t bottom=xdk::MapOriginalTexelEdge(r[3],guest.height,size.height);
+      if(left==right || top==bottom)return true; // no covered physical sample pixels
+      const VkClearRect rect{{{left,top},{uint32_t(right-left),uint32_t(bottom-top)}},0,1};
+      if(!state_->ClearRectangle(source,color_view,depth_view,rect) || !BindOriginalAttachments()) {
+        AbortScene();
+        return false;
+      }
+      return true;
+    }
     if(source.flags&1u) {
       // Bind only the consumed color attachment for this clear; the
       // original incompatible depth selection remains logically intact.

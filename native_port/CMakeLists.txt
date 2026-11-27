@@ -192,7 +192,8 @@ if(HULK_NATIVE_EOR_VULKAN_ONLY)
     target_include_directories(hulk_eor_native_gpu PUBLIC
         "${CMAKE_CURRENT_SOURCE_DIR}/src")
     target_link_libraries(hulk_eor_native_gpu PUBLIC
-        hulk_eor_win32_vulkan_host hulk_eor_native_resources hulk_native_core)
+        hulk_eor_win32_vulkan_host hulk_eor_native_resources hulk_native_core
+        PRIVATE volk::volk Vulkan::Headers)
     return()
 endif()
 if(HULK_NATIVE_CORE_ONLY)
@@ -283,7 +284,8 @@ if(HULK_WITH_NATIVE_X)
         src/eor_diligent_original_pipeline.cpp src/eor_diligent_aot_backend.cpp
         src/eor_diligent_texture_residency.cpp
         src/eor_diligent_host_output.cpp)
-    target_link_libraries(incredible_hulk PRIVATE Diligent-GraphicsEngineInterface Diligent-Common)
+    target_link_libraries(incredible_hulk PRIVATE Diligent-GraphicsEngineVkInterface Diligent-Common
+        volk::volk Vulkan::Headers)
     if(WIN32)
         # Existing physical host now builds as a separate native static
         # library in BOTH modes: no duplicated implementation or game EXE.

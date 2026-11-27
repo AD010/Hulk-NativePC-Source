@@ -140,4 +140,27 @@ int main() {
   auto partial=frame;partial.commands[1].captured_clear->has_rect=true;
   partial.commands[1].captured_clear->rect={0,0,16,16};
   assert(!gpu::PlanOriginalNativeTargets(partial,1280,720));
+  auto again=partial.commands[1];
+  again.gpr[2]=0x1000;
+  auto updated=frame;
+  updated.commands.insert(updated.commands.begin()+2,again);
+  assert(gpu::PlanOriginalNativeTargets(updated,1280,720));
+  updated.commands[2].captured_clear->rect[2]=321;
+  assert(!gpu::PlanOriginalNativeTargets(updated,1280,720));
+  // Initializing D24S8 depth does not initialize stencil, or vice versa.
+  for(const uint32_t plane:{0x10u,0x20u}) {
+    auto aspects=mixed;
+    auto full=aspects.commands[5];
+    full.captured_clear->flags=full.gpr[1]=1u|plane;
+    aspects.commands[5]=full;
+    auto bounded=full;
+    bounded.captured_clear->flags=bounded.gpr[1]=plane;
+    bounded.gpr[2]=0x1000;
+    bounded.captured_clear->has_rect=true;
+    bounded.captured_clear->rect={12,5,36,27};
+    aspects.commands.insert(aspects.commands.begin()+6,bounded);
+    assert(gpu::PlanOriginalNativeTargets(aspects,1280,720));
+    aspects.commands[6].captured_clear->flags=aspects.commands[6].gpr[1]=plane^0x30u;
+    assert(!gpu::PlanOriginalNativeTargets(aspects,1280,720));
+  }
 }
