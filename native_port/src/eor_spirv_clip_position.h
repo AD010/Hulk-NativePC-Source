@@ -50,6 +50,27 @@ inline bool ScalarPreservesClipXYW(std::span<const uint32_t> words) {
     const auto n=words[i]>>16,op=words[i]&65535u;auto w=words.subspan(i,n);i+=n;
     if(op==43 && n==4 && w[1]==fp)put(w[2],w[1],{w[3]==0u || w[3]==0x80000000u?Zero:w[3]==0x3f800000u?One:Unknown});
     else if(op==44 && n>=4) {Value v;for(size_t j=3;j<n;++j){auto a=get(w[j]);if(a.size()!=1){v.clear();break;}v.push_back(a[0]);}put(w[2],w[1],v);}
+    // SPIR-V permits constructing a vector from scalars and smaller
+    // vectors. Keep the exact lane provenance instead of rejecting a
+    // DXC-produced clip-space position just because it was regrouped.
+    else if(op==80 && n>=4 && widths[w[1]]>=2) {
+      const auto width=widths[w[1]];
+      Value v;
+      for(size_t j=3;j<n;++j) {
+        const auto a=get(w[j]);
+        if(a.empty() || a.size()>width-v.size()){v.clear();break;}
+        v.insert(v.end(),a.begin(),a.end());
+      }
+      put(w[2],w[1],std::move(v));
+    }
+    // OpSelect can change depth without changing X, Y or W. Only
+    // lanes proven identical in BOTH alternatives survive the merge.
+    else if(op==169 && n==6) {
+      auto a=get(w[4]);const auto b=get(w[5]);
+      if(a.empty() || a.size()!=b.size())continue;
+      for(size_t j=0;j<a.size();++j)if(a[j]!=b[j])a[j]=Unknown;
+      put(w[2],w[1],std::move(a));
+    }
     else if(op==46 && n==3 && widths[w[1]])put(w[2],w[1],Value(widths[w[1]],Zero));
     else if((op==65 || op==66) && n==5 && w[3]==shared && shared && constants.contains(w[4]))shared_member[w[2]]=constants[w[4]];
     else if(op==61 && n>=4) {
