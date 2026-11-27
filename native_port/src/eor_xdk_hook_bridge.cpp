@@ -2852,6 +2852,14 @@ struct AutomaticEorOwner {
     if(!SameWorkerHandles()) {
       checked_accepts=false;checked_rebuild=true;return false;
     }
+    // Front-buffer rotation can be waiting for transient owners from the
+    // last submission. Poll before deciding whether to accept the next
+    // frame; a rejected frame never reaches Submit's retirement poll.
+#ifdef _WIN32
+    if(native_executor)native_executor->RetireCompleted();
+#else
+    if(gpu_completion)gpu_completion->Poll();
+#endif
     // A claimed source frame is immutable. Factory refresh, early worker
     // validation and final submission must not repeatedly decode its full
     // Draw/Resolve graph and inspect all source projection shaders.

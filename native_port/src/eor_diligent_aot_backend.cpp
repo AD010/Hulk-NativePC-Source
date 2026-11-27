@@ -28,7 +28,7 @@
 
 namespace hulk::eor::gpu {
 namespace {
-using MaterialKey=std::tuple<uint32_t,uint32_t,uint32_t,uint32_t,bool,bool,uint32_t>;
+using MaterialKey=std::tuple<uint32_t,uint32_t,uint32_t,uint32_t,bool,bool,uint32_t,uint64_t>;
 // Exact fixed-function variants of a single verified material. The source
 // register tuple includes every input of DeriveOriginalXdkGraphicsPipelineState;
 // it is intentionally not a lossy hash or the guest shader-object address.
@@ -47,10 +47,16 @@ std::optional<PipelineVariantKey> OriginalPipelineVariantKey(
   return key;
 }
 MaterialKey PassKey(uint32_t model,uint32_t surface,const VerifiedOriginalGraphicsPass& pass) {
-  return {model,surface,pass.original_effect_hash,pass.original_pass_index,pass.original_depth_unbound,pass.original_runtime_draw_verified,pass.original_color_owner};
+  return {model,surface,pass.original_effect_hash,pass.original_pass_index,pass.original_depth_unbound,pass.original_runtime_draw_verified,pass.original_color_owner,pass.original_runtime_frame};
 }
 MaterialKey PassKey(const NativeEorPassResources& owner) {
   return PassKey(owner.original_model_hash,owner.original_surface_ordinal,owner.pipeline);
+}
+MaterialKey DrawPassKey(const aot::BoundIndexedDraw& item,bool graph) {
+  const auto& live=*item.draw.guest_vs_matrices;
+  return {item.original_model_hash,item.original_surface_ordinal,item.effect_hash,item.pass_index,
+          !live.original_depth_guest_object,item.original_runtime_draw,
+          graph?live.original_rt0_guest_object:0u,item.original_runtime_draw?item.draw.source_frame:0u};
 }
 bool Same(native::Size a,native::Size b) {
   return a.width==b.width && a.height==b.height;
@@ -411,6 +417,7 @@ struct DiligentEorDirectBackend::State {
   std::map<DrawKey,PackedConstants> packed_constants;
   bool frame_preflight_ready=false;
   bool first_draw_depth_bound=false;
+  uint64_t prepared_frame=0;
   bool scene_open=false,constants_ready=false,program_ready=false;
   bool textures_ready=false,finished=false;
   bool source_timeline_active=false;
@@ -425,6 +432,8 @@ static void ValidateSourceOriginalMaterialPass(
     NativeEorPassResources& owner,const aot::ShaderBank& bank,
     const aot::EffectCatalog& effects,const native::FrameGeometry& frame,
     const VerifiedSceneFormat& formats) {
+  if(owner.pipeline.original_runtime_draw_verified!=bool(owner.pipeline.original_runtime_frame))
+    throw std::invalid_argument("Original runtime material has no matching source frame");
   const auto target=owner.pipeline.original_color_owner;
   if(formats.original_graph.active() && !formats.original_graph.HasColor(target))
     throw std::invalid_argument("Original material target owner absent from graph");
@@ -1118,7 +1127,7 @@ aot::BoundIndexedDraw DiligentEorDirectBackend::StageVerifiedOriginalFontDraw(
   const MaterialKey material{
       original_font_resource_hash,surface_ordinal,
       cpu.original_effect_hash,cpu.original_pass_index,!live.original_depth_guest_object,false,
-      s.format.original_graph.active()?live.original_rt0_guest_object:0u};
+      s.format.original_graph.active()?live.original_rt0_guest_object:0u,0u};
   const auto found=s.material_lookup.find(material);
   if(found==s.material_lookup.end())
     throw std::invalid_argument("Original EFont archive material/pass not resident");
@@ -1279,6 +1288,7 @@ aot::BoundIndexedDraw DiligentEorDirectBackend::StageOriginalRuntimeDraw(
      !frame || ordinal==UINT32_MAX || !call.observed_vs_matrices ||
      !call.observed_shader_constants ||
      !call.observed_live_eor_effect_pass || !material.original_pipeline.original_runtime_draw_verified ||
+     material.original_pipeline.original_runtime_frame!=frame ||
      material.original_surface_ordinal!=ordinal || cpu.layout.size()!=cpu.attributes.size() ||
      cpu.layout.size()!=cpu.integer_attributes.size() || !cpu.vertex_count || cpu.indices.empty() ||
      cpu.indices.size()>UINT32_MAX || (!cpu.point_list && cpu.indices.size()%3) ||
@@ -1471,9 +1481,7 @@ bool DiligentEorDirectBackend::PreflightOriginalScene(
        item.pass_index==UINT32_MAX)
       return false;
     if(!d.guest_vs_matrices)return false;
-    const MaterialKey key{item.original_model_hash,item.original_surface_ordinal,
-                          item.effect_hash,item.pass_index,!d.guest_vs_matrices->original_depth_guest_object,item.original_runtime_draw,
-                          s.format.original_graph.active()?d.guest_vs_matrices->original_rt0_guest_object:0u};
+    const auto key=DrawPassKey(item,s.format.original_graph.active());
     const auto owner=s.material_lookup.find(key);
     const NativeEorPassResources* selected=
         owner==s.material_lookup.end()?nullptr:owner->second;
@@ -1704,9 +1712,7 @@ bool DiligentEorDirectBackend::PreflightOriginalScene(
     }
     for(const auto& item:draws) {
       if(!item.draw.source_frame)continue;
-      const MaterialKey key{item.original_model_hash,item.original_surface_ordinal,
-                            item.effect_hash,item.pass_index,!item.draw.guest_vs_matrices->original_depth_guest_object,item.original_runtime_draw,
-                            s.format.original_graph.active()?item.draw.guest_vs_matrices->original_rt0_guest_object:0u};
+      const auto key=DrawPassKey(item,s.format.original_graph.active());
       const auto& textures=s.material_lookup.at(key)->original_textures;
       auto& prepared=prepared_constants.at({item.draw.source_frame,item.draw.source_ordinal});
       auto* pipeline=s.pipeline_cache.at(key).pipeline.RawPtr();
@@ -1771,6 +1777,7 @@ bool DiligentEorDirectBackend::PreflightOriginalScene(
   } catch (...) {return false;}
   s.packed_constants=std::move(prepared_constants);
   s.first_draw_depth_bound=draws.front().draw.guest_vs_matrices->original_depth_guest_object!=0;
+  s.prepared_frame=captured_frame;
   s.frame_preflight_ready=true;
   return true;
 }
@@ -1825,7 +1832,7 @@ bool DiligentEorDirectBackend::BindSurfaceImpl(uint32_t model,uint32_t ordinal,b
   if(!s.scene_open || s.finished || !model || ordinal==UINT32_MAX)return false;
   // A source model may own many effects, but the first keyed pass is
   // sufficient to prove that THIS exact model/surface is resident.
-  auto item=s.material_lookup.lower_bound({model,ordinal,0u,0u,false,false,0u});
+  auto item=s.material_lookup.lower_bound({model,ordinal,0u,0u,false,false,0u,0u});
   while(item!=s.material_lookup.end() && std::get<0>(item->first)==model &&
         std::get<1>(item->first)==ordinal && std::get<5>(item->first)!=runtime)++item;
   if(item==s.material_lookup.end() || std::get<0>(item->first)!=model ||
@@ -1842,7 +1849,8 @@ bool DiligentEorDirectBackend::BindOriginalEffect(uint32_t effect,uint32_t pass)
   s.constants_ready=s.program_ready=s.textures_ready=false;
   const auto item=s.material_lookup.find(
       {s.requested_model,s.requested_surface,effect,pass,!s.scene.DepthBound(),s.requested_runtime,
-       s.format.original_graph.active()?s.scene.ActiveOriginalColor():0u});
+       s.format.original_graph.active()?s.scene.ActiveOriginalColor():0u,
+       s.requested_runtime?s.prepared_frame:0u});
   if(item==s.material_lookup.end())return false;
   s.selected=item->second;
   return true;

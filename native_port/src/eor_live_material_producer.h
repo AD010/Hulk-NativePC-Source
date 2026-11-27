@@ -692,6 +692,7 @@ inline ProducedRuntimeMaterial ProduceOriginalRuntimeMaterial(
   pass.exact_host_input_layout=out.geometry.layout;
   pass.original_host_vertex_layout_verified=true;
   pass.original_runtime_draw_verified=true;
+  pass.original_runtime_frame=frame;
   pass.original_direct_xdk_runtime=!material_context;
   pass.original_scalar_alpha_test_verified=pi.has_kill && (pi.shared_members&24u)==24u;
   const auto alpha=ResolveOriginalScalarAlpha(*call.observed_shader_constants->fixed_graphics_state);

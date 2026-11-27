@@ -638,7 +638,7 @@ static void VerifyStagedGlyphReplay(IRenderDevice* device,IDeviceContext* contex
   const auto sequence=first_frame.NextFrameSequence();
   const auto ordinal=first_frame.NextDrawOrdinal();
   std::optional<aot::OriginalPixelSamplerControls> pixel_sampling;
-  auto shader_object=[&](const aot::Digest& digest,aot::Stage stage,uint32_t object) {
+  auto shader_object=[&](const aot::Digest& digest,aot::Stage stage,uint32_t object,uint64_t epoch) {
     std::string name;
     constexpr char hex[]="0123456789abcdef";
     for(auto b:digest) { name+=hex[b>>4];name+=hex[b&15]; }
@@ -656,7 +656,7 @@ static void VerifyStagedGlyphReplay(IRenderDevice* device,IDeviceContext* contex
       std::memcpy(bytes,memory.data()+address,count);
       return true;
     };
-    return aot::ObserveOriginalBoundXdkShader(identities,object,stage,read,&memory,sequence,ordinal);
+    return aot::ObserveOriginalBoundXdkShader(identities,object,stage,read,&memory,epoch,ordinal);
   };
   gpu::VerifiedSceneFormat format{gpu::NativeColorFormat::Rgba8,gpu::NativeDepthFormat::D24S8,
       true,true,{1,2,3,4,true,true,false}};
@@ -707,8 +707,8 @@ static void VerifyStagedGlyphReplay(IRenderDevice* device,IDeviceContext* contex
   live.raster=xdk::OriginalRasterWindow{0,0,1280,720,0,1};
   call.observed_vs_matrices=live;
   call.original_font_fetch=fetch;call.original_pixel_texture_keys[0]=atlas_hash;
-  call.observed_live_vertex_shader_header=shader_object(pass.original_vertex_shader_sha256,aot::Stage::Vertex,live.original_vs_guest_object);
-  call.observed_live_pixel_shader_header=shader_object(pass.original_pixel_shader_sha256,aot::Stage::Pixel,live.original_ps_guest_object);
+  call.observed_live_vertex_shader_header=shader_object(pass.original_vertex_shader_sha256,aot::Stage::Vertex,live.original_vs_guest_object,sequence);
+  call.observed_live_pixel_shader_header=shader_object(pass.original_pixel_shader_sha256,aot::Stage::Pixel,live.original_ps_guest_object,sequence);
   if(!call.observed_live_vertex_shader_header || !call.observed_live_pixel_shader_header)
     throw std::runtime_error("Could not identify Font_Main shader headers");
   call.observed_live_eor_effect_pass=aot::ResolveOriginalLiveEorEffectPass(identities,effects,
@@ -790,6 +790,67 @@ static void VerifyStagedGlyphReplay(IRenderDevice* device,IDeviceContext* contex
   draw.source_nonindexed_linearization_verified=false;draw.original_pixel_sampling=pixel_sampling;
   replay(indexed,draw,world);
   if(composites!=4)throw std::runtime_error("Indexed mesh did not reproduce the captured glyph image");
+  // Two consecutive indexed batches can have identical material context,
+  // surface ordinal and shader pair while the first batch still owns its
+  // descriptors. Stage both before retiring either, and inspect both images.
+  gpu::DecodedRuntimeGeometry geometry;
+  geometry.attributes={decoded.positions,decoded.texcoords,decoded.colors};
+  // Match DecodeOriginalRuntimeGeometry for the source float3 and float2
+  // declarations when expanding them to the runtime float4 vertex streams.
+  for(auto& v:geometry.attributes[0])v[3]=1.f;
+  for(auto& v:geometry.attributes[1])v[3]=1.f;
+  geometry.integer_attributes.resize(geometry.attributes.size());
+  geometry.indices=decoded.triangle_indices;
+  geometry.vertex_count=buffers.vertex_count;
+  geometry.layout=material.original_pipeline.exact_host_input_layout;
+  for(auto& stream:geometry.layout) {
+    stream.NumComponents=4;
+    stream.Stride=16;
+    stream.RelativeOffset=0;
+  }
+  auto batch=material;
+  batch.original_model_hash=parent.original_pass_material_context_guest;
+  auto& image=batch.original_images.front().original_binding;
+  image.original_model_hash=batch.original_model_hash;
+  image.original_runtime_material=true;
+  batch.original_pipeline.exact_host_input_layout=geometry.layout;
+  batch.original_pipeline.original_runtime_draw_verified=true;
+  gpu::DiligentEorDirectBackend transient(device,context,scene,meshes,modules,bank,effects,
+      frame,format,{},{},constants,output);
+  xdk::FrameCapture sequence_capture;
+  auto stage=[&](bool masked) {
+    const auto epoch=sequence_capture.NextFrameSequence();
+    auto source=indexed;
+    source.original_engine_shader_method=parent;
+    source.observed_live_vertex_shader_header=shader_object(pass.original_vertex_shader_sha256,
+        aot::Stage::Vertex,live.original_vs_guest_object,epoch);
+    source.observed_live_pixel_shader_header=shader_object(pass.original_pixel_shader_sha256,
+        aot::Stage::Pixel,live.original_ps_guest_object,epoch);
+    if(!source.observed_live_vertex_shader_header || !source.observed_live_pixel_shader_header ||
+       !pixel_sampling)throw std::runtime_error("Original shader fixture has no sampler witness");
+    source.observed_live_pixel_shader_header->pixel_sampling=pixel_sampling;
+    source.observed_live_eor_effect_pass=aot::ResolveOriginalLiveEorEffectPass(identities,effects,
+        *source.observed_live_vertex_shader_header,*source.observed_live_pixel_shader_header,
+        live.original_vs_guest_object,live.original_ps_guest_object,epoch,0);
+    auto registers=std::make_shared<xdk::OriginalShaderRegisters>(*world_regs);
+    registers->fixed_graphics_state=FixtureFixedState(screen.guest_device,masked?0u:15u);
+    source.observed_shader_constants=registers;
+    batch.original_pipeline.original_runtime_frame=epoch;
+    const auto item=transient.StageOriginalRuntimeDraw(source,epoch,0,batch,geometry,residency);
+    sequence_capture.RecordCommand(clear);
+    sequence_capture.Record(source);
+    sequence_capture.RecordCommand({Kind::Resolve,0x828897f8,0,{screen.guest_device,0,0,screen.guest_front_buffer}});
+    sequence_capture.RecordCommand({Kind::Present,0x82880778,0,{screen.guest_device,screen.guest_front_buffer}});
+    return std::pair{sequence_capture.Finish(),item};
+  };
+  const auto [first,first_item]=stage(false);
+  const auto [second,second_item]=stage(true);
+  aot::ReplayAotScene(frame,{&first_item,1},bank,effects,reflection,transient,&first);
+  transient.RetireCompletedOriginalFontDraws(first.sequence);
+  mask_all_color=true;
+  aot::ReplayAotScene(frame,{&second_item,1},bank,effects,reflection,transient,&second);
+  transient.RetireCompletedOriginalFontDraws(second.sequence);
+  if(composites!=6)throw std::runtime_error("Repeated runtime Draw lost one material generation");
   std::cout<<"Native indexed XYZ/UV/color mesh matched the captured glyph reference\n";
   std::cout<<"Production Font_Main replay matched "<<size.width*size.height<<" pixels in one offscreen composite\n";
 }
