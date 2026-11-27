@@ -277,6 +277,18 @@ class NativeEorLinkCoverage(unittest.TestCase):
         self.assertIn("g_collector.Record(std::move(draw))",capture)
         self.assertIn("g_frame_shader_complete=true;",hook.split("void EndPpcHook(",1)[1])
 
+    def test_original_vertex_only_pipeline_preserves_null_pixel_semantics(self):
+        bridge=(ROOT / "native_port/src/eor_xdk_hook_bridge.cpp").read_text()
+        modules=(ROOT / "native_port/src/eor_diligent_spirv_shaders.cpp").read_text()
+        pipeline=(ROOT / "native_port/src/eor_diligent_original_pipeline.cpp").read_text()
+        self.assertIn("CaptureUsaPixelStageKind",bridge)
+        self.assertIn("vertex_only_depth_stencil={}",bridge)
+        self.assertIn("unresolved={}",bridge)
+        self.assertIn("COLOR_MASK_NONE",modules)
+        self.assertIn("CreateOrReuseOriginalGraphicsPipeline(vertex,nullptr",pipeline)
+        self.assertIn("ResolveOriginalLiveXdkShaderSource(identities,witness",pipeline)
+        self.assertIn("VertexOnlyDepthStencil",pipeline)
+
     def test_built_in_eor_claims_before_archive_and_target_work(self):
         hook=(ROOT / "native_port/src/eor_xdk_hook_bridge.cpp").read_text()
         worker=hook.split("native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(",1)[1]

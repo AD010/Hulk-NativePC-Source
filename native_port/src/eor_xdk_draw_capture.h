@@ -573,6 +573,7 @@ struct RawDraw {
   std::optional<UsaIndexBufferBinding> index_binding;
   std::optional<UsaVertexDeclaration> vertex_declaration;
   std::optional<OriginalGeometryWrapperOwner> original_geometry_wrapper;
+  OriginalPixelStageKind original_pixel_stage=OriginalPixelStageKind::Unknown;
 };
 // Original USA Decal direct XDK call is at guest 0x8265B538.
 // An engine render-item->geometry witness, if present, must match the

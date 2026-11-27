@@ -212,6 +212,48 @@ CaptureUsaFixedGraphicsState(uint32_t guest_device,ReadGuestBytes read,
   }
   return snapshot;
 }
+// A null XDK pixel binding is not a missing archive shader. Preserve
+// vertex-only depth/stencil passes separately from unproven or color draws.
+enum class OriginalPixelStageKind : uint8_t {
+  Unknown, BoundProgram, VertexOnlyDepthStencil, VertexOnlyNoColor
+};
+inline constexpr OriginalPixelStageKind ClassifyOriginalPixelStage(
+    uint32_t vertex,uint32_t pixel,uint32_t depth_object,
+    uint32_t color_mask,uint32_t depth_control,uint32_t color_control) noexcept {
+  if(!vertex)return OriginalPixelStageKind::Unknown;
+  if(pixel)return OriginalPixelStageKind::BoundProgram;
+  // RB_COLOR_MASK covers all four color targets. Alpha test and
+  // alpha-to-coverage must not be silently removed with the pixel stage.
+  if((color_mask&0xffffu) || (color_control&0x18u))
+    return OriginalPixelStageKind::Unknown;
+  if(depth_control&3u)
+    return depth_object?OriginalPixelStageKind::VertexOnlyDepthStencil:
+                        OriginalPixelStageKind::Unknown;
+  // No attachment writes is not permission to skip queries or Draws.
+  return OriginalPixelStageKind::VertexOnlyNoColor;
+}
+inline OriginalPixelStageKind CaptureUsaPixelStageKind(
+    uint32_t device,const OriginalShaderObjects& objects,
+    ReadGuestBytes read,void* state) noexcept {
+  if(!objects.vertex)return OriginalPixelStageKind::Unknown;
+  if(objects.pixel)return OriginalPixelStageKind::BoundProgram;
+  if(!device || !read || uint64_t(device)+12460u>(uint64_t{1}<<32))
+    return OriginalPixelStageKind::Unknown;
+  std::array<std::byte,4> raw{};
+  if(!read(state,device+12456u,raw.data(),raw.size()))
+    return OriginalPixelStageKind::Unknown;
+  const uint32_t depth_object=uint32_t(std::to_integer<uint8_t>(raw[0]))<<24 |
+      uint32_t(std::to_integer<uint8_t>(raw[1]))<<16 |
+      uint32_t(std::to_integer<uint8_t>(raw[2]))<<8 |
+      uint32_t(std::to_integer<uint8_t>(raw[3]));
+  const auto fixed=CaptureUsaFixedGraphicsState(device,read,state);
+  if(!fixed)return OriginalPixelStageKind::Unknown;
+  const auto mask=fixed->ReadOriginalXenosRegister(0x2104u);
+  const auto depth=fixed->ReadOriginalXenosRegister(0x2200u);
+  const auto color=fixed->ReadOriginalXenosRegister(0x2202u);
+  if(!mask || !depth || !color)return OriginalPixelStageKind::Unknown;
+  return ClassifyOriginalPixelStage(objects.vertex,objects.pixel,depth_object,*mask,*depth,*color);
+}
 // Entire original USA XDK 2.0.6534 shader-float banks, snapshotted
 // at the SAME PPC Draw as original resource identities. The original device
 // shadow layout has 256 float4 VS registers at +1920 and 256 float4 PS

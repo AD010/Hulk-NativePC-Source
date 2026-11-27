@@ -1624,6 +1624,12 @@ void CapturePpcDraw(Kind kind, uint32_t guest, const PPCContext& ctx,
                                draw.observed_vs_matrices->original_ps_guest_object,guest_base);
   else if(identity_only)
     ObserveBoundShaderIdentity(draw,identity_only->vertex,identity_only->pixel,guest_base);
+  if(draw.observed_vs_matrices) {
+    const auto& live=*draw.observed_vs_matrices;
+    draw.original_pixel_stage=CaptureUsaPixelStageKind(live.original_guest_device,
+        {live.original_vs_guest_object,live.original_ps_guest_object},ReadGuest,guest_base);
+  } else if(identity_only)
+    draw.original_pixel_stage=CaptureUsaPixelStageKind(draw.gpr[0],*identity_only,ReadGuest,guest_base);
   if(replay && (!draw.observed_live_vertex_shader_header ||
                 !draw.observed_live_pixel_shader_header ||
                 !draw.observed_live_eor_effect_pass)) {
@@ -1855,8 +1861,16 @@ void EndPpcHook(native_x_renderer::Call kind) {
     uint32_t original_engine_item_material_verified=0;
     uint32_t original_header_vs=0,original_header_ps=0;
     uint32_t original_header_pairs=0,original_effect_passes=0;
+    uint32_t vertex_only_depth=0,vertex_only_no_color=0,unresolved_stage=0;
     for (const RawDraw& call : frame.calls) {
       if(call.observed_live_eor_effect_pass)++original_effect_passes;
+      else if(call.observed_live_vertex_shader_header &&
+              call.original_pixel_stage==OriginalPixelStageKind::VertexOnlyDepthStencil)
+        ++vertex_only_depth;
+      else if(call.observed_live_vertex_shader_header &&
+              call.original_pixel_stage==OriginalPixelStageKind::VertexOnlyNoColor)
+        ++vertex_only_no_color;
+      else ++unresolved_stage;
       if(call.observed_live_vertex_shader_header)++original_header_vs;
       if(call.observed_live_pixel_shader_header)++original_header_ps;
       if(call.observed_live_vertex_shader_header &&
@@ -1927,6 +1941,10 @@ void EndPpcHook(native_x_renderer::Call kind) {
                 frame.sequence,original_header_vs,original_header_ps,
                 original_header_pairs,original_effect_passes,
                 frame.calls.size());
+    REXLOG_INFO("[HULK/EOR-STAGE-COVERAGE] frame={} effect_pairs={} "
+                "vertex_only_depth_stencil={} vertex_only_no_color={} unresolved={} "
+                "vertex-only replay integration still required",
+                frame.sequence,original_effect_passes,vertex_only_depth,vertex_only_no_color,unresolved_stage);
     REXLOG_INFO("[HULK/EOR-CAPTURE-COST] frame={} full_snapshot_skipped={} (missing pair or already rejected frame)",frame.sequence,heavy_skipped);
     for (const auto& site: hot) {
       REXLOG_INFO("[HULK/EOR-XDK-CALLSITE] XDK=0x{:08X} LR=0x{:08X} "

@@ -133,7 +133,19 @@ void DiligentAotShaderModules::CreateOrReuseOriginalGraphicsPipeline(
     Diligent::IShader* vertex,Diligent::IShader* pixel,
     const Diligent::GraphicsPipelineDesc& graphics,Diligent::IPipelineState** result) {
   using namespace Diligent;
-  if(!result || *result || !vertex || !pixel || graphics.pRenderPass ||
+  if(!pixel) {
+    // Vulkan permits a vertex-only raster pipeline, but never replace
+    // a color-writing/alpha-tested pass with an absent fragment program.
+    if(graphics.NumRenderTargets>DILIGENT_MAX_RENDER_TARGETS ||
+       graphics.DSVFormat==TEX_FORMAT_UNKNOWN ||
+       (!graphics.DepthStencilDesc.DepthEnable && !graphics.DepthStencilDesc.StencilEnable) ||
+       graphics.BlendDesc.AlphaToCoverageEnable)
+      throw std::invalid_argument("Original vertex-only pipeline lacks depth/stencil contract");
+    for(Uint32 i=0;i<graphics.NumRenderTargets;++i)
+      if(graphics.BlendDesc.RenderTargets[graphics.BlendDesc.IndependentBlendEnable?i:0].RenderTargetWriteMask!=COLOR_MASK_NONE)
+        throw std::invalid_argument("Original vertex-only pipeline writes color");
+  }
+  if(!result || *result || !vertex || graphics.pRenderPass ||
      !graphics.InputLayout.NumElements || !graphics.InputLayout.LayoutElements ||
      graphics.InputLayout.NumElements>DILIGENT_MAX_LAYOUT_ELEMENTS)
     throw std::invalid_argument("Invalid original graphics pipeline request");

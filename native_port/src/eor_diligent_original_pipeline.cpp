@@ -293,4 +293,41 @@ OriginalVulkanPipeline CreateOriginalVulkanPipeline(
     throw std::runtime_error("Vulkan rejected original EoR PSO shader resource layout");
   return out;
 }
+OriginalVulkanPipeline CreateOriginalVertexOnlyVulkanPipeline(
+    Diligent::IRenderDevice* device,DiligentAotShaderModules& shaders,
+    const aot::ShaderBank& bank,const aot::OriginalVirtualShaderIdentity& identities,
+    const aot::OriginalLiveXdkShaderHeaderWitness& witness,
+    const xdk::OriginalVsMatrices& live,const xdk::OriginalXdkFixedGraphicsState& fixed,
+    uint64_t frame,uint32_t ordinal,const Diligent::GraphicsPipelineDesc& attachments) {
+  using namespace Diligent;
+  if(!device || device->GetDeviceInfo().Type!=RENDER_DEVICE_TYPE_VULKAN ||
+     !live.original_guest_device || fixed.original_guest_device!=live.original_guest_device)
+    throw std::invalid_argument("Original vertex-only device identity unavailable");
+  const auto mask=fixed.ReadOriginalXenosRegister(0x2104u);
+  const auto depth=fixed.ReadOriginalXenosRegister(0x2200u);
+  const auto color=fixed.ReadOriginalXenosRegister(0x2202u);
+  if(!mask || !depth || !color ||
+     xdk::ClassifyOriginalPixelStage(live.original_vs_guest_object,live.original_ps_guest_object,
+       live.original_depth_guest_object,*mask,*depth,*color)!=xdk::OriginalPixelStageKind::VertexOnlyDepthStencil)
+    throw std::invalid_argument("Original Draw is not a verified vertex-only depth/stencil pass");
+  const auto digest=aot::ResolveOriginalLiveXdkShaderSource(identities,witness,
+      live.original_vs_guest_object,aot::Stage::Vertex,frame,ordinal);
+  auto graphics=DeriveOriginalXdkGraphicsPipelineState(fixed,attachments);
+  if(!digest || !graphics || !graphics->InputLayout.NumElements ||
+     !graphics->InputLayout.LayoutElements)
+    throw std::invalid_argument("Original vertex-only source or attachment state unavailable");
+  const auto* program=bank.Find(*digest,aot::Stage::Vertex);
+  if(!program || (graphics->PrimitiveTopology==PRIMITIVE_TOPOLOGY_POINT_LIST &&
+                 !aot::HasOriginalPointSizeOutput(program->spirv)))
+    throw std::invalid_argument("Original vertex-only SPIR-V unavailable");
+  auto* vertex=shaders.GetOrCreate(bank,*digest,aot::Stage::Vertex);
+  if(!vertex)throw std::runtime_error("Original vertex-only module unavailable");
+  graphics->RasterizerDesc.ScissorEnable=true;
+  OriginalVulkanPipeline out{};
+  shaders.CreateOrReuseOriginalGraphicsPipeline(vertex,nullptr,*graphics,&out.pipeline);
+  if(!out.pipeline)throw std::runtime_error("Vulkan rejected original vertex-only PSO");
+  out.pipeline->CreateShaderResourceBinding(&out.bindings,true);
+  if(!out.bindings)throw std::runtime_error("Vulkan rejected vertex-only resource binding");
+  return out;
+}
 } // namespace hulk::eor::gpu

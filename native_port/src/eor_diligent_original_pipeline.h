@@ -4,6 +4,7 @@
 #include "eor_diligent_spirv_shaders.h"
 #include "eor_native_shader_constants.h"
 #include "eor_effect_catalog.h"
+#include "eor_original_virtual_shader_identity.h"
 #include "PipelineState.h"
 #include "ShaderResourceBinding.h"
 #include "RefCntAutoPtr.hpp"
@@ -120,4 +121,14 @@ OriginalVulkanPipeline CreateOriginalVulkanPipeline(
     const aot::ShaderBank& bank,
     const aot::EffectCatalog& original_effects,
     const VerifiedOriginalGraphicsPass& verified);
+// Build the real vertex-only Vulkan PSO from an exact live VS witness
+// and the original fixed state. No invented effect ID, dummy PS or
+// depth-only classification by shader name. The caller must still bind
+// verified geometry/constants and replay the original command sequence.
+OriginalVulkanPipeline CreateOriginalVertexOnlyVulkanPipeline(
+    Diligent::IRenderDevice* device,DiligentAotShaderModules& shaders,
+    const aot::ShaderBank& bank,const aot::OriginalVirtualShaderIdentity& identities,
+    const aot::OriginalLiveXdkShaderHeaderWitness& witness,
+    const xdk::OriginalVsMatrices& live,const xdk::OriginalXdkFixedGraphicsState& fixed,
+    uint64_t frame,uint32_t ordinal,const Diligent::GraphicsPipelineDesc& attachments);
 } // namespace hulk::eor::gpu

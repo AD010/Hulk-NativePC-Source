@@ -572,6 +572,17 @@ int main() {
   assert(shader_objects && shader_objects->vertex==matrix->original_vs_guest_object &&
          shader_objects->pixel==matrix->original_ps_guest_object);
   assert(!CaptureUsaShaderObjects(UINT32_MAX,ReadFake,&guest));
+  using PixelKind=OriginalPixelStageKind;
+  static_assert(ClassifyOriginalPixelStage(1,2,0,15,0,0)==PixelKind::BoundProgram);
+  static_assert(ClassifyOriginalPixelStage(1,0,3,0,6,0)==PixelKind::VertexOnlyDepthStencil);
+  static_assert(ClassifyOriginalPixelStage(1,0,3,0,1,0)==PixelKind::VertexOnlyDepthStencil);
+  static_assert(ClassifyOriginalPixelStage(1,0,0,0,0,0)==PixelKind::VertexOnlyNoColor);
+  static_assert(ClassifyOriginalPixelStage(1,0,3,0x1000,6,0)==PixelKind::Unknown);
+  static_assert(ClassifyOriginalPixelStage(1,0,3,0,6,8)==PixelKind::Unknown);
+  static_assert(ClassifyOriginalPixelStage(1,0,3,0,6,16)==PixelKind::Unknown);
+  static_assert(ClassifyOriginalPixelStage(1,0,0,0,6,0)==PixelKind::Unknown);
+  static_assert(ClassifyOriginalPixelStage(0,0,3,0,6,0)==PixelKind::Unknown);
+  assert(CaptureUsaPixelStageKind(device,*shader_objects,ReadFake,&guest)==PixelKind::BoundProgram);
   assert(CaptureUsaAllShaderRegisters(device,ReadFake,&guest,complete));
   assert(complete.complete_float_banks);
   const uint32_t fetch0=device+1152,fetch15=fetch0+15*24;
