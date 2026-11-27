@@ -9,6 +9,7 @@
 #include "ShaderResourceBinding.h"
 #include "RefCntAutoPtr.hpp"
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <vector>
 namespace Diligent {

@@ -582,6 +582,29 @@ try {
   }
   Invoke-Checked 'cmake' $cmakeArgs $Source
   Invoke-Checked 'python' @($CpuAudit, (Join-Path $BuildDir 'compile_commands.json'), $Source) $Source
+  # Compile the actual hand-written game integration first, with exactly
+  # the final Ninja Release flags, generated PPC headers and SDK includes.
+  # Successful objects are reused by the full build; no second build tree
+  # or dummy Diligent headers. Never start the full PPC compile if one fails.
+  $nativeSources = @('main.cpp', 'pc_menu.cpp', 'launcher/game_window.cpp',
+    'eor_native_frame.cpp', 'eor_aot_draw_bridge.cpp', 'eor_xdk_draw_capture.cpp')
+  if ($NativeXLink) {
+    $nativeSources += @('eor_xdk_hook_bridge.cpp', 'eor_diligent_aot_backend.cpp',
+      'eor_diligent_original_pipeline.cpp', 'eor_diligent_spirv_shaders.cpp',
+      'eor_native_frame_executor.cpp', 'native_x_renderer_hulk.cpp')
+  }
+  $targetLines = @(& ninja -C $BuildDir -t targets all)
+  if ($LASTEXITCODE -ne 0) { throw 'Cannot enumerate actual Release Ninja object targets' }
+  $nativeObjectTargets = @()
+  foreach ($unit in $nativeSources) {
+    $pattern = '^CMakeFiles/incredible_hulk[.]dir/src/' + [regex]::Escape($unit) + '[.](obj|o):'
+    $hits = @($targetLines | Where-Object { ($_ -replace '\\','/') -match $pattern })
+    if ($hits.Count -ne 1) { throw "Expected one Release compile target for $unit; found $($hits.Count)" }
+    $nativeObjectTargets += (($hits[0] -split ': ', 2)[0])
+  }
+  Write-Host '[HULK/RELEASE-PREFLIGHT] Compile real game, native menu and Vulkan integration objects before the full PPC build'
+  Invoke-Checked 'ninja' (@('-C', $BuildDir, '-j', '4') + $nativeObjectTargets) $Source
+  Write-Host '[HULK/RELEASE-PREFLIGHT] All selected real Release integration objects compiled'
   Invoke-Checked 'cmake' @('--build', $BuildDir, '--parallel') $Source
   $exe = Join-Path $BuildDir 'incredible_hulk.exe'
   if (-not (Test-Path $exe)) { throw "Build exited without producing $exe" }

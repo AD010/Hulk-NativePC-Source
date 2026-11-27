@@ -85,6 +85,7 @@ target_include_directories(hulk_native_core PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/
 if(WIN32)
     # An actual Windows x64 audio device backend, isolated from guest PPC.
     # Its PCM input must come from a verified decoded original sound bank.
+    target_compile_definitions(hulk_native_core PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
     target_sources(hulk_native_core PRIVATE src/eor_native_audio_xaudio2.cpp)
     target_link_libraries(hulk_native_core PUBLIC shell32 ole32 xaudio2)
 endif()
@@ -231,6 +232,7 @@ if(WIN32)
     # File details, and a manifest that makes the ANSI code page UTF-8 so accented paths work (playbook chapter 2).
     list(APPEND INCREDIBLEHULK_SOURCES src/incredible_hulk.rc src/incredible_hulk.manifest)
     add_executable(incredible_hulk WIN32 ${INCREDIBLEHULK_SOURCES})
+    target_compile_definitions(incredible_hulk PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
     target_link_libraries(incredible_hulk PRIVATE comdlg32 bcrypt shell32 ole32)
 else()
     add_executable(incredible_hulk ${INCREDIBLEHULK_SOURCES})

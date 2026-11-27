@@ -55,15 +55,27 @@ def patch_presenter_ownership(sdk: Path) -> None:
          '        (!rex::cvar::Query<bool>("hulk_eor_exclusive_vulkan") ||\n'
          '         !hulk_exclusive_opt_in || hulk_exclusive_opt_in[0] != \'1\' || hulk_exclusive_opt_in[1] != \'\\0\');'),
     )
+    # Also support the previous project-owned patch in a reused SDK cache.
+    # Never match an unknown upstream source or partially update either file.
+    old_patches = {
+        "src/ui/rex_app.cpp":
+            'if (config_.graphics && !rex::cvar::Query<bool>("hulk_eor_exclusive_vulkan")) {\n'
+            '    X_STATUS status = config_.graphics->SetupPresentation',
+        "src/system/runtime.cpp":
+            'bool with_presentation = app_context_ != nullptr &&\n'
+            '        !rex::cvar::Query<bool>("hulk_eor_exclusive_vulkan");',
+    }
     pending = []
     for name, before, after in changes:
         path = sdk / name
         source = path.read_text(encoding="utf-8")
         if source.count(after) == 1 and before not in source:
             continue
-        if source.count(before) != 1 or after in source:
+        old = old_patches[name]
+        candidates = [anchor for anchor in (before, old) if source.count(anchor) == 1]
+        if len(candidates) != 1 or after in source:
             raise ValueError(f"unexpected presenter initialization in {name}")
-        updated = source.replace(before, after)
+        updated = source.replace(candidates[0], after)
         if "#include <cstdlib>" not in updated:
             updated = "#include <cstdlib>\n" + updated
         pending.append((path, updated))

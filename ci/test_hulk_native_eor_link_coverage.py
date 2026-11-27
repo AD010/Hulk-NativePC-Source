@@ -593,6 +593,18 @@ class NativeEorLinkCoverage(unittest.TestCase):
         self.assertIn('native_requested=selected &&',source)
         self.assertIn('preserving Xenos',source)
 
+    def test_release_preflight_compiles_actual_integration_objects_before_full_ppc(self):
+        build=(ROOT / "native_port/BUILD_WINDOWS.ps1").read_text()
+        stage=build.split("$targetLines = @(& ninja -C $BuildDir -t targets all)",1)[1]
+        self.assertIn("Expected one Release compile target",stage)
+        self.assertLess(stage.index("Invoke-Checked 'ninja'"),stage.index("Invoke-Checked 'cmake' @('--build', $BuildDir"))
+        for name in ("eor_xdk_hook_bridge.cpp","eor_diligent_aot_backend.cpp",
+                     "eor_diligent_original_pipeline.cpp","eor_diligent_spirv_shaders.cpp",
+                     "launcher/game_window.cpp","main.cpp"):
+            self.assertIn("'"+name+"'",build)
+        cmake=(ROOT / "native_port/CMakeLists.txt").read_text()
+        self.assertIn("target_compile_definitions(incredible_hulk PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)",cmake)
+
     def test_exclusive_startup_covers_both_sdk_presenter_entry_points(self):
         with tempfile.TemporaryDirectory() as directory:
             sdk=Path(directory)
@@ -609,6 +621,12 @@ class NativeEorLinkCoverage(unittest.TestCase):
             runtime.write_text("bool with_presentation = (app_context_ != nullptr);")
             patch_presenter_ownership(sdk)
             first=(app.read_text(),runtime.read_text())
+            patch_presenter_ownership(sdk)
+            self.assertEqual(first,(app.read_text(),runtime.read_text()))
+            app.write_text('if (config_.graphics && !rex::cvar::Query<bool>("hulk_eor_exclusive_vulkan")) {\n'
+                           '    X_STATUS status = config_.graphics->SetupPresentation(ctx);')
+            runtime.write_text('bool with_presentation = app_context_ != nullptr &&\n'
+                               '        !rex::cvar::Query<bool>("hulk_eor_exclusive_vulkan");')
             patch_presenter_ownership(sdk)
             self.assertEqual(first,(app.read_text(),runtime.read_text()))
             for initialization in first:
