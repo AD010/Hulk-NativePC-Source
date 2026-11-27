@@ -2949,6 +2949,7 @@ struct AutomaticEorOwner {
       retained.push_back(model);borrowed.push_back(model.get());
     }
     if(!borrowed.empty())backend->AdoptVerifiedResidentWorldMeshes(borrowed);
+    native::FrameMeshLookup mesh_lookup(borrowed);
     for(size_t i=0;i<frame.calls.size();++i) {
       const auto& call=frame.calls[i];
       const auto ordinal=static_cast<uint32_t>(i);
@@ -3015,7 +3016,7 @@ struct AutomaticEorOwner {
         if(!runtime_required.contains(i)) {
           try {
             archived=gpu::live::ProduceOriginalWorldMaterial(call,frame.sequence,ordinal,
-                borrowed,*pack.shaders,*pack.effects,*pack.virtual_ids,*pack.samplers,
+                borrowed,mesh_lookup,*pack.shaders,*pack.effects,*pack.virtual_ids,*pack.samplers,
                 contract.format,textures,&scalar_analysis);
           } catch(const std::invalid_argument&) {}
         }

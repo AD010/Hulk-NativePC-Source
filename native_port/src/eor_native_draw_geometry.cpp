@@ -847,6 +847,34 @@ static bool MaterialPixelTexturesAgree(
   return actual==expected;
 }
 
+std::optional<ExactOriginalGuestMesh> FrameMeshLookup::Find(const xdk::RawDraw& call) {
+  if(!call.observed_vs_matrices || !call.source_vb0)return {};
+  const bool indexed=xdk::DecodeOriginalIndexedXdkCall(call).has_value();
+  if(indexed ? !call.source_ib : !xdk::DecodeOriginalVerticesXdkCall(call))return {};
+  const auto& stream=call.vertex_bindings[0];
+  if(call.captured_vertex_bindings && (!stream || !stream->Matches(*call.source_vb0) ||
+     (indexed && (!call.index_binding || !call.index_binding->Matches(*call.source_ib)))))
+    return {};
+  const auto& state=*call.observed_vs_matrices;
+  const Key key{
+      reinterpret_cast<uintptr_t>(call.source_vb0.get()),
+      reinterpret_cast<uintptr_t>(call.source_ib.get()),
+      state.original_vertex_buffer_guest_objects[0],state.original_index_buffer_guest_object,
+      call.gpr[1],call.gpr[2],call.gpr[3],call.gpr[4],call.kind,
+      call.captured_vertex_bindings ? stream->offset : 0u,
+      call.captured_vertex_bindings ? stream->stride : 0u,
+      call.captured_vertex_bindings && indexed ?
+          call.index_binding->element_bytes*4+call.index_binding->endian : 0u};
+  // The game can reuse a declaration object with different packed elements.
+  // Group by the captured contents, including the absence of any elements.
+  static const std::vector<xdk::UsaVertexElement> empty;
+  auto& matches=declarations_[call.vertex_declaration ? call.vertex_declaration->elements : empty];
+  if(const auto it=matches.find(key);it!=matches.end())return it->second;
+  const auto exact=IdentifyExactOriginalGuestMesh(call,residents_);
+  matches.emplace(key,exact);
+  return exact;
+}
+
 std::vector<VerifiedDrawSource> ResolveCapturedResourceDraws(
     const xdk::Frame& frame,
     std::span<const VerifiedXdkResourceWitness> witnesses,
@@ -890,17 +918,7 @@ std::vector<VerifiedDrawSource> ResolveCapturedResourceDraws(
   // This is not a source of surface/pass/PSO authority by itself.
   std::vector<std::optional<ExactOriginalGuestMesh>> exact_mesh_at_draw;
   exact_mesh_at_draw.reserve(frame.calls.size());
-  // Several thousand guest Draws often refer to a handful of unchanged
-  // original EoR mesh/index byte allocations. The capture cache already
-  // checks EVERY byte before sharing its immutable source pointers.
-  // Memoize the expensive archive-wide original mesh search only for a
-  // *specific* immutable guest VB/IB generation and primitive index range.
-  // Changing GPU buffer bytes or baseVertex/firstIndex invalidates the key.
-  using OriginalGeometryKey=std::tuple<
-      uintptr_t,uintptr_t,uint32_t,uint32_t,uint32_t,uint32_t,uint32_t,
-      uint32_t,uint32_t,uint8_t,uint32_t,uint32_t,uint32_t>;
-  std::map<OriginalGeometryKey,
-           std::optional<ExactOriginalGuestMesh>> exact_source_cache;
+  FrameMeshLookup mesh_lookup(residents);
   for(size_t ordinal=0;ordinal<frame.calls.size();++ordinal) {
     const auto& call=frame.calls[ordinal];
     if(!call.observed_vs_matrices)
@@ -921,20 +939,7 @@ std::vector<VerifiedDrawSource> ResolveCapturedResourceDraws(
        !call.index_binding->Matches(*call.source_ib)))))
       throw std::invalid_argument("Original draw vertex/index binding unavailable");
     if(call.source_vb0 && (!indexed || call.source_ib)) {
-      const OriginalGeometryKey key{
-          reinterpret_cast<uintptr_t>(call.source_vb0.get()),
-          reinterpret_cast<uintptr_t>(call.source_ib.get()),
-          resources.vertex_buffers[0],resources.index_buffer,
-          call.gpr[1],call.gpr[2],call.gpr[3],call.gpr[4],
-          call.function,static_cast<uint8_t>(call.kind),
-          call.captured_vertex_bindings ? stream->offset : 0u,
-          call.captured_vertex_bindings ? stream->stride : 0u,
-          call.captured_vertex_bindings && indexed ?
-              call.index_binding->element_bytes*4+call.index_binding->endian : 0u};
-      auto [found,inserted]=exact_source_cache.try_emplace(key);
-      if(inserted)
-        found->second=IdentifyExactOriginalGuestMesh(call,residents);
-      exact=found->second;
+      exact=mesh_lookup.Find(call);
       // When BOTH original indexed allocations have been captured in full,
       // their bytes are stronger evidence than a reusable shader/material
       // witness. Do not silently discard a negative exact source match and

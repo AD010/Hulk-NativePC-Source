@@ -1,6 +1,7 @@
 // Actual USA XDK call provenance, NOT a fabricated EoR Draw submission.
 // Keep original PPC call-through and memory untouched. Opt-in audit only.
 #pragma once
+#include <compare>
 #include "eor_xdk_guest_constants.h"
 #include "eor_usa_material_textures.h"
 #include "eor_original_resolve_region.h"
@@ -138,6 +139,7 @@ std::optional<UsaIndexBufferBinding> ReadUsaIndexBufferBinding(
 struct UsaVertexElement {
   uint16_t stream=0,byte_offset=0;
   uint32_t original_packed_type=0,original_packed_usage=0;
+  auto operator<=>(const UsaVertexElement&) const = default;
 };
 struct UsaVertexDeclaration {
   uint32_t object=0;

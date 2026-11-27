@@ -357,7 +357,7 @@ inline std::optional<LinearizedOriginalDraw> FindOriginalLinearizedDraw(
 }
 inline ProducedWorldMaterial ProduceOriginalWorldMaterial(
     const xdk::RawDraw& call,uint64_t frame,uint32_t ordinal,
-    std::span<const model::UploadedOriginalModel* const> residents,
+    std::span<const model::UploadedOriginalModel* const> residents,native::FrameMeshLookup& mesh_lookup,
     const aot::ShaderBank& bank,const aot::EffectCatalog& effects,
     const aot::OriginalVirtualShaderIdentity& identities,
     const aot::OriginalXdkShaderSamplers& samplers,const VerifiedSceneFormat& format,
@@ -402,7 +402,7 @@ inline ProducedWorldMaterial ProduceOriginalWorldMaterial(
     throw std::invalid_argument("Missing original boolean register file");
   if(!vertex_interface.supported || !pixel_interface.supported)
     throw std::invalid_argument("Unsupported original shared constants or MRT shader");
-  const auto exact=native::IdentifyExactOriginalGuestMesh(call,residents);
+  const auto exact=mesh_lookup.Find(call);
   if(!exact)throw std::invalid_argument("Original indexed VB/IB has no unique archived mesh");
   const model::UploadedOriginalModel* owner=nullptr;
   const model::UploadedNativeMesh* mesh=nullptr;

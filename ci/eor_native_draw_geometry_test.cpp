@@ -967,6 +967,15 @@ int main(){
   movingFrame.calls[0].vertex_declaration->streams=1;
   const auto current=native::ResolveCapturedResourceDraws(movingFrame,std::vector{linearOwner},models);
   assert(current.size()==1 && !current[0].first_index && !current[0].host_base_vertex);
+  // Both draws bind the same allocation, object, stride and index range.
+  // Reusing a declaration address does not authenticate its new contents.
+  auto changedDeclaration=movingFrame;
+  auto secondDraw=changedDeclaration.calls.front();
+  secondDraw.vertex_declaration->elements.push_back({0,1,0,0});
+  changedDeclaration.calls.push_back(std::move(secondDraw));
+  assert(!native::IdentifyExactOriginalGuestMesh(changedDeclaration.calls.back(),models));
+  Reject([&]{(void)native::ResolveCapturedResourceDraws(changedDeclaration,
+      std::vector{linearOwner},models);});
   auto& scoped=std::get<native::VerifiedXdkIndexedSubmission>(linearOwner.original_source_submission);
   scoped.original_guest_call=*xdk::DecodeOriginalIndexedXdkCall(moved);
   scoped.native_draw.first_index=1;scoped.native_draw.host_base_vertex=1;

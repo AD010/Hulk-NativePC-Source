@@ -9,6 +9,8 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <map>
+#include <tuple>
 #include <span>
 #include <string>
 #include <variant>
@@ -122,6 +124,25 @@ struct ExactOriginalGuestMesh {
 std::optional<ExactOriginalGuestMesh> IdentifyExactOriginalGuestMesh(
     const xdk::RawDraw& draw,
     std::span<const model::UploadedOriginalModel* const> residents);
+// Borrows immutable Draw snapshots and one fixed resident set for one frame.
+class FrameMeshLookup {
+ public:
+  explicit FrameMeshLookup(std::span<const model::UploadedOriginalModel* const> residents)
+      :residents_(residents) {}
+  std::optional<ExactOriginalGuestMesh> Find(const xdk::RawDraw& call);
+ private:
+  struct Key {
+    uintptr_t vertex_snapshot,index_snapshot;
+    uint32_t vertex_object,index_object;
+    uint32_t primitive,arg5,arg6,arg7;
+    xdk::Kind kind;
+    uint32_t offset,stride,index_format;
+    auto operator<=>(const Key&) const = default;
+  };
+  std::span<const model::UploadedOriginalModel* const> residents_;
+  std::map<std::vector<xdk::UsaVertexElement>,
+           std::map<Key,std::optional<ExactOriginalGuestMesh>>> declarations_;
+};
 // Enforce original ShaderEffects digest identity against real guest XDK
 // shader objects on EVERY Draw before the native EoR Vulkan pass begins.
 void ValidateLiveOriginalShaderPasses(

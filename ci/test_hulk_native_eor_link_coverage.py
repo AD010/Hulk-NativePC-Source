@@ -589,9 +589,11 @@ class NativeEorLinkCoverage(unittest.TestCase):
 
     def test_live_original_mesh_cache_is_keyed_to_guest_buffer_generations(self):
         source=(ROOT / "native_port/src/eor_native_draw_geometry.cpp").read_text()
-        self.assertIn("using OriginalGeometryKey=std::tuple<",source)
-        self.assertIn("exact_source_cache.try_emplace(key)",source)
-        self.assertIn("if(inserted)\n        found->second=IdentifyExactOriginalGuestMesh",source)
+        producer=(ROOT / "native_port/src/eor_live_material_producer.h").read_text()
+        self.assertIn("mesh_lookup.Find(call)",producer)
+        self.assertIn("mesh_lookup.Find(call)",source)
+        self.assertLess(source.index("matches.find(key)"),
+                        source.index("exact=IdentifyExactOriginalGuestMesh(call,residents_)"))
         self.assertIn("reinterpret_cast<uintptr_t>(call.source_vb0.get())",source)
         self.assertIn("reinterpret_cast<uintptr_t>(call.source_ib.get())",source)
         self.assertIn("call.gpr[1],call.gpr[2],call.gpr[3],call.gpr[4]",source)
