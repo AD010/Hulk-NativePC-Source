@@ -83,34 +83,41 @@ NativeFrameSubmission EorNativeFrameExecutor::Submit(
     const xdk::Frame& source,
     std::vector<std::shared_ptr<const void>> retained) noexcept {
   if(state_ && state_->completion_failed)return NativeFrameSubmission::FailedAfterGpu;
-  if(!state_ || !state_->backend || !state_->device ||
-     !state_->context || !state_->swapchain ||
-     (state_->host && (state_->host->Device()!=state_->device ||
-                       state_->host->Context()!=state_->context ||
-                       state_->host->SwapChain()!=state_->swapchain)) ||
-     !state_->backend->UsesNativeHostGpu(state_->device,state_->context) ||
-     !state_->shaders || !state_->effects || !state_->reflection || !source.sequence ||
-     draws.empty() || draws.size()!=source.calls.size() ||
-     source.sequence<=state_->last_submitted_frame ||
-     !xdk::ValidateOriginalCommandTimeline(source) ||
-     !state_->backend->CanReplayOriginalXdkTimeline(source))
-    return NativeFrameSubmission::IncompleteSource;
-  for(size_t i=0;i<draws.size();++i)
-    if(draws[i].draw.source_frame!=source.sequence ||
-       draws[i].draw.source_ordinal!=i)
-      return NativeFrameSubmission::IncompleteSource;
   const auto& frame=physical_frame;
-  if(!native::HasFullNativeCompositePixels(frame.world,frame.composite,
-       frame.backbuffer))
+  // Timeline planning can allocate and the driver may throw on descriptor
+  // queries. A rejected pre-Draw frame must not escape this noexcept API
+  // or discard GPU owners retained by an earlier submission.
+  try {
+    if(!state_ || !state_->backend || !state_->device ||
+       !state_->context || !state_->swapchain ||
+       (state_->host && (state_->host->Device()!=state_->device ||
+                         state_->host->Context()!=state_->context ||
+                         state_->host->SwapChain()!=state_->swapchain)) ||
+       !state_->backend->UsesNativeHostGpu(state_->device,state_->context) ||
+       !state_->shaders || !state_->effects || !state_->reflection || !source.sequence ||
+       draws.empty() || draws.size()!=source.calls.size() ||
+       source.sequence<=state_->last_submitted_frame ||
+       !xdk::ValidateOriginalCommandTimeline(source) ||
+       !state_->backend->CanReplayOriginalXdkTimeline(source))
+      return NativeFrameSubmission::IncompleteSource;
+    for(size_t i=0;i<draws.size();++i)
+      if(draws[i].draw.source_frame!=source.sequence ||
+         draws[i].draw.source_ordinal!=i)
+        return NativeFrameSubmission::IncompleteSource;
+    if(!native::HasFullNativeCompositePixels(frame.world,frame.composite,
+         frame.backbuffer))
+      return NativeFrameSubmission::IncompleteSource;
+    // Resize BEFORE DrawIndexed, never inside Present.
+    // Borrowed worker handles are already resized by their sole owner.
+    // Never resize or physically Present a swapchain owned by that worker.
+    if(state_->host && !state_->host->ResizeToClient())return NativeFrameSubmission::IncompleteSource;
+    const auto& swap=state_->swapchain->GetDesc();
+    if(frame.backbuffer.width!=swap.Width ||
+       frame.backbuffer.height!=swap.Height)
+      return NativeFrameSubmission::IncompleteSource;
+  } catch (...) {
     return NativeFrameSubmission::IncompleteSource;
-  // Resize BEFORE DrawIndexed, never inside Present.
-  // Borrowed worker handles are already resized by their sole owner.
-  // Never resize or physically Present a swapchain owned by that worker.
-  if(state_->host && !state_->host->ResizeToClient())return NativeFrameSubmission::IncompleteSource;
-  const auto& swap=state_->swapchain->GetDesc();
-  if(frame.backbuffer.width!=swap.Width ||
-     frame.backbuffer.height!=swap.Height)
-    return NativeFrameSubmission::IncompleteSource;
+  }
 
   RetireCompleted();
   // Allocate the ownership record BEFORE ReplayAotScene can submit any GPU
