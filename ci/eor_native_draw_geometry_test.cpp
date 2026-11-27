@@ -1053,6 +1053,32 @@ int main(){
   assert(classBound.size()==1 && classBound[0].original_source_engine_shader_method &&
          classBound[0].original_source_engine_shader_method->
              original_shader_instance_guest==engineParent.original_shader_instance_guest);
+  // An archive Draw can follow a dynamic UI Draw in the same source frame.
+  auto archiveFrame=classFrame;
+  archiveFrame.calls.push_back(archiveFrame.calls.front());
+  auto& archiveCall=archiveFrame.calls[1];
+  archiveCall.captured_vertex_bindings=true;
+  archiveCall.vertex_bindings[0]=xdk::UsaVertexStreamBinding{
+      vb->guest_object,vb->guest_address,vb->guest_size,0,vb->guest_size,stride};
+  archiveCall.index_binding=xdk::UsaIndexBufferBinding{
+      ib->guest_object,ib->guest_address,ib->guest_size,2,1};
+  archiveCall.vertex_declaration=xdk::UsaVertexDeclaration{
+      live_state.original_vertex_declaration_guest_object,1,false,{{0,0,0x2a23b9u,0}}};
+  auto archiveWitness=classBound.front();
+  auto& tag=std::get<native::VerifiedXdkIndexedSubmission>(
+      archiveWitness.original_source_submission).native_draw;
+  tag.original_call_ordinal=1;
+  native::FrameMeshLookup frameMeshes(twoResidences);
+  const auto boundArchive=native::BindVerifiedArchiveDrawAtCall(
+      archiveFrame,1,archiveWitness,resident,frameMeshes,effects);
+  assert(boundArchive.draw.source_ordinal==1 && boundArchive.draw.source_frame==archiveFrame.sequence &&
+         boundArchive.original_model_hash==resident.original_resource_hash &&
+         boundArchive.draw.index_buffer==resident.meshes.meshes()[0].index_buffer);
+  Reject([&]{(void)native::BindVerifiedArchiveDrawAtCall(
+      archiveFrame,0,archiveWitness,resident,frameMeshes,effects);});
+  archiveWitness.original_source_engine_shader_method->original_shader_instance_guest+=4;
+  Reject([&]{(void)native::BindVerifiedArchiveDrawAtCall(
+      archiveFrame,1,archiveWitness,resident,frameMeshes,effects);});
   const auto copiedClass=native::AttachLiveEorShaderMethodParents(
       classFrame,classBound);
   assert(copiedClass.size()==1);

@@ -200,6 +200,10 @@ struct VerifiedXdkResourceWitness {
   uint32_t original_material_shader_vtable_guest=0;
   bool original_shader_class_material_owner_verified=false;
 };
+// Bind the archive-backed Draw at its ordinal in a validated mixed world/UI frame.
+aot::BoundIndexedDraw BindVerifiedArchiveDrawAtCall(const xdk::Frame& frame,uint32_t ordinal,
+    const VerifiedXdkResourceWitness& witness,const model::UploadedOriginalModel& resident,
+    FrameMeshLookup& mesh_lookup,const aot::EffectCatalog& effects);
 // Pair already verified EoR material/mesh candidate witnesses with their
 // EXACT original PPC shader class method at Draw, if one was observed.
 // Never set engine_draw_verified or original material/texture/PSO flags.

@@ -505,6 +505,36 @@ std::vector<aot::BoundIndexedDraw> BindVerifiedGeometryDraws(
   }
   return out;
 }
+static VerifiedDrawSource MatchIndexedDraw(const xdk::RawDraw& call,
+    const VerifiedXdkIndexedSubmission& proven,uint64_t sequence,uint32_t ordinal) {
+  const auto actual=xdk::DecodeOriginalIndexedXdkCall(call);
+  const auto& expected=proven.original_guest_call;
+  const auto& original=proven.native_draw;
+  if(!actual || actual->primitive!=4u ||
+     actual->index_count%3u || !proven.original_triangle_list_verified ||
+     !proven.guest_to_native_index_stream_verified ||
+     !proven.original_material_at_draw_verified ||
+     expected.xdk_function!=actual->xdk_function ||
+     expected.caller_lr!=actual->caller_lr ||
+     expected.guest_device!=actual->guest_device ||
+     expected.primitive!=actual->primitive ||
+     expected.base_vertex!=actual->base_vertex ||
+     expected.first_index!=actual->first_index ||
+     expected.index_count!=actual->index_count ||
+     original.index_count!=actual->index_count ||
+     !original.engine_draw_verified || !original.mesh_material_verified ||
+     !original.host_vertex_layout_verified || !original.render_state_verified)
+    throw std::invalid_argument("Guest Xbox indexed Draw lacks exact source-proven EoR owner");
+  // The original Xbox XDK index offset/baseVertex are from guest streams.
+  // The host mesh has its OWN rebased indexed geometry and vertex origin.
+  auto tagged=original;
+  tagged.original_linear_draw_verified=false; // indexed source method
+  tagged.original_frame_sequence=sequence;
+  tagged.original_call_ordinal=ordinal;
+  tagged.original_vs_matrices=call.observed_vs_matrices;
+  tagged.original_shader_constants=call.observed_shader_constants;
+  return tagged;
+}
 std::vector<VerifiedDrawSource> MatchCapturedXdkDraws(
     const xdk::Frame& frame,
     std::span<const VerifiedXdkIndexedSubmission> verified) {
@@ -516,36 +546,8 @@ std::vector<VerifiedDrawSource> MatchCapturedXdkDraws(
     throw std::invalid_argument("Original Xbox XDK frame has missing/unmapped Draws");
   std::vector<VerifiedDrawSource> sources;
   sources.reserve(frame.calls.size());
-  for(size_t i=0;i<frame.calls.size();++i) {
-    const auto actual=xdk::DecodeOriginalIndexedXdkCall(frame.calls[i]);
-    const auto& proven=verified[i];
-    const auto& expected=proven.original_guest_call;
-    const auto& original=proven.native_draw;
-    if(!actual || actual->primitive!=4u ||
-       actual->index_count%3u || !proven.original_triangle_list_verified ||
-       !proven.guest_to_native_index_stream_verified ||
-       !proven.original_material_at_draw_verified ||
-       expected.xdk_function!=actual->xdk_function ||
-       expected.caller_lr!=actual->caller_lr ||
-       expected.guest_device!=actual->guest_device ||
-       expected.primitive!=actual->primitive ||
-       expected.base_vertex!=actual->base_vertex ||
-       expected.first_index!=actual->first_index ||
-       expected.index_count!=actual->index_count ||
-       original.index_count!=actual->index_count ||
-       !original.engine_draw_verified || !original.mesh_material_verified ||
-       !original.host_vertex_layout_verified || !original.render_state_verified)
-      throw std::invalid_argument("Guest Xbox indexed Draw lacks exact source-proven EoR owner");
-    // The original Xbox XDK index offset/baseVertex are from guest streams.
-    // The host mesh has its OWN rebased indexed geometry and vertex origin.
-    auto tagged=original;
-    tagged.original_linear_draw_verified=false; // indexed source method
-    tagged.original_frame_sequence=frame.sequence;
-    tagged.original_call_ordinal=static_cast<uint32_t>(i);
-    tagged.original_vs_matrices=frame.calls[i].observed_vs_matrices;
-    tagged.original_shader_constants=frame.calls[i].observed_shader_constants;
-    sources.push_back(std::move(tagged));
-  }
+  for(size_t i=0;i<frame.calls.size();++i)
+    sources.push_back(MatchIndexedDraw(frame.calls[i],verified[i],frame.sequence,static_cast<uint32_t>(i)));
   return sources;
 }
 OriginalXdkResourceIdentity ResourcesAtDraw(
@@ -883,6 +885,327 @@ std::optional<ExactOriginalGuestMesh> FrameMeshLookup::Find(const xdk::RawDraw& 
   return exact;
 }
 
+static VerifiedDrawSource MatchMixedDraw(const xdk::RawDraw& call,
+    const VerifiedXdkDrawSubmission& submission,uint64_t sequence,uint32_t ordinal,
+    std::span<const model::UploadedOriginalModel* const> residents) {
+  if(const auto* indexed=std::get_if<VerifiedXdkIndexedSubmission>(&submission))
+    return MatchIndexedDraw(call,*indexed,sequence,ordinal);
+  const auto& input=std::get<VerifiedXdkVerticesSubmission>(submission);
+  const auto actual=xdk::DecodeOriginalVerticesXdkCall(call);
+  const auto& expected=input.original_guest_call;
+  auto source=input.native_draw;
+  const auto triangle_indices=actual ?
+      xdk::VerifiedTriangleListCount(actual->primitive,actual->vertex_count) :
+      std::nullopt;
+  if(!triangle_indices || !input.original_triangle_list_verified ||
+     !input.guest_to_native_vertex_stream_verified ||
+     !input.original_material_at_draw_verified ||
+     actual->xdk_function!=expected.xdk_function ||
+     actual->caller_lr!=expected.caller_lr ||
+     actual->guest_device!=expected.guest_device ||
+     actual->primitive!=expected.primitive ||
+     actual->start_vertex!=expected.start_vertex ||
+     actual->vertex_count!=expected.vertex_count ||
+     source.index_count!=*triangle_indices ||
+     uint64_t(input.host_first_vertex)+actual->vertex_count>UINT32_MAX ||
+     !source.engine_draw_verified || !source.mesh_material_verified ||
+     !source.host_vertex_layout_verified || !source.render_state_verified)
+    throw std::invalid_argument("Non-indexed Xbox Draw has no exact triangle topology owner");
+  const model::UploadedNativeMesh* mesh=nullptr;
+  for(const auto* resident:residents)
+    if(resident && resident->original_resource_hash==source.original_model_hash) {
+      for(const auto& candidate:resident->meshes.meshes())
+        if(candidate.original_header_offset==source.original_mesh_header_offset) {
+          if(mesh)throw std::invalid_argument("Ambiguous original native mesh");
+          mesh=&candidate;
+        }
+    }
+  if(!mesh || mesh->host_indices.size()!=mesh->index_count ||
+     uint64_t(source.first_index)+source.index_count>mesh->index_count ||
+     uint64_t(input.host_first_vertex)+actual->vertex_count>mesh->vertex_count)
+    throw std::invalid_argument("Native DrawVertices source index window unavailable");
+  for(uint32_t j=0;j<source.index_count;++j) {
+    const uint32_t position=actual->primitive==6u ?
+        xdk::OriginalTriangleFanVertex(j/3u,j%3u) : j;
+    if(int64_t(mesh->host_indices[source.first_index+j])+
+       source.host_base_vertex!=int64_t(input.host_first_vertex)+position)
+      throw std::invalid_argument(
+          "Original DrawVertices host indices disagree with exact guest triangle topology");
+  }
+  // Only this validated non-indexed conversion may be replayed through
+  // the indexed Vulkan API; a same-ordinal forged host Draw is rejected.
+  source.original_linear_draw_verified=true;
+  source.original_frame_sequence=sequence;
+  source.original_call_ordinal=ordinal;
+  source.original_vs_matrices=call.observed_vs_matrices;
+  source.original_shader_constants=call.observed_shader_constants;
+  return source;
+}
+static VerifiedDrawSource ResolveResourceAtDraw(const xdk::RawDraw& call,uint64_t sequence,
+    uint32_t ordinal,std::span<const VerifiedXdkResourceWitness* const> candidates,bool at_draw,
+    std::span<const model::UploadedOriginalModel* const> residents,FrameMeshLookup& mesh_lookup,
+    VerifiedXdkResourceWitness* materialized) {
+  if(!call.observed_vs_matrices)
+    throw std::invalid_argument("Original XDK Draw lacks actual guest shader state");
+  const auto resources=ResourcesAtDraw(*call.observed_vs_matrices);
+  if(!resources.device || resources.device!=call.gpr[0] ||
+     !resources.vertex_shader || !resources.pixel_shader ||
+     !resources.vertex_declaration)
+    throw std::invalid_argument("Original Xbox Draw has incomplete resource ownership");
+  const auto indexed=xdk::DecodeOriginalIndexedXdkCall(call);
+  const auto vertices=xdk::DecodeOriginalVerticesXdkCall(call);
+  if(!indexed && !vertices)
+    throw std::invalid_argument("Unverified original Xbox primitive/Draw method");
+  std::optional<ExactOriginalGuestMesh> exact;
+  const auto& stream=call.vertex_bindings[0];
+  if(call.captured_vertex_bindings && (!stream || !call.source_vb0 ||
+     !stream->Matches(*call.source_vb0) || (indexed && (!call.index_binding || !call.source_ib ||
+     !call.index_binding->Matches(*call.source_ib)))))
+    throw std::invalid_argument("Original draw vertex/index binding unavailable");
+  if(call.source_vb0 && (!indexed || call.source_ib)) {
+    exact=mesh_lookup.Find(call);
+    // When BOTH original indexed allocations have been captured in full,
+    // their bytes are stronger evidence than a reusable shader/material
+    // witness. Do not silently discard a negative exact source match and
+    // send a wrong model to Vulkan merely because one witness remains.
+    if((indexed || call.captured_vertex_bindings) && !exact)
+      throw std::invalid_argument(
+          "Captured Xbox geometry does not identify the original EoR mesh");
+  }
+  std::optional<VerifiedXdkDrawSubmission> unique;
+  const VerifiedXdkResourceWitness* selected_owner=nullptr;
+  for(const auto* entry:candidates) {
+    const auto& candidate=*entry;
+    if(!candidate.original_guest_resource_to_material_mapping_verified ||
+       !SameOriginalResources(candidate.original_resources,resources,
+                              candidate,indexed.has_value()))
+      continue;
+    // The original engine shader method must belong to THIS XDK Draw,
+    // with matching current guest instance/vtable/call arguments. A
+    // previously verified effect, mesh or XDK shader object is NOT
+    // permission to attach it to another EoR shader class invocation.
+    // Strong original engine Decal r28 source item/geometry must
+    // agree with the real GPU VB/IB descriptors at THIS guest Draw.
+    if(!xdk::ValidOriginalEorSourceRenderItem(call) ||
+       !xdk::ValidOriginalDecalGeometryBinding(call) ||
+       !xdk::ValidOriginalDecalItemMaterialBinding(call) ||
+       !xdk::ValidOriginalShaderPassStageBinding(call) ||
+       !xdk::ValidOriginalShaderPassSamplerStateAtDraw(call))
+      continue;
+    const auto& live_engine=call.original_engine_shader_method;
+    const auto& proven_engine=
+        candidate.original_source_engine_shader_method;
+    // A previously verified class->material mapping may be reusable
+    // across two instances, but ONLY after the current guest Draw proves
+    // its own complete original mesh bytes and source shader effect.
+    // Never make the class/vtable itself a model/texture identifier.
+    const bool reusable_class=
+        !at_draw && !proven_engine &&
+        candidate.original_shader_class_material_owner_verified &&
+        candidate.original_material_shader_method_guest &&
+        candidate.original_material_shader_vtable_guest &&
+        xdk::ProvenUsaEorShaderMethodVtablePair(
+            candidate.original_material_shader_method_guest,
+            candidate.original_material_shader_vtable_guest) &&
+        exact && call.observed_live_eor_effect_pass;
+    if(live_engine) {
+      if(!ValidOriginalEorShaderMethod(*live_engine))
+        continue;
+      if(proven_engine) {
+        if(!SameOriginalEorShaderMethod(*live_engine,*proven_engine))
+          continue;
+      } else if(!reusable_class ||
+                live_engine->original_shader_method_guest!=
+                    candidate.original_material_shader_method_guest ||
+                live_engine->original_shader_vtable_guest!=
+                    candidate.original_material_shader_vtable_guest)
+        continue;
+    } else if(proven_engine ||
+              candidate.original_shader_class_material_owner_verified) {
+      continue; // stale/absent original class parent
+    }
+    // If the original EoR engine independently authenticated a nonzero
+    // vertex declaration slot, its CURRENT XDK allocation must actually
+    // exist in this Draw snapshot and have the same verified object ID.
+    // Additional position/normal/TBN streams may no longer be silently
+    // presumed equal to the slot-0 source buffer.
+    if(call.vertex_declaration &&
+       (call.vertex_declaration->object!=resources.vertex_declaration ||
+        (candidate.source_verified_vertex_stream_slot_mask & ~call.vertex_declaration->streams)))
+      continue;
+    bool source_streams_present=true;
+    for(uint32_t slot=1;slot<16;++slot) {
+      if(!(candidate.source_verified_vertex_stream_slot_mask &
+            (uint16_t(1u)<<slot)))continue;
+      const auto& bytes=call.source_vertex_streams[slot];
+      const auto& range=call.vertex_bindings[slot];
+      if(!bytes || (call.captured_vertex_bindings && (!range || !range->Matches(*bytes))) ||
+         !bytes->guest_object ||
+         bytes->guest_object!=resources.vertex_buffers[slot] ||
+         bytes->guest_size!=bytes->bytes.size() ||
+         bytes->bytes.empty()) {
+        source_streams_present=false;break;
+      }
+    }
+    if(!source_streams_present)continue;
+    // Multiple source-proven EoR surfaces may share an XDK shader object
+    // and texture slots. A byte-exact uploaded original mesh eliminates
+    // the WRONG model or mesh rather than rejecting an otherwise uniquely
+    // recoverable real engine Draw as an ambiguous witness.
+    const auto& candidate_source=std::visit(
+        [](const auto& w)->const VerifiedDrawSource&{
+          return w.native_draw;
+        },candidate.original_source_submission);
+    uint16_t archive_mask=0;
+    if(!MaterialPixelTexturesAgree(call,candidate,candidate_source,archive_mask))continue;
+    // A true game material setter can supply an additional independent
+    // cross-check: if its live XDK texture hashes identify ONE original
+    // MODELS.ARC surface in the byte-exact source model, another shader-
+    // compatible surface must not claim that same indexed Draw.
+    // Unknown/ambiguous texture-to-surface identity remains undecided;
+    // it can NEVER by itself manufacture a verified source witness.
+    if(exact && archive_mask) {
+      const model::UploadedOriginalModel* live_model=nullptr;
+      for(const auto* resident:residents)
+        if(resident && resident->original_resource_hash==exact->model_hash) {
+          live_model=resident;break;
+        }
+      if(live_model) {
+        const auto source_surface=IdentifyLiveOriginalXdkMaterialSurface(
+            *live_model,call,archive_mask);
+        if(source_surface &&
+           *source_surface!=candidate_source.original_surface_ordinal)
+          continue;
+      }
+    }
+    // A live original ShaderContainer VS/PS pair can authenticate the
+    // exact original ShaderEffects effect/pass without a Vulkan backend.
+    // Use that strong PPC Draw evidence to ELIMINATE other legitimate
+    // model/material candidates sharing the same XDK shader handles.
+    // This alone cannot prove which surface owns the texture or mesh;
+    // the independent guest byte/engine/sampler gates remain required.
+    if(call.observed_live_eor_effect_pass &&
+       (candidate_source.original_effect_hash!=
+            call.observed_live_eor_effect_pass->effect_hash ||
+        candidate_source.original_pass_index!=
+            call.observed_live_eor_effect_pass->pass_index))
+      continue;
+    if(exact &&
+       (candidate_source.original_model_hash!=exact->model_hash ||
+        candidate_source.original_mesh_header_offset!=
+            exact->mesh_header_offset))
+      continue;
+    std::optional<VerifiedXdkDrawSubmission> translated;
+    if(indexed) {
+      if(const auto* link=std::get_if<VerifiedXdkIndexedSubmission>(
+             &candidate.original_source_submission)) {
+        const auto& x=link->original_guest_call;
+        if(x.xdk_function!=indexed->xdk_function ||
+           x.caller_lr!=indexed->caller_lr ||
+           x.guest_device!=indexed->guest_device ||
+           x.primitive!=indexed->primitive ||
+           indexed->primitive!=4u || indexed->index_count%3u)
+          continue;
+        const bool same_xdk_index_window=
+            x.base_vertex==indexed->base_vertex &&
+            x.first_index==indexed->first_index &&
+            x.index_count==indexed->index_count;
+        if(!same_xdk_index_window &&
+           (at_draw || !candidate.original_linear_index_stream_verified))
+          continue;
+        auto mapped=*link;
+        if(!at_draw && candidate.original_linear_index_stream_verified &&
+           call.captured_vertex_bindings && exact) {
+          // A dynamic buffer can move the same source mesh between Draws
+          // while the object, material and even the XDK arguments stay the
+          // same. Translate against the currently captured memory windows.
+          const int64_t base=int64_t(indexed->base_vertex)-exact->guest_first_vertex;
+          if(!link->guest_to_native_index_stream_verified ||
+             !link->original_triangle_list_verified || !link->original_material_at_draw_verified ||
+             indexed->first_index<exact->guest_first_index || base<INT32_MIN || base>INT32_MAX)
+            continue;
+          mapped.native_draw.first_index=indexed->first_index-exact->guest_first_index;
+          mapped.native_draw.host_base_vertex=static_cast<int32_t>(base);
+          mapped.native_draw.index_count=indexed->index_count;
+          mapped.original_guest_call=*indexed;
+        } else if(!same_xdk_index_window) {
+          if(!link->guest_to_native_index_stream_verified ||
+             !link->original_triangle_list_verified ||
+             !link->original_material_at_draw_verified)
+            continue;
+          // The witness authenticates the full ORIGINAL index stream,
+          // not just one Draw. Convert *current* guest indices into the
+          // host decoded model's LOCAL index range without truncation.
+          const int64_t host_first=
+              int64_t(link->native_draw.first_index)+
+              (int64_t(indexed->first_index)-int64_t(x.first_index));
+          const int64_t host_base=
+              int64_t(link->native_draw.host_base_vertex)+
+              (int64_t(indexed->base_vertex)-int64_t(x.base_vertex));
+          if(host_first<0 || host_first>UINT32_MAX ||
+             host_base<INT32_MIN ||
+             host_base>INT32_MAX)
+            continue;
+          mapped.native_draw.first_index=static_cast<uint32_t>(host_first);
+          mapped.native_draw.index_count=indexed->index_count;
+          mapped.native_draw.host_base_vertex=static_cast<int32_t>(host_base);
+          mapped.original_guest_call=*indexed;
+        }
+        translated=std::move(mapped);
+      }
+    } else if(const auto* link=std::get_if<VerifiedXdkVerticesSubmission>(
+                   &candidate.original_source_submission)) {
+      const auto& x=link->original_guest_call;
+      if(exact && int64_t(vertices->start_vertex)-exact->guest_first_vertex!=link->host_first_vertex)
+        continue;
+      if(x.xdk_function==vertices->xdk_function &&
+         x.caller_lr==vertices->caller_lr &&
+         x.guest_device==vertices->guest_device &&
+         x.primitive==vertices->primitive &&
+         x.start_vertex==vertices->start_vertex &&
+         x.vertex_count==vertices->vertex_count)
+        translated=*link;
+    }
+    if(!translated)continue;
+    if(unique)
+      throw std::invalid_argument("Ambiguous original Xbox material/mesh mapping");
+    unique=std::move(*translated);
+    selected_owner=entry;
+  }
+  if(!unique)
+    throw std::invalid_argument("No verified original Xbox model/material for live Draw");
+  auto source=MatchMixedDraw(call,*unique,sequence,ordinal,residents);
+  source.original_live_vertex_shader_header=
+      call.observed_live_vertex_shader_header;
+  source.original_live_pixel_shader_header=
+      call.observed_live_pixel_shader_header;
+  if(exact && (exact->model_hash!=source.original_model_hash ||
+     exact->mesh_header_offset!=source.original_mesh_header_offset))
+    throw std::invalid_argument(
+        "Actual original XDK buffer bytes disprove engine mesh owner");
+  // Additional exact source evidence must not contradict the existing
+  // asserted XDK->host baseVertex and firstIndex remapping.
+  if(exact) {
+    const auto original=xdk::DecodeOriginalIndexedXdkCall(call);
+    if(original &&
+       (original->first_index<exact->guest_first_index ||
+        source.first_index!=
+            original->first_index-exact->guest_first_index ||
+        int64_t(source.host_base_vertex)!=
+            int64_t(original->base_vertex)-exact->guest_first_vertex))
+      throw std::invalid_argument(
+          "Verified EoR host Draw disagrees with exact original GPU buffer offsets");
+  }
+  if(materialized) {
+    *materialized=*selected_owner;
+    materialized->original_resources=resources;
+    materialized->original_source_engine_shader_method=call.original_engine_shader_method;
+    std::visit([&](auto& link){link.native_draw=source;},*unique);
+    materialized->original_source_submission=std::move(*unique);
+  }
+  return source;
+}
+
 std::vector<VerifiedDrawSource> ResolveCapturedResourceDraws(
     const xdk::Frame& frame,
     std::span<const VerifiedXdkResourceWitness> witnesses,
@@ -914,312 +1237,42 @@ std::vector<VerifiedDrawSource> ResolveCapturedResourceDraws(
       by_ordinal[ordinal] = &witness;
     }
   }
-  std::vector<VerifiedXdkDrawSubmission> matched;
-  matched.reserve(frame.calls.size());
-  // Materialize only the *selected* independent source owners. In
-  // particular, a reusable candidate is not a ready-to-submit Draw: it
-  // needs this frame's actual buffers, XDK shader objects and ordinals.
-  std::vector<VerifiedXdkResourceWitness> materialized;
-  if(selected_live_witnesses)materialized.reserve(frame.calls.size());
-  // Compute the actual byte-exact guest VB+IB owner ONCE per source Draw,
-  // before choosing among multiple possible original EoR material witnesses.
-  // This is not a source of surface/pass/PSO authority by itself.
-  std::vector<std::optional<ExactOriginalGuestMesh>> exact_mesh_at_draw;
-  exact_mesh_at_draw.reserve(frame.calls.size());
   FrameMeshLookup mesh_lookup(residents);
-  for(size_t ordinal=0;ordinal<frame.calls.size();++ordinal) {
-    const auto& call=frame.calls[ordinal];
-    if(!call.observed_vs_matrices)
-      throw std::invalid_argument("Original XDK Draw lacks actual guest shader state");
-    const auto resources=ResourcesAtDraw(*call.observed_vs_matrices);
-    if(!resources.device || resources.device!=call.gpr[0] ||
-       !resources.vertex_shader || !resources.pixel_shader ||
-       !resources.vertex_declaration)
-      throw std::invalid_argument("Original Xbox Draw has incomplete resource ownership");
-    const auto indexed=xdk::DecodeOriginalIndexedXdkCall(call);
-    const auto vertices=xdk::DecodeOriginalVerticesXdkCall(call);
-    if(!indexed && !vertices)
-      throw std::invalid_argument("Unverified original Xbox primitive/Draw method");
-    std::optional<ExactOriginalGuestMesh> exact;
-    const auto& stream=call.vertex_bindings[0];
-    if(call.captured_vertex_bindings && (!stream || !call.source_vb0 ||
-       !stream->Matches(*call.source_vb0) || (indexed && (!call.index_binding || !call.source_ib ||
-       !call.index_binding->Matches(*call.source_ib)))))
-      throw std::invalid_argument("Original draw vertex/index binding unavailable");
-    if(call.source_vb0 && (!indexed || call.source_ib)) {
-      exact=mesh_lookup.Find(call);
-      // When BOTH original indexed allocations have been captured in full,
-      // their bytes are stronger evidence than a reusable shader/material
-      // witness. Do not silently discard a negative exact source match and
-      // send a wrong model to Vulkan merely because one witness remains.
-      if((indexed || call.captured_vertex_bindings) && !exact)
-        throw std::invalid_argument(
-            "Captured Xbox geometry does not identify the original EoR mesh");
-    }
-    exact_mesh_at_draw.push_back(exact);
-    std::optional<VerifiedXdkDrawSubmission> unique;
-    const VerifiedXdkResourceWitness* selected_owner=nullptr;
-    const bool at_draw=by_ordinal[ordinal]!=nullptr;
-    const std::span<const WitnessPtr> candidates=at_draw ?
-        std::span<const WitnessPtr>(&by_ordinal[ordinal],1) : reusable;
-    for(const auto* entry:candidates) {
-      const auto& candidate=*entry;
-      if(!candidate.original_guest_resource_to_material_mapping_verified ||
-         !SameOriginalResources(candidate.original_resources,resources,
-                                candidate,indexed.has_value()))
-        continue;
-      // The original engine shader method must belong to THIS XDK Draw,
-      // with matching current guest instance/vtable/call arguments. A
-      // previously verified effect, mesh or XDK shader object is NOT
-      // permission to attach it to another EoR shader class invocation.
-      // Strong original engine Decal r28 source item/geometry must
-      // agree with the real GPU VB/IB descriptors at THIS guest Draw.
-      if(!xdk::ValidOriginalEorSourceRenderItem(call) ||
-         !xdk::ValidOriginalDecalGeometryBinding(call) ||
-         !xdk::ValidOriginalDecalItemMaterialBinding(call) ||
-         !xdk::ValidOriginalShaderPassStageBinding(call) ||
-         !xdk::ValidOriginalShaderPassSamplerStateAtDraw(call))
-        continue;
-      const auto& live_engine=call.original_engine_shader_method;
-      const auto& proven_engine=
-          candidate.original_source_engine_shader_method;
-      // A previously verified class->material mapping may be reusable
-      // across two instances, but ONLY after the current guest Draw proves
-      // its own complete original mesh bytes and source shader effect.
-      // Never make the class/vtable itself a model/texture identifier.
-      const bool reusable_class=
-          !at_draw && !proven_engine &&
-          candidate.original_shader_class_material_owner_verified &&
-          candidate.original_material_shader_method_guest &&
-          candidate.original_material_shader_vtable_guest &&
-          xdk::ProvenUsaEorShaderMethodVtablePair(
-              candidate.original_material_shader_method_guest,
-              candidate.original_material_shader_vtable_guest) &&
-          exact && call.observed_live_eor_effect_pass;
-      if(live_engine) {
-        if(!ValidOriginalEorShaderMethod(*live_engine))
-          continue;
-        if(proven_engine) {
-          if(!SameOriginalEorShaderMethod(*live_engine,*proven_engine))
-            continue;
-        } else if(!reusable_class ||
-                  live_engine->original_shader_method_guest!=
-                      candidate.original_material_shader_method_guest ||
-                  live_engine->original_shader_vtable_guest!=
-                      candidate.original_material_shader_vtable_guest)
-          continue;
-      } else if(proven_engine ||
-                candidate.original_shader_class_material_owner_verified) {
-        continue; // stale/absent original class parent
-      }
-      // If the original EoR engine independently authenticated a nonzero
-      // vertex declaration slot, its CURRENT XDK allocation must actually
-      // exist in this Draw snapshot and have the same verified object ID.
-      // Additional position/normal/TBN streams may no longer be silently
-      // presumed equal to the slot-0 source buffer.
-      if(call.vertex_declaration &&
-         (call.vertex_declaration->object!=resources.vertex_declaration ||
-          (candidate.source_verified_vertex_stream_slot_mask & ~call.vertex_declaration->streams)))
-        continue;
-      bool source_streams_present=true;
-      for(uint32_t slot=1;slot<16;++slot) {
-        if(!(candidate.source_verified_vertex_stream_slot_mask &
-              (uint16_t(1u)<<slot)))continue;
-        const auto& bytes=call.source_vertex_streams[slot];
-        const auto& range=call.vertex_bindings[slot];
-        if(!bytes || (call.captured_vertex_bindings && (!range || !range->Matches(*bytes))) ||
-           !bytes->guest_object ||
-           bytes->guest_object!=resources.vertex_buffers[slot] ||
-           bytes->guest_size!=bytes->bytes.size() ||
-           bytes->bytes.empty()) {
-          source_streams_present=false;break;
-        }
-      }
-      if(!source_streams_present)continue;
-      // Multiple source-proven EoR surfaces may share an XDK shader object
-      // and texture slots. A byte-exact uploaded original mesh eliminates
-      // the WRONG model or mesh rather than rejecting an otherwise uniquely
-      // recoverable real engine Draw as an ambiguous witness.
-      const auto& candidate_source=std::visit(
-          [](const auto& w)->const VerifiedDrawSource&{
-            return w.native_draw;
-          },candidate.original_source_submission);
-      uint16_t archive_mask=0;
-      if(!MaterialPixelTexturesAgree(call,candidate,candidate_source,archive_mask))continue;
-      // A true game material setter can supply an additional independent
-      // cross-check: if its live XDK texture hashes identify ONE original
-      // MODELS.ARC surface in the byte-exact source model, another shader-
-      // compatible surface must not claim that same indexed Draw.
-      // Unknown/ambiguous texture-to-surface identity remains undecided;
-      // it can NEVER by itself manufacture a verified source witness.
-      if(exact && archive_mask) {
-        const model::UploadedOriginalModel* live_model=nullptr;
-        for(const auto* resident:residents)
-          if(resident && resident->original_resource_hash==exact->model_hash) {
-            live_model=resident;break;
-          }
-        if(live_model) {
-          const auto source_surface=IdentifyLiveOriginalXdkMaterialSurface(
-              *live_model,call,archive_mask);
-          if(source_surface &&
-             *source_surface!=candidate_source.original_surface_ordinal)
-            continue;
-        }
-      }
-      // A live original ShaderContainer VS/PS pair can authenticate the
-      // exact original ShaderEffects effect/pass without a Vulkan backend.
-      // Use that strong PPC Draw evidence to ELIMINATE other legitimate
-      // model/material candidates sharing the same XDK shader handles.
-      // This alone cannot prove which surface owns the texture or mesh;
-      // the independent guest byte/engine/sampler gates remain required.
-      if(call.observed_live_eor_effect_pass &&
-         (candidate_source.original_effect_hash!=
-              call.observed_live_eor_effect_pass->effect_hash ||
-          candidate_source.original_pass_index!=
-              call.observed_live_eor_effect_pass->pass_index))
-        continue;
-      if(exact &&
-         (candidate_source.original_model_hash!=exact->model_hash ||
-          candidate_source.original_mesh_header_offset!=
-              exact->mesh_header_offset))
-        continue;
-      std::optional<VerifiedXdkDrawSubmission> translated;
-      if(indexed) {
-        if(const auto* link=std::get_if<VerifiedXdkIndexedSubmission>(
-               &candidate.original_source_submission)) {
-          const auto& x=link->original_guest_call;
-          if(x.xdk_function!=indexed->xdk_function ||
-             x.caller_lr!=indexed->caller_lr ||
-             x.guest_device!=indexed->guest_device ||
-             x.primitive!=indexed->primitive ||
-             indexed->primitive!=4u || indexed->index_count%3u)
-            continue;
-          const bool same_xdk_index_window=
-              x.base_vertex==indexed->base_vertex &&
-              x.first_index==indexed->first_index &&
-              x.index_count==indexed->index_count;
-          if(!same_xdk_index_window &&
-             (at_draw || !candidate.original_linear_index_stream_verified))
-            continue;
-          auto mapped=*link;
-          if(!at_draw && candidate.original_linear_index_stream_verified &&
-             call.captured_vertex_bindings && exact) {
-            // A dynamic buffer can move the same source mesh between Draws
-            // while the object, material and even the XDK arguments stay the
-            // same. Translate against the currently captured memory windows.
-            const int64_t base=int64_t(indexed->base_vertex)-exact->guest_first_vertex;
-            if(!link->guest_to_native_index_stream_verified ||
-               !link->original_triangle_list_verified || !link->original_material_at_draw_verified ||
-               indexed->first_index<exact->guest_first_index || base<INT32_MIN || base>INT32_MAX)
-              continue;
-            mapped.native_draw.first_index=indexed->first_index-exact->guest_first_index;
-            mapped.native_draw.host_base_vertex=static_cast<int32_t>(base);
-            mapped.native_draw.index_count=indexed->index_count;
-            mapped.original_guest_call=*indexed;
-          } else if(!same_xdk_index_window) {
-            if(!link->guest_to_native_index_stream_verified ||
-               !link->original_triangle_list_verified ||
-               !link->original_material_at_draw_verified)
-              continue;
-            // The witness authenticates the full ORIGINAL index stream,
-            // not just one Draw. Convert *current* guest indices into the
-            // host decoded model's LOCAL index range without truncation.
-            const int64_t host_first=
-                int64_t(link->native_draw.first_index)+
-                (int64_t(indexed->first_index)-int64_t(x.first_index));
-            const int64_t host_base=
-                int64_t(link->native_draw.host_base_vertex)+
-                (int64_t(indexed->base_vertex)-int64_t(x.base_vertex));
-            if(host_first<0 || host_first>UINT32_MAX ||
-               host_base<INT32_MIN ||
-               host_base>INT32_MAX)
-              continue;
-            mapped.native_draw.first_index=static_cast<uint32_t>(host_first);
-            mapped.native_draw.index_count=indexed->index_count;
-            mapped.native_draw.host_base_vertex=static_cast<int32_t>(host_base);
-            mapped.original_guest_call=*indexed;
-          }
-          translated=std::move(mapped);
-        }
-      } else if(const auto* link=std::get_if<VerifiedXdkVerticesSubmission>(
-                     &candidate.original_source_submission)) {
-        const auto& x=link->original_guest_call;
-        if(exact && int64_t(vertices->start_vertex)-exact->guest_first_vertex!=link->host_first_vertex)
-          continue;
-        if(x.xdk_function==vertices->xdk_function &&
-           x.caller_lr==vertices->caller_lr &&
-           x.guest_device==vertices->guest_device &&
-           x.primitive==vertices->primitive &&
-           x.start_vertex==vertices->start_vertex &&
-           x.vertex_count==vertices->vertex_count)
-          translated=*link;
-      }
-      if(!translated)continue;
-      if(unique)
-        throw std::invalid_argument("Ambiguous original Xbox material/mesh mapping");
-      unique=std::move(*translated);
-      selected_owner=entry;
-    }
-    if(!unique)
-      throw std::invalid_argument("No verified original Xbox model/material for live Draw");
-    if(selected_live_witnesses) {
-      // Preserve only source-proven flags; authoritative resource pointers
-      // and shader parents come from the current PPC Draw, never a reused
-      // catalogue entry from an earlier frame.
-      auto actual_owner=*selected_owner;
-      actual_owner.original_resources=resources;
-      actual_owner.original_source_engine_shader_method=
-          call.original_engine_shader_method;
-      actual_owner.original_source_submission=*unique;
-      materialized.push_back(std::move(actual_owner));
-    }
-    matched.push_back(std::move(*unique));
-  }
-  // Revalidate every primitive, real source index/vertex window, shader
-  // identity and owner through the existing mixed PPC native bridge.
-  auto resolved=MatchCapturedMixedDraws(frame,matched,residents);
+  std::vector<VerifiedDrawSource> resolved;
+  resolved.reserve(frame.calls.size());
+  std::vector<VerifiedXdkResourceWitness> materialized;
+  if(selected_live_witnesses)materialized.resize(frame.calls.size());
   for(size_t i=0;i<frame.calls.size();++i) {
-    const auto& draw=frame.calls[i];
-    // Carry only the live original XDK shader headers observed on the
-    // exact guest Draw. The material witness cannot supply its own stale
-    // shader->SHA assertion, even when mesh buffers match byte for byte.
-    resolved[i].original_live_vertex_shader_header=
-        draw.observed_live_vertex_shader_header;
-    resolved[i].original_live_pixel_shader_header=
-        draw.observed_live_pixel_shader_header;
-    if(!draw.source_vb0 ||
-       (xdk::DecodeOriginalIndexedXdkCall(draw) && !draw.source_ib))continue;
-    const auto& exact=exact_mesh_at_draw[i];
-    if(exact && (exact->model_hash!=resolved[i].original_model_hash ||
-       exact->mesh_header_offset!=resolved[i].original_mesh_header_offset))
-      throw std::invalid_argument(
-          "Actual original XDK buffer bytes disprove engine mesh owner");
-    // Additional exact source evidence must not contradict the existing
-    // asserted XDK->host baseVertex and firstIndex remapping.
-    if(exact) {
-      const auto original=xdk::DecodeOriginalIndexedXdkCall(draw);
-      if(original &&
-         (original->first_index<exact->guest_first_index ||
-          resolved[i].first_index!=
-              original->first_index-exact->guest_first_index ||
-          int64_t(resolved[i].host_base_vertex)!=
-              int64_t(original->base_vertex)-exact->guest_first_vertex))
-        throw std::invalid_argument(
-            "Verified EoR host Draw disagrees with exact original GPU buffer offsets");
-    }
+    const bool scoped=by_ordinal[i]!=nullptr;
+    const std::span<const WitnessPtr> candidates=scoped ?
+        std::span<const WitnessPtr>(&by_ordinal[i],1) : reusable;
+    resolved.push_back(ResolveResourceAtDraw(frame.calls[i],frame.sequence,static_cast<uint32_t>(i),
+        candidates,scoped,residents,mesh_lookup,selected_live_witnesses ? &materialized[i] : nullptr));
   }
-  if(selected_live_witnesses) {
-    // MatchCapturedMixedDraws and subsequent byte checks resolved the
-    // final guest->host index window and stamped this exact Present/ordinal.
-    // Do not expose any partially materialized witnesses on failure.
-    for(size_t i=0;i<resolved.size();++i)
-      std::visit([&](auto& submission) {
-        submission.native_draw=resolved[i];
-      },materialized[i].original_source_submission);
-    *selected_live_witnesses=std::move(materialized);
-  }
+  if(selected_live_witnesses)*selected_live_witnesses=std::move(materialized);
   return resolved;
 }
+
+aot::BoundIndexedDraw BindVerifiedArchiveDrawAtCall(const xdk::Frame& frame,uint32_t ordinal,
+    const VerifiedXdkResourceWitness& witness,const model::UploadedOriginalModel& resident,
+    FrameMeshLookup& mesh_lookup,const aot::EffectCatalog& effects) {
+  const auto& tagged=std::visit([](const auto& link)->const VerifiedDrawSource& {
+    return link.native_draw;
+  },witness.original_source_submission);
+  if(!frame.sequence || frame.dropped || frame.dropped_commands || ordinal>=frame.calls.size() ||
+     tagged.original_frame_sequence!=frame.sequence || tagged.original_call_ordinal!=ordinal ||
+     !witness.original_source_engine_shader_method || !frame.calls[ordinal].captured_vertex_bindings ||
+     !frame.calls[ordinal].observed_live_eor_effect_pass ||
+     !frame.calls[ordinal].original_engine_shader_method)
+    throw std::invalid_argument("Archive material witness is not scoped to the current engine Draw");
+  const auto* candidate=&witness;
+  const auto* model=&resident;
+  const auto draw=ResolveResourceAtDraw(frame.calls[ordinal],frame.sequence,ordinal,
+      {&candidate,1},true,{&model,1},mesh_lookup,nullptr);
+  auto bound=BindVerifiedGeometryDraws({&draw,1},{&model,1},effects);
+  return std::move(bound.front());
+}
+
 std::vector<VerifiedXdkResourceWitness> MaterializeLiveOriginalResourceWitnesses(
     const xdk::Frame& frame,
     std::span<const VerifiedXdkResourceWitness> verified_candidates,
@@ -1282,68 +1335,9 @@ std::vector<VerifiedDrawSource> MatchCapturedMixedDraws(
     throw std::invalid_argument("Original Xbox USA frame lacks a complete exact Draw stream");
   std::vector<VerifiedDrawSource> result;
   result.reserve(verified.size());
-  for(size_t i=0;i<verified.size();++i) {
-    VerifiedDrawSource source{};
-    if(const auto* indexed=std::get_if<VerifiedXdkIndexedSubmission>(&verified[i])) {
-      // The existing indexed path enforces the exact original XDK r3..r7
-      // arguments, material identity and original shader provenance.
-      const xdk::Frame single{frame.sequence,0,{frame.calls[i]}};
-      const auto mapped=MatchCapturedXdkDraws(
-          single,std::span<const VerifiedXdkIndexedSubmission>(indexed,1));
-      source=mapped.front();
-    } else {
-      const auto& input=std::get<VerifiedXdkVerticesSubmission>(verified[i]);
-      const auto actual=xdk::DecodeOriginalVerticesXdkCall(frame.calls[i]);
-      const auto& expected=input.original_guest_call;
-      source=input.native_draw;
-      const auto triangle_indices=actual ?
-          xdk::VerifiedTriangleListCount(actual->primitive,actual->vertex_count) :
-          std::nullopt;
-      if(!triangle_indices || !input.original_triangle_list_verified ||
-         !input.guest_to_native_vertex_stream_verified ||
-         !input.original_material_at_draw_verified ||
-         actual->xdk_function!=expected.xdk_function ||
-         actual->caller_lr!=expected.caller_lr ||
-         actual->guest_device!=expected.guest_device ||
-         actual->primitive!=expected.primitive ||
-         actual->start_vertex!=expected.start_vertex ||
-         actual->vertex_count!=expected.vertex_count ||
-         source.index_count!=*triangle_indices ||
-         uint64_t(input.host_first_vertex)+actual->vertex_count>UINT32_MAX ||
-         !source.engine_draw_verified || !source.mesh_material_verified ||
-         !source.host_vertex_layout_verified || !source.render_state_verified)
-        throw std::invalid_argument("Non-indexed Xbox Draw has no exact triangle topology owner");
-      const model::UploadedNativeMesh* mesh=nullptr;
-      for(const auto* resident:residents)
-        if(resident && resident->original_resource_hash==source.original_model_hash) {
-          for(const auto& candidate:resident->meshes.meshes())
-            if(candidate.original_header_offset==source.original_mesh_header_offset) {
-              if(mesh)throw std::invalid_argument("Ambiguous original native mesh");
-              mesh=&candidate;
-            }
-        }
-      if(!mesh || mesh->host_indices.size()!=mesh->index_count ||
-         uint64_t(source.first_index)+source.index_count>mesh->index_count ||
-         uint64_t(input.host_first_vertex)+actual->vertex_count>mesh->vertex_count)
-        throw std::invalid_argument("Native DrawVertices source index window unavailable");
-      for(uint32_t j=0;j<source.index_count;++j) {
-        const uint32_t position=actual->primitive==6u ?
-            xdk::OriginalTriangleFanVertex(j/3u,j%3u) : j;
-        if(int64_t(mesh->host_indices[source.first_index+j])+
-           source.host_base_vertex!=int64_t(input.host_first_vertex)+position)
-          throw std::invalid_argument(
-              "Original DrawVertices host indices disagree with exact guest triangle topology");
-      }
-      // Only this validated non-indexed conversion may be replayed through
-      // the indexed Vulkan API; a same-ordinal forged host Draw is rejected.
-      source.original_linear_draw_verified=true;
-    }
-    source.original_frame_sequence=frame.sequence;
-    source.original_call_ordinal=static_cast<uint32_t>(i);
-    source.original_vs_matrices=frame.calls[i].observed_vs_matrices;
-    source.original_shader_constants=frame.calls[i].observed_shader_constants;
-    result.push_back(std::move(source));
-  }
+  for(size_t i=0;i<verified.size();++i)
+    result.push_back(MatchMixedDraw(frame.calls[i],verified[i],frame.sequence,
+                                   static_cast<uint32_t>(i),residents));
   return result;
 }
 void ReplayCapturedMixedScene(

@@ -501,7 +501,7 @@ class NativeEorLinkCoverage(unittest.TestCase):
         self.assertIn("int64_t guest_first_vertex=0",header)
         self.assertIn("uint32_t guest_first_index=0",header)
         self.assertIn("original->first_index-exact->guest_first_index",geometry)
-        self.assertIn("resolved[i].first_index!=",geometry)
+        self.assertIn("source.first_index!=",geometry)
         self.assertIn("original->base_vertex)-exact->guest_first_vertex",geometry)
         self.assertIn("sharedVb->bytes.insert(",cpp)
         self.assertIn("sharedIb->bytes.insert(",cpp)
@@ -512,9 +512,9 @@ class NativeEorLinkCoverage(unittest.TestCase):
     def test_live_exact_gpu_bytes_filter_ambiguous_engine_mesh_witnesses(self):
         geo=(ROOT / "native_port/src/eor_native_draw_geometry.cpp").read_text()
         cxx=(ROOT / "ci/eor_native_draw_geometry_test.cpp").read_text()
-        self.assertIn("exact_mesh_at_draw.reserve(frame.calls.size())",geo)
+        self.assertIn("FrameMeshLookup mesh_lookup(residents)",geo)
         self.assertIn("candidate_source.original_model_hash!=exact->model_hash",geo)
-        self.assertIn("exact_mesh_at_draw[i]",geo)
+        self.assertIn("exact=mesh_lookup.Find(call)",geo)
         self.assertIn("twoResidences",cxx)
         self.assertIn("recoveredOwner[0].original_model_hash==0xCAFE",cxx)
         self.assertIn("sourceFrame.calls[0].source_vb0.reset();",cxx)
@@ -597,7 +597,7 @@ class NativeEorLinkCoverage(unittest.TestCase):
         self.assertIn("reinterpret_cast<uintptr_t>(call.source_vb0.get())",source)
         self.assertIn("reinterpret_cast<uintptr_t>(call.source_ib.get())",source)
         self.assertIn("call.gpr[1],call.gpr[2],call.gpr[3],call.gpr[4]",source)
-        self.assertIn("exact_mesh_at_draw.push_back(exact)",source)
+        self.assertIn("BindVerifiedArchiveDrawAtCall(source,ordinal,witness",producer)
 
     def test_native_worker_fallback_only_suppressed_after_gpu_begin_attempt(self):
         bridge = (ROOT / "native_port/src/eor_aot_draw_bridge.cpp").read_text()

@@ -325,7 +325,7 @@ inline std::vector<VerifiedNativeMaterialImage> OriginalScalarImages(
 }
 struct ProducedWorldMaterial {
   VerifiedNativeMaterialPass material;
-  native::VerifiedDrawSource draw;
+  aot::BoundIndexedDraw draw;
 };
 // DrawVertices and DrawIndexedVertices use the same verified archive
 // mesh. For nonindexed lists/fans, locate a host triangle-index window
@@ -356,12 +356,14 @@ inline std::optional<LinearizedOriginalDraw> FindOriginalLinearizedDraw(
   return {};
 }
 inline ProducedWorldMaterial ProduceOriginalWorldMaterial(
-    const xdk::RawDraw& call,uint64_t frame,uint32_t ordinal,
+    const xdk::Frame& source,uint32_t ordinal,
     std::span<const model::UploadedOriginalModel* const> residents,native::FrameMeshLookup& mesh_lookup,
     const aot::ShaderBank& bank,const aot::EffectCatalog& effects,
     const aot::OriginalVirtualShaderIdentity& identities,
     const aot::OriginalXdkShaderSamplers& samplers,const VerifiedSceneFormat& format,
     DiligentOriginalTextureResidency& residency,ScalarAnalysisCache* cached=nullptr) {
+  const auto& call=source.calls.at(ordinal);
+  const uint64_t frame=source.sequence;
   const auto indexed=xdk::DecodeOriginalIndexedXdkCall(call);
   const auto vertices=xdk::DecodeOriginalVerticesXdkCall(call);
   if((!indexed && !vertices) || (indexed && indexed->primitive!=4u) ||
@@ -456,7 +458,7 @@ inline ProducedWorldMaterial ProduceOriginalWorldMaterial(
       pass.original_xbox_cube_gamma_mask|=uint16_t(1u<<slot);
   }
   pass.material_pass_verified=true;
-  auto& d=out.draw;
+  native::VerifiedDrawSource d;
   d.original_model_hash=owner->original_resource_hash;
   d.original_mesh_header_offset=mesh->original_header_offset;
   d.original_surface_ordinal=*surface;
@@ -473,6 +475,25 @@ inline ProducedWorldMaterial ProduceOriginalWorldMaterial(
   d.original_live_pixel_shader_header=call.observed_live_pixel_shader_header;
   d.engine_draw_verified=d.mesh_material_verified=d.host_vertex_layout_verified=d.render_state_verified=true;
   for(const auto& image:out.material.original_images)d.original_sampler_slots.push_back(image.original_binding);
+  // Archive bytes identified the resident mesh and the live setter identified
+  // its surface. Scope this witness to the actual Draw before binding it.
+  native::VerifiedXdkResourceWitness witness;
+  witness.original_resources=native::ResourcesAtDraw(live);
+  witness.original_source_engine_shader_method=method;
+  witness.source_verified_texture_slot_mask=sampling->sampled_slots;
+  witness.original_xdk_texture_slot_mapping_verified=true;
+  witness.source_verified_vertex_stream_slot_mask=call.vertex_declaration->streams;
+  witness.original_xdk_vertex_stream_slot_mapping_verified=true;
+  witness.original_guest_resource_to_material_mapping_verified=true;
+  if(indexed) {
+    witness.original_source_submission=native::VerifiedXdkIndexedSubmission{
+        *indexed,std::move(d),true,true,true};
+  } else {
+    const auto local_first=int64_t(vertices->start_vertex)-exact->guest_first_vertex;
+    witness.original_source_submission=native::VerifiedXdkVerticesSubmission{
+        *vertices,std::move(d),static_cast<uint32_t>(local_first),true,true,true};
+  }
+  out.draw=native::BindVerifiedArchiveDrawAtCall(source,ordinal,witness,*owner,mesh_lookup,effects);
   return out;
 }
 

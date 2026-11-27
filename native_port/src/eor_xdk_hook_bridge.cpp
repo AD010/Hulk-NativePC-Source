@@ -3015,7 +3015,7 @@ struct AutomaticEorOwner {
         std::optional<gpu::live::ProducedWorldMaterial> archived;
         if(!runtime_required.contains(i)) {
           try {
-            archived=gpu::live::ProduceOriginalWorldMaterial(call,frame.sequence,ordinal,
+            archived=gpu::live::ProduceOriginalWorldMaterial(frame,ordinal,
                 borrowed,mesh_lookup,*pack.shaders,*pack.effects,*pack.virtual_ids,*pack.samplers,
                 contract.format,textures,&scalar_analysis);
           } catch(const std::invalid_argument&) {}
@@ -3078,10 +3078,8 @@ struct AutomaticEorOwner {
         if(archived) {
           auto& produced=*archived;
           project(produced.material.original_pipeline,produced.draw.vertex_source_sha256);
-          auto draw=native::BindVerifiedGeometryDraws({&produced.draw,1},borrowed,*pack.effects);
-          if(draw.size()!=1u)throw std::runtime_error("Original material did not produce exactly one Draw");
           backend->AdoptVerifiedOriginalMaterialPasses({&produced.material,1},textures);
-          ordered.push_back(std::move(draw.front()));
+          ordered.push_back(std::move(produced.draw));
         } else {
           auto produced=gpu::live::ProduceOriginalRuntimeMaterial(call,frame.sequence,ordinal,
               *pack.shaders,*pack.effects,*pack.virtual_ids,*pack.samplers,contract.format,textures,&scalar_analysis);
