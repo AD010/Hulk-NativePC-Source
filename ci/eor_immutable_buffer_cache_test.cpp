@@ -4,6 +4,8 @@
 #include <cassert>
 #include <memory>
 #include <cstdlib>
+#include <cstdint>
+#include <cstring>
 using hulk::eor::gpu::ImmutableBufferCache;
 // Diligent's intrusive smart pointer exposes an overloaded operator&
  // that produces an out-parameter helper. A plain shared_ptr test cannot
@@ -48,6 +50,34 @@ int main() {
   // Caller/Draw still holds its original immutable owner after eviction.
   cache.Clear();assert(!cache.Find(3,b) && cache.RetainedBytes()==0);
   assert(*retained==18 && *first==17);
+  // A hash is only a candidate selector. Construct two distinct 16-byte
+  // streams with exactly the same two-word hash, using unsigned arithmetic
+  // and native byte order just like MakeKey. Never return the wrong GPU owner.
+  {
+    constexpr uint64_t basis=0xcbf29ce484222325ull, prime=0x100000001b3ull;
+    const uint64_t word0=1, word1=(basis*prime)^((basis^word0)*prime);
+    std::array<std::byte,16> original{}, collision{};
+    std::memcpy(collision.data(),&word0,sizeof(word0));
+    std::memcpy(collision.data()+8,&word1,sizeof(word1));
+    assert(original!=collision);
+    assert((basis*prime)*prime==(((basis^word0)*prime)^word1)*prime);
+    ImmutableBufferCache<Owner> colliding(64,4,16);
+    colliding.Remember(3,original,first);
+    assert(!colliding.Find(3,collision));
+    colliding.Remember(3,collision,retained);
+    assert(!colliding.Find(3,collision));
+    assert(colliding.Size()==1 && colliding.RetainedBytes()==16);
+    assert(colliding.Find(3,original) && *colliding.Find(3,original)==first);
+    // Kind participates in the key even for otherwise colliding streams.
+    colliding.Remember(4,collision,retained);
+    assert(colliding.Find(4,collision) && *colliding.Find(4,collision)==retained);
+    assert(!colliding.Find(4,original));
+  }
+  for(auto limits: {std::array<size_t,3>{0,4,16}, {64,0,16}, {64,4,0}, {7,4,16}}) {
+    ImmutableBufferCache<Owner> disabled(limits[0],limits[1],limits[2]);
+    disabled.Remember(3,a,first);
+    assert(disabled.Size()==0 && disabled.RetainedBytes()==0 && !disabled.Find(3,a));
+  }
   ImmutableBufferCache<Owner> one(24,1,16);
   one.Remember(3,a,first);one.Remember(3,b,retained);
   assert(one.Size()==1 && !one.Find(3,a) && *one.Find(3,b)==retained);
