@@ -157,30 +157,47 @@ class OriginalMaterialCandidateIndex {
       hashes.insert(original_pixel_texture_keys[slot]);
     }
     if(hashes.empty())return {};
-    std::vector<OriginalSurfaceCandidate> intersection;
-    bool first=true;
+    // Each texture's archive owners already form a sorted, unique range.
+    // Start with the smallest range instead of allocating every candidate
+    // for widely shared city textures before seeing a selective texture.
+    using Iterator=decltype(entries_.cbegin());
+    using Range=std::pair<Iterator,Iterator>;
+    std::array<Range,16> ranges{};
+    size_t count=0;
     for(uint32_t texture:hashes) {
-      const auto lower=std::lower_bound(entries_.begin(),entries_.end(),texture,
+      auto lower=std::lower_bound(entries_.cbegin(),entries_.cend(),texture,
           [](const Link& entry,uint32_t hash){return entry.texture<hash;});
-      const auto upper=std::upper_bound(lower,entries_.end(),texture,
+      auto upper=std::upper_bound(lower,entries_.cend(),texture,
           [](uint32_t hash,const Link& entry){return hash<entry.texture;});
-      std::vector<OriginalSurfaceCandidate> owners;
-      for(auto it=lower;it!=upper;++it)
-        if(!exact_model_hash || it->owner.original_model_hash==exact_model_hash)
-          owners.push_back(it->owner);
-      if(first) {
-        intersection=std::move(owners);
-        first=false;
-      } else {
-        std::vector<OriginalSurfaceCandidate> common;
-        std::set_intersection(intersection.begin(),intersection.end(),
-                              owners.begin(),owners.end(),
-                              std::back_inserter(common));
-        intersection=std::move(common);
+      if(exact_model_hash) {
+        lower=std::lower_bound(lower,upper,exact_model_hash,
+            [](const Link& entry,uint32_t hash){return entry.owner.original_model_hash<hash;});
+        upper=std::upper_bound(lower,upper,exact_model_hash,
+            [](uint32_t hash,const Link& entry){return hash<entry.owner.original_model_hash;});
       }
-      if(intersection.empty())break;
+      if(lower==upper)return {};
+      ranges[count++]={lower,upper};
     }
-    if(intersection.size()>max_matches)return {};
+    std::sort(ranges.begin(),ranges.begin()+count,[](const Range& a,const Range& b){
+      return a.second-a.first<b.second-b.first;
+    });
+    std::vector<OriginalSurfaceCandidate> intersection;
+    for(auto it=ranges[0].first;it!=ranges[0].second;++it) {
+      const auto& owner=it->owner;
+      bool complete=true;
+      for(size_t i=1;i<count;++i) {
+        auto& [first,last]=ranges[i];
+        first=std::lower_bound(first,last,owner,
+            [](const Link& entry,const OriginalSurfaceCandidate& candidate){return entry.owner<candidate;});
+        if(first==last)return intersection;
+        if(!(first->owner==owner)){complete=false;break;}
+      }
+      if(!complete)continue;
+      // Only reject after finding an actual extra FULL intersection.
+      // Never truncate and falsely authorize a unique archive owner.
+      if(intersection.size()==max_matches)return {};
+      intersection.push_back(owner);
+    }
     return intersection;
   }
   // ARCHIVE PREFETCH ONLY: a shared diffuse/normal texture can belong to
