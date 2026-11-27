@@ -1,3 +1,6 @@
+#if defined(_WIN32) && !defined(NOMINMAX)
+#define NOMINMAX
+#endif
 #include "eor_native_audio_xaudio2.h"
 #include "eor_fsb4_pcm.h"
 #include "eor_archive.h"
@@ -158,7 +161,8 @@ bool NativeXAudio2Mixer::PlayIndexedWaveBankPcm16(Bus bus,
   uint64_t end=0;
   for(const auto& entry:group->second) {
     if(entry.reserved || entry.offset<4u || !entry.size)return false;
-    end=std::max(end,uint64_t(entry.offset)+entry.size);
+    // Windows SDK headers may define a function-like max macro.
+    end=(std::max)(end,uint64_t(entry.offset)+entry.size);
   }
   if(end<4 || end>UINT32_MAX)return false;
   try {

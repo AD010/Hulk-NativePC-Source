@@ -20,5 +20,12 @@ int main() {
   // clip, while a single decoded allocation remains explicitly bounded.
   std::vector<int16_t> long_sample(2u<<20);
   assert(ValidPcm16(long_sample,48000,2));
+#ifdef _WIN32
+  // Link the actual Windows-only mixer implementation and its SDK imports.
+  // Hosted CI may have no default audio endpoint; Ready() is not required.
+  NativeXAudio2Mixer mixer;
+  assert(mixer.ActiveVoices()==0u);
+  mixer.StopAll();
+#endif
   std::cout << "Native PCM16 audio buffer contract PASS\n";
 }

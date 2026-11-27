@@ -71,6 +71,16 @@ jobs:
         uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: amd64
+      - name: Compile and test actual native core with Windows Release toolchain
+        shell: pwsh
+        run: |
+          $coreBuild = Join-Path $env:RUNNER_TEMP 'hulk-native-core-release'
+          cmake -S native_port -B $coreBuild -G Ninja -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_BUILD_TYPE=Release '-DCMAKE_CXX_FLAGS=-march=x86-64-v2 -mno-avx -mno-avx2' -DHULK_NATIVE_CORE_ONLY=ON
+          if ($LASTEXITCODE -ne 0) { throw 'Native Windows core Release configure failed' }
+          cmake --build $coreBuild --config Release --parallel
+          if ($LASTEXITCODE -ne 0) { throw 'Native Windows core Release compile or link failed' }
+          ctest --test-dir $coreBuild -C Release --output-on-failure
+          if ($LASTEXITCODE -ne 0) { throw 'Native Windows core Release regression failed' }
       - name: Verify NativeX D140 complete source adaptation and regression safety
         shell: pwsh
         run: |
