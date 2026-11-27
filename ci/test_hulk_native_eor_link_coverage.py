@@ -266,6 +266,19 @@ class NativeEorLinkCoverage(unittest.TestCase):
         self.assertLess(mixed.index("owner->gpu->CanReplayOriginalXdkTimeline(*snapshot)"),
                         mixed.index("aot::ReplayAotScene("))
 
+    def test_exclusive_window_feeds_incremental_shaders_before_replay(self):
+        hook=(ROOT / "native_port/src/eor_xdk_hook_bridge.cpp").read_text()
+        drain=hook.split("void Drain() noexcept",1)[1].split("bool presented_",1)[0]
+        order=("ClaimLatestIndependentIfSequence", "RecordObservedOriginalAotPairDemand(*frame)",
+               "AdoptNewPrivateOriginalSpirvIfSafe(frame->sequence,host->Context())",
+               "current=g_offline_shader_pack", "owner.reset()", "resources->shaders.Clear()",
+               "resources->pack=*current", "owner->Prepare(*frame", "native_executor->Submit(")
+        positions=[drain.index(step) for step in order]
+        self.assertEqual(positions,sorted(positions))
+        startup=hook.split("bool StartExclusiveEorFrames(",1)[1].split("void StopExclusiveEorFrames",1)[0]
+        self.assertIn("!g_original_effect_capture_catalog",startup)
+        self.assertNotIn("!g_offline_shader_pack",startup)
+
     def test_live_game_uses_native_frame_executor_without_second_present(self):
         hook=(ROOT / "native_port/src/eor_xdk_hook_bridge.cpp").read_text()
         cmake=(ROOT / "native_port/CMakeLists.txt").read_text()

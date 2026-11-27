@@ -129,8 +129,8 @@ bool NativeXInitialize(
         hulk::eor::xdk::InstallVerifiedSourceShaderPackFromDirectory(original_source_root);
     if(!available) {
 #ifdef _WIN32
-      if(exclusive_requested) {
-        REXLOG_ERROR("[HULK/EOR-WIN32] original shader pack unavailable for exclusive replay");
+      if(exclusive_requested && !hulk::eor::xdk::HasVerifiedOriginalShaderCaptureIndex()) {
+        REXLOG_ERROR("[HULK/EOR-WIN32] original shader identities unavailable for exclusive replay");
         return false;
       }
 #endif

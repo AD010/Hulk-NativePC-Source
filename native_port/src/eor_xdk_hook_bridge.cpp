@@ -102,6 +102,7 @@ std::filesystem::path g_original_material_candidate_index; // guarded by g_mutex
 std::filesystem::path g_original_shader_aot_demand_path; // guarded by g_mutex
 std::filesystem::path g_last_incremental_spirv_file; // guarded by g_mutex
 std::filesystem::file_time_type g_last_incremental_spirv_write{}; // guarded
+uint64_t g_last_incremental_spirv_poll=0; // guarded by g_mutex
 std::uintmax_t g_last_incremental_spirv_size=0; // guarded
 std::set<std::pair<uint32_t,uint32_t>> g_original_shader_aot_requests; // guarded
 FrameCapture g_collector;
@@ -2112,6 +2113,7 @@ void ClearOriginalEorGameAssetRoot() noexcept {
   g_last_incremental_spirv_file.clear();
   g_last_incremental_spirv_write={};
   g_last_incremental_spirv_size=0;
+  g_last_incremental_spirv_poll=0;
 }
 void InstallOriginalEorMaterialCandidateIndexPath(
     const std::filesystem::path& private_source_index) {
@@ -2123,6 +2125,7 @@ void InstallOriginalEorMaterialCandidateIndexPath(
   g_last_incremental_spirv_file.clear();
   g_last_incremental_spirv_write={};
   g_last_incremental_spirv_size=0;
+  g_last_incremental_spirv_poll=0;
 }
 bool HasVerifiedOriginalShaderCaptureIndex() noexcept {
   std::lock_guard lock(g_mutex);
@@ -3105,12 +3108,18 @@ void AdvanceOriginalMeshUploads(world::NativeWorldStream& stream,
   });
 }
 
+void RecordObservedOriginalAotPairDemand(const Frame& snapshot) noexcept;
+bool AdoptNewPrivateOriginalSpirvIfSafe(uint64_t sequence,
+    Diligent::IDeviceContext* context) noexcept;
+
 #ifdef _WIN32
 class ExclusiveEorSession : public std::enable_shared_from_this<ExclusiveEorSession> {
  public:
   std::unique_ptr<gpu::EorWin32VulkanHost> host;
   std::shared_ptr<AutomaticEorResources> resources;
   std::unique_ptr<AutomaticEorOwner> owner;
+  AutomaticArchivePaths archives;
+  std::filesystem::path root,candidate;
   std::function<bool(std::function<void()>)> post;
   bool queued=false; // guarded by g_mutex
 
@@ -3135,6 +3144,24 @@ class ExclusiveEorSession : public std::enable_shared_from_this<ExclusiveEorSess
     if(!frame)return;
     bool staged=false;
     try {
+      RecordObservedOriginalAotPairDemand(*frame);
+      AdoptNewPrivateOriginalSpirvIfSafe(frame->sequence,host->Context());
+      std::optional<OfflineShaderPack> current;
+      {
+        std::lock_guard lock(g_mutex);
+        current=g_offline_shader_pack;
+      }
+      if(!current || !current->samplers || !current->virtual_ids)return;
+      if(!resources) {
+        resources=std::make_shared<AutomaticEorResources>(
+            host->Device(),*current,archives,root,candidate);
+      } else if(!resources->Matches(host->Device(),*current,root,candidate)) {
+        // The executor drains submitted draws before the old PSOs and
+        // shader modules disappear. Archive meshes and textures stay resident.
+        owner.reset();
+        resources->shaders.Clear();
+        resources->pack=*current;
+      }
       if(!ValidateOriginalCommandTimeline(*frame) || !host->ResizeToClient())return;
       const auto& swap=host->SwapChain()->GetDesc();
       const native::Size physical{swap.Width,swap.Height};
@@ -3625,8 +3652,8 @@ void RecordObservedOriginalAotPairDemand(const Frame& snapshot) noexcept {
 // Vulkan GPU pipeline objects. An active GPU owner still requires an
 // explicit completion fence before changing its shader generation.
 bool AdoptNewPrivateOriginalSpirvIfSafe(
-    uint64_t sequence,native_x_renderer::Device& host) noexcept {
-  if(sequence>5 && sequence%120!=0)return false;
+    uint64_t sequence,Diligent::IDeviceContext* context) noexcept {
+  if(!sequence)return false;
   try {
     std::filesystem::path root;
     {
@@ -3649,6 +3676,12 @@ bool AdoptNewPrivateOriginalSpirvIfSafe(
          g_offline_shader_pack->effects && g_offline_shader_pack->reflection &&
          g_offline_shader_pack->samplers && g_offline_shader_pack->virtual_ids)
         return false;
+      // The mailbox coalesces frames. Poll by elapsed source epochs even
+      // when the consumer never receives an exact multiple of 120.
+      if(sequence>5 && g_last_incremental_spirv_poll &&
+         sequence>=g_last_incremental_spirv_poll &&
+         sequence-g_last_incremental_spirv_poll<120)return false;
+      g_last_incremental_spirv_poll=sequence;
       root=g_original_shader_aot_demand_path.parent_path();
     }
     const auto compiled=root/"hulk_shader_bank.bin";
@@ -3681,9 +3714,9 @@ bool AdoptNewPrivateOriginalSpirvIfSafe(
                          static_cast<bool>(g_verified_worker_frame);
     }
     if(has_old_gpu_owner) {
-      if(!host.context())return false;
-      host.context()->Flush();
-      host.context()->WaitForIdle();
+      if(!context)return false;
+      context->Flush();
+      context->WaitForIdle();
     }
     // AOT writer installs HEORSPV1 first, then the four authenticated
     // metadata banks. Do NOT mark a partially installed generation as
@@ -3715,12 +3748,13 @@ bool StartExclusiveEorFrames(std::unique_ptr<gpu::EorWin32VulkanHost> host,
     std::function<bool(std::function<void()>)> post) noexcept {
   if(!host || !host->Device() || !host->Context() || !host->SwapChain() || !post)return false;
   try {
-    OfflineShaderPack pack;
+    std::optional<OfflineShaderPack> pack;
     std::filesystem::path root,candidate;
     {
       std::lock_guard lock(g_mutex);
-      if(g_notify_exclusive_frame || !g_offline_shader_pack)return false;
-      pack=*g_offline_shader_pack;
+      if(g_notify_exclusive_frame || !g_original_shader_capture_index ||
+         !g_original_effect_capture_catalog)return false;
+      pack=g_offline_shader_pack;
       root=g_original_game_asset_root;
       candidate=g_original_material_candidate_index;
     }
@@ -3728,8 +3762,12 @@ bool StartExclusiveEorFrames(std::unique_ptr<gpu::EorWin32VulkanHost> host,
     if(!paths)return false;
     auto session=std::make_shared<ExclusiveEorSession>();
     session->host=std::move(host);
-    session->resources=std::make_shared<AutomaticEorResources>(
-        session->host->Device(),pack,*paths,root,candidate);
+    session->root=root;
+    session->candidate=candidate;
+    session->archives=*paths;
+    if(pack && pack->samplers && pack->virtual_ids)
+      session->resources=std::make_shared<AutomaticEorResources>(
+          session->host->Device(),*pack,*paths,root,candidate);
     session->post=std::move(post);
     std::lock_guard lock(g_mutex);
     if(g_notify_exclusive_frame)return false;
@@ -3804,7 +3842,7 @@ native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(
       return Result::kNotReady;
     }
   }
-  if(AdoptNewPrivateOriginalSpirvIfSafe(source_sequence,host))
+  if(AdoptNewPrivateOriginalSpirvIfSafe(source_sequence,host.context()))
     return Result::kNotReady; // next source epoch rebuilds matching PSOs
   // The original live ShaderEffects pair is already authenticated by
   // BOTH guest VS/PS XDK ShaderContainer headers and HEORMAT2. Queue its
