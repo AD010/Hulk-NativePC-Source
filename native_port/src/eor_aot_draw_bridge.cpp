@@ -70,13 +70,23 @@ class ForwardingBackend final : public native::Backend {
       :draws_(draws),bank_(bank),reflection_(reflection),
        target_(target),source_(source),scene_begin_attempted_(scene_begin_attempted){}
   bool BeginScene(native::Size size,uint32_t samples) override {
+    // ReplayNativeScene has now validated the complete physical frame and
+    // every native Draw. Do not leave a prepared PSO/constant epoch latched
+    // if that validation rejects a frame before this entry point.
+    if(!target_.PreflightOriginalScene(draws_))
+      throw std::runtime_error("Source-proven native Vulkan frame PSO/resource preflight failed");
     // Only NOW can the original source begin altering host color/depth.
     // A shader/owner/PSO rejection before this point must retain NativeX.
     // Mark before delegating: a failing driver bind may already touch RTs.
+    target_begin_attempted_=true;
     if(scene_begin_attempted_)*scene_begin_attempted_=true;
     return target_.BeginScene(size,samples);
   }
-  void AbortScene() noexcept override {target_.AbortScene();}
+  void AbortScene() noexcept override {
+    // A preflight rejection never opened a target scene. Calling the
+    // underlying AbortScene here could disturb the compatible presenter.
+    if(target_begin_attempted_)target_.AbortScene();
+  }
   bool DrawIndexed(const native::IndexedDraw& draw) override {
     if(position_>=draws_.size())
       throw std::logic_error("EoR draw/compiled shader pairing overflow");
@@ -190,6 +200,7 @@ class ForwardingBackend final : public native::Backend {
   ShaderBindingBackend& target_;
   const xdk::Frame* source_=nullptr;
   bool* scene_begin_attempted_=nullptr;
+  bool target_begin_attempted_=false;
   size_t position_=0,cursor_=0;
 };}
 
@@ -395,8 +406,8 @@ void ReplayAotScene(const native::FrameGeometry& frame,
   // Shader/texture source validation above is complete. Vulkan prepares
   // actual PSOs and validates native geometry before opening any GPU scene;
   // a driver compile failure is no longer allowed halfway through a frame.
-  if (!backend.PreflightOriginalScene(draws))
-    throw std::runtime_error("Source-proven native Vulkan frame PSO/resource preflight failed");
+  // The forwarding BeginScene performs PSO preparation only after the
+  // native frame/Draw validation has passed, but before any target bind.
   ForwardingBackend forward(draws,bank,reflection,backend,
                             exact_original_timeline,scene_begin_attempted);
   native::ReplayNativeScene(frame,commands,forward);
