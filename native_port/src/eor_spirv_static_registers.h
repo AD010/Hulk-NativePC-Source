@@ -27,13 +27,33 @@ inline std::bitset<256> AnalyzeScalarRegisterReads(std::span<const uint32_t> wor
   }
   if(blocks.size()!=1)return {};
   const auto block=*blocks.begin();
+  // DXC may address a float4 register or one of its components in a
+  // single access chain, or split the chain at the verified member-zero
+  // array pointer. Preserve the exact static register index in each form.
+  std::set<uint32_t> register_arrays;
   for(size_t i=5;i<words.size();) {
     const auto n=words[i]>>16,op=words[i]&65535u;
     const auto* w=words.data()+i;
-    if((op==65u || op==66u) && n==6u && w[3]==block) {
-      const auto member=constants.find(w[4]),index=constants.find(w[5]);
-      if(member!=constants.end() && index!=constants.end() && member->second==0)
-        if(index->second<256u)read_registers.set(index->second);
+    if((op==65u || op==66u) && n>=5u && n<=7u) {
+      size_t index_operand=0;
+      if(w[3]==block) {
+        const auto member=constants.find(w[4]);
+        if(member!=constants.end() && member->second==0) {
+          if(n==5u)register_arrays.insert(w[2]);
+          else index_operand=5u;
+        }
+      } else if(register_arrays.contains(w[3]) && n<=6u) {
+        index_operand=4u;
+      }
+      if(index_operand) {
+        const auto index=constants.find(w[index_operand]);
+        const auto component=index_operand+1u<n ?
+            constants.find(w[index_operand+1u]) : constants.end();
+        if(index!=constants.end() && index->second<256u &&
+           (index_operand+1u==n ||
+            (component!=constants.end() && component->second<4u)))
+          read_registers.set(index->second);
+      }
     }
     i+=n;
   }
