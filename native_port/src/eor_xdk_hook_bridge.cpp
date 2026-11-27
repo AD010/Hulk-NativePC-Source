@@ -2705,9 +2705,8 @@ struct OriginalEorGpuCompletion {
     in_flight.emplace_back(value,original_frame);
     Poll();
     if(in_flight.size()>3) {
-      // Bound VRAM and transient font allocations on a heavily loaded GPU.
-      // Only a real queue backlog needs the expensive completion barrier.
-      context->WaitForIdle();
+      // Wait only for the oldest queued Draw resources to become reusable.
+      fence->Wait(in_flight.front().first);
       Poll();
     }
     return true;
@@ -3523,7 +3522,7 @@ native_x_renderer::HulkEorPresentResult ReplayVerifiedMixedOriginalFrame(
         snapshot.get(),&began_gpu);
     // GPU owns every source-authenticated Draw until the real Diligent
     // fence, not just its CPU Present ordinal. Normal frames enqueue a
-    // signal and return immediately; a bounded backlog alone waits idle.
+    // signal and return immediately; backlog waits for the oldest fence.
     // The old synchronous completion path remains for external catalogue
     // implementations that cannot provide an explicit completion fence.
     staged.active=false;

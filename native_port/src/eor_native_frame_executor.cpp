@@ -134,8 +134,8 @@ NativeFrameSubmission EorNativeFrameExecutor::Submit(
       state_->last_signal=signal;
       RetireCompleted();
       if(state_->pending.size()>3) {
-        // Only actual sustained GPU backlog blocks this native worker.
-        context->WaitForIdle();
+        // One completed epoch frees a slot. Leave later submissions in flight.
+        state_->fence->Wait(state_->pending.front().value);
         RetireCompleted();
       }
     } else {
