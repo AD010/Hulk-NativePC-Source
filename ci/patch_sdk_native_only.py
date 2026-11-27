@@ -45,11 +45,15 @@ def patch_presenter_ownership(sdk: Path) -> None:
     # create another one later unless it takes the pinned SDK's headless GPU path.
     changes = (
         ("src/ui/rex_app.cpp", "if (config_.graphics) {\n    X_STATUS status = config_.graphics->SetupPresentation",
-         'if (config_.graphics && !rex::cvar::Query<bool>("hulk_eor_exclusive_vulkan")) {\n'
+         'const char* hulk_exclusive_opt_in = std::getenv("HULK_EXPERIMENTAL_EXCLUSIVE_VULKAN");\n'
+         '  if (config_.graphics && (!rex::cvar::Query<bool>("hulk_eor_exclusive_vulkan") ||\n'
+         '      !hulk_exclusive_opt_in || hulk_exclusive_opt_in[0] != \'1\' || hulk_exclusive_opt_in[1] != \'\\0\')) {\n'
          '    X_STATUS status = config_.graphics->SetupPresentation'),
         ("src/system/runtime.cpp", "bool with_presentation = (app_context_ != nullptr);",
-         'bool with_presentation = app_context_ != nullptr &&\n'
-         '        !rex::cvar::Query<bool>("hulk_eor_exclusive_vulkan");'),
+         'const char* hulk_exclusive_opt_in = std::getenv("HULK_EXPERIMENTAL_EXCLUSIVE_VULKAN");\n'
+         '    bool with_presentation = app_context_ != nullptr &&\n'
+         '        (!rex::cvar::Query<bool>("hulk_eor_exclusive_vulkan") ||\n'
+         '         !hulk_exclusive_opt_in || hulk_exclusive_opt_in[0] != \'1\' || hulk_exclusive_opt_in[1] != \'\\0\');'),
     )
     pending = []
     for name, before, after in changes:
@@ -59,7 +63,10 @@ def patch_presenter_ownership(sdk: Path) -> None:
             continue
         if source.count(before) != 1 or after in source:
             raise ValueError(f"unexpected presenter initialization in {name}")
-        pending.append((path, source.replace(before, after)))
+        updated = source.replace(before, after)
+        if "#include <cstdlib>" not in updated:
+            updated = "#include <cstdlib>\n" + updated
+        pending.append((path, updated))
     for path, source in pending:
         path.write_text(source, encoding="utf-8", newline="\n")
 

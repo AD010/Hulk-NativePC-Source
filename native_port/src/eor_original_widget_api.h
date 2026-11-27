@@ -65,6 +65,20 @@ bool VerifyOriginalWidgetAbi(Read& read) {
     if(WidgetWord(entry[0],0,read)!=entry[1] || WidgetWord(entry[0],4,read)!=entry[2])return false;
   return true;
 }
+// Existing rows need only the exact original FindChild and UTF-16 setter.
+// Do not make the shipped menu dependent on unused VM construction paths
+// or runtime registration of an unrelated CreateInstance native.
+template<class Read>
+bool VerifyExistingWidgetAbi(Read& read) {
+  std::array<uint8_t,208> bytes{};
+  for(const auto& pin:{kWidgetCodePins[1],kWidgetCodePins[9]}) {
+    if(!read(pin.address,bytes.data(),pin.length))return false;
+    uint64_t h=0xcbf29ce484222325ull;
+    for(size_t i=0;i<pin.length;++i)h=(h^bytes[i])*0x100000001b3ull;
+    if(h!=pin.fnv)return false;
+  }
+  return true;
+}
 struct OriginalWidgetIdentity {uint32_t object=0,parent=0,symbol=0,definition=0;};
 template<class Read>
 std::optional<OriginalWidgetIdentity> ReadOriginalWidget(uint32_t object,Read& read) {
@@ -83,7 +97,9 @@ std::optional<OriginalWidgetIdentity> ReadOriginalWidget(uint32_t object,Read& r
 template<class Read,class Invoke>
 class OriginalWidgetApi {
  public:
-  OriginalWidgetApi(Read& read,Invoke& invoke):read_(read),invoke_(invoke),verified_(VerifyOriginalWidgetAbi(read)){}
+  OriginalWidgetApi(Read& read,Invoke& invoke,bool existing_only=false)
+      :read_(read),invoke_(invoke),verified_(existing_only?VerifyExistingWidgetAbi(read):VerifyOriginalWidgetAbi(read)),
+       creation_allowed_(!existing_only && verified_) {}
   bool Verified() const noexcept {return verified_;}
   std::optional<OriginalWidgetIdentity> Find(uint32_t parent,uint32_t symbol) {
     if(!verified_ || !symbol || !ReadOriginalWidget(parent,read_))return {};
@@ -98,7 +114,7 @@ class OriginalWidgetApi {
   // Win32/ImGui rectangle. The native constructor performs attachment.
   std::optional<OriginalWidgetIdentity> CreateMenuRow(uint32_t page,uint32_t parent,
       uint32_t symbol,uint32_t orientation) {
-    if(!verified_ || !symbol || !orientation || (orientation&15u) ||
+    if(!creation_allowed_ || !symbol || !orientation || (orientation&15u) ||
        uint64_t(orientation)+64>uint64_t(UINT32_MAX)+1u)return {};
     const auto root=ReadOriginalWidget(page,read_);
     if(!root || (root->definition!=kSettingsDefinition && root->definition!=kGameSettingsDefinition &&
@@ -145,6 +161,6 @@ class OriginalWidgetApi {
     return invoke_(0x8271D340u,std::span<const uint32_t>(args)).has_value();
   }
  private:
-  Read& read_; Invoke& invoke_; bool verified_;
+  Read& read_; Invoke& invoke_; bool verified_; bool creation_allowed_;
 };
 } // namespace hulk::eor::ui

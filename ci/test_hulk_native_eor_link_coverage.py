@@ -582,6 +582,18 @@ class NativeEorLinkCoverage(unittest.TestCase):
             self.assertEqual(first,(app.read_text(),runtime.read_text()))
             for initialization in first:
                 self.assertIn('!rex::cvar::Query<bool>("hulk_eor_exclusive_vulkan")',initialization)
+                self.assertIn('std::getenv("HULK_EXPERIMENTAL_EXCLUSIVE_VULKAN")',initialization)
+                self.assertIn("#include <cstdlib>",initialization)
+
+    def test_existing_native_menu_does_not_require_unused_construction_abi(self):
+        widget=(ROOT / "native_port/src/eor_original_widget_api.h").read_text()
+        bridge=(ROOT / "native_port/src/eor_xdk_hook_bridge.cpp").read_text()
+        existing=widget.split("bool VerifyExistingWidgetAbi(",1)[1].split("struct OriginalWidgetIdentity",1)[0]
+        self.assertIn("kWidgetCodePins[1],kWidgetCodePins[9]",existing)
+        self.assertIn("!creation_allowed_ ||",widget)
+        self.assertIn("OriginalWidgetApi api(read,invoke,true)",bridge)
+        self.assertIn("native PC settings entry installed",bridge)
+        self.assertIn("original StorageOption row hidden",bridge)
 
     def test_native_backend_resets_viewport_and_scissor_per_actual_eor_draw(self):
         source=(ROOT / "native_port/src/eor_diligent_aot_backend.cpp").read_text()

@@ -341,15 +341,22 @@ void DispatchOriginalPcMenu(PPCContext& ctx,uint8_t* base,PPCFunc* original,[[ma
       const auto apply=[&](bool entering)->bool {
         struct Scope {Scope(){g_pc_menu_dispatching=true;}~Scope(){g_pc_menu_dispatching=false;}} scope;
         PcMenuGuestScratch scratch(ctx,base);
-        if(!scratch.stack)return false;
+        const auto reject=[&](const char* reason) {
+          REXLOG_WARN("[HULK/ORIGINAL-PC-MENU] root=0x{:08X} event={} rejected: {}",
+                      event->root,static_cast<unsigned>(event->event),reason);
+          return false;
+        };
+        if(!scratch.stack)return reject("guest scratch unavailable");
         auto invoke=[&](uint32_t a,std::span<const uint32_t> args){return scratch.Invoke(a,args);};
-        ui::OriginalWidgetApi api(read,invoke);
-        if(!api.Verified())return false;
+        ui::OriginalWidgetApi api(read,invoke,true);
+        if(!api.Verified())return reject("original FindChild/SetText code mismatch");
         const auto row=api.Find(event->root,ui::WidgetSymbol("StorageOption"));
         // StorageOption has no required Hidden field in either retail page.
         // Missing field is not hidden; exact Selector.Hidden gates activation.
-        if(!row || row->definition!=ui::kMenuItemTemplate ||
-           scratch.Hidden(row->object,read)==std::optional<bool>{true})return false;
+        if(!row || row->definition!=ui::kMenuItemTemplate)
+          return reject("original StorageOption row not found");
+        if(scratch.Hidden(row->object,read)==std::optional<bool>{true})
+          return reject("original StorageOption row hidden");
         auto find=[&](uint32_t p,uint32_t sym){return api.Find(p,sym);};
         auto paint_text=[&](uint32_t obj,std::span<const uint16_t> v){return scratch.PaintWide(obj,v,read);};
         auto hide=[&](uint32_t obj,bool v){return scratch.SetTextHidden(obj,v,read);};
@@ -365,10 +372,17 @@ void DispatchOriginalPcMenu(PPCContext& ctx,uint8_t* base,PPCFunc* original,[[ma
           if(g_original_pc_page_view.Active() && !g_original_pc_page_view.Restore(event->root,read,paint_text,hide))return false;
           return scratch.Paint(api,row->object,frame.compact);
         };
-        if(entering)return g_original_pc_storage_menu.Enter(event->root,row->object,paint);
+        if(entering) {
+          if(!g_original_pc_storage_menu.Enter(event->root,row->object,paint))
+            return reject("original text setter rejected PC entry");
+          REXLOG_INFO("[HULK/ORIGINAL-PC-MENU] native PC settings entry installed root=0x{:08X} row=0x{:08X}",
+                      event->root,row->object);
+          return true;
+        }
         const std::array<uint32_t,2> lookup{event->root,event->context};
         const auto method=scratch.Invoke(0x825B9528u,lookup);
-        if(!method || !*method || !scratch.BindOwner(event->context,event->root))return false;
+        if(!method || !*method || !scratch.BindOwner(event->context,event->root))
+          return reject("original event owner/method unavailable");
         // Some retail StateEnter paths are already executing before the
         // host session exists. Recover on the next authenticated UI event,
         // without stealing focus or consuming the original Back action.
@@ -414,6 +428,9 @@ void DispatchOriginalPcMenu(PPCContext& ctx,uint8_t* base,PPCFunc* original,[[ma
         { EnterScope guard; (*original)(ctx,base); }
         if(ui::OriginalSettingsEntrySucceeded(direct_method,ctx.r3.u32))
           try{(void)apply(true);}catch(...){}
+        else
+          REXLOG_WARN("[HULK/ORIGINAL-PC-MENU] original StateEnter did not succeed: direct={} result=0x{:08X}",
+                      direct_method,ctx.r3.u32);
         return;
       }
       try {
