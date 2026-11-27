@@ -3,8 +3,7 @@
 #include "eor_spirv_clip_position.h"
 #include <cstring>
 #include <fstream>
-#include <iterator>
-#include <limits>
+#include <bit>
 #include <stdexcept>
 
 namespace hulk::eor::aot {
@@ -12,14 +11,15 @@ namespace {
 constexpr size_t kMaxPackedBytes = 1024ull * 1024u * 1024u;
 constexpr size_t kMaxShaders = 16384;
 constexpr uint32_t kSpirvMagic = 0x07230203;
-uint32_t Read32(std::span<const uint8_t> bytes, size_t& offset) {
-  if (offset > bytes.size() || bytes.size() - offset < 4)
-    throw std::invalid_argument("Truncated private shader-bank index");
-  uint32_t value = 0;
-  for (unsigned i = 0; i < 4; ++i)
-    value |= uint32_t(bytes[offset + i]) << (i * 8);
-  offset += 4;
-  return value;
+uint32_t Read32(const uint8_t* bytes) noexcept {
+  return uint32_t(bytes[0]) | (uint32_t(bytes[1]) << 8) |
+         (uint32_t(bytes[2]) << 16) | (uint32_t(bytes[3]) << 24);
+}
+void ReadExact(std::istream& file, void* dst, size_t bytes, size_t& remaining) {
+  if (bytes > remaining ||
+      !file.read(static_cast<char*>(dst), static_cast<std::streamsize>(bytes)))
+    throw std::invalid_argument("Truncated private AOT bank file");
+  remaining -= bytes;
 }
 
 // Verify instruction WORD COUNTS and the declared pipeline stage before
@@ -72,35 +72,38 @@ void ShaderBank::Load(const std::filesystem::path& path) {
   const auto total = f.tellg();
   if (total < 0 || uint64_t(total) < 16u || uint64_t(total) > kMaxPackedBytes)
     throw std::invalid_argument("Invalid private AOT bank size");
-  std::vector<uint8_t> bytes(static_cast<size_t>(total));
+  size_t remaining = static_cast<size_t>(total);
   f.seekg(0);
-  if (!f.read(reinterpret_cast<char*>(bytes.data()),
-              static_cast<std::streamsize>(bytes.size())))
-    throw std::invalid_argument("Truncated private AOT bank file");
-  const std::span<const uint8_t> data(bytes.data(), bytes.size());
-  if (std::memcmp(data.data(), "HEORSPV1", 8) != 0)
+  std::array<uint8_t,16> header{};
+  ReadExact(f, header.data(), header.size(), remaining);
+  if (std::memcmp(header.data(), "HEORSPV1", 8) != 0)
     throw std::invalid_argument("Unknown EoR SPIR-V cache version");
-  size_t offset = 8;
-  const uint32_t expected = Read32(data, offset);
-  const uint32_t compiled = Read32(data, offset);
+  const uint32_t expected = Read32(header.data()+8);
+  const uint32_t compiled = Read32(header.data()+12);
   if (expected == 0 || expected > kMaxShaders || compiled > expected)
     throw std::invalid_argument("Invalid EoR shader-cache coverage");
   std::map<Digest, Blob> next;
   for (uint32_t i = 0; i < compiled; ++i) {
-    if (offset > data.size() || data.size() - offset < 40)
-      throw std::invalid_argument("Truncated EoR shader-cache record");
+    std::array<uint8_t,40> record{};
+    ReadExact(f, record.data(), record.size(), remaining);
     Digest key{};
-    for (size_t b = 0; b < key.size(); ++b) key[b] = data[offset + b];
-    offset += key.size();
-    const uint32_t stage = Read32(data, offset);
-    const uint32_t words = Read32(data, offset);
+    std::memcpy(key.data(), record.data(), key.size());
+    const uint32_t stage = Read32(record.data()+32);
+    const uint32_t words = Read32(record.data()+36);
     if ((stage != 1 && stage != 2) || words < 5 || words > (8u << 20) / 4 ||
-        offset > data.size() || size_t(words) > (data.size() - offset) / 4)
+        size_t(words) > remaining / 4)
       throw std::invalid_argument("Invalid EoR SPIR-V shader record");
     Blob blob;
     blob.stage = static_cast<Stage>(stage);
-    blob.spirv.reserve(words);
-    for (uint32_t j = 0; j < words; ++j) blob.spirv.push_back(Read32(data, offset));
+    // Read directly into the final module allocation. A partial-bank
+    // refresh already retains the previous generation until validation;
+    // do not also retain a full temporary copy of the packed file.
+    blob.spirv.resize(words);
+    ReadExact(f, blob.spirv.data(), size_t(words)*4, remaining);
+    if constexpr (std::endian::native != std::endian::little) {
+      for (auto& word : blob.spirv)
+        word = Read32(reinterpret_cast<const uint8_t*>(&word));
+    }
     if (blob.spirv[0] != kSpirvMagic ||
         blob.spirv[1] < 0x10000u || blob.spirv[1] > 0x10600u ||
         blob.spirv[3] == 0 || blob.spirv[3] > 1000000 ||
@@ -114,7 +117,7 @@ void ShaderBank::Load(const std::filesystem::path& path) {
     if (!next.emplace(key, std::move(blob)).second)
       throw std::invalid_argument("Duplicate Xenos source SHA in private AOT bank");
   }
-  if (offset != data.size())
+  if (remaining != 0 || f.peek() != std::char_traits<char>::eof() || f.bad())
     throw std::invalid_argument("Trailing unvalidated shader-cache data");
   expected_ = expected;
   shaders_.swap(next); // Existing good shader bank survives a bad reload.
