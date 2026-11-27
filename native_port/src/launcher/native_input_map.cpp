@@ -14,15 +14,22 @@ int16_t Axis(int direction, float strength) {
   const int magnitude = std::clamp(static_cast<int>(std::lround(safe * 32767.0f)), 0, 32767);
   return static_cast<int16_t>(direction < 0 ? -magnitude : magnitude);
 }
-int16_t MouseAxis(int32_t delta, float sens) {
+float MouseSensitivity(float axis, float legacy) {
+  // The host multiplies the base [0.1,20] by an independent [0.25,4]
+  // setting for each axis. Preserve that effective range instead of
+  // clipping away the multiplier at the old unified sensitivity limits.
+  if (std::isfinite(axis) && axis > 0.0f)
+    return std::clamp(axis, 0.025f, 80.0f);
+  return std::isfinite(legacy) ? std::clamp(legacy, 0.1f, 20.0f) : 4.0f;
+}
+int16_t MouseAxis(int64_t delta, float sens) {
   // Raw Input counts converted to Xbox analog deflection. Not yet a direct camera hook.
-  if (!std::isfinite(sens)) sens = 4.0f;
   // The Xbox 360 right stick has a large deadzone (typically about 8689).
   // Previously one mouse count at sensitivity 4 produced just 320: the
   // camera would never move unless the pointer jumped tens of counts at once.
   if (!delta) return 0;
   const double magnitude = 9600.0 +
-      std::abs(static_cast<double>(delta)) * std::clamp(sens, 0.1f, 20.f) * 150.0;
+      std::abs(static_cast<double>(delta)) * sens * 150.0;
   const double signed_value = std::copysign(std::min(magnitude, 32767.0),
                                            static_cast<double>(delta));
   return static_cast<int16_t>(signed_value);
@@ -61,12 +68,10 @@ void ApplyFrame(const Frame& f, uint8_t state[16]) {
   const int y = (pressed(W)?1:0)-(pressed(S)?1:0);
   StoreBE16(state, 8, static_cast<uint16_t>(Axis(x, f.move_stick_strength)));
   StoreBE16(state, 10, static_cast<uint16_t>(Axis(y, f.move_stick_strength)));
-  const float sx = std::isfinite(f.sensitivity_x) && f.sensitivity_x > 0.0f
-      ? f.sensitivity_x : f.sensitivity;
-  const float sy = std::isfinite(f.sensitivity_y) && f.sensitivity_y > 0.0f
-      ? f.sensitivity_y : f.sensitivity;
+  const float sx = MouseSensitivity(f.sensitivity_x, f.sensitivity);
+  const float sy = MouseSensitivity(f.sensitivity_y, f.sensitivity);
   const auto rx = f.mouse_as_right_stick ? MouseAxis(f.mouse_dx, sx) : int16_t(0);
-  const auto ry = f.mouse_as_right_stick ? MouseAxis(-f.mouse_dy, sy) : int16_t(0);
+  const auto ry = f.mouse_as_right_stick ? MouseAxis(-static_cast<int64_t>(f.mouse_dy), sy) : int16_t(0);
   StoreBE16(state, 12, static_cast<uint16_t>(rx));
   StoreBE16(state, 14, static_cast<uint16_t>(ry));
 }
