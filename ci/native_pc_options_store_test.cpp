@@ -346,6 +346,19 @@ int main() {
            event(PcEvent::Select) && visual.title.starts_with("Audio") &&
            event(PcEvent::Increase) && muted,"Original audio page failed to apply mute");
     Expect(event(PcEvent::Back) && visual.count==0,"Original settings page failed to return");
+    unsigned exits=0;
+    auto exit_event=[&](PcEvent ev,bool focused=true) {
+      return menu.Handle(10,20,ev,focused,paint,read,action,[&]{++exits;return true;});
+    };
+    Expect(exit_event(PcEvent::Select) && exit_event(PcEvent::Select) &&
+           exit_event(PcEvent::Select) && exit_event(PcEvent::Select) &&
+           visual.title.find("Exit to Windows?")!=std::string::npos && exits==0,
+           "Original menu must display confirmation without exiting");
+    Expect(exit_event(PcEvent::Back) && exits==0,"Original exit cancellation failed");
+    Expect(exit_event(PcEvent::Select) && exit_event(PcEvent::Select) &&
+           exit_event(PcEvent::Select) && exit_event(PcEvent::Select) &&
+           exit_event(PcEvent::Select) && exits==1 && !menu.Owns(10,20),
+           "Original focused confirmation must request one native close");
   }
   hulk::options::PcMenuPageSession page;
   unsigned bind_rows=0;

@@ -5,6 +5,7 @@
 #include "native_pc_menu_rows.h"
 #include <charconv>
 #include <cmath>
+#include <functional>
 #include <map>
 #include <string>
 #include <vector>
@@ -88,10 +89,10 @@ std::optional<PcSettingsEvent> CapturePcSettingsEvent(uint32_t root,uint32_t con
   if(!VerifySettingsEventAbi(read))return {};
   return PcSettingsEvent{root,context,id->definition,event};
 }
-inline constexpr std::string_view kPcEntryText="PC Graphics / Controls / Audio";
+inline constexpr std::string_view kPcEntryText="PC Graphics / Controls / Audio / Exit";
 // Do not rebind the keys driving this same native menu while it is open.
 // Gameplay bindings, camera, display and graphics are editable here.
-enum class PcSettingsSection { Entry, Graphics, Controls, Audio };
+enum class PcSettingsSection { Entry, Graphics, Controls, Audio, Exit };
 inline bool PcStorageRowOption(const options::PcMenuRow& row,PcSettingsSection section) noexcept {
   using S=options::PcMenuSection;using K=options::PcMenuRowKind;
   if(section==PcSettingsSection::Audio)return row.section==S::Audio && row.kind==K::Choice;
@@ -184,7 +185,8 @@ class OriginalPcStorageMenu {
   }
   template<class Paint,class ReadValue,class Commit>
   bool Handle(uint32_t owner,uint32_t row,PcEvent event,bool focused,
-      Paint&& paint,ReadValue&& read_value,Commit&& commit) {
+      Paint&& paint,ReadValue&& read_value,Commit&& commit,
+      const std::function<bool()>& request_exit={}) {
     if(!Owns(owner,row))return false;
     if(!focused) {if(section_!=PcSettingsSection::Entry) {section_=PcSettingsSection::Entry;cursor_=0;(void)PaintPcMenuEntry(paint,kPcEntryText);}return false;}
     if(section_==PcSettingsSection::Entry) {
@@ -193,10 +195,23 @@ class OriginalPcStorageMenu {
     } else if(event==PcEvent::Back) {
       if(!PaintPcMenuEntry(paint,kPcEntryText))return false;
       section_=PcSettingsSection::Entry;cursor_=0;return true;
+    } else if(section_==PcSettingsSection::Exit) {
+      if(event!=PcEvent::Select)return true;
+      if(request_exit && request_exit()){Leave();return true;}
+      (void)PaintPcMenuEntry(paint,"Exit unavailable - Back to cancel");
+      return true;
     } else if(event==PcEvent::Select) {
       switch(section_) {
         case PcSettingsSection::Graphics:section_=PcSettingsSection::Controls;break;
         case PcSettingsSection::Controls:section_=PcSettingsSection::Audio;break;
+        case PcSettingsSection::Audio:
+          // This is a real, focused EoR selector event. Require another
+          // explicit Select to confirm; Back cancels via the normal path.
+          if(request_exit) {
+            if(!PaintPcMenuEntry(paint,"Exit to Windows? Select to confirm / Back to cancel"))return true;
+            section_=PcSettingsSection::Exit;cursor_=0;return true;
+          }
+          section_=PcSettingsSection::Graphics;break;
         default:section_=PcSettingsSection::Graphics;break;
       }
       cursor_=0;

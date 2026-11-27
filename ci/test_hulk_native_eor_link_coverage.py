@@ -585,6 +585,18 @@ class NativeEorLinkCoverage(unittest.TestCase):
                 self.assertIn('std::getenv("HULK_EXPERIMENTAL_EXCLUSIVE_VULKAN")',initialization)
                 self.assertIn("#include <cstdlib>",initialization)
 
+    def test_original_menu_is_default_and_exit_posts_real_window_close(self):
+        app=(ROOT / "native_port/src/incredible_hulk_app.h").read_text()
+        bridge=(ROOT / "native_port/src/eor_xdk_hook_bridge.cpp").read_text()
+        overlay=(ROOT / "native_port/src/pc_menu.h").read_text()
+        window=(ROOT / "native_port/src/launcher/game_window.cpp").read_text()
+        self.assertIn("if(!hulk::PcDebugOverlayEnabled())return;",app)
+        self.assertIn("HULK_DEBUG_IMGUI_MENU",overlay)
+        self.assertIn("PcDebugOverlayEnabled() && key_down && wp == VK_F10",window)
+        self.assertIn("PostMessageW(hwnd,WM_CLOSE,0,0)",window)
+        self.assertIn("return hulk::GameWindowRequestClose();",bridge)
+        self.assertIn("actual->size()==label.size()",bridge)
+
     def test_existing_native_menu_does_not_require_unused_construction_abi(self):
         widget=(ROOT / "native_port/src/eor_original_widget_api.h").read_text()
         bridge=(ROOT / "native_port/src/eor_xdk_hook_bridge.cpp").read_text()

@@ -86,6 +86,7 @@ REXCVAR_DEFINE_INT32(hulk_original_sfx_volume,-1,"Hulk/Original Settings",
 REXCVAR_DEFINE_INT32(hulk_original_dialog_volume,-1,"Hulk/Original Settings",
                     "Original EoR dialogue volume, -1 inherits game").range(-1,100);
 namespace hulk {
+bool GameWindowRequestClose();
 void CommitOriginalCameraMenuOption(bool yaw,bool value,uint8_t* base) noexcept;
 void RestoreOriginalCameraMenuOptions(uint8_t* base) noexcept;
 }
@@ -313,7 +314,15 @@ struct PcMenuGuestScratch {
                         static_cast<unsigned char>(c)>126u)return false;
     for(size_t i=0;i<label.size();++i){text[2*i]=0;text[2*i+1]=uint8_t(label[i]);}
     text[2*label.size()]=text[2*label.size()+1]=0;
-    return api.SetRowText(row,stack-640u,label.size());
+    if(!api.SetRowText(row,stack-640u,label.size()))return false;
+    const auto child=api.Find(row,ui::kTextChild);
+    if(!child)return false;
+    const auto read=[&](uint32_t address,uint8_t* bytes,size_t count){
+      return ReadGuest(base,address,reinterpret_cast<std::byte*>(bytes),count);
+    };
+    const auto actual=ui::ReadOriginalPcText(child->object,read);
+    return actual && actual->size()==label.size() &&
+        std::equal(actual->begin(),actual->end(),label.begin(),label.end());
   }
 };
 thread_local ui::OriginalPcStorageMenu g_original_pc_storage_menu;
@@ -404,7 +413,7 @@ void DispatchOriginalPcMenu(PPCContext& ctx,uint8_t* base,PPCFunc* original,[[ma
           [](std::string_view key,std::string_view value){
             return options::CommitLivePcMenuValue(key,value,[](std::string_view k,std::string_view v){
               return rex::cvar::SetFlagByName(std::string(k),std::string(v));});
-          });
+          },[] {return hulk::GameWindowRequestClose();});
       };
       if(event->event==ui::PcEvent::Enter) {
         g_original_pc_storage_menu.Leave();

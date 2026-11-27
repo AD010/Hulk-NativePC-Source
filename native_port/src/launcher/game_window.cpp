@@ -92,7 +92,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
   }
   const bool close_with_escape = msg == WM_KEYDOWN && wp == VK_ESCAPE &&
                                  !(lp & (1L << 29)) && PcMenuIsOpen();
-  if ((key_down && wp == VK_F10) || close_with_escape) {
+  if ((PcDebugOverlayEnabled() && key_down && wp == VK_F10) || close_with_escape) {
     if (lp & (1L << 30)) return 0;
     if (close_with_escape) NativeInputConsumeEscape(true);
     const bool opening = !PcMenuIsOpen();
@@ -112,7 +112,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                  MAKELPARAM(HTCLIENT, WM_MOUSEMOVE));
     return 0;
   }
-  if ((msg == WM_KEYUP || msg == WM_SYSKEYUP) && wp == VK_F10)
+  if (PcDebugOverlayEnabled() && (msg == WM_KEYUP || msg == WM_SYSKEYUP) && wp == VK_F10)
     return 0;
   // F11 only produces a GPU verification report if the observer is active.
   // Log delivery without swallowing the SDK's own F11 bind.
@@ -221,6 +221,13 @@ void Attach() {
 
 }  // namespace
 
+bool GameWindowRequestClose() {
+  const HWND hwnd=g_window.load(std::memory_order_acquire);
+  DWORD process=0;
+  if(!hwnd || !GetWindowThreadProcessId(hwnd,&process) || process!=GetCurrentProcessId())return false;
+  return PostMessageW(hwnd,WM_CLOSE,0,0)!=0;
+}
+
 void GameWindowMenuClosed() {
   // HULK/MENU-FOCUS-RECAPTURE: restore the previous capture regardless of
   // whether the menu was closed by F10, the Resume button, or the X.
@@ -250,6 +257,7 @@ void GameWindowTick(bool pad_used) {
 #else
 void GameWindowTick(bool) {}
 void GameWindowMenuClosed() {}
+bool GameWindowRequestClose() {return false;}
 #endif
 
 // What the input hook passes: the state it saw last for slot `user`, and whether it changed.

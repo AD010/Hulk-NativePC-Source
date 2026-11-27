@@ -389,6 +389,7 @@ class IncredibleHulkApp : public rex::ReXApp {
     if (window()) window()->RequestPaint();
   }
   void OnCreateDialogs(rex::ui::ImGuiDrawer* drawer) override {
+    if(!hulk::PcDebugOverlayEnabled())return;
     pc_menu_ = hulk::CreatePcMenu(drawer, window(), native_pc_config_, [this] {
       if (window()) window()->RequestClose();
     });
