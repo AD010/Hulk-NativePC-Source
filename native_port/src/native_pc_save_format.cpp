@@ -1,4 +1,5 @@
 #include "native_pc_save_format.h"
+#include "native_pc_save_known_tables.h"
 #include <fstream>
 #include <stdexcept>
 #include <vector>
@@ -104,6 +105,17 @@ Summary Read(const std::filesystem::path& path,Kind kind,size_t maximum) {
   file.seekg(0);
   file.read(reinterpret_cast<char*>(bytes.data()),static_cast<std::streamsize>(length));
   if(!file)throw std::runtime_error("Cannot read complete Hulk save");
-  return Inspect(bytes,kind);
+  auto report=Inspect(bytes,kind);
+  // Recognize the five independently compared tables without rejecting
+  // other valid legacy files or claiming a semantic conversion.
+  try {
+    const auto known=DecodeKnownTables(bytes,kind);
+    if(EncodeKnownTables(known)==bytes) {
+      report.verified_table_count=static_cast<uint32_t>(known.tables.size());
+      for(const auto& table:known.tables)
+        report.verified_field_count+=static_cast<uint32_t>(table.size());
+    }
+  } catch(const std::invalid_argument&) {}
+  return report;
 }
 }
