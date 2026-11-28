@@ -49,6 +49,20 @@ int main(int argc,char** argv){
   active[0]=e;active[0].cues[0].start_serial=1;registry.Reconcile(active,start,stop);
   const auto before_restart=stops;active[0].cues[0].start_serial=2;registry.Reconcile(active,start,stop);
   assert(registry.Size()==1&&stops==before_restart+1);registry.Reconcile({},start,stop);
+  // A recycled channel can keep its pointer and variant ordinal while
+  // changing the actual definition. The old native voice must be retired.
+  active[0]=e;registry.Reconcile(active,start,stop);
+  auto old_key=KeyForLiveCue(active[0],active[0].cues[0]);
+  active[0].cues[0].definition="replacement";
+  assert(!MatchesLiveCue(old_key,active[0],active[0].cues[0]));
+  assert(!(old_key==KeyForLiveCue(active[0],active[0].cues[0])));
+  auto recycled_stops=stops,recycled_starts=starts;
+  registry.Reconcile(active,start,stop);
+  assert(registry.Size()==1&&stops==recycled_stops+1&&starts==recycled_starts+1);
+  active[0].cues[0].layer++;
+  registry.Reconcile(active,start,stop);
+  assert(registry.Size()==1&&stops==recycled_stops+2&&starts==recycled_starts+2);
+  registry.Reconcile({},start,stop);
   auto mix_cue=cue;
   assert(ResolveLiveShadowGain(mix_cue,.7f)==.7f);
   mix_cue.audibility=LiveFmodAudibility{.8f,.5f,.4f,false};
