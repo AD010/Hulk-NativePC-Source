@@ -14,7 +14,7 @@ int main(int argc,char** argv){
   FevEventEntry event;event.parameters.push_back({"test",fields,{}});event.layer_records.resize(1);
   FevEffectRecord e;e.name="FMOD Distortion";e.points={{{0,0x3e800000,1}},{{0x3f800000,0x3f000000,2}}};
   event.layer_records[0].effects.push_back(e);
-  assert(ValidFevCurve(e)&&SampleFevCurveExact(e,0)==.25f&&SampleFevCurveExact(e,1)==.5f&&!SampleFevCurveExact(e,.5f));
+  assert(ValidFevCurve(e)&&SampleFevCurve(e,0)==.25f&&SampleFevCurve(e,1)==.5f&&SampleFevCurve(e,.5f)==.375f);
   std::array<FevDspBinding,1> bindings{{{0,0,0,1,1}}};
   std::array<float,1> a{1},b{3};
   std::array<FevParameterSnapshot,2> snapshots{{{0,a},{2,b}}};
@@ -22,21 +22,35 @@ int main(int argc,char** argv){
   assert(blocks&&blocks->size()==2&&(*blocks)[0].chain.stages[0].value==.25f&&(*blocks)[1].chain.stages[0].value==.5f);
   std::vector<int16_t> pcm(8,8192);assert(ApplyScheduledDsp(pcm,48000,2,*blocks));
   assert(pcm[0]!=8192&&pcm[0]!=pcm[4]&&pcm[4]==16384);
-  b[0]=2;assert(!BuildFevNamedDspBlocks(event,0,bindings,snapshots,48000));
+  b[0]=2;const auto mid=BuildFevNamedDspBlocks(event,0,bindings,snapshots,48000);
+  assert(mid&&(*mid)[1].chain.stages[0].value==.375f);
   event.layer_records[0].effects[0].points[1][1]=0x3e800000;
   assert(BuildFevNamedDspBlocks(event,0,bindings,snapshots,48000));
+  // Shape is taken from the RIGHT knot, not the left. Exercise both directions.
+  for(uint32_t shape:{1u,2u,4u,8u}){
+    FevEffectRecord curve;
+    curve.points={{{0,0,2}},{{0x3f800000,0x3f800000,shape}}};
+    const float expected=shape==1?.15625f:shape==2?.25f:shape==4?float((std::pow(1025.,.25)-1)/1024.):.4375f;
+    const auto v=SampleFevCurve(curve,.25f);assert(v&&std::abs(*v-expected)<2e-6f);
+    curve.points[0][1]=0x3f800000;curve.points[1][1]=0;
+    const auto descending=SampleFevCurve(curve,.75f);assert(descending&&std::abs(*descending-expected)<2e-6f);
+  }
+  FevEffectRecord tail;tail.points={{{0,0,2}},{{0x3f000000,0x3f800000,2}}};
+  assert(SampleFevCurve(tail,.75f)==1.f);
+  tail.points[0][0]=0x3e800000;assert(!SampleFevCurve(tail,.1f));
   if(argc==1)return 0;
   assert(argc==2);std::ifstream file(argv[1],std::ios::binary);assert(file);
-  unsigned projects=0,parameters=0,curves=0,constants=0,named=0,named_constants=0,points=0;
+  unsigned projects=0,parameters=0,curves=0,constants=0,named=0,named_constants=0,points=0,interpolated=0;
   for(;;){uint32_t h[4];if(!file.read(reinterpret_cast<char*>(h),16)){assert(file.eof()&&!file.gcount());break;}
     std::vector<std::byte> bytes(h[3]);assert(file.read(reinterpret_cast<char*>(bytes.data()),bytes.size()));if(!h[0])continue;
     auto t=AudioText(bytes);auto end=t.find('\0');auto table=InspectFevEventTable(AudioBytes(bytes).subspan(end+1),t.substr(0,end));assert(table);++projects;
     for(const auto& ev:table->events){for(const auto& param:ev.parameters){++parameters;auto range=ReadFevParameterDomain(param);assert(range);assert(range->Normalize(range->minimum)==0.f&&range->Normalize(range->maximum)==1.f);assert(range->Physical(0.f)==range->minimum&&range->Physical(1.f)==range->maximum);}
       for(const auto& layer:ev.layer_records)for(const auto& fx:layer.effects){++curves;assert(ValidFevCurve(fx));bool constant=true;auto initial=ReadFevCurvePoint(fx.points.front()).value;
-        for(const auto& raw:fx.points){++points;const auto point=ReadFevCurvePoint(raw);assert(SampleFevCurveExact(fx,point.position)==point.value);constant &= point.value==initial;}
-        if(constant){++constants;assert(SampleFevCurveExact(fx,.37f)==initial);}if(!fx.name.empty()){++named;assert(ClassifyFevDsp(fx.name)!=DspKind::Unknown);named_constants+=constant;}
+        for(const auto& raw:fx.points){++points;const auto point=ReadFevCurvePoint(raw);assert(SampleFevCurve(fx,point.position)==point.value);constant &= point.value==initial;}
+        for(unsigned i=0;i<=256;++i){const auto sample=SampleFevCurve(fx,float(i)/256.f);assert(sample&&std::isfinite(*sample)&&*sample>=0&&*sample<=1);++interpolated;}
+        if(constant){++constants;assert(SampleFevCurve(fx,.37f)==initial);}if(!fx.name.empty()){++named;assert(ClassifyFevDsp(fx.name)!=DspKind::Unknown);named_constants+=constant;}
       }
     }
   }
-  std::cout<<projects<<" projects, "<<parameters<<" parameter domains, "<<curves<<" curves, "<<points<<" points, "<<constants<<" constant curves, "<<named<<" named, "<<named_constants<<" named constant\n";
+  std::cout<<projects<<" projects, "<<parameters<<" parameter domains, "<<curves<<" curves, "<<points<<" points, "<<constants<<" constant curves, "<<named<<" named, "<<named_constants<<" named constant, "<<interpolated<<" evaluated positions\n";
 }

@@ -43,22 +43,63 @@ inline bool ValidFevCurve(const FevEffectRecord& effect) noexcept {
   }
   return true;
 }
-// Interpolation is not inferred. Constants and exact stored knots do not
-// require knowing whether the neighboring segment is flat, logarithmic, etc.
-inline std::optional<float> SampleFevCurveExact(const FevEffectRecord& effect,float x) noexcept {
-  if(!std::isfinite(x)||x<0||x>1||!ValidFevCurve(effect))return {};
-  const auto first=ReadFevCurvePoint(effect.points.front());
-  bool constant=true;
-  for(const auto& raw:effect.points){
-    const auto p=ReadFevCurvePoint(raw);
-    if(x==p.position)return p.value;
-    constant &= p.value==first.value;
+// USA 0x8282EBB0: the destination knot selects the segment shape.
+// The cubic and linear paths use the original single-precision FMA order;
+// the host log/pow implementation may differ in the last bits from PPC.
+inline float InterpolateUsaFevSegment(FevCurvePoint a,FevCurvePoint b,float t) noexcept {
+  switch(b.shape){
+    case 1: {
+      // 8282DF58: cubic Bezier with y controls a,a,b,b (de Casteljau).
+      const float middle=std::fma(b.value-a.value,t,a.value);
+      const float left=std::fma(middle-a.value,t,a.value);
+      const float right=std::fma(b.value-middle,t,middle);
+      return std::fma(right-left,t,left);
+    }
+    case 2:return std::fma(t,b.value-a.value,a.value);
+    case 4: {
+      const bool ascending=b.value>a.value;
+      const float low=ascending?a.value:b.value;
+      const float delta=ascending?b.value-a.value:a.value-b.value;
+      if(!ascending)t=1.f-t;
+      const float exponent=(float(std::log(1025.0))/float(std::log(2.0)))*t;
+      const float power=float(std::pow(2.0,double(exponent)));
+      return std::fma((power-1.f)*delta,0.0009765625f,low);
+    }
+    case 8: {
+      const bool ascending=b.value>a.value;
+      const float low=ascending?a.value:b.value;
+      const float delta=ascending?b.value-a.value:a.value-b.value;
+      if(ascending)t=1.f-t;
+      const float centered=t-.5f;
+      const float cubic=(centered*centered)*centered;
+      return std::fma(std::fma(-4.f,cubic,.5f),delta,low);
+    }
+    default:return 0.f; // unreachable after ValidFevCurve
   }
-  return constant?std::optional<float>(first.value):std::nullopt;
 }
-// These associations are supplied by a verified event owner, NOT guessed
-// from legacy envelope flags. The caller explicitly chooses a physical
-// linear mapping; only constant/exact stored coordinates are evaluated here.
+inline std::optional<float> SampleFevCurve(const FevEffectRecord& effect,float x) noexcept {
+  if(!std::isfinite(x)||x<0||x>1||!ValidFevCurve(effect))return {};
+  auto previous=ReadFevCurvePoint(effect.points.front());
+  // Every original curve starts at zero; reject unverified extrapolation.
+  if(previous.position!=0.f)return {};
+  if(x==previous.position||effect.points.size()==1)return previous.value;
+  for(size_t i=1;i<effect.points.size();++i){
+    const auto next=ReadFevCurvePoint(effect.points[i]);
+    if(x==next.position)return next.value;
+    if(x<next.position){
+      const float t=(x-previous.position)/(next.position-previous.position);
+      const float value=InterpolateUsaFevSegment(previous,next,t);
+      if(!std::isfinite(value))return {};
+      // PPC math-library rounding may cause tiny overshoot near a knot.
+      return std::clamp(value,(std::min)(previous.value,next.value),(std::max)(previous.value,next.value));
+    }
+    previous=next;
+  }
+  return previous.value;
+}
+// Physical associations are supplied by the verified event owner. The
+// original interpolation is reconstructed; nonlinear DSP mappings and
+// unnamed envelope target semantics remain separate from this evaluator.
 struct FevDspBinding {
   uint32_t effect=0,parameter=0;
   float physical_at_zero=0,physical_at_one=1,resonance=1;
@@ -94,7 +135,7 @@ inline std::optional<std::vector<DspParameterBlock>> BuildFevNamedDspBlocks(
       if(!domain)return {};
       const auto x=domain->Normalize(snapshot.physical_values[binding.parameter]);
       if(!x)return {};
-      const auto value=SampleFevCurveExact(effects[binding.effect],*x);
+      const auto value=SampleFevCurve(effects[binding.effect],*x);
       if(!value)return {};
       chain.stages[i]={ClassifyFevDsp(effects[binding.effect].name),
           std::lerp(binding.physical_at_zero,binding.physical_at_one,*value),binding.resonance};

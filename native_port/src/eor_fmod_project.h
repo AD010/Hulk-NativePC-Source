@@ -59,7 +59,7 @@ std::optional<size_t> ResolveEventWaveform(const Index& index,
     std::string_view group,std::string_view event_name,
     uint32_t layer,uint32_t instance,uint32_t variant);
 // Produce DSP blocks from original event data and explicit caller-proven
-// associations. Nonconstant interpolation between knots is not inferred.
+// associations. Interpolation follows the reconstructed USA evaluator.
 std::optional<std::vector<audio::DspParameterBlock>> ResolveEventNamedDsp(
     const Index& index,const std::filesystem::path& project_archive,
     uint32_t project_hash,std::string_view group,std::string_view event_name,uint32_t layer,
