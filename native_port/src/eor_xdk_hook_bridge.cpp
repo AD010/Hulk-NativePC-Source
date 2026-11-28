@@ -18,6 +18,7 @@
 #include "eor_native_audio_xaudio2.h"
 #include "eor_fmod_live_events.h"
 #include "eor_fmod_live_cues.h"
+#include "eor_fmod_start_trace_bridge.h"
 #include <cstdlib>
 #include "eor_fmod_project.h"
 #endif
@@ -112,6 +113,8 @@ std::unique_ptr<fmod::LiveFevCatalog> g_native_fmod_catalog;
 std::unique_ptr<Index> g_native_fmod_index;
 std::filesystem::path g_native_fmod_project_arc,g_native_fmod_wave_arc;
 audio::LiveCueRegistry g_native_fmod_shadow_voices;
+audio::FmodStartTraceRegistry g_native_fmod_start_trace;
+uint8_t* g_native_fmod_trace_base=nullptr;
 bool g_native_fmod_shadow_enabled=false;
 struct BoundNativeFmodEvent {
   uint32_t owner=0,project_hash=0;
@@ -561,6 +564,7 @@ void ConfigureNativeFmodSource(const std::filesystem::path& root) noexcept {
             REXLOG_INFO("[HULK/FMOD-NATIVE] loaded {} verified source projects",catalog->projects.size());
             g_native_fmod_mixer->StopAll();
             g_native_fmod_shadow_voices.Clear();
+            g_native_fmod_start_trace.Clear();g_native_fmod_trace_base=nullptr;
             g_native_fmod_index=std::move(index_owner);
             g_native_fmod_project_arc=std::move(project_path);
             g_native_fmod_wave_arc=std::move(wave);
@@ -586,7 +590,47 @@ void StopNativeFmodUpdateService() noexcept {
   g_native_fmod_events.clear();g_native_fmod_bound_events.clear();g_native_fmod_catalog.reset();
   g_native_fmod_index.reset();g_native_fmod_project_arc.clear();g_native_fmod_wave_arc.clear();
   g_native_fmod_shadow_voices.Clear();g_native_fmod_shadow_enabled=false;
+  g_native_fmod_start_trace.Clear();g_native_fmod_trace_base=nullptr;
   g_native_fmod_last_capture={};g_native_fmod_capture_failed=false;
+#endif
+}
+void TraceFmodSelectionBegin(uint8_t* base,uint32_t child) noexcept {
+#ifdef _WIN32
+  audio::FmodStartTraceScope::Reset(base);
+  if(!base||!child||!g_native_fmod_enabled.load(std::memory_order_acquire))return;
+  std::lock_guard lock(g_native_fmod_mutex);
+  if(g_native_fmod_shadow_enabled&&g_native_fmod_trace_base==base)g_native_fmod_start_trace.Forget(child);
+#else
+  (void)base;(void)child;
+#endif
+}
+void TraceFmodSelectionStore(uint8_t* base,uint32_t child,uint32_t parent,uint32_t ordinal) noexcept {
+#ifdef _WIN32
+  if(!audio::FmodStartTraceScope::Active(base)||!g_native_fmod_enabled.load(std::memory_order_acquire))return;
+  audio::FmodStartTraceScope::Reset(base);
+  const auto read=[&](uint32_t address,std::byte* data,size_t size){return ReadGuest(base,address,data,size);};
+  if(const auto selected=audio::CaptureFmodSelectionStore(child,parent,ordinal,read))
+    audio::FmodStartTraceScope::Record(base,*selected);
+#else
+  (void)base;(void)child;(void)parent;(void)ordinal;
+#endif
+}
+void TraceFmodChannelStart(uint8_t* base,uint32_t child) noexcept {
+#ifdef _WIN32
+  const auto selected=audio::FmodStartTraceScope::Consume(base);
+  if(!base||!child||!g_native_fmod_enabled.load(std::memory_order_acquire))return;
+  const auto read=[&](uint32_t address,std::byte* data,size_t size){return ReadGuest(base,address,data,size);};
+  const auto channel=selected?audio::ConfirmFmodChannelStart(*selected,child,read):std::nullopt;
+  try {
+    std::lock_guard lock(g_native_fmod_mutex);
+    if(!g_native_fmod_shadow_enabled||!g_native_fmod_mixer||
+       (g_native_fmod_trace_base&&g_native_fmod_trace_base!=base))return;
+    g_native_fmod_trace_base=base;
+    g_native_fmod_start_trace.Forget(child);
+    if(channel)(void)g_native_fmod_start_trace.Observe(*selected,*channel);
+  }catch(...){ /* diagnostic failure cannot affect original playback */ }
+#else
+  (void)base;(void)child;
 #endif
 }
 std::optional<audio::FmodUpdateStamp> CaptureOriginalFmodUpdate(const PPCContext& ctx,uint8_t* base) noexcept {
@@ -623,13 +667,29 @@ void FinishOriginalFmodUpdate(std::optional<audio::FmodUpdateStamp> stamp,const 
   if(now-g_native_fmod_last_capture<std::chrono::milliseconds(100))return;
   g_native_fmod_last_capture=now;
   try {
-    auto active=audio::CaptureLiveFmodEvents(stamp->owner,read);
+    auto active=audio::CaptureLiveFmodEvents(stamp->owner,read,
+      [&](uint32_t event,uint32_t start,uint32_t child,uint32_t parent,uint32_t channel,uint32_t definition)
+          ->std::optional<audio::LiveFmodSelectedOrdinal>{
+        if(g_native_fmod_trace_base!=base)return {};
+        return g_native_fmod_start_trace.Resolve(event,start,child,parent,channel,definition);
+      });
     if(!active){
       if(!g_native_fmod_capture_failed)
         REXLOG_WARN("[HULK/FMOD-NATIVE] live event snapshot rejected; original playback retained");
       g_native_fmod_capture_failed=true;return;
     }
     g_native_fmod_capture_failed=false;
+    if(g_native_fmod_trace_base==base)g_native_fmod_start_trace.Retain(
+      [&](const audio::FmodStartIdentity& key,uint32_t channel){
+        const auto event=std::find_if(active->begin(),active->end(),[&](const auto& e){
+          return e.owner==key.event&&e.start_stamp==key.stamp;});
+        if(event==active->end())return false;
+        if(!event->cue_channels_complete)return true;
+        return std::any_of(event->cues.begin(),event->cues.end(),[&](const auto& c){
+            return c.instance_owner==key.child&&c.channel==channel;})||
+          std::any_of(event->unresolved_channels.begin(),event->unresolved_channels.end(),[&](const auto& c){
+            return c.instance_owner==key.child&&c.channel==channel;});
+      });
     unsigned reported=0;
     std::vector<BoundNativeFmodEvent> bound;
     for(const auto& event:*active){

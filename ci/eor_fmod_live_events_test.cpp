@@ -37,14 +37,15 @@ int main(){
   // Supply independent start-time observations for two children. A later
   // mutation of the shared parent index must not change either child's cue.
   put(0xe000,0);put(0xe000+4,25);
-  auto selection=[](uint32_t event,uint32_t stamp,uint32_t node,uint32_t parent,uint32_t channel,uint32_t def)->std::optional<uint32_t>{
+  auto selection=[](uint32_t event,uint32_t stamp,uint32_t node,uint32_t parent,uint32_t channel,uint32_t def)->std::optional<LiveFmodSelectedOrdinal>{
     if(event!=0x3000||stamp!=123||parent!=0xa000||def!=0xd000||channel!=node+0x1000)return {};
-    if(node==0x13000)return 0u;
-    if(node==0x14000)return 1u;
+    if(node==0x13000)return LiveFmodSelectedOrdinal{0,1};
+    if(node==0x14000)return LiveFmodSelectedOrdinal{1,2};
     return {};
   };
   put(0xa000+48,0);s=CaptureLiveFmodEvents(0x1000,read,selection);
   assert(s&&s->front().cue_channels_complete&&s->front().cues.size()==2);
+  assert(s->front().cues[0].start_serial==1&&s->front().cues[1].start_serial==2);
   assert(s->front().cues[0].variant==0&&s->front().cues[1].variant==1);
   put(0xa000+48,1);s=CaptureLiveFmodEvents(0x1000,read,selection);
   assert(s&&s->front().cues[0].variant==0&&s->front().cues[1].variant==1);

@@ -46,6 +46,9 @@ int main(int argc,char** argv){
   const auto before_reuse=stops;registry.Reconcile(active,start,stop);
   assert(registry.Size()==1&&stops==before_reuse+1);
   active[0].cues.clear();registry.Reconcile(active,start,stop);assert(registry.Size()==0);
+  active[0]=e;active[0].cues[0].start_serial=1;registry.Reconcile(active,start,stop);
+  const auto before_restart=stops;active[0].cues[0].start_serial=2;registry.Reconcile(active,start,stop);
+  assert(registry.Size()==1&&stops==before_restart+1);registry.Reconcile({},start,stop);
   FevEventEntry controlled;controlled.layer_records.resize(1);
   std::array<std::byte,24> fields{};fields[10]=std::byte{0x80};fields[11]=std::byte{0x3f};
   controlled.parameters.push_back({"Intensity",fields,{}});

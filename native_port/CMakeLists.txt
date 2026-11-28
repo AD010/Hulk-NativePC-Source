@@ -221,6 +221,7 @@ if(HULK_NATIVE_CORE_ONLY)
         eor_fev_voice_schedule_test
         eor_fev_seek_pcm_test
         eor_fmod_update_clock_test
+        eor_fmod_start_trace_test
         eor_fmod_live_events_test
         eor_fmod_live_binding_test
         eor_fmod_live_cues_test
@@ -289,6 +290,17 @@ if(HULK_WITH_NATIVE_X)
         message(FATAL_ERROR "HULK_XDK_PM4_PROBE conflicts with native dynamic hooks; use one mode at a time")
     endif()
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
+    if(WIN32 AND TARGET incredible_hulk_recomp)
+        # Run after every actual codegen; the patch is idempotent and rejects
+        # unsupported translated instructions without changing original audio.
+        add_custom_target(hulk_fmod_start_trace_codegen
+            COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/../ci/test_patch_hulk_fmod_start_trace.py"
+            COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/../ci/patch_hulk_fmod_start_trace.py"
+                "${CMAKE_CURRENT_SOURCE_DIR}/generated/default" "${CMAKE_CURRENT_SOURCE_DIR}/game/default.xex"
+            VERBATIM COMMENT "Verify and instrument original FMOD start-time selection")
+        add_dependencies(hulk_fmod_start_trace_codegen incredible_hulk_codegen)
+        add_dependencies(incredible_hulk_recomp hulk_fmod_start_trace_codegen)
+    endif()
     set(_hulk_hooks "${CMAKE_CURRENT_BINARY_DIR}/generated/hulk_native_x_hooks.cpp")
     add_custom_command(OUTPUT "${_hulk_hooks}"
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/gen_native_x_hooks.py"

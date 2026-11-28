@@ -35,12 +35,13 @@ inline std::optional<FevGainPitch> ResolveLiveMutableControls(const FevEventEntr
 }
 struct LiveCueKey {
   uint32_t event,project,start,instance,channel,variant;
-  auto Tie() const noexcept {return std::tie(event,project,start,instance,channel,variant);}
+  uint64_t serial=0;
+  auto Tie() const noexcept {return std::tie(event,project,start,instance,channel,variant,serial);}
   bool operator<(const LiveCueKey& other) const noexcept {return Tie()<other.Tie();}
   bool operator==(const LiveCueKey& other) const noexcept {return Tie()==other.Tie();}
 };
 inline LiveCueKey KeyForLiveCue(const LiveFmodEvent& event,const LiveFmodCue& cue) noexcept {
-  return {event.owner,event.project_owner,event.start_stamp,cue.instance_owner,cue.channel,cue.variant};
+  return {event.owner,event.project_owner,event.start_stamp,cue.instance_owner,cue.channel,cue.variant,cue.start_serial};
 }
 // Diagnostic shadow admission only. Remember failed/naturally ended voices
 // until their observed instance changes; never restart on every update.

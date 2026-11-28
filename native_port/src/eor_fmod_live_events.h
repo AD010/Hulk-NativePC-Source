@@ -1,5 +1,5 @@
 #pragma once
-#include "eor_fmod_update_clock.h"
+#include "eor_fmod_start_trace.h"
 #include <algorithm>
 #include <bit>
 #include <cmath>
@@ -16,6 +16,7 @@ struct LiveFmodParameter {
 struct LiveFmodCue {
   uint32_t instance_owner=0,channel=0,layer=0,instance=0,variant=0,variant_count=0,weight=0;
   std::string definition;
+  uint64_t start_serial=0;
 };
 struct LiveFmodChannelIdentity {
   uint32_t instance_owner=0,channel=0;
@@ -32,7 +33,7 @@ struct LiveFmodEvent {
   std::vector<LiveFmodChannelIdentity> unresolved_channels;
 };
 struct NoLiveFmodChildSelection {
-  std::optional<uint32_t> operator()(uint32_t,uint32_t,uint32_t,uint32_t,uint32_t,uint32_t) const noexcept {return {};}
+  std::optional<LiveFmodSelectedOrdinal> operator()(uint32_t,uint32_t,uint32_t,uint32_t,uint32_t,uint32_t) const noexcept {return {};}
 };
 // A resolver may supply an independently captured start-time ordinal keyed by
 // event, event start stamp, child, parent, channel and definition address.
@@ -79,15 +80,20 @@ std::optional<std::vector<LiveFmodEvent>> CaptureLiveFmodEvents(uint32_t system,
       const auto count=word(*def,76),records=word(*def,84);
       const auto def_name=name(*def,12);
       if(!count||!*count||*count>4096u||!records||!*records||!def_name)return false;
-      const auto variant=parent?(*count==1u?std::optional<uint32_t>(0):
-          resolve(event,start_stamp,node,parent,*channel,*def)):word(node,48);
-      if(parent&&!variant){out.complete=false;out.unresolved.push_back({node,*channel});return true;}
+      std::optional<uint32_t> variant;
+      uint64_t serial=0;
+      if(parent){
+        if(const auto chosen=resolve(event,start_stamp,node,parent,*channel,*def)){
+          variant=chosen->variant;serial=chosen->serial;
+        }else if(*count==1u)variant=0u;
+        else {out.complete=false;out.unresolved.push_back({node,*channel});return true;}
+      }else variant=word(node,48);
       if(!variant||*variant>=*count||uint64_t(*records)+uint64_t(*variant)*24u>UINT32_MAX-7u)return false;
       const auto record=*records+*variant*24u;
       const auto type=word(record,0),weight=word(record,4);
       if(!type||!weight)return false;
       if(*type!=0){out.complete=false;return true;}
-      out.items.push_back({node,*channel,l,i,*variant,*count,*weight,*def_name});
+      out.items.push_back({node,*channel,l,i,*variant,*count,*weight,*def_name,serial});
       return true;
     };
     const auto layer_end=event+332u;
