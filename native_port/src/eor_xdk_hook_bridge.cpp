@@ -147,6 +147,10 @@ std::shared_ptr<const aot::OriginalVirtualShaderIdentity>
 std::shared_ptr<const aot::EffectCatalog>
     g_original_effect_capture_catalog;
 OriginalGuestBufferSnapshots g_original_buffers; // guarded by g_mutex
+// Inline font batches are transient and have a separate, bounded budget.
+// Large world VB/IB allocations must not consume the original menu/HUD
+// glyph payload budget before EndVertices executes near the end of a frame.
+OriginalGuestBufferSnapshots g_original_glyph_buffers{8u<<20}; // guarded by g_mutex
 // The actual guest EoR shader method and its inner XDK Draw execute on
 // the SAME generated PPC thread. A fixed TLS stack retains the source
 // method scope without allocations, guest writes or global frame races.
@@ -1770,7 +1774,7 @@ void CapturePpcDraw(Kind kind, uint32_t guest, const PPCContext& ctx,
       // and turn a valid real DrawIndexed into a missing source IB.
       if(kind==Kind::EndVertices) {
         draw.inline_glyphs=CaptureUsaInlineGlyphs(
-            draw,ctx.r31.u32,ctx.r1.u32,ReadGuest,guest_base,g_original_buffers);
+            draw,ctx.r31.u32,ctx.r1.u32,ReadGuest,guest_base,g_original_glyph_buffers);
       } else {
         draw.captured_vertex_bindings=true;
         draw.vertex_declaration=ReadUsaVertexDeclaration(
@@ -1852,6 +1856,7 @@ void EndPpcHook(native_x_renderer::Call kind) {
     g_frame_heavy_capture_skipped=0;
     g_frame_shader_complete=true;
     g_original_buffers.Reset();
+    g_original_glyph_buffers.Reset();
     g_callsite_evidence.Observe(frame);
     // This independent original PPC telemetry also works with the
     // compatibility Xenos renderer and NO compiled SPIR-V shader bank.
