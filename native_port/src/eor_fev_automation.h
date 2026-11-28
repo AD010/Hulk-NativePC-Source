@@ -119,9 +119,26 @@ inline std::optional<float> MapOriginalNamedDspValue(const FevEffectRecord& effe
   if(!std::isfinite(value))return {};
   return std::clamp(value,low,high);
 }
-// Physical associations are supplied by the verified event owner. The
-// envelope itself now supplies the original DSP range mapping; callers
-// still supply the controlling parameter and independent resonance value.
+// USA 8282FD48..8282FD5C shares the earlier envelope's DSP handle.
+// The linked record's ordinal 1 is the filter resonance (linear 1..10).
+// A link to a Volume envelope has no DSP handle and is skipped by PPC.
+inline std::optional<float> EvaluateFevLinkedResonance(const FevEventEntry& event,
+    const FevLayerRecord& layer,size_t ordinal,std::span<const float> values) noexcept {
+  const auto* target=ResolveFevLinkedEnvelope(layer,ordinal);
+  if(!target||target->name.empty()||values.size()!=event.parameters.size())return {};
+  const auto& fx=layer.effects[ordinal];
+  const auto route=ReadFevCurveRoute(event,fx);
+  const auto range=OriginalUsaDspRange(ClassifyFevDsp(target->name),fx.header[0]);
+  if(!route||!range)return {};
+  const auto domain=ReadFevParameterDomain(event.parameters[route->parameter]);
+  if(!domain)return {};
+  const auto x=domain->Normalize(values[route->parameter]);
+  if(!x)return {};
+  const auto v=SampleFevCurve(fx,*x);
+  return v?std::optional<float>(std::fma(range->maximum-range->minimum,*v,range->minimum)):std::nullopt;
+}
+// Explicit caller bindings remain available for comparison. Automatic
+// bindings use the serialized envelope links, including resonance.
 struct FevDspBinding {
   uint32_t effect=0,parameter=0;
   float physical_at_zero=0,physical_at_one=1,resonance=1;
@@ -156,10 +173,18 @@ inline std::optional<FevLayerGainPitch> EvaluateFevLayerGainPitch(
     const FevEventEntry& event,uint32_t layer,std::span<const float> physical_values) noexcept {
   if(layer>=event.layer_records.size()||physical_values.size()!=event.parameters.size())return {};
   FevLayerGainPitch out;
-  for(const auto& fx:event.layer_records[layer].effects){
+  const auto& record=event.layer_records[layer];
+  for(const auto& fx:record.effects){
     const auto route=ReadFevCurveRoute(event,fx);
     if(!route)return {};
     if(route->target==FevTarget::NamedDsp)continue;
+    if(route->target==FevTarget::InstanceControl){
+      const auto* linked=ResolveFevLinkedEnvelope(record,size_t(&fx-record.effects.data()));
+      if(!linked)return {};
+      if(linked->name.empty()&&linked->header[1]==0x0c)continue;
+      if(!EvaluateFevLinkedResonance(event,record,size_t(&fx-record.effects.data()),physical_values))return {};
+      continue; // handled by automatic named DSP blocks
+    }
     if(route->target!=FevTarget::Volume&&route->target!=FevTarget::Pitch){++out.unhandled;continue;}
     const auto domain=ReadFevParameterDomain(event.parameters[route->parameter]);
     if(!domain)return {};
@@ -228,7 +253,19 @@ inline std::optional<std::vector<DspParameterBlock>> BuildFevNamedDspBlocks(
       if(!range||binding.physical_at_zero!=range->minimum||binding.physical_at_one!=range->maximum)return {};
       const auto physical=MapOriginalNamedDspValue(effect,*value);
       if(!physical)return {};
-      chain.stages[i]={kind,*physical,binding.resonance};
+      float resonance=binding.resonance;
+      if(automatic){
+        const auto& record=event.layer_records[layer];
+        bool linked_resonance=false;
+        for(size_t j=binding.effect+1;j<effects.size();++j){
+          if(effects[j].control!=binding.effect)continue;
+          if(linked_resonance)return {}; // no unverified duplicate precedence
+          const auto q=EvaluateFevLinkedResonance(event,record,j,snapshot.physical_values);
+          if(!q)return {};
+          resonance=*q;linked_resonance=true;
+        }
+      }
+      chain.stages[i]={kind,*physical,resonance};
     }
     if(!ValidStaticDsp(chain,sample_rate))return {};
     blocks.push_back({snapshot.first_frame,chain});
