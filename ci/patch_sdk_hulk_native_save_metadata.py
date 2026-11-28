@@ -142,13 +142,18 @@ FLUSH_CPP_NEW="// HULK/NATIVE-SAVE-FLUSH: the existing compatibility content API
 FLUSH_DECL="  X_RESULT CloseContent(const std::string_view root_name);"
 FLUSH_DECL_NEW="  X_RESULT FlushNativeHulkContent(const std::string_view root_name);\n  X_RESULT CloseContent(const std::string_view root_name);"
 
+FLUSH_CLOSE="  // Closes a previously opened root from XamContentCreate*.\n  auto result = REX_KERNEL_STATE()->content_manager()->CloseContent(root_name.value());"
+FLUSH_CLOSE_NEW="  // Closes a previously opened root from XamContentCreate*.\n  // Some original save paths close without issuing XamContentFlush.\n  // Best-effort durable mirror before unmount; a read-only open or a\n  // missing payload must not change the original close result.\n  auto* manager = REX_KERNEL_STATE()->content_manager();\n  (void)manager->FlushNativeHulkContent(root_name.value());\n  auto result = manager->CloseContent(root_name.value());"
+
 def patch_flush(header,source,xam):
     pairs=((header,FLUSH_DECL,FLUSH_DECL_NEW),(source,FLUSH_CPP,FLUSH_CPP_NEW),
-           (xam,FLUSH_XAM,FLUSH_XAM_NEW))
+           (xam,FLUSH_XAM,FLUSH_XAM_NEW),(xam,FLUSH_CLOSE,FLUSH_CLOSE_NEW))
     if all(s.count(new)==1 for s,old,new in pairs):return header,source,xam,False
     if any(new in s for s,old,new in pairs):raise ValueError('Partial native save flush patch')
     if any(s.count(old)!=1 for s,old,new in pairs):raise ValueError('Native save flush anchor drift')
-    return (*[s.replace(old,new,1) for s,old,new in pairs],True)
+    return (header.replace(FLUSH_DECL,FLUSH_DECL_NEW,1),
+            source.replace(FLUSH_CPP,FLUSH_CPP_NEW,1),
+            xam.replace(FLUSH_XAM,FLUSH_XAM_NEW,1).replace(FLUSH_CLOSE,FLUSH_CLOSE_NEW,1),True)
 
 OPEN_IDENTITY_PAIRS=(
     ("    if (data.content_type == pkg.content_type && data.file_name() == pkg.file_name() &&\n        query_title == pkg_title) {","    const bool native_same_slot =\n        data.content_type == pkg.content_type && query_title == pkg_title &&\n        hulk::save::IsHulkSaveSlot(data.file_name()) &&\n        hulk::save::IsHulkSaveSlot(pkg.file_name()) &&\n        !hulk::native_save::WindowsRoot(query_title, uint32_t(data.content_type),\n            REXCVAR_GET(hulk_native_pc_saves)).empty();\n    if (native_same_slot ||\n        (data.content_type == pkg.content_type && data.file_name() == pkg.file_name() &&\n         query_title == pkg_title)) {"),
