@@ -14,11 +14,25 @@ struct FevLayerRecord {
   std::vector<AudioBytes> instance_fields;
   std::vector<FevEffectRecord> effects;
 };
+// The layout is source-observed; numeric semantics are intentionally not guessed.
+struct FevParameterRecord {
+  std::string_view name;
+  AudioBytes fields;
+  std::vector<uint32_t> values;
+};
+struct FevPropertyRecord {
+  std::string_view name;
+  uint32_t type=0,word=0;
+  std::string_view text;
+};
 struct FevEventEntry {
   std::string_view group,name,category;
   std::vector<std::vector<uint16_t>> layers;
   AudioBytes fields;
   std::vector<FevLayerRecord> layer_records;
+  std::vector<FevParameterRecord> parameters;
+  std::vector<FevPropertyRecord> properties;
+  uint32_t category_word=0;
   bool has_effects=false,has_parameters=false,has_properties=false;
 };
 struct FevSoundDefinition {
@@ -43,7 +57,11 @@ struct Cursor {
   uint32_t count(uint32_t max){const auto n=u();require(n<=max);return n;}
   std::string_view str(){const auto n=count(1024);const auto at=p;skip(n);if(!n)return {};const auto s=AudioText(b.subspan(at,n));require(s.back()==0);const auto t=s.substr(0,n-1);require(std::all_of(t.begin(),t.end(),[](unsigned char c){return c>=32&&c<127;}));return t;}
   void category(unsigned depth=0){require(depth<12);str();skip(16);const auto n=count(128);for(uint32_t i=0;i<n;++i)category(depth+1);}
-  void properties(uint32_t n){for(uint32_t i=0;i<n;++i){str();const auto type=count(2);if(type==2)str();else skip(4);}}
+  FevPropertyRecord property(){
+    FevPropertyRecord result;result.name=str();result.type=count(2);
+    if(result.type==2)result.text=str();else result.word=u();
+    return result;
+  }
 };
 }
 // Original 0x002c0000 layout, not the later FEV1/RIFF format. A table is
@@ -79,9 +97,17 @@ inline std::optional<FevEventTable> InspectFevEventTable(AudioBytes b,std::strin
           event.layer_records.push_back(std::move(layer));
         }
         const auto parameters=r.count(1024);event.has_parameters=parameters!=0;
-        for(uint32_t k=0;k<parameters;++k){r.str();r.skip(24);r.skip(size_t(r.count(4096))*4);}
-        const auto properties=r.count(1024);event.has_properties=properties!=0;r.properties(properties);
-        r.skip(4);event.category=r.str();table.events.push_back(std::move(event));
+        event.parameters.reserve(parameters);
+        for(uint32_t k=0;k<parameters;++k){
+          FevParameterRecord parameter;parameter.name=r.str();parameter.fields=r.take(24);
+          const auto n=r.count(4096);parameter.values.reserve(n);
+          for(uint32_t j=0;j<n;++j)parameter.values.push_back(r.u());
+          event.parameters.push_back(std::move(parameter));
+        }
+        const auto properties=r.count(1024);event.has_properties=properties!=0;
+        event.properties.reserve(properties);
+        for(uint32_t k=0;k<properties;++k)event.properties.push_back(r.property());
+        event.category_word=r.u();event.category=r.str();table.events.push_back(std::move(event));
       }
     }
     const auto defs=r.count(16384);size_t observed=0;

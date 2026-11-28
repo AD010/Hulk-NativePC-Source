@@ -16,7 +16,9 @@ int main(){
     for(unsigned i=0;i<3;++i){U(b,0x3f000000);U(b,0x3f800000);U(b,1);}
     U(b,0);U(b,1);
   }
-  U(b,0);U(b,0);U(b,1);S(b,"sfx");
+  U(b,1);S(b,"Intensity");U(b,0x3f800000);Z(b,20);U(b,2);U(b,4);U(b,7);
+  U(b,3);S(b,"flag");U(b,0);U(b,123);S(b,"level");U(b,1);U(b,0x3f000000);
+  S(b,"label");U(b,2);S(b,"test");U(b,1);S(b,"sfx");
   S(b,"nonpreload");U(b,0);U(b,0);U(b,0);
   U(b,1);S(b,"sound");Z(b,60);U(b,2);
   const auto at=b.size();U(b,0);U(b,100);S(b,"sound.wav");S(b,"demo_preloadsamples_0");U(b,0);U(b,50);
@@ -36,6 +38,15 @@ int main(){
   assert(layer.effects[1].tail[1]==1);
   assert(table->definitions[0].fields.size()==60 && table->definitions[0].weights.size()==2);
   assert(table->definitions[0].weights[0]==100);
+  assert(event.has_parameters && event.parameters.size()==1);
+  const auto& parameter=event.parameters[0];
+  assert(parameter.name=="Intensity" && parameter.fields.size()==24);
+  assert(AudioU32(parameter.fields,0)==0x3f800000u);
+  assert(parameter.values.size()==2 && parameter.values[0]==4 && parameter.values[1]==7);
+  assert(event.has_properties && event.properties.size()==3 && event.category_word==1);
+  assert(event.properties[0].name=="flag" && event.properties[0].type==0 && event.properties[0].word==123);
+  assert(event.properties[1].type==1 && event.properties[1].word==0x3f000000u);
+  assert(event.properties[2].type==2 && event.properties[2].text=="test");
   assert(table->definitions[0].variants[0]==at&&!table->definitions[0].variants[1]);
   auto wrong=b;wrong[point_count+3]=std::byte{1};assert(!InspectFevEventTable(wrong,"demo"));
   for(size_t i=0;i<b.size();++i)assert(!InspectFevEventTable(AudioBytes(b).first(i),"demo"));
