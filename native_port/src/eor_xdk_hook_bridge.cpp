@@ -2917,6 +2917,12 @@ struct AutomaticEorOwner {
       if(!binding || !shared_constants || !context || !registers.fixed_graphics_state)return false;
       const auto alpha=gpu::ResolveOriginalScalarAlpha(*registers.fixed_graphics_state);
       if(!alpha)return false;
+      // A shader with no shared uniform block does not consume these bytes.
+      // Avoid allocating dynamic uniform storage for such draws, especially
+      // the original depth-only prepass. Source validation above is unchanged.
+      auto* vertex_shared=binding->GetVariableByName(Diligent::SHADER_TYPE_VERTEX,"HulkSharedConstants");
+      auto* pixel_shared=binding->GetVariableByName(Diligent::SHADER_TYPE_PIXEL,"HulkSharedConstants");
+      if(!vertex_shared && !pixel_shared)return true;
       std::array<uint32_t,8> shared{};
       if(const auto bits=PackOriginalScalarBooleans(registers))shared[0]=*bits;
       shared[4]=std::bit_cast<uint32_t>(alpha->threshold);
@@ -2926,10 +2932,9 @@ struct AutomaticEorOwner {
       if(!mapped)return false;
       std::memcpy(mapped,shared.data(),sizeof(shared));
       context->UnmapBuffer(shared_constants,Diligent::MAP_WRITE);
-      for(auto stage:{Diligent::SHADER_TYPE_VERTEX,Diligent::SHADER_TYPE_PIXEL})
-        if(auto* var=binding->GetVariableByName(stage,"HulkSharedConstants"))
-          if(var->Get()!=shared_constants.RawPtr())
-            var->Set(shared_constants.RawPtr(),Diligent::SET_SHADER_RESOURCE_FLAG_ALLOW_OVERWRITE);
+      for(auto* var:{vertex_shared,pixel_shared})
+        if(var && var->Get()!=shared_constants.RawPtr())
+          var->Set(shared_constants.RawPtr(),Diligent::SET_SHADER_RESOURCE_FLAG_ALLOW_OVERWRITE);
       return true;
     };
     backend=std::make_unique<gpu::DiligentEorDirectBackend>(

@@ -116,15 +116,21 @@ std::optional<Diligent::GraphicsPipelineDesc> DeriveOriginalXdkGraphicsPipelineS
     return {};
   const uint32_t samples=(*surface>>16u)&3u;
   if(samples>2u)return {};
-  const uint32_t src_raw=*blend&31u,dst_raw=(*blend>>8u)&31u;
-  const uint32_t alpha_src_raw=(*blend>>16u)&31u;
-  const uint32_t alpha_dst_raw=(*blend>>24u)&31u;
+  // With every color component masked off, blending has no observable
+  // effect on the attachment. Canonicalize the inactive blend state before
+  // decoding: stale blend factors must not reject real depth-only passes
+  // or generate distinct Vulkan PSOs for identical depth/stencil work.
+  if(*color_mask&~15u)return {};
+  const uint32_t blend_word=(*color_mask&15u)?*blend:0x00010001u;
+  const uint32_t src_raw=blend_word&31u,dst_raw=(blend_word>>8u)&31u;
+  const uint32_t alpha_src_raw=(blend_word>>16u)&31u;
+  const uint32_t alpha_dst_raw=(blend_word>>24u)&31u;
   const auto src=OriginalBlend(src_raw,false);
   const auto dst=OriginalBlend(dst_raw,false);
-  const auto op=OriginalBlendOp((*blend>>5u)&7u);
+  const auto op=OriginalBlendOp((blend_word>>5u)&7u);
   const auto asrc=OriginalBlend(alpha_src_raw,true);
   const auto adst=OriginalBlend(alpha_dst_raw,true);
-  const auto aop=OriginalBlendOp((*blend>>21u)&7u);
+  const auto aop=OriginalBlendOp((blend_word>>21u)&7u);
   const auto compare=OriginalCompare((*depth>>4u)&7u);
   if(!src || !dst || !op || !asrc || !adst || !aop || !compare)
     return {};
@@ -161,8 +167,8 @@ std::optional<Diligent::GraphicsPipelineDesc> DeriveOriginalXdkGraphicsPipelineS
   result.BlendDesc.IndependentBlendEnable=false;
   auto& target=result.BlendDesc.RenderTargets[0];
   const bool opaque=src_raw==1u && dst_raw==0u &&
-      ((*blend>>5u)&7u)==0u && alpha_src_raw==1u &&
-      alpha_dst_raw==0u && ((*blend>>21u)&7u)==0u;
+      ((blend_word>>5u)&7u)==0u && alpha_src_raw==1u &&
+      alpha_dst_raw==0u && ((blend_word>>21u)&7u)==0u;
   target.BlendEnable=!opaque;
   target.LogicOperationEnable=false;
   target.RenderTargetWriteMask=static_cast<COLOR_MASK>(*color_mask&15u);
