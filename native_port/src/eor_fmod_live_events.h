@@ -17,6 +17,9 @@ struct LiveFmodCue {
   uint32_t instance_owner=0,channel=0,layer=0,instance=0,variant=0,variant_count=0,weight=0;
   std::string definition;
 };
+struct LiveFmodChannelIdentity {
+  uint32_t instance_owner=0,channel=0;
+};
 struct LiveFmodEvent {
   uint32_t owner=0,project_owner=0,flags=0;
   std::string project,group,name;
@@ -24,9 +27,18 @@ struct LiveFmodEvent {
   uint32_t parent_owner=0,start_stamp=0;
   std::vector<LiveFmodCue> cues;
   bool cues_complete=false;
+  // Structural coverage is independent of whether every variant is known.
+  bool cue_channels_complete=false;
+  std::vector<LiveFmodChannelIdentity> unresolved_channels;
 };
-template<class Read>
-std::optional<std::vector<LiveFmodEvent>> CaptureLiveFmodEvents(uint32_t system,Read&& read) {
+struct NoLiveFmodChildSelection {
+  std::optional<uint32_t> operator()(uint32_t,uint32_t,uint32_t,uint32_t,uint32_t,uint32_t) const noexcept {return {};}
+};
+// A resolver may supply an independently captured start-time ordinal keyed by
+// event, event start stamp, child, parent, channel and definition address.
+// Never read the mutable parent ordinal to reconstruct an older child.
+template<class Read,class Resolve=NoLiveFmodChildSelection>
+std::optional<std::vector<LiveFmodEvent>> CaptureLiveFmodEvents(uint32_t system,Read&& read,Resolve&& resolve={}) {
   constexpr uint32_t event_table=0x82089270u,group_table=0x820894a8u,
       project_table=0x82089848u,param_table=0x82089328u;
   const auto word=[&](uint32_t p,uint32_t off)->std::optional<uint32_t>{
@@ -50,8 +62,8 @@ std::optional<std::vector<LiveFmodEvent>> CaptureLiveFmodEvents(uint32_t system,
   // 82838664..82838678 selects through the parent (+76); the index at
   // parent+48 is mutable. A child is unambiguous here only for a single
   // wave variant. A multi-variant child needs a start-time selection trace.
-  struct CueSnapshot {std::vector<LiveFmodCue> items;bool complete=true;};
-  const auto cues=[&](uint32_t event)->std::optional<CueSnapshot>{
+  struct CueSnapshot {std::vector<LiveFmodCue> items;std::vector<LiveFmodChannelIdentity> unresolved;bool complete=true;};
+  const auto cues=[&](uint32_t event,uint32_t start_stamp)->std::optional<CueSnapshot>{
     CueSnapshot out;
     std::set<uint32_t> seen;
     const auto capture=[&](uint32_t node,uint32_t layer,uint32_t parent,uint32_t l,uint32_t i)->bool{
@@ -67,8 +79,9 @@ std::optional<std::vector<LiveFmodEvent>> CaptureLiveFmodEvents(uint32_t system,
       const auto count=word(*def,76),records=word(*def,84);
       const auto def_name=name(*def,12);
       if(!count||!*count||*count>4096u||!records||!*records||!def_name)return false;
-      if(parent&&*count!=1u){out.complete=false;return true;}
-      const auto variant=parent?std::optional<uint32_t>(0):word(node,48);
+      const auto variant=parent?(*count==1u?std::optional<uint32_t>(0):
+          resolve(event,start_stamp,node,parent,*channel,*def)):word(node,48);
+      if(parent&&!variant){out.complete=false;out.unresolved.push_back({node,*channel});return true;}
       if(!variant||*variant>=*count||uint64_t(*records)+uint64_t(*variant)*24u>UINT32_MAX-7u)return false;
       const auto record=*records+*variant*24u;
       const auto type=word(record,0),weight=word(record,4);
@@ -93,6 +106,11 @@ std::optional<std::vector<LiveFmodEvent>> CaptureLiveFmodEvents(uint32_t system,
           // Parent's own channel may be a shared template; do not admit it.
           if(!seen.insert(*instance).second||seen.size()>4096u)return {};
           out.complete=false;
+          // Do not admit the parent's possible template channel. Its lifetime
+          // is ambiguous, so keep an existing matching voice conservatively.
+          const auto flags=word(*instance,20),channel=word(*instance,36);
+          if(!flags||!channel)return {};
+          if((*flags&8u)&&*channel)out.unresolved.push_back({*instance,*channel});
           while(child&&*child!=child_end){
             if(!capture(*child,*layer,*instance,l,i))return {};
             child=word(*child,0);
@@ -135,7 +153,10 @@ std::optional<std::vector<LiveFmodEvent>> CaptureLiveFmodEvents(uint32_t system,
       LiveFmodEvent out;
       out.owner=event;out.project_owner=*project;out.flags=*flags;out.project=*project_name;
       out.group=*group_name;out.name=*event_name;out.parent_owner=parent;out.start_stamp=*start;
-      if(auto selected=cues(event)){out.cues=std::move(selected->items);out.cues_complete=selected->complete;}
+      if(auto selected=cues(event,*start)){
+        out.cues=std::move(selected->items);out.cues_complete=selected->complete;
+        out.cue_channels_complete=true;out.unresolved_channels=std::move(selected->unresolved);
+      }
       const uint32_t param_end=event+344u;
       auto param_node=word(event,344);
       while(param_node&&*param_node!=param_end){

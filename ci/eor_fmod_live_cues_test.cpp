@@ -36,6 +36,16 @@ int main(int argc,char** argv){
   const auto prior_updates=updates;registry.UpdateActive(active,update,stop);assert(updates==prior_updates+2);
   active[0].cues.clear();registry.Reconcile(active,start,stop);assert(registry.Size()==2);
   active[0].cues_complete=true;registry.Reconcile(active,start,stop);assert(registry.Size()==0);
+  active[0]=e;active[0].cues_complete=false;active[0].cue_channels_complete=true;
+  auto other=cue;other.instance_owner++;other.channel++;
+  active[0].cues.push_back(other);registry.Reconcile(active,start,stop,2);assert(registry.Size()==2);
+  active[0].cues.clear();active[0].unresolved_channels={{other.instance_owner,other.channel}};
+  registry.Reconcile(active,start,stop);assert(registry.Size()==1);
+  // Reusing the same channel with a known different variant replaces it.
+  active[0].unresolved_channels.clear();other.variant=0;active[0].cues={other};
+  const auto before_reuse=stops;registry.Reconcile(active,start,stop);
+  assert(registry.Size()==1&&stops==before_reuse+1);
+  active[0].cues.clear();registry.Reconcile(active,start,stop);assert(registry.Size()==0);
   FevEventEntry controlled;controlled.layer_records.resize(1);
   std::array<std::byte,24> fields{};fields[10]=std::byte{0x80};fields[11]=std::byte{0x3f};
   controlled.parameters.push_back({"Intensity",fields,{}});

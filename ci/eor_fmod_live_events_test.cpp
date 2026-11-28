@@ -33,11 +33,31 @@ int main(){
     put(child+16,0x9000);put(child+76,0xa000);put(child+20,8);put(child+36,child+0x1000);put(child+12,0xc000);
   }
   s=CaptureLiveFmodEvents(0x1000,read);assert(s&&!s->front().cues_complete&&s->front().cues.empty());
+  assert(s->front().cue_channels_complete&&s->front().unresolved_channels.size()==3);
+  // Supply independent start-time observations for two children. A later
+  // mutation of the shared parent index must not change either child's cue.
+  put(0xe000,0);put(0xe000+4,25);
+  auto selection=[](uint32_t event,uint32_t stamp,uint32_t node,uint32_t parent,uint32_t channel,uint32_t def)->std::optional<uint32_t>{
+    if(event!=0x3000||stamp!=123||parent!=0xa000||def!=0xd000||channel!=node+0x1000)return {};
+    if(node==0x13000)return 0u;
+    if(node==0x14000)return 1u;
+    return {};
+  };
+  put(0xa000+48,0);s=CaptureLiveFmodEvents(0x1000,read,selection);
+  assert(s&&s->front().cue_channels_complete&&s->front().cues.size()==2);
+  assert(s->front().cues[0].variant==0&&s->front().cues[1].variant==1);
+  put(0xa000+48,1);s=CaptureLiveFmodEvents(0x1000,read,selection);
+  assert(s&&s->front().cues[0].variant==0&&s->front().cues[1].variant==1);
+  put(0x13000+36,0x17000);s=CaptureLiveFmodEvents(0x1000,read,selection);
+  assert(s&&s->front().cues.size()==1&&s->front().cues[0].instance_owner==0x14000);
+  put(0x13000+36,0x14000);
+  put(0x3000+264,124);s=CaptureLiveFmodEvents(0x1000,read,selection);
+  assert(s&&s->front().cues.empty());put(0x3000+264,123);
   put(0xd000+76,1);put(0xe000,0);put(0xe000+4,100);
   s=CaptureLiveFmodEvents(0x1000,read);assert(s&&!s->front().cues_complete&&s->front().cues.size()==2);
   assert(s->front().cues[0].variant==0&&s->front().cues[1].variant==0);
   assert(s->front().cues[0].channel!=s->front().cues[1].channel);
-  put(0x14000,0x13000);s=CaptureLiveFmodEvents(0x1000,read);assert(s&&!s->front().cues_complete&&s->front().cues.empty());
+  put(0x14000,0x13000);s=CaptureLiveFmodEvents(0x1000,read);assert(s&&!s->front().cues_complete&&!s->front().cue_channels_complete&&s->front().cues.empty());
   put(0xa000+120,0xa000+120);put(0xd000+76,2);
   // A child may also be listed as a project root; visit it only once.
   put(0x3000+20,1);put(0x3000+24,0x11000);put(0x11000,0x12000);

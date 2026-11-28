@@ -53,8 +53,17 @@ class LiveCueRegistry {
       const auto event=std::find_if(active.begin(),active.end(),[&](const auto& e){
         return e.owner==key.event&&e.project_owner==key.project&&e.start_stamp==key.start;
       });
-      const bool keep=event!=active.end()&&(!event->cues_complete||
-          std::any_of(event->cues.begin(),event->cues.end(),[&](const auto& c){return KeyForLiveCue(*event,c)==key;}));
+      bool keep=false;
+      if(event!=active.end()){
+        const bool exact=std::any_of(event->cues.begin(),event->cues.end(),[&](const auto& c){return KeyForLiveCue(*event,c)==key;});
+        // A structurally valid partial snapshot can prove a channel ended,
+        // even when unrelated channels have unknown waveform selections.
+        const bool unknown=!event->cues_complete&&(!event->cue_channels_complete||
+            std::any_of(event->unresolved_channels.begin(),event->unresolved_channels.end(),[&](const auto& c){
+              return c.instance_owner==key.instance&&c.channel==key.channel;
+            }));
+        keep=exact||unknown;
+      }
       if(keep){++it;continue;}
       if(it->second)stop(it->second);
       it=voices_.erase(it);
