@@ -4416,7 +4416,7 @@ native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(
   uint64_t source_sequence=0;
   bool has_source_catalog_factory=false;
   bool built_in_source=false,independent_claimed=false;
-  {
+  try {
     std::lock_guard lock(g_mutex);
     ready=g_verified_worker_frame;
     owner_catalog=g_worker_owner_catalog;
@@ -4461,6 +4461,11 @@ native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(
         g_verified_worker_frame.reset(); // require a fresh source-bound bundle
       return Result::kNotReady;
     }
+  } catch (...) {
+    // The first automatic factory allocation/claim is still CPU-only.
+    // TryWorkerEorFrame is noexcept: allocation failure must not terminate
+    // the Vulkan worker or invalidate the currently visible NativeX frame.
+    return Result::kNotReady;
   }
   if(AdoptNewPrivateOriginalSpirvIfSafe(source_sequence,host.context()))
     return Result::kNotReady; // next source epoch rebuilds matching PSOs
