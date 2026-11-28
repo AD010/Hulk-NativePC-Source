@@ -22,6 +22,10 @@
 namespace hulk::eor::audio {
 namespace {
 unsigned BusIndex(Bus bus) noexcept {return static_cast<unsigned>(bus);}
+XAUDIO2_FILTER_PARAMETERS NativeFilter(VoiceFilter filter,float frequency,float one_over_q) noexcept {
+  if(filter==VoiceFilter::Bypass)return {LowPassFilter,1.f,1.f};
+  return {filter==VoiceFilter::HighPass?HighPassFilter:LowPassFilter,frequency,one_over_q};
+}
 bool ValidGain(float gain) noexcept {
   return std::isfinite(gain) && gain>=0.f && gain<=1.f;
 }
@@ -30,7 +34,7 @@ struct NativeXAudio2Mixer::State {
   struct Voice {
     IXAudio2SourceVoice* source=nullptr;
     VoiceId id=0;
-    bool paused=false;
+    PendingVoiceClock clock;
     std::vector<int16_t> samples;
     unsigned bus=0;
     float gain=1.f;
@@ -98,11 +102,12 @@ void NativeXAudio2Mixer::Update() noexcept {
   }),v.end());
 }
 bool NativeXAudio2Mixer::PlayPcm16(Bus bus,std::span<const int16_t> samples,
-    uint32_t sample_rate,uint16_t channels,float gain,VoiceId* started) {
+    uint32_t sample_rate,uint16_t channels,float gain,VoiceId* started,VoiceOptions options) {
   if(started)*started=0;
   const auto bus_id=BusIndex(bus);
   if(!Ready() || bus_id>=3u || !ValidGain(gain) ||
-     !ValidPcm16(samples,sample_rate,channels))return false;
+     !ValidPcm16(samples,sample_rate,channels) ||
+     !ValidVoiceOptions(options,static_cast<uint32_t>(samples.size()/channels)))return false;
   std::lock_guard lock(state_->mutex);
   Update();
   // Bound simultaneous live voices and copy only the source PCM retained by
@@ -125,6 +130,7 @@ bool NativeXAudio2Mixer::PlayPcm16(Bus bus,std::span<const int16_t> samples,
     voice=std::make_unique<State::Voice>();
     voice->bus=bus_id;
     voice->gain=gain;
+    voice->clock={options.delay_ms,options.delay_ms!=0,false};
     voice->samples.assign(samples.begin(),samples.end());
   } catch (...) {return false;}
   WAVEFORMATEX wave{};
@@ -134,16 +140,21 @@ bool NativeXAudio2Mixer::PlayPcm16(Bus bus,std::span<const int16_t> samples,
   wave.wBitsPerSample=16;
   wave.nBlockAlign=static_cast<WORD>(channels*sizeof(int16_t));
   wave.nAvgBytesPerSec=wave.nSamplesPerSec*wave.nBlockAlign;
-  if(FAILED(state_->engine->CreateSourceVoice(&voice->source,&wave)) ||
+  if(FAILED(state_->engine->CreateSourceVoice(&voice->source,&wave,XAUDIO2_VOICE_USEFILTER,4.f)) ||
      !voice->source)return false;
   XAUDIO2_BUFFER buffer{};
   buffer.Flags=XAUDIO2_END_OF_STREAM;
   buffer.AudioBytes=static_cast<UINT32>(voice->samples.size()*sizeof(int16_t));
   buffer.pAudioData=reinterpret_cast<const BYTE*>(voice->samples.data());
-  if(FAILED(voice->source->SubmitSourceBuffer(&buffer)))return false;
+  buffer.LoopBegin=options.loop_begin;buffer.LoopLength=options.loop_length;
+  buffer.LoopCount=options.loop_count;
+  const auto filter=NativeFilter(options.filter,options.filter_frequency,options.filter_one_over_q);
+  if(FAILED(voice->source->SetFilterParameters(&filter)) ||
+     FAILED(voice->source->SetFrequencyRatio(options.frequency_ratio)) ||
+     FAILED(voice->source->SubmitSourceBuffer(&buffer)))return false;
   if(!state_->UpdateVolume(*voice))return false;
-  if(FAILED(voice->source->Start(0)))return false;
-  // Reserve an identity only for a genuinely started XAudio2 voice.
+  if(!voice->clock.pending && FAILED(voice->source->Start(0)))return false;
+  // Publish an ID only after a real XAudio2 buffer has been accepted.
   voice->id=++state_->last_voice_id;
   const auto id=voice->id;
   state_->voices.push_back(std::move(voice));
@@ -223,7 +234,7 @@ bool NativeXAudio2Mixer::PlayProjectWaveSample(Bus bus,const hulk::eor::Index& i
 }
 bool NativeXAudio2Mixer::PlayProjectWaveform(Bus bus,const hulk::eor::Index& index,
     const std::filesystem::path& project_archive,const std::filesystem::path& wave_archive,
-    uint32_t project_hash,size_t fev_offset,float gain,VoiceId* started) {
+    uint32_t project_hash,size_t fev_offset,float gain,VoiceId* started,VoiceOptions options) {
   if(started)*started=0;
   if(!Ready()||!ValidGain(gain))return false;
   try {
@@ -232,20 +243,20 @@ bool NativeXAudio2Mixer::PlayProjectWaveform(Bus bus,const hulk::eor::Index& ind
     const Fsb3Sample source{sample->name,sample->frames,sample->mode,sample->rate,
         sample->channels,sample->payload};
     const auto pcm=DecodeOriginalFsb3Sample(source);
-    return pcm && PlayPcm16(bus,*pcm,source.rate,source.channels,gain,started);
+    return pcm && PlayPcm16(bus,*pcm,source.rate,source.channels,gain,started,options);
   } catch (...) {return false;}
 }
 bool NativeXAudio2Mixer::PlayEventVariant(Bus bus,const hulk::eor::Index& index,
     const std::filesystem::path& project_archive,const std::filesystem::path& wave_archive,
     uint32_t project_hash,std::string_view group,std::string_view event_name,
-    uint32_t layer,uint32_t instance,uint32_t variant,float gain,VoiceId* started) {
+    uint32_t layer,uint32_t instance,uint32_t variant,float gain,VoiceId* started,VoiceOptions options) {
   if(started)*started=0;
   if(!Ready() || !ValidGain(gain))return false;
   try {
     const auto offset=fmod::ResolveEventWaveform(index,project_archive,project_hash,
         group,event_name,layer,instance,variant);
     return offset && PlayProjectWaveform(bus,index,project_archive,wave_archive,
-        project_hash,*offset,gain,started);
+        project_hash,*offset,gain,started,options);
   } catch (...) {return false;}
 }
 bool NativeXAudio2Mixer::StopVoice(VoiceId id) noexcept {
@@ -262,12 +273,46 @@ bool NativeXAudio2Mixer::PauseVoice(VoiceId id,bool pause) noexcept {
   std::lock_guard lock(state_->mutex);
   Update();
   for(auto& voice:state_->voices)if(voice->id==id) {
-    if(voice->paused==pause)return true;
-    const auto hr=pause?voice->source->Stop(0):voice->source->Start(0);
-    if(FAILED(hr))return false;
-    voice->paused=pause;
+    if(voice->clock.paused==pause)return true;
+    if(!voice->clock.pending) {
+      const auto hr=pause?voice->source->Stop(0):voice->source->Start(0);
+      if(FAILED(hr))return false;
+    }
+    voice->clock.paused=pause;
     return true;
   }
+  return false;
+}
+bool NativeXAudio2Mixer::AdvanceScheduledVoices(uint32_t elapsed_ms) noexcept {
+  if(!Ready())return false;
+  std::lock_guard lock(state_->mutex);
+  Update();
+  bool ok=true;
+  for(auto it=state_->voices.begin();it!=state_->voices.end();) {
+    auto& v=**it;
+    if(v.clock.Advance(elapsed_ms)) {
+      if(FAILED(v.source->Start(0))) {it=state_->voices.erase(it);ok=false;continue;}
+      v.clock.pending=false;
+    }
+    ++it;
+  }
+  return ok;
+}
+bool NativeXAudio2Mixer::SetVoiceFrequencyRatio(VoiceId id,float ratio) noexcept {
+  if(!Ready()||!id||!ValidVoiceRatio(ratio))return false;
+  std::lock_guard lock(state_->mutex);
+  Update();
+  for(auto& voice:state_->voices)if(voice->id==id)
+    return SUCCEEDED(voice->source->SetFrequencyRatio(ratio));
+  return false;
+}
+bool NativeXAudio2Mixer::SetVoiceFilter(VoiceId id,VoiceFilter filter,float frequency,float one_over_q) noexcept {
+  if(!Ready()||!id||!ValidVoiceFilter(filter,frequency,one_over_q))return false;
+  const auto parameters=NativeFilter(filter,frequency,one_over_q);
+  std::lock_guard lock(state_->mutex);
+  Update();
+  for(auto& voice:state_->voices)if(voice->id==id)
+    return SUCCEEDED(voice->source->SetFilterParameters(&parameters));
   return false;
 }
 bool NativeXAudio2Mixer::SetVoiceGain(VoiceId id,float gain) noexcept {
