@@ -70,7 +70,7 @@ def register(n):
     return r'((?:ctx\.)?r' + n + r'\.u(?:32|64))'
 
 
-def patch(sources):
+def patch_new_selection(sources):
     lines = {name: src.splitlines() for name, src in sources.items()}
     if any(LEGACY in src for src in sources.values()):
         raise ValueError('Legacy trace patch; regenerate original code')
@@ -104,9 +104,9 @@ def patch(sources):
             and re.fullmatch(r'bl\s+(?:0x)?82838650', r[4], re.I)], 'Start does not directly call selector exactly once')
     child_reg = re.fullmatch(r'lwz r\d+,\s*76\(r(\d+)\)', child[4])[1]
     variant_reg, parent_reg = re.fullmatch(r'stw r(\d+),\s*48\(r(\d+)\)', selection[4]).groups()
-    ci, cm = translated(lines[child[0]], child[3], r'PPC_LOAD_U32\(\s*'+register(child_reg)+r'\s*\+\s*(?:76|0x4[cC])\s*\)')
-    si, sm = translated(lines[selection[0]], selection[3], r'PPC_STORE_U32\(\s*'+register(parent_reg)+r'\s*\+\s*(?:48|0x30)\s*,\s*'+register(variant_reg)+r'\s*\)\s*;')
-    fi, fm = translated(lines[channel[0]], channel[3], r'PPC_STORE_U32\(\s*'+register(node_reg)+r'\s*\+\s*(?:20|0x14)\s*,\s*'+register(store_reg)+r'\s*\)\s*;')
+    ci, cm = translated(lines[child[0]], child[3], r'(?:PPC|REX(?:_MM)?)_LOAD_U32\(\s*'+register(child_reg)+r'\s*\+\s*(?:76|0x4[cC])\s*\)')
+    si, sm = translated(lines[selection[0]], selection[3], r'(?:PPC|REX(?:_MM)?)_STORE_U32\(\s*'+register(parent_reg)+r'\s*\+\s*(?:48|0x30)\s*,\s*'+register(variant_reg)+r'\s*\)\s*;')
+    fi, fm = translated(lines[channel[0]], channel[3], r'(?:PPC|REX(?:_MM)?)_STORE_U32\(\s*'+register(node_reg)+r'\s*\+\s*(?:20|0x14)\s*,\s*'+register(store_reg)+r'\s*\)\s*;')
     ri, _ = translated(lines[success[0]], success[3], r'(?:ctx\.)?r3\.[su](?:32|64)\s*=\s*0\s*;')
     edits = {}
     def add(name, at, value):
@@ -129,6 +129,31 @@ def patch(sources):
         result[name] = '\n'.join(seq)+'\n'
     return result
 
+
+CACHE = 'HULK_FMOD_CACHED_RECORD_V1'
+
+def patch_cached_record(sources):
+    lines = {name: src.splitlines() for name, src in sources.items()}
+    rows = [(name, *row) for name, seq in lines.items() for row in instructions(seq)[0]]
+    def exact(addr, asm):
+        return unique([r for r in rows if r[1] == 0x82838650 and r[2] == addr
+                       and re.fullmatch(asm, r[4])], 'Cached record instruction mismatch')
+    load = exact(0x828387A0, r'lwz r11,\s*0\(r22\)')
+    exact(0x828387A4, r'cmpwi cr6,\s*r11,\s*-1|cmpwi 6,\s*r11,\s*-1')
+    exact(0x828387BC, r'mulli r10,\s*r11,\s*24')
+    i, m = translated(lines[load[0]], load[3], register('11')+r'\s*=\s*(?:PPC|REX(?:_MM)?)_LOAD_U32\(\s*(?:ctx\.)?r22\.u32(?:\s*\+\s*0)?\s*\)\s*;')
+    seq = lines[load[0]]
+    marker = '  ::hulk::eor::xdk::TraceFmodCachedRecord(base, hulk_fmod_trace_child, static_cast<uint32_t>('+m[1]+')); // '+CACHE
+    existing = [(name,j) for name, q in lines.items() for j,line in enumerate(q) if CACHE in line]
+    if existing:
+        if existing != [(load[0],i+1)] or seq[i+1] != marker:raise ValueError('Invalid cached record marker')
+        return sources
+    seq.insert(i+1,marker)
+    result=dict(sources);result[load[0]]='\n'.join(seq)+'\n';return result
+
+
+def patch(sources):
+    return patch_cached_record(patch_new_selection(sources))
 
 def main():
     p = argparse.ArgumentParser();p.add_argument('generated', type=Path);p.add_argument('xex', type=Path)

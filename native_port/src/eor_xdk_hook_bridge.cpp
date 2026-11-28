@@ -621,6 +621,17 @@ void TraceFmodSelectionStore(uint8_t* base,uint32_t child,uint32_t parent,uint32
   (void)base;(void)child;(void)parent;(void)ordinal;
 #endif
 }
+void TraceFmodCachedRecord(uint8_t* base,uint32_t child,uint32_t ordinal) noexcept {
+#ifdef _WIN32
+  if(!audio::FmodStartTraceScope::Active(base)||!g_native_fmod_enabled.load(std::memory_order_acquire))return;
+  audio::FmodStartTraceScope::Reset(base);
+  const auto read=[&](uint32_t address,std::byte* data,size_t size){return ReadGuest(base,address,data,size);};
+  if(const auto selected=audio::CaptureFmodCachedRecord(child,ordinal,read))
+    audio::FmodStartTraceScope::Record(base,*selected);
+#else
+  (void)base;(void)child;(void)ordinal;
+#endif
+}
 void TraceFmodChannelStart(uint8_t* base,uint32_t child) noexcept {
 #ifdef _WIN32
   const auto selected=audio::FmodStartTraceScope::Consume(base);

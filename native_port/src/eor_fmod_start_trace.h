@@ -55,6 +55,18 @@ std::optional<FmodPendingSelection> CaptureFmodSelectionStore(uint32_t child,uin
   if(!count||!*count||*count>4096u||ordinal>=*count)return {};
   return FmodPendingSelection{*key,ordinal};
 }
+// USA 828387A0 reads the cached ordinal; 828387BC indexes 24-byte
+// records, 828387D8 tests the record kind. Only original wave records
+// (kind zero) qualify. The successful channel hook still confirms identity.
+template<class Read>
+std::optional<FmodPendingSelection> CaptureFmodCachedRecord(uint32_t child,uint32_t ordinal,Read&& read) noexcept {
+  const auto key=ReadFmodStartIdentity(child,read);
+  if(!key||FmodTraceWord(key->parent,44,read)!=ordinal)return {};
+  const auto count=FmodTraceWord(key->definition,76,read),table=FmodTraceWord(key->definition,84,read);
+  if(!count||!*count||*count>4096u||ordinal>=*count||!table||!*table||
+      FmodTraceWord(*table,ordinal*24u,read)!=0u)return {};
+  return FmodPendingSelection{*key,ordinal};
+}
 template<class Read>
 std::optional<uint32_t> ConfirmFmodChannelStart(const FmodPendingSelection& selection,uint32_t child,Read&& read) noexcept {
   if(ReadFmodStartIdentity(child,read)!=selection.key)return {};

@@ -8,6 +8,13 @@ int main(){
   const uint32_t event=0x1000,layer=0x2000,parent=0x3000,child=0x4000,owner=0x5000,def=0x6000,other=0x7000;
   put(event,0x82089270);put(event+264,7);put(layer+12,event);put(parent+16,layer);put(parent+12,owner);put(parent+76,0);put(owner+4,def);put(def+76,2);
   for(auto node:{child,other}){put(node+16,layer);put(node+12,owner);put(node+76,parent);put(node+20,8);put(node+36,node+0x4000);}
+  constexpr uint32_t records=0x9000;
+  put(def+84,records);put(records,0);put(records+24,0);put(parent+44,1);
+  auto cached=CaptureFmodCachedRecord(child,1,read);assert(cached&&cached->variant==1);
+  assert(!CaptureFmodCachedRecord(child,0,read));
+  put(records+24,1);assert(!CaptureFmodCachedRecord(child,1,read));put(records+24,0);
+  put(parent+44,0xffffffffu);assert(!CaptureFmodCachedRecord(child,0xffffffffu,read));
+  put(parent+44,0);assert(CaptureFmodCachedRecord(child,0,read));
   put(parent+48,0);auto first=CaptureFmodSelectionStore(child,parent,0,read);assert(first);
   assert(!CaptureFmodSelectionStore(child,parent,1,read));
   put(parent+48,1);auto second=CaptureFmodSelectionStore(other,parent,1,read);assert(second);

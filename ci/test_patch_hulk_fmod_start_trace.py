@@ -6,6 +6,12 @@ SELECT = '''DEFINE_REX_FUNC(sub_82838650) {
 loc_82838664:
   // lwz r11,76(r27)
   r11.u64 = PPC_LOAD_U32(r27.u32 + 76);
+loc_828387A0:
+  // lwz r11,0(r22)
+  r11.u64 = PPC_LOAD_U32(r22.u32 + 0);
+  // cmpwi cr6,r11,-1
+loc_828387BC:
+  // mulli r10,r11,24
 loc_828388FC:
   // stw r11,48(r21)
   PPC_STORE_U32(r21.u32 + 48, r11.u32);
@@ -58,6 +64,16 @@ class TracePatch(unittest.TestCase):
         # A translated operand in a different basic block is not evidence.
         with self.assertRaises(ValueError):
             patch({'a':a,'b':b.replace('  PPC_STORE_U32','  // Block: 0x82839610\n  PPC_STORE_U32')})
+    def test_rex_memory_macros_and_cached_record(self):
+        a=SELECT.replace('PPC_', 'REX_')
+        b=START.replace('PPC_', 'REX_')
+        out=patch({'a':a,'b':b})
+        self.assertIn('TraceFmodCachedRecord(base, hulk_fmod_trace_child, static_cast<uint32_t>(r11.u64))',out['a'])
+        self.assertEqual(patch(out),out)
+        # Upgrade a prior complete V2 patch without reinstalling its hooks.
+        old={k:'\n'.join(l for l in v.splitlines() if 'HULK_FMOD_CACHED_RECORD_V1' not in l)+'\n' for k,v in out.items()}
+        self.assertEqual(patch(old),out)
+        with self.assertRaises(ValueError):patch({'a':a.replace('mulli r10,r11,24','mulli r10,r11,20'),'b':b})
     def test_reject(self):
         for a,b in [(SELECT,START.replace('ori r10,r10,8','ori r10,r10,4')),
                     (SELECT,START.replace('bl 0x82838650','bl 0x82838654')),
