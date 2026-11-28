@@ -41,7 +41,7 @@ inline bool ValidStaticDsp(const StaticDspChain& chain,uint32_t rate) noexcept {
     else if(s.kind==DspKind::LowpassSimple||s.kind==DspKind::Highpass||s.kind==DspKind::Lowpass){
       const auto range=OriginalUsaDspRange(s.kind,0);
       if(!range||s.value<range->minimum||s.value>range->maximum||
-         (s.kind!=DspKind::LowpassSimple&&s.value>=rate*0.49f)||s.q<0.1f||s.q>10.f)return false;
+         (s.kind==DspKind::Lowpass&&s.value>=rate*0.49f)||s.q<0.1f||s.q>10.f)return false;
     }else return false;
   }
   return true;
@@ -74,6 +74,31 @@ struct OriginalUsaSimpleLowpassState {
     return second;
   }
 };
+// USA coefficient generator 0x827A0C68, setter 0x827A1930,
+// scalar processing at 0x827A10B8. The legacy resonance is the
+// denominator parameter in sin(w)/(2*resonance).
+struct OriginalUsaHighpass {
+  float b0=0,b1=0,b2=0,a0=1,a1=0,a2=0;
+  float x1=0,x2=0,y1=0,y2=0,cutoff=0;
+  void Configure(float hz,uint32_t rate,float resonance) noexcept {
+    const float previous=cutoff;
+    cutoff=(std::min)(hz,float(rate)*.5f-10.f);
+    const float w=(cutoff*6.2831854820251465f)/float(rate);
+    const float c=std::cos(w),alpha=std::sin(w)/(2.f*resonance);
+    b0=(c+1.f)*.5f;b1=-(c+1.f);b2=b0;
+    a0=1.f+alpha;a1=-2.f*c;a2=1.f-alpha;
+    if(std::abs(previous-cutoff)>=ResetThreshold())x1=x2=y1=y2=0.f;
+  }
+  static constexpr float ResetThreshold() noexcept {return 1000.f;}
+  float Process(float x) noexcept {
+    if(cutoff<2.f)return x;
+    if(cutoff==22000.f){x1=x2=y1=y2=0.f;return 0.f;}
+    float y=std::fma(b0,x,b2*x2);
+    y=std::fma(b1,x1,y);
+    y=std::fma(-a1,y1,y);y=std::fma(-a2,y2,y)/a0;
+    x2=x1;x1=x;y2=y1;y1=y;return y;
+  }
+};
 inline bool ApplyStaticDsp(std::span<int16_t> pcm,uint32_t rate,uint16_t channels,const StaticDspChain& chain) noexcept {
   if((channels!=1&&channels!=2)||pcm.empty()||pcm.size()%channels||!ValidStaticDsp(chain,rate))return false;
   for(unsigned i=0;i<chain.count;++i){
@@ -81,20 +106,22 @@ inline bool ApplyStaticDsp(std::span<int16_t> pcm,uint32_t rate,uint16_t channel
     if(s.kind==DspKind::Distortion&&s.value==0)continue;
     double b0=1,b1=0,b2=0,a1=0,a2=0;
     const double w=2*std::numbers::pi*double(s.value)/rate;
-    if(s.kind==DspKind::Highpass||s.kind==DspKind::Lowpass){
+    if(s.kind==DspKind::Lowpass){
       const double c=std::cos(w),alpha=std::sin(w)/(2*s.q),a0=1+alpha;
       a1=-2*c/a0;a2=(1-alpha)/a0;
-      if(s.kind==DspKind::Highpass){b0=(1+c)/(2*a0);b1=-2*b0;}
-      else {b0=(1-c)/(2*a0);b1=2*b0;}
+      b0=(1-c)/(2*a0);b1=2*b0;
       b2=b0;
     }
     std::array<double,2> z1{},z2{};
     std::array<OriginalUsaSimpleLowpassState,2> simple{};
+    std::array<OriginalUsaHighpass,2> high{};
+    if(s.kind==DspKind::Highpass)for(auto& f:high)f.Configure(s.value,rate,s.q);
     const float alpha=s.kind==DspKind::LowpassSimple?OriginalUsaSimpleLowpassAlpha(s.value,rate):0.f;
     for(std::size_t n=0;n<pcm.size();++n){
       const auto ch=n%channels;const double x=pcm[n]/32768.;double y;
       if(s.kind==DspKind::Distortion)y=OriginalUsaDistortion(static_cast<float>(x),s.value);
       else if(s.kind==DspKind::LowpassSimple)y=simple[ch].Process(static_cast<float>(x),alpha);
+      else if(s.kind==DspKind::Highpass)y=high[ch].Process(static_cast<float>(x));
       else {y=b0*x+z1[ch];z1[ch]=b1*x-a1*y+z2[ch];z2[ch]=b2*x-a2*y;}
       pcm[n]=static_cast<int16_t>(std::lround(std::clamp(y*32768.,-32768.,32767.)));
     }

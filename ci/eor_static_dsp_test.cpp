@@ -24,6 +24,15 @@ int main(){
   assert(st.Process(.75f,1.f)==.75f&&st.first==.25f&&st.second==.25f);
   assert(st.Process(0.f,.75f)==.109375f);
   assert(st.Process(1.f,0.f)==0.f&&st.first==0.f&&st.second==0.f);
+  OriginalUsaHighpass hp;
+  hp.Configure(1000.f,48000,1.f);
+  assert(std::abs(hp.Process(1.f)-hp.b0/hp.a0)<1e-6f);
+  assert(hp.x1==1.f);
+  hp.Configure(1100.f,48000,1.f);assert(hp.x1==1.f);
+  hp.Configure(2100.f,48000,1.f);assert(hp.x1==0.f);
+  hp.Configure(22000.f,48000,1.f);assert(hp.Process(.75f)==0.f);
+  hp.Configure(1.f,48000,1.f);assert(hp.Process(.75f)==.75f);
+  hp.Configure(22000.f,8000,1.f);assert(hp.cutoff==3990.f);
   StaticDspChain c;auto v=Tone(500),old=v;assert(ApplyStaticDsp(v,48000,1,c)&&v==old);
   c.count=1;c.stages[0]={DspKind::Distortion,0,1};assert(ApplyStaticDsp(v,48000,1,c)&&v==old);
   c.stages[0].value=.5f;assert(ApplyStaticDsp(v,48000,1,c)&&v!=old);
