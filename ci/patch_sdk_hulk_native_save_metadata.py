@@ -134,6 +134,22 @@ def patch_backup(source):
     return source.replace(BACKUP_ANCHOR,BACKUP_HELPER+BACKUP_ANCHOR,1).replace(
         DELETE_ANCHOR,DELETE_GUARD+DELETE_ANCHOR),True
 
+FLUSH_HEADER='include/rex/system/xam/content_manager.h'
+FLUSH_XAM="u32 XamContentFlush_entry(mapped_string root_name, mapped_void overlapped_ptr) {\n  X_RESULT result = X_ERROR_SUCCESS;"
+FLUSH_XAM_NEW="u32 XamContentFlush_entry(mapped_string root_name, mapped_void overlapped_ptr) {\n  X_RESULT result = REX_KERNEL_STATE()->content_manager()->FlushNativeHulkContent(root_name.value());"
+FLUSH_CPP="X_RESULT ContentManager::CloseContent(const std::string_view root_name) {"
+FLUSH_CPP_NEW="// HULK/NATIVE-SAVE-FLUSH: the existing compatibility content API can\n// now flush the actual Windows file rather than report unconditional\n// success. Preserve the historical no-op for non-native content.\nX_RESULT ContentManager::FlushNativeHulkContent(const std::string_view root_name) {\n  try {\n    auto lock = global_critical_region_.Acquire();\n    const auto it = open_packages_.find(string::string_key_case(root_name));\n    if (it == open_packages_.end()) return X_ERROR_SUCCESS;\n    const auto& data = it->second->GetPackageContentData();\n    if (!hulk::save::IsHulkSaveSlot(data.file_name())) return X_ERROR_SUCCESS;\n    const uint32_t title = data.title_id == kCurrentlyRunningTitleId\n        ? kernel_state_->title_id() : uint32_t(data.title_id);\n    const auto root = hulk::native_save::WindowsRoot(\n        title, uint32_t(data.content_type), REXCVAR_GET(hulk_native_pc_saves));\n    if (root.empty()) return X_ERROR_SUCCESS;\n    const auto& package = it->second->package_path();\n    if (package.parent_path() != root ||\n        !hulk::save::IsHulkSaveSlot(rex::path_to_utf8(package.filename())))\n      return X_ERROR_SUCCESS;\n    const auto payload = package / \"HULK.SAV\";\n    std::error_code ec;\n    const auto status = std::filesystem::symlink_status(payload, ec);\n    if (ec || !std::filesystem::is_regular_file(status))\n      return X_ERROR_ACCESS_DENIED;\n    FILE* file = hulk::save::OpenCommitFile(payload, false);\n    if (!file) return X_ERROR_ACCESS_DENIED;\n    const bool flushed = hulk::save::FlushCommitFile(file);\n    const bool closed = std::fclose(file) == 0;\n    return flushed && closed ? X_ERROR_SUCCESS : X_ERROR_ACCESS_DENIED;\n  } catch (...) {\n    return X_ERROR_ACCESS_DENIED;\n  }\n}\n\nX_RESULT ContentManager::CloseContent(const std::string_view root_name) {"
+FLUSH_DECL="  X_RESULT CloseContent(const std::string_view root_name);"
+FLUSH_DECL_NEW="  X_RESULT FlushNativeHulkContent(const std::string_view root_name);\n  X_RESULT CloseContent(const std::string_view root_name);"
+
+def patch_flush(header,source,xam):
+    pairs=((header,FLUSH_DECL,FLUSH_DECL_NEW),(source,FLUSH_CPP,FLUSH_CPP_NEW),
+           (xam,FLUSH_XAM,FLUSH_XAM_NEW))
+    if all(s.count(new)==1 for s,old,new in pairs):return header,source,xam,False
+    if any(new in s for s,old,new in pairs):raise ValueError('Partial native save flush patch')
+    if any(s.count(old)!=1 for s,old,new in pairs):raise ValueError('Native save flush anchor drift')
+    return (*[s.replace(old,new,1) for s,old,new in pairs],True)
+
 def main():
     root=Path(sys.argv[1]);path=root/SOURCE
     before=path.read_text(encoding='utf-8');after,changed=patch_cpp(before)
@@ -143,9 +159,17 @@ def main():
     xam_before=xam_path.read_text(encoding='utf-8')
     xam_after,xam_changed=patch_xam(xam_before)
     if patch_xam(xam_after)!=(xam_after,False):raise ValueError('Native save enum not idempotent')
+    hp=root/FLUSH_HEADER
+    header=hp.read_text(encoding='utf-8')
+    new_header,after,xam_after,flush_changed=patch_flush(header,after,xam_after)
+    if patch_flush(new_header,after,xam_after)!=(new_header,after,xam_after,False):
+        raise ValueError('Native save flush not idempotent')
+    changed=changed or flush_changed
+    xam_changed=xam_changed or flush_changed
     helper=Path(__file__).resolve().parents[1]/'native_port/src/native_save_metadata.h'
     dest=root/'include/rex/system/xam/hulk_native_save_metadata.h'
     dest.write_text(helper.read_text(encoding='utf-8'),encoding='utf-8',newline='\n')
+    if flush_changed:hp.write_text(new_header,encoding='utf-8',newline='\n')
     if changed:path.write_text(after,encoding='utf-8',newline='\n')
     if xam_changed:xam_path.write_text(xam_after,encoding='utf-8',newline='\n')
     print('Hulk native save metadata:', 'installed' if changed else 'verified')
