@@ -20,16 +20,22 @@ class NativeMetadata(unittest.TestCase):
         with self.assertRaises(ValueError):patch_cpp(result.replace(PAIRS[0][1],PAIRS[0][0]))
     def test_native_enumerator(self):
         from patch_sdk_hulk_native_save_metadata import (
-            patch_xam, XAM_SOURCE, XAM_INCLUDE, XAM_ENUM, XAM_ENUM_NEW)
-        source=(SDK/XAM_SOURCE).read_text(encoding='utf-8') if SDK else XAM_INCLUDE+XAM_ENUM
+            patch_xam, XAM_SOURCE, XAM_INCLUDE, XAM_ENUM, XAM_ENUM_NEW,
+            XAM_CREATE, XAM_CREATE_NEW)
+        source=(SDK/XAM_SOURCE).read_text(encoding='utf-8') if SDK else XAM_INCLUDE+XAM_ENUM+'\n'+XAM_CREATE
         result,changed=patch_xam(source)
         self.assertTrue(changed)
         self.assertIn(XAM_ENUM_NEW,result)
+        self.assertIn(XAM_CREATE_NEW,result)
+        self.assertIn('result = header_result;',result)
+        self.assertIn('disposition = kDispositionState::Unknown;',result)
+        self.assertIn('content_manager->CloseContent(root_name);',result)
         self.assertIn('xuid != 0 && !hulk_single_root',result)
         self.assertEqual(patch_xam(result),(result,False))
-        for old in (XAM_INCLUDE,XAM_ENUM):
+        for old in (XAM_INCLUDE,XAM_ENUM,XAM_CREATE):
             with self.assertRaises(ValueError):patch_xam(source.replace(old,'missing'))
         with self.assertRaises(ValueError):patch_xam(result.replace(XAM_ENUM_NEW,XAM_ENUM))
+        with self.assertRaises(ValueError):patch_xam(result.replace(XAM_CREATE_NEW,XAM_CREATE))
     def test_backup_transform(self):
         from patch_sdk_hulk_native_save_metadata import (
             patch_backup, BACKUP_ANCHOR, BACKUP_HELPER, DELETE_ANCHOR, DELETE_GUARD)
