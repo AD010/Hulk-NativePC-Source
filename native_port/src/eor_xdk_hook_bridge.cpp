@@ -3056,6 +3056,9 @@ struct AutomaticEorOwner {
       for(const auto& surface:surfaces) {
         const auto hash=surface.original_model_hash;
         if(models.contains(hash))continue;
+        // A missing resident cannot become visible until the next worker
+        // upload tick. Reuse this frame's negative result for every surface.
+        if(requested.contains(hash)){runtime_required.insert(ordinal);continue;}
         auto resident=source_models->ResidentShared(hash);
         if(!resident){runtime_required.insert(ordinal);requested.insert(hash);continue;}
         models.emplace(hash,std::move(resident));
@@ -4311,6 +4314,8 @@ native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(
          owner_catalog->direct_gpu->OriginalModelUploader())) {
     try {
       std::set<uint32_t> candidate_hashes;
+      using PrefetchKey=std::pair<uint16_t,std::array<uint32_t,16>>;
+      std::set<PrefetchKey> seen_texture_sets;
       for(const auto& call:source_snapshot->calls) {
         const auto& shader=call.original_engine_shader_method;
         if(!shader || !shader->original_shader_method_vtable_verified ||
@@ -4328,12 +4333,18 @@ native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(
         // a small, rotating batch of REAL original model archive records.
         // Do not starve first-frame GPU mesh residency when >12 models
         // share exactly the same texture(s).
+        auto mask=shader->original_pass_sampler_slot_mask;
+        auto keys=call.original_pixel_texture_keys;
+        // The original archive lookup is immutable; repeated texture sets
+        // on adjacent depth/color/material passes must not repeat the same
+        // rotating page search. Keep all original page and owner limits.
+        for(uint32_t slot=0;slot<16;++slot)
+          if(!(mask&(1u<<slot)))keys[slot]=0;
+        if(!seen_texture_sets.emplace(mask,keys).second)continue;
         const auto candidates=
             owner_catalog->source_material_candidates->
                 PrefetchLiveSurfaceCandidatesPage(
-                    call.original_pixel_texture_keys,
-                    shader->original_pass_sampler_slot_mask,
-                    static_cast<size_t>(source_sequence/60u),12);
+                    keys,mask,static_cast<size_t>(source_sequence/60u),12);
         for(const auto& candidate:candidates) {
           if(candidate_hashes.size()>=96)break;
           candidate_hashes.insert(candidate.original_model_hash);
