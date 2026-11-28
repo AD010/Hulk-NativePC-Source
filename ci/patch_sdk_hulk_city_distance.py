@@ -57,16 +57,24 @@ READ_NEW = READ + '''  // HULK/CITY-DISTANCE: the original indexed Levels record
       }
       // A bulk read can contain more than one real prototype; patch each
       // separately rather than stopping at the first match.
-      if(lod!=1.0f)for(const auto& record:hulk::city::kLodRecords) {
+      if(lod!=1.0f)for(size_t index=0;index<hulk::city::kLodRecords.size();++index) {
+        const auto& record=hulk::city::kLodRecords[index];
         if(!hulk::city::Intersects(byte_offset,*out_bytes_read,record.offset+record.field))continue;
         std::array<uint8_t,hulk::city::kMaxLodRecordBytes> original{};
         size_t read=0;
         if(file_handle_->Read(record.offset,original.data(),record.size,&read) &&
            read==record.size &&
            hulk::city::ApplyLodToRead(buffer.first(*out_bytes_read),byte_offset,
-                std::span<const uint8_t>(original.data(),record.size),record,lod))
-          REXLOG_INFO("[HULK/CITY-LOD] original resource offset={} LODDistance={} -> {}",
-                       record.offset,record.original_distance,record.original_distance*lod);
+                std::span<const uint8_t>(original.data(),record.size),record,lod)) {
+          // Repeated streaming reads must not flood the game/render threads
+          // with identical synchronous log work. Emit on first successful
+          // patch of each original record, or on a changed multiplier.
+          static std::array<std::atomic<uint32_t>,hulk::city::kLodRecords.size()> logged{};
+          const auto scale_bits=std::bit_cast<uint32_t>(lod);
+          if(logged[index].exchange(scale_bits,std::memory_order_relaxed)!=scale_bits)
+            REXLOG_INFO("[HULK/CITY-LOD] original resource offset={} LODDistance={} -> {}",
+                         record.offset,record.original_distance,record.original_distance*lod);
+        }
       }
     }
   }
