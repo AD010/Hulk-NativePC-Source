@@ -61,6 +61,9 @@ class NativeMetadata(unittest.TestCase):
             self.assertIn(expected,actual)
         self.assertEqual(patch_flush(header,source,xam),(header,source,xam,False))
         self.assertIn('FlushCommitFile(file)',source)
+        self.assertIn('MirrorOriginalProgress(',source)
+        self.assertIn('root / "Headers" / "HULK.SAV.hpr"',source)
+        self.assertLess(source.index('if (!flushed || !closed)'),source.index('MirrorOriginalProgress('))
         self.assertIn('global_critical_region_.Acquire()',source)
         self.assertIn('package.parent_path() != root',source)
         for index,anchor in enumerate((FLUSH_DECL,FLUSH_CPP,FLUSH_XAM)):
