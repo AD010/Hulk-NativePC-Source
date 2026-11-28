@@ -36,6 +36,18 @@ int main(){
   Check(!cache.CanReuse(2,3,true));
   cache.Reset();
   Check(!cache.CanReuse(1,2,true));
+  // A seventeenth target resets the generation table during Resolved.
+  // A source subsequently assigned generation 1 must not resurrect it.
+  for(uint32_t id=1;id<=16;++id)cache.ColorWritten(id);
+  cache.Resolved(1,17,true);
+  Check(!cache.CanReuse(1,17,true));
+  cache.ColorWritten(1);
+  Check(!cache.CanReuse(1,17,true));
+  cache.Resolved(1,17,true);
+  Check(cache.CanReuse(1,17,true));
+  cache.Resolved(1,17,false);
+  Check(!cache.CanReuse(1,17,true));
+  cache.Reset();
   // Compare against a reference model under many source/destination changes.
   uint32_t rng=0x12345678u;
   auto next=[&](){rng=rng*1664525u+1013904223u;return rng>>8;};

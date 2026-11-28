@@ -28,12 +28,12 @@ class OriginalResolveReuse {
   }
   bool CanReuse(uint32_t source,uint32_t dest,bool full) const noexcept {
     if(!full || !source || !dest || source==dest)return false;
-    const auto generation=Generation(source);
-    if(!generation)return false;
+    const auto generation=Generation(source),dest_generation=Generation(dest);
+    if(!generation||!dest_generation)return false;
     for(const auto& entry:resolves_)
       if(entry.dest==dest)return entry.source==source &&
           entry.generation==generation &&
-          entry.dest_generation==Generation(dest);
+          entry.dest_generation==dest_generation;
     return false;
   }
   void Resolved(uint32_t source,uint32_t dest,bool full) noexcept {
@@ -44,8 +44,11 @@ class OriginalResolveReuse {
     // the source of another Resolve must advance its own generation.
     ColorWritten(dest);
     const auto dest_generation=Generation(dest);
+    // ColorWritten may reset the entire generation table on exhaustion.
+    // Never publish a stale source epoch or an untracked destination.
+    if(!generation||!dest_generation||Generation(source)!=generation)return;
     for(auto& entry:resolves_)if(entry.dest==dest || !entry.dest) {
-      entry={dest,generation?source:0u,generation,dest_generation};return;
+      entry={dest,source,generation,dest_generation};return;
     }
     resolves_={};
   }
