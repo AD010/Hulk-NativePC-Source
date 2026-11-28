@@ -51,16 +51,19 @@ class NativeMetadata(unittest.TestCase):
     def test_native_flush_transform(self):
         from patch_sdk_hulk_native_save_metadata import (
             patch_flush, FLUSH_HEADER, XAM_SOURCE, FLUSH_DECL, FLUSH_CPP,
-            FLUSH_XAM, FLUSH_DECL_NEW, FLUSH_CPP_NEW, FLUSH_XAM_NEW)
+            FLUSH_XAM, FLUSH_DECL_NEW, FLUSH_CPP_NEW, FLUSH_XAM_NEW,
+            FLUSH_CLOSE, FLUSH_CLOSE_NEW)
         paths=(FLUSH_HEADER,SOURCE,XAM_SOURCE)
         inputs=tuple((SDK/p).read_text(encoding='utf-8') for p in paths) if SDK else (
-            FLUSH_DECL,FLUSH_CPP,FLUSH_XAM)
+            FLUSH_DECL,FLUSH_CPP,FLUSH_XAM+'\n'+FLUSH_CLOSE)
         header,source,xam,changed=patch_flush(*inputs)
         self.assertTrue(changed)
         for actual,expected in zip((header,source,xam),(FLUSH_DECL_NEW,FLUSH_CPP_NEW,FLUSH_XAM_NEW)):
             self.assertIn(expected,actual)
         self.assertEqual(patch_flush(header,source,xam),(header,source,xam,False))
         self.assertIn('FlushCommitFile(file)',source)
+        self.assertIn(FLUSH_CLOSE_NEW,xam)
+        self.assertLess(xam.index('(void)manager->FlushNativeHulkContent'),xam.index('manager->CloseContent'))
         self.assertIn('MirrorOriginalProgress(',source)
         self.assertIn('root / "Headers" / "HULK.SAV.hpr"',source)
         self.assertLess(source.index('if (!flushed || !closed)'),source.index('MirrorOriginalProgress('))
@@ -70,6 +73,8 @@ class NativeMetadata(unittest.TestCase):
             broken=list(inputs);broken[index]=broken[index].replace(anchor,'missing')
             with self.assertRaises(ValueError):patch_flush(*broken)
         with self.assertRaises(ValueError):patch_flush(header,inputs[1],xam)
+        with self.assertRaises(ValueError):patch_flush(inputs[0],inputs[1],inputs[2].replace(FLUSH_CLOSE,'missing'))
+        with self.assertRaises(ValueError):patch_flush(header,source,xam.replace(FLUSH_CLOSE_NEW,FLUSH_CLOSE))
     def test_native_open_identity(self):
         from patch_sdk_hulk_native_save_metadata import patch_open_identity, OPEN_IDENTITY_PAIRS
         source=(SDK/SOURCE).read_text(encoding='utf-8') if SDK else '\n'.join(
