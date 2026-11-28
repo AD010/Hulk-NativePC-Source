@@ -1,6 +1,14 @@
 // Windows MPEG-1/2 Layer II decoder via the documented synchronous
 // Microsoft MPEG audio MFT. No external executable, FMOD DLL or temp file.
+#pragma once
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include "eor_native_audio_xaudio2.h"
+#include "eor_fsb3_ima.h"
 #include "eor_fsb3_mpeg.h"
+#include <algorithm>
+#include <objbase.h>
 #include <mfapi.h>
 #include <mfidl.h>
 #include <mferror.h>

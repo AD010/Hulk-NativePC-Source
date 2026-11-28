@@ -225,6 +225,14 @@ if(HULK_NATIVE_CORE_ONLY)
         endif()
         add_test(NAME ${_test} COMMAND ${_test})
     endforeach()
+    if(WIN32)
+        add_executable(eor_mpeg_mft_test "${CMAKE_CURRENT_SOURCE_DIR}/../ci/eor_mpeg_mft_test.cpp")
+        target_link_libraries(eor_mpeg_mft_test PRIVATE hulk_native_core)
+        add_test(NAME eor_mpeg_mft_test COMMAND eor_mpeg_mft_test)
+        # A Windows Server image can omit the optional Microsoft decoder.
+        # Report that as skipped, never a successful decode.
+        set_tests_properties(eor_mpeg_mft_test PROPERTIES SKIP_RETURN_CODE 77)
+    endif()
     return()
 endif()
 

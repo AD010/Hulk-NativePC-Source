@@ -12,6 +12,7 @@
 namespace hulk::eor {class Index;}
 namespace hulk::eor::audio {
 enum class Bus : uint8_t { Music=0, Sfx=1, Dialog=2 };
+using VoiceId=uint64_t; // Zero never identifies a playing instance.
 // EoR music and longer dialogue samples exceed one million PCM values.
 // The original longest MPEG cue needs ~35 MiB decoded. Bound each
 // voice to 48 MiB; the existing aggregate limit remains 96 MiB.
@@ -35,7 +36,7 @@ class NativeXAudio2Mixer {
 
   bool Ready() const noexcept;
   bool PlayPcm16(Bus bus,std::span<const int16_t> samples,
-                 uint32_t sample_rate,uint16_t channels,float gain=1.f);
+                 uint32_t sample_rate,uint16_t channels,float gain=1.f,VoiceId* started=nullptr);
   // Real PCM16 sample from a validated original FMOD Ex FSB4 bank.
   // XMA/ADPCM/MPEG requires its own decoder and is never misplayed as PCM.
   bool PlayFsb4Pcm16(Bus bus,std::span<const std::byte> bank,
@@ -48,7 +49,13 @@ class NativeXAudio2Mixer {
   // Explicit source-proven event bank/sample route, not an invented FMOD callback.
   bool PlayProjectWaveSample(Bus bus,const hulk::eor::Index& index,
       const std::filesystem::path& project_archive,const std::filesystem::path& wave_archive,
-      uint32_t project_hash,uint32_t bank_ordinal,uint32_t sample_ordinal,float gain=1.f);
+      uint32_t project_hash,uint32_t bank_ordinal,uint32_t sample_ordinal,float gain=1.f,
+      VoiceId* started=nullptr);
+  // Independent event-instance controls. Stop destroys only the selected
+  // voice; pause retains the original buffer and playback cursor.
+  bool StopVoice(VoiceId id) noexcept;
+  bool PauseVoice(VoiceId id,bool pause) noexcept;
+  bool SetVoiceGain(VoiceId id,float gain) noexcept;
   bool SetBusVolume(Bus bus,float gain) noexcept;
   void SetMuted(bool muted) noexcept;
   void Update() noexcept;

@@ -426,6 +426,7 @@ struct DiligentEorDirectBackend::State {
     std::vector<float> vertex,pixel;
     FloatRegisterAbi vs_abi=FloatRegisterAbi::External,ps_abi=FloatRegisterAbi::External;
     native::HostRasterWindow raster{};
+    std::optional<uint32_t> stencil_reference;
     std::optional<PipelineVariantKey> variant;
     Diligent::RefCntAutoPtr<Diligent::IPipelineState> variant_pipeline;
     Diligent::RefCntAutoPtr<Diligent::IShaderResourceBinding> draw_bindings;
@@ -1591,6 +1592,15 @@ bool DiligentEorDirectBackend::PreflightOriginalScene(
              d.guest_vs_matrices->original_guest_device)
         return false;
       const auto& live_state=*registers.fixed_graphics_state;
+      // A missing dynamic stencil reference used to abort a live Draw after
+      // Clear and PSO binding. Admit the reference with the immutable frame
+      // before any Vulkan work, and keep zero distinct from absence.
+      if(const auto depth=live_state.ReadOriginalXenosRegister(0x2200u);
+          depth && (*depth&1u)) {
+        const auto reference=live_state.ReadOriginalXenosRegister(0x210du);
+        if(!reference)return false;
+        packed.stencil_reference=*reference&255u;
+      }
       if(!MatchesOriginalXdkGraphicsState(pass,live_state)) {
         // A streamed material owns the shader pair, vertex layout and
         // images, but fixed-function state belongs to the actual Draw.
@@ -2125,14 +2135,8 @@ bool DiligentEorDirectBackend::DrawIndexed(const native::IndexedDraw& draw) {
     // original frame/ordinal; never bind its SRB with the base PSO.
     s.context->SetPipelineState(constants.variant_pipeline ?
         constants.variant_pipeline.RawPtr() : s.active.pipeline.RawPtr());
-    if(regs.fixed_graphics_state) {
-      const auto depth=regs.fixed_graphics_state->ReadOriginalXenosRegister(0x2200u);
-      if(depth && (*depth&1u)) {
-        const auto reference=regs.fixed_graphics_state->ReadOriginalXenosRegister(0x210du);
-        if(!reference)return false;
-        s.context->SetStencilRef(*reference&255u);
-      }
-    }
+    if(constants.stencil_reference)
+      s.context->SetStencilRef(*constants.stencil_reference);
     // Dynamic resolved textures have no archive hash and no SRV before
     // their actual native Resolve. Bind only the graph-owned completed image.
     for(const auto& image:s.selected->original_textures) {
