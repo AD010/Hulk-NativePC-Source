@@ -1694,7 +1694,14 @@ void CapturePpcDraw(Kind kind, uint32_t guest, const PPCContext& ctx,
         // Never crash game logic on a diagnostic snapshot allocation.
       }
   }
-  if(replay && capture_heavy && verified_draw_program && g_original_shader_capture_index) {
+  // A failed required register read cannot be repaired on the Vulkan worker.
+  // Stop expensive texture/mesh acquisition for this epoch, not the live
+  // shader/effect identity observer or an explicitly requested diagnostic.
+  if(replay && capture_heavy && !HasRequiredReplayRegisters(draw))
+    g_frame_shader_complete.store(false,std::memory_order_relaxed);
+  const bool replay_geometry=replay && capture_heavy && verified_draw_program &&
+      g_frame_shader_complete.load(std::memory_order_relaxed);
+  if(replay_geometry && g_original_shader_capture_index) {
     const auto& sources=*g_original_shader_capture_index;
     if(auto& vertex=draw.observed_live_vertex_shader_header;
        vertex && draw.observed_shader_constants && draw.observed_shader_constants->valid_vertex_fetch) {
@@ -1743,11 +1750,11 @@ void CapturePpcDraw(Kind kind, uint32_t guest, const PPCContext& ctx,
   // only in the sampler loop above. Capture its live s0 descriptor now,
   // not before ownership recovery, or StageVerifiedOriginalFontDraw
   // rejects an otherwise complete original menu/HUD frame.
-  if(replay && capture_heavy && verified_draw_program)
+  if(replay_geometry)
     draw.original_font_fetch=CaptureUsaFontFetchAtDraw(draw,ReadGuest,guest_base);
   // Only a requested direct Vulkan render performs byte-exact guest
   // resource capture; diagnostics-only XDK observer is unaffected.
-  if(capture_heavy && draw.observed_vs_matrices) {
+  if((diagnostic_mesh || replay_geometry) && draw.observed_vs_matrices) {
     try {
       const auto& state=*draw.observed_vs_matrices;
       // Source snapshots are deduplicated by the existing per-Present
@@ -1787,7 +1794,7 @@ void CapturePpcDraw(Kind kind, uint32_t guest, const PPCContext& ctx,
       draw.source_vertex_streams={};
     }
   }
-  if(replay && kind==Kind::EndVertices && !DecodeOriginalFontVertices(draw))
+  if(replay && capture_heavy && !HasRequiredReplaySnapshot(draw))
     g_frame_shader_complete.store(false,std::memory_order_relaxed);
   g_collector.Record(std::move(draw));
 }
@@ -3271,6 +3278,11 @@ class ExclusiveEorSession : public std::enable_shared_from_this<ExclusiveEorSess
         ReportRejected(frame->sequence,"no original XDK Draw calls");
         return;
       }
+      if(!std::all_of(frame->calls.begin(),frame->calls.end(),HasRequiredReplaySnapshot) ||
+         !ValidateOriginalCommandTimeline(*frame)) {
+        ReportRejected(frame->sequence,"incomplete original XDK replay snapshots or command timeline");
+        return;
+      }
       if(!resources) {
         resources=std::make_shared<AutomaticEorResources>(
             host->Device(),*current,archives,root,candidate);
@@ -3280,10 +3292,6 @@ class ExclusiveEorSession : public std::enable_shared_from_this<ExclusiveEorSess
         owner.reset();
         resources->shaders.Clear();
         resources->pack=*current;
-      }
-      if(!ValidateOriginalCommandTimeline(*frame)) {
-        ReportRejected(frame->sequence,"incomplete original XDK command timeline");
-        return;
       }
       if(!host->ResizeToClient()) {
         ReportRejected(frame->sequence,"host swapchain resize unavailable");
@@ -3998,7 +4006,7 @@ native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(
       source_snapshot->dropped_commands ||
       !std::all_of(source_snapshot->calls.begin(),source_snapshot->calls.end(),
           [](const RawDraw& draw) {
-            return HasOriginalDrawProgram(draw);
+            return HasRequiredReplaySnapshot(draw);
           }) ||
       !ValidateOriginalCommandTimeline(*source_snapshot)))
     return Result::kNotReady;

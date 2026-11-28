@@ -830,6 +830,21 @@ inline std::optional<std::array<uint32_t,6>> CaptureUsaFontFetchAtDraw(
   return CaptureUsaFontFetch(draw.gpr[0],read,state);
 }
 std::optional<VerticesXdkCall> DecodeOriginalFontVertices(const RawDraw& call);
+// Mandatory data for the built-in Vulkan producer. This is only a negative
+// admission gate: it does not authorize a material, pipeline or Present.
+inline bool HasRequiredReplayRegisters(const RawDraw& draw) noexcept {
+  return draw.observed_vs_matrices && draw.observed_shader_constants &&
+      draw.observed_shader_constants->fixed_graphics_state;
+}
+inline bool HasRequiredReplaySnapshot(const RawDraw& draw) noexcept {
+  if(!HasOriginalDrawProgram(draw) || !HasRequiredReplayRegisters(draw))return false;
+  if(draw.kind==Kind::EndVertices)return bool(DecodeOriginalFontVertices(draw));
+  if(draw.kind!=Kind::DrawVertices && draw.kind!=Kind::DrawIndexedVertices)return false;
+  if(!draw.captured_vertex_bindings || !draw.vertex_declaration)return false;
+  if(draw.kind==Kind::DrawIndexedVertices &&
+     (!draw.index_binding || !draw.source_ib || !draw.index_binding->Matches(*draw.source_ib)))return false;
+  return true;
+}
 // Original USA frontend DrawVertices prim=6 (D3DPT_TRIANGLEFAN) emits two
 // triangles for a four-vertex quad; Vulkan's native DrawIndexed uses lists.
 // Topology conversion is independent of archive/game resource ownership.
