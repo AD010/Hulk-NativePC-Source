@@ -194,3 +194,7 @@ from these source changes. No Actions release was launched in this step.
   verify pinned USA XEX/private input constraints, and only then run one
   manually approved Windows Release. Successful compilation alone does not
   demonstrate correct game pixels; live gameplay/RenderDoc remains mandatory.
+
+### Optional native FMOD Ex host playback check
+
+The optional `hulk_fmod_ex_probe` target uses a locally supplied matching legacy Windows x64 SDK and DLL pair. See `docs/FMOD_USA_START_AND_SPATIAL_ABI_2026-11-28.md` for invocation and limitations. It is not part of the normal game build or package, and does not change the current audio route.

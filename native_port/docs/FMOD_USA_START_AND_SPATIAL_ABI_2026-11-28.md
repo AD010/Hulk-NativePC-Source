@@ -43,3 +43,36 @@ The Windows mixer now has an opt-in parallel mono XAudio2 submix with the native
 ## Source room properties and native effect parameter updates
 
 Verified USA PE SHA256 aeb9ff9e6a16f5867b69c0cb626aa8e56d9bd96f820ddd34ab5b25f6faadde29 again. The setter 8278C540 copies and clamps the 124-byte FMOD_REVERB_PROPERTIES block into object+24. Cross-reference: legacy 4.24.16 fmod.h and Microsoft XAUDIO2FX_REVERB_I3DL2_PARAMETERS. The I3DL2 subset is room +40, room HF +44, decay +52, decay HF ratio +56, reflections +64, early delay +68, late reverb +84, late delay +88, HF reference +124, rolloff +132, diffusion +136 and density +140. The source setter then routes selected changed fields via DSP vtable +40 (8278CA00 onward). The new reader validates all 12 source properties and attaches them to the existing per-zone sends. The native single wet bus updates its APO parameters from the strongest validated observed positive send across all active cues, with deterministic owner tie-breaking, retaining the previous room on unavailable data. This replaces the generic preset when source data is available; simultaneous independent rooms, flags, unsupported FMOD parameters and exact DSP response are not reproduced. Microsoft documents that built-in effects ignore I3DL2 RoomRolloffFactor; the source zone gain remains separate. Also corrected the nonpositional branch at 8278CEA4..8278CEB8: both optional outputs receive 1, not 1/0. Four portable suites (room read, acoustics, reverb route and spatial capture) pass under GCC and Clang C++20 with warnings treated as errors. Windows-specific code remains uncompiled; the original FMOD graph and game playback remain authoritative.
+
+## Native FMOD Ex compatibility direction (owner decision)
+
+Keep original FEV/FSB and original sound behavior. The target is elimination
+of the console audio execution dependency, not removal of the FMOD product.
+Native Windows x64 FMOD Ex is a legitimate option; Studio's API is not a
+drop-in legacy Event API. The installed native XAudio2 shadow code remains
+as a fallback; this change neither disables original playback nor enables
+another audible game mixer.
+
+An explicit local-only compatibility executable now builds from the owner's
+matching legacy FMOD Ex SDK headers (no proprietary SDK files checked in).
+Example from the repository root on a Windows x64 Visual Studio shell:
+
+    cmake -S native_port -B build-fmod -A x64 -DHULK_NATIVE_CORE_ONLY=ON -DHULK_FMOD_EX_SDK_INCLUDE_DIR="C:/FMOD-Ex/api/inc"
+    cmake --build build-fmod --config Release --target hulk_fmod_ex_probe
+    build-fmod/Release/hulk_fmod_ex_probe.exe "C:/FMOD-Ex/api/bin"
+
+Pass optional original PC-format FEV path, FSB media directory and full
+event name to exercise real event load/start/update/stop. Use a legitimately
+obtained matching x64 pair fmodex64.dll/fmodevent64.dll in the explicit
+directory. No search of the working directory, no DLL download, no use of
+the 32-bit retail PC DLL in a 64-bit process, and no modification of game
+archives. SDK signatures are used directly through dynamically bound C
+exports, and both core and event runtime versions must equal their matching
+header versions before initialization. A successfully observed playing state
+does not prove every event, audible output, or guest ABI coverage. Test PC
+banks first; compatibility with the exact USA Xbox banks is separate and
+must not be assumed. The standalone executable does not yet replace in-game
+event routing. No Windows SDK/DLL pair was found in the accessible inputs in
+this pass; compilation and native playback have not been performed.
+
+Reference legacy C API declarations: https://github.com/thibaudcolas/icopter/blob/master/Classes/engine/sound/FMOD%20Libraries/Headers/fmod_event.h

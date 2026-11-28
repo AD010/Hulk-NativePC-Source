@@ -14,6 +14,26 @@ set(HULK_VERSION 0.0.1)
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Explicit, local-only native FMOD Ex compatibility executable. No vendor
+# DLL/header is downloaded, packaged, or required by the normal Release.
+set(HULK_FMOD_EX_SDK_INCLUDE_DIR "" CACHE PATH
+    "Legally obtained matching legacy FMOD Ex Windows x64 SDK header directory")
+if(HULK_FMOD_EX_SDK_INCLUDE_DIR)
+    if(NOT WIN32 OR NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
+        message(FATAL_ERROR "FMOD Ex compatibility executable requires Windows x64")
+    endif()
+    if(NOT EXISTS "${HULK_FMOD_EX_SDK_INCLUDE_DIR}/fmod.h" OR
+       NOT EXISTS "${HULK_FMOD_EX_SDK_INCLUDE_DIR}/fmod_event.h")
+        message(FATAL_ERROR "Both legacy FMOD Ex SDK headers are required")
+    endif()
+    add_executable(hulk_fmod_ex_probe EXCLUDE_FROM_ALL ../ci/eor_fmod_ex_host_probe.cpp)
+    target_include_directories(hulk_fmod_ex_probe PRIVATE "${HULK_FMOD_EX_SDK_INCLUDE_DIR}")
+    target_compile_definitions(hulk_fmod_ex_probe PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+    if(MINGW)
+        target_link_options(hulk_fmod_ex_probe PRIVATE -municode)
+    endif()
+endif()
+
 # Sources
 set(INCREDIBLEHULK_SOURCES
     src/main.cpp
