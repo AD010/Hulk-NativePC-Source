@@ -46,6 +46,53 @@ Summary Inspect(std::span<const std::byte> bytes,Kind kind) {
     throw std::invalid_argument("Hulk save field table invalid");
   return {kind,crc,length,count,zero,bytes.size(),false};
 }
+Envelope DecodeEnvelope(std::span<const std::byte> bytes,Kind kind) {
+  const auto report=Inspect(bytes,kind);
+  const size_t start=kind==Kind::XboxBigEndian?20u:16u;
+  Envelope result;
+  result.kind=kind;
+  result.prefix.assign(bytes.begin(),bytes.begin()+start);
+  result.fields.reserve(report.sorted_field_count);
+  size_t pos=start;
+  for(uint32_t i=0;i<report.sorted_field_count;++i,pos+=8)
+    result.fields.push_back({U32(bytes,pos,kind),U32(bytes,pos+4,kind)});
+  result.tail.assign(bytes.begin()+pos,bytes.end());
+  return result;
+}
+std::vector<std::byte> EncodeEnvelope(const Envelope& envelope) {
+  constexpr size_t maximum=16u<<20;
+  const auto kind=envelope.kind;
+  if(kind!=Kind::XboxBigEndian&&kind!=Kind::RetailPcLittleEndian)
+    throw std::invalid_argument("Unknown Hulk source platform");
+  const size_t start=kind==Kind::XboxBigEndian?20u:16u;
+  const auto count=envelope.fields.size();
+  if(envelope.prefix.size()!=start || count<16 || count>1024 ||
+      envelope.tail.size()>maximum-start-count*8)
+    throw std::invalid_argument("Invalid Hulk field envelope");
+  auto bytes=envelope.prefix;
+  bytes.reserve(start+count*8+envelope.tail.size());
+  const auto append=[&](uint32_t value){
+    for(unsigned i=0;i<4;++i)
+      bytes.push_back(std::byte((value>>(8*(kind==Kind::XboxBigEndian?3-i:i)))&255u));
+  };
+  uint32_t previous=0;
+  for(const auto& field:envelope.fields) {
+    if(field.id<=previous)
+      throw std::invalid_argument("Hulk source field ordering changed");
+    append(field.id);
+    append(field.raw_value);
+    previous=field.id;
+  }
+  bytes.insert(bytes.end(),envelope.tail.begin(),envelope.tail.end());
+  const auto crc=Crc(std::span<const std::byte>(bytes).subspan(12));
+  for(unsigned i=0;i<4;++i)
+    bytes[i]=std::byte((crc>>(8*(kind==Kind::XboxBigEndian?3-i:i)))&255u);
+  // A regenerated checksum is not proof that the opaque field payload is
+  // compatible with another platform. Require the same parsed boundary.
+  if(Inspect(bytes,kind).sorted_field_count!=count)
+    throw std::invalid_argument("Hulk source field boundary changed");
+  return bytes;
+}
 Summary Read(const std::filesystem::path& path,Kind kind,size_t maximum) {
   std::ifstream file(path,std::ios::binary|std::ios::ate);
   if(!file)throw std::runtime_error("Cannot open user Hulk save");
