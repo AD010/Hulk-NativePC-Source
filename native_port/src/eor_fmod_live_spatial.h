@@ -5,11 +5,25 @@
 #include <bit>
 namespace hulk::eor::audio {
 // Raw FMOD coordinates, not a claim of matching X3DAudio orientation or rolloff.
+struct OriginalFmod3dFactors {
+  float rolloff=1.f,cone=1.f,doppler=1.f;
+  float global_doppler=1.f,distance_factor=1.f,global_rolloff=1.f,channel_doppler=1.f;
+};
+inline bool ValidOriginalFmod3dFactors(const OriginalFmod3dFactors& f) noexcept {
+  return std::isfinite(f.rolloff)&&f.rolloff>=0.f&&f.rolloff<=1.f&&
+      std::isfinite(f.cone)&&f.cone>=0.f&&f.cone<=1.f&&
+      std::isfinite(f.doppler)&&f.doppler>=1.e-6f&&
+      std::isfinite(f.global_doppler)&&f.global_doppler>=0.f&&
+      std::isfinite(f.distance_factor)&&f.distance_factor>0.f&&
+      std::isfinite(f.global_rolloff)&&f.global_rolloff>=0.f&&
+      std::isfinite(f.channel_doppler)&&f.channel_doppler>=0.f;
+}
 struct LiveFmodSpatial {
   SpatialPose listener;
   SpatialVector listener_velocity, position, velocity;
   uint32_t core_flags=0,mode=0;
   float min_distance=0.f,max_distance=0.f;
+  std::optional<OriginalFmod3dFactors> original={};
 };
 template<class Read>
 std::optional<SpatialVector> ReadFmodSpatialVector(uint32_t p,uint32_t offset,Read&& read) noexcept {
@@ -34,7 +48,7 @@ std::optional<LiveFmodSpatial> CaptureLiveFmodSpatial(uint32_t event_system,uint
   const auto channel=static_cast<uint32_t>(address);
   // Require exact generation; the guest API also accepts generation zero,
   // but it would be unsafe for a persistent native shadow identity.
-  if(word(channel,112)!=handle)return {};
+  if(word(channel,112)!=handle||word(channel,40)!=core||word(*core,33724)!=1u)return {};
   const auto sound=word(channel,48);
   if(!sound||!*sound)return {};
   const auto mode=word(*sound,100);
@@ -46,9 +60,20 @@ std::optional<LiveFmodSpatial> CaptureLiveFmodSpatial(uint32_t event_system,uint
   if(!lp||!lv||!lf||!lu||!pos||!vel||!lo||!hi)return {};
   const float minimum=std::bit_cast<float>(*lo),maximum=std::bit_cast<float>(*hi);
   if(!std::isfinite(minimum)||!std::isfinite(maximum)||minimum<0.f||maximum<minimum)return {};
+  const auto scalar=[&](uint32_t p,uint32_t o)->std::optional<float>{
+    const auto v=word(p,o);if(!v)return {};return std::bit_cast<float>(*v);
+  };
+  // Original update 82790360/64/68 publishes these three results; the
+  // original 3D settings setter/getter uses +33736/+33728/+33732.
+  const auto rolloff=scalar(channel,284),cone=scalar(channel,328),doppler=scalar(channel,288),
+      global_doppler=scalar(*core,33736),distance_factor=scalar(*core,33728),
+      global_rolloff=scalar(*core,33732),channel_doppler=scalar(channel,388);
+  if(!rolloff||!cone||!doppler||!global_doppler||!distance_factor||!global_rolloff||!channel_doppler)return {};
+  const OriginalFmod3dFactors original{*rolloff,*cone,*doppler,*global_doppler,*distance_factor,*global_rolloff,*channel_doppler};
+  if(!ValidOriginalFmod3dFactors(original))return {};
   SpatialPose listener{*lp,*lf,*lu};
-  if(!ValidSpatialPose(listener)||word(channel,112)!=handle||word(channel,48)!=sound||word(event_system,16)!=core)return {};
-  return LiveFmodSpatial{listener,*lv,*pos,*vel,*flags,*mode,minimum,maximum};
+  if(!ValidSpatialPose(listener)||word(channel,112)!=handle||word(channel,48)!=sound||word(channel,40)!=core||word(*core,33724)!=1u||word(event_system,16)!=core)return {};
+  return LiveFmodSpatial{listener,*lv,*pos,*vel,*flags,*mode,minimum,maximum,original};
 }
 // FMOD Ex mode bits (old ABI). The native shadow uses a unit rolloff
 // factor; the original global rolloff, cones and occlusion are not yet
@@ -56,7 +81,7 @@ std::optional<LiveFmodSpatial> CaptureLiveFmodSpatial(uint32_t event_system,uint
 inline std::optional<SpatialVoiceState> ResolveLiveFmodSpatial(const LiveFmodSpatial& raw) noexcept {
   constexpr uint32_t head_relative=0x00040000u,world_relative=0x00080000u,
       log_rolloff=0x00100000u,linear_rolloff=0x00200000u,custom_rolloff=0x04000000u;
-  if(!(raw.mode&16u)||(raw.mode&custom_rolloff)||
+  if(!(raw.mode&16u)||((raw.mode&custom_rolloff)&&!raw.original)||
      (raw.mode&(head_relative|world_relative))==(head_relative|world_relative)||
      (raw.mode&(log_rolloff|linear_rolloff))==(log_rolloff|linear_rolloff)||
      !ValidSpatialPose(raw.listener)||!ValidSpatialVector(raw.position)||
@@ -70,6 +95,13 @@ inline std::optional<SpatialVoiceState> ResolveLiveFmodSpatial(const LiveFmodSpa
   }
   out.emitter.position=convert(raw.position);
   out.distance_scale=raw.min_distance;
+  if(raw.original){
+    if(!ValidOriginalFmod3dFactors(*raw.original))return {};
+    out.distance_gain=raw.original->rolloff*raw.original->cone;
+    out.doppler_factor=raw.original->doppler;
+    out.doppler_from_source=true;
+    return ValidSpatialState(out)?std::optional<SpatialVoiceState>(out):std::nullopt;
+  }
   const double x=double(out.emitter.position.x)-out.listener.position.x,
       y=double(out.emitter.position.y)-out.listener.position.y,
       z=double(out.emitter.position.z)-out.listener.position.z;

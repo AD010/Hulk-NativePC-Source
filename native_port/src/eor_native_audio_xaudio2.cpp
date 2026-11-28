@@ -140,7 +140,7 @@ struct NativeXAudio2Mixer::State {
   static std::optional<float> EffectivePitch(const Voice& voice,float base,float automation,
       std::optional<float> level) noexcept {
     return ComposeSpatialPitch(base,automation,voice.spatial?voice.spatial->doppler_factor:1.f,
-        voice.spatial?level.value_or(1.f):0.f,voice.max_ratio);
+        voice.spatial?(voice.spatial->doppler_from_source?1.f:level.value_or(1.f)):0.f,voice.max_ratio);
   }
   bool UpdateMatrix(Voice& voice,std::optional<float> pan,std::optional<float> level,
       std::optional<float> automation_override={}) noexcept {
