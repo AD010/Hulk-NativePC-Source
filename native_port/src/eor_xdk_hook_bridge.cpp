@@ -4162,6 +4162,9 @@ native_x_renderer::HulkEorPresentResult ReplayVerifiedMixedOriginalFrame(
 void RecordObservedOriginalAotPairDemand(const Frame& snapshot) noexcept {
   if(!snapshot.sequence || snapshot.dropped || snapshot.dropped_commands)return;
   try {
+  std::shared_ptr<const aot::OriginalVirtualShaderIdentity> identities;
+  std::shared_ptr<const aot::EffectCatalog> catalog;
+  std::shared_ptr<const aot::ShaderBank> shaders;
   {
     std::lock_guard lock(g_mutex);
     // A complete authenticated bank needs no more disk-backed AOT hints.
@@ -4169,9 +4172,27 @@ void RecordObservedOriginalAotPairDemand(const Frame& snapshot) noexcept {
        g_offline_shader_pack->shaders->expected() &&
        g_offline_shader_pack->shaders->size()==g_offline_shader_pack->shaders->expected())
       return;
+    identities=g_original_shader_capture_index;
+    catalog=g_original_effect_capture_catalog;
+    if(g_offline_shader_pack)shaders=g_offline_shader_pack->shaders;
   }
   std::set<std::pair<uint32_t,uint32_t>> observed;
-  for(const auto& draw:snapshot.calls) {
+  for(size_t ordinal=0;ordinal<snapshot.calls.size();++ordinal) {
+    const auto& draw=snapshot.calls[ordinal];
+    if(draw.original_pixel_stage==OriginalPixelStageKind::VertexOnlyDepthStencil &&
+       !draw.observed_live_pixel_shader_header && !draw.observed_live_eor_effect_pass &&
+       draw.observed_live_vertex_shader_header && identities && catalog && ordinal<=UINT32_MAX) {
+      const auto& witness=*draw.observed_live_vertex_shader_header;
+      if(!witness.alias_paired_vertex_source) {
+        const auto vs=aot::ResolveOriginalLiveXdkShaderSource(*identities,witness,
+            witness.original_xdk_shader_guest_object,aot::Stage::Vertex,
+            snapshot.sequence,static_cast<uint32_t>(ordinal));
+        if(vs&&(!shaders||!shaders->Find(*vs,aot::Stage::Vertex)))
+          if(const auto hint=catalog->CompilationPassForVertex(*vs))
+            observed.emplace(hint->effect_hash,hint->pass_index);
+      }
+      continue; // compilation hint only; no invented original PS or pass
+    }
     if(!draw.observed_live_eor_effect_pass ||
        !draw.observed_live_vertex_shader_header ||
        !draw.observed_live_pixel_shader_header)continue;
@@ -4184,7 +4205,8 @@ void RecordObservedOriginalAotPairDemand(const Frame& snapshot) noexcept {
   }
   if(observed.empty())return;
     std::lock_guard lock(g_mutex);
-    if(g_original_shader_aot_demand_path.empty())return;
+    if(g_original_shader_aot_demand_path.empty() ||
+       identities!=g_original_shader_capture_index || catalog!=g_original_effect_capture_catalog)return;
     std::vector<std::pair<uint32_t,uint32_t>> unseen;
     for(const auto& item:observed)
       if(!g_original_shader_aot_requests.contains(item))

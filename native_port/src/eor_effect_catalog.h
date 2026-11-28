@@ -105,6 +105,16 @@ class EffectCatalog {
     if(it==reverse_.end())return std::nullopt;
     return it->second;
   }
+  // Compilation only: HEORREQ1 currently accepts effect:pass. A depth
+  // Draw with a verified VS and no PS may request any authentic ledger
+  // edge containing that VS. The paired PS is NOT a runtime binding or
+  // proof of an effect on that Draw. Canonical order makes requests stable.
+  std::optional<OriginalEffectPass> CompilationPassForVertex(const Digest& vs) const noexcept {
+    if(vs==Digest{})return {};
+    const auto it=reverse_.lower_bound(std::pair<Digest,Digest>{vs,Digest{}});
+    return it!=reverse_.end()&&it->first.first==vs?
+        std::optional<OriginalEffectPass>{it->second}:std::nullopt;
+  }
   // A debug-stripped pixel ShaderContainer can be physically identical
   // to several source records. Only a vertex SHA with exactly one
   // original paired PS can independently distinguish those records.

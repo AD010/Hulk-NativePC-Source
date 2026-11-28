@@ -62,6 +62,10 @@ int main() {
   reused_vs.fill(0x11);reused_ps.fill(0x66);
   assert(catalog.HasPair(0x222,1,reused_vs,reused_ps));
   assert(!catalog.UniquePixelForVertex(reused_vs)); // reused VS must not choose an alias
+  const auto compile_hint=catalog.CompilationPassForVertex(reused_vs);
+  assert(compile_hint&&compile_hint->effect_hash==0x111&&compile_hint->pass_index==0);
+  assert(!catalog.CompilationPassForVertex(hulk::eor::aot::Digest{}));
+  assert(!catalog.CompilationPassForVertex(reused_ps)); // pixel digest is not a VS
   assert(!catalog.UniqueVertexForPixel(reused_ps)); // shared PS also stays ambiguous
   assert(catalog.UniqueVertexForPixel(ps)==vs);
   assert(catalog.UniquePixelForVertex(vs)==ps);
@@ -78,6 +82,7 @@ int main() {
   const std::array two_matches{reused_ps,other_pixel};
   assert(!catalog.UniqueLivePair(vertices,two_matches));
   assert(!catalog.UniqueLivePair(std::span<const hulk::eor::aot::Digest>{},pixels));
+  assert(!catalog.CompilationPassForVertex(absent));
   const auto verified_shared=data;
   // Duplicate exact stage pairs are ambiguous even when both effects
   // legitimately reuse one stage of a different original shader pair.
