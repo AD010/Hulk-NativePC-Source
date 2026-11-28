@@ -34,6 +34,16 @@ inline std::optional<FevGainPitch> ResolveLiveMutableControls(const FevEventEntr
      !std::isfinite(controls->values.gain)||controls->values.gain<0.f||controls->values.gain>1.f)return {};
   return controls->values;
 }
+// Direct 2D shadow voices can use the source scalar gain in place of
+// reconstructed FEV gain (never multiply the two). For 3D, the source
+// scalar already includes distance-related factors; using it in the
+// current spatial matrix would attenuate twice. Keep it diagnostic.
+inline float ResolveLiveShadowGain(const LiveFmodCue& cue,float fev_gain) noexcept {
+  if(cue.audibility&&!cue.spatial&&!cue.audibility->spatial&&
+     std::isfinite(cue.audibility->combined)&&cue.audibility->combined>=0.f&&cue.audibility->combined<=1.f)
+    return cue.audibility->combined;
+  return fev_gain;
+}
 struct LiveCueKey {
   uint32_t event,project,start,instance,channel,variant;
   uint64_t serial=0;

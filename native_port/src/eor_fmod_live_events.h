@@ -1,6 +1,7 @@
 #pragma once
 #include "eor_fmod_start_trace.h"
 #include "eor_fmod_live_spatial.h"
+#include "eor_fmod_live_mix.h"
 #include <algorithm>
 #include <bit>
 #include <cmath>
@@ -19,6 +20,7 @@ struct LiveFmodCue {
   std::string definition;
   uint64_t start_serial=0;
   std::optional<LiveFmodSpatial> spatial={};
+  std::optional<LiveFmodAudibility> audibility={};
 };
 struct LiveFmodChannelIdentity {
   uint32_t instance_owner=0,channel=0;
@@ -95,7 +97,8 @@ std::optional<std::vector<LiveFmodEvent>> CaptureLiveFmodEvents(uint32_t system,
       const auto type=word(record,0),weight=word(record,4);
       if(!type||!weight)return false;
       if(*type!=0){out.complete=false;return true;}
-      out.items.push_back({node,*channel,l,i,*variant,*count,*weight,*def_name,serial,CaptureLiveFmodSpatial(system,*channel,read)});
+      out.items.push_back({node,*channel,l,i,*variant,*count,*weight,*def_name,serial,CaptureLiveFmodSpatial(system,*channel,read),
+          CaptureLiveFmodAudibility(system,*channel,read)});
       return true;
     };
     const auto layer_end=event+332u;

@@ -744,15 +744,15 @@ void FinishOriginalFmodUpdate(std::optional<audio::FmodUpdateStamp> stamp,const 
             options.stereo_pan=controls->pan;
             options.spatial_level=controls->pan3d_level;
             accepted=g_native_fmod_mixer->PlayProjectWaveform(audio::Bus::Sfx,*g_native_fmod_index,
-                g_native_fmod_project_arc,g_native_fmod_wave_arc,project->second.hash,*offset,controls->gain,&id,options);
+                g_native_fmod_project_arc,g_native_fmod_wave_arc,project->second.hash,*offset,audio::ResolveLiveShadowGain(cue,controls->gain),&id,options);
           }else{
             const std::array<audio::FevParameterSnapshot,1> snapshots{{{0,std::span<const float>(binding->physical_values)}}};
             accepted=g_native_fmod_mixer->PlayEventVariantWithFevDsp(audio::Bus::Sfx,*g_native_fmod_index,
                 g_native_fmod_project_arc,g_native_fmod_wave_arc,project->second.hash,event.group,event.name,
                 cue.layer,cue.instance,cue.variant,{},snapshots,1.f,&id,options);
           }
-          REXLOG_INFO("[HULK/FMOD-NATIVE] muted shadow cue {} / {} variant={} admitted={} id={}",
-              event.project,cue.definition,cue.variant,accepted,id);
+          REXLOG_INFO("[HULK/FMOD-NATIVE] muted shadow cue {} / {} variant={} admitted={} id={} source_audibility={}",
+              event.project,cue.definition,cue.variant,accepted,id,cue.audibility?cue.audibility->combined:-1.f);
           return accepted?id:0;
         },
         [&](uint64_t id){(void)g_native_fmod_mixer->StopVoice(id);});
@@ -774,7 +774,7 @@ void FinishOriginalFmodUpdate(std::optional<audio::FmodUpdateStamp> stamp,const 
             if(!snapshot||snapshot->unhandled)return false;
             return g_native_fmod_mixer->SetVoiceSpatialMix(id,spatial,snapshot->values.pan,snapshot->values.pan3d_level);
           }
-          return g_native_fmod_mixer->SetVoiceGain(id,controls->gain)&&
+          return g_native_fmod_mixer->SetVoiceGain(id,audio::ResolveLiveShadowGain(cue,controls->gain))&&
               g_native_fmod_mixer->SetVoiceFrequencyRatio(id,controls->ratio)&&
               g_native_fmod_mixer->SetVoiceSpatialMix(id,spatial,controls->pan,controls->pan3d_level);
         },
