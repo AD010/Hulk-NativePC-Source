@@ -734,18 +734,22 @@ void FinishOriginalFmodUpdate(std::optional<audio::FmodUpdateStamp> stamp,const 
           bool accepted=false;
           // Source waveform route checks the archive/index pairing again.
           // Use current observed parameters, not a fabricated future curve.
-          if(const auto controls=audio::ResolveLiveMutableControls(definition,cue.layer,binding->physical_values)){
-            audio::VoiceOptions options;
+          const auto spatial=cue.spatial?audio::ResolveLiveFmodSpatial(*cue.spatial):std::nullopt;
+          if(cue.spatial&&!spatial)return 0; // unsupported source rolloff or transform
+          audio::VoiceOptions options;
+          options.spatial=spatial;
+          if(const auto controls=audio::ResolveLiveMutableControls(definition,cue.layer,binding->physical_values,spatial.has_value())){
             options.reserve_live_pitch=true;
             options.frequency_ratio=controls->ratio;
             options.stereo_pan=controls->pan;
+            options.spatial_level=controls->pan3d_level;
             accepted=g_native_fmod_mixer->PlayProjectWaveform(audio::Bus::Sfx,*g_native_fmod_index,
                 g_native_fmod_project_arc,g_native_fmod_wave_arc,project->second.hash,*offset,controls->gain,&id,options);
           }else{
             const std::array<audio::FevParameterSnapshot,1> snapshots{{{0,std::span<const float>(binding->physical_values)}}};
             accepted=g_native_fmod_mixer->PlayEventVariantWithFevDsp(audio::Bus::Sfx,*g_native_fmod_index,
                 g_native_fmod_project_arc,g_native_fmod_wave_arc,project->second.hash,event.group,event.name,
-                cue.layer,cue.instance,cue.variant,{},snapshots,1.f,&id);
+                cue.layer,cue.instance,cue.variant,{},snapshots,1.f,&id,options);
           }
           REXLOG_INFO("[HULK/FMOD-NATIVE] muted shadow cue {} / {} variant={} admitted={} id={}",
               event.project,cue.definition,cue.variant,accepted,id);
@@ -760,18 +764,19 @@ void FinishOriginalFmodUpdate(std::optional<audio::FmodUpdateStamp> stamp,const 
           if(!binding||!audio::ResolveLiveFmodCue(project->second.table,*binding,cue))return false;
           const auto& definition=project->second.table.events[binding->event_index];
           if(cue.layer>=definition.layer_records.size())return false;
-          // A pre-rendered DSP voice cannot use this direct gain/pitch
-          // route. Leave its original diagnostic snapshot unchanged.
-          for(const auto& fx:definition.layer_records[cue.layer].effects){
-            const auto route=audio::ReadFevCurveRoute(definition,fx);
-            if(!route)return false;
-            if(route->target!=audio::FevTarget::Volume&&route->target!=audio::FevTarget::Pitch&&
-               route->target!=audio::FevTarget::Pan)return true;
+          const auto spatial=cue.spatial?audio::ResolveLiveFmodSpatial(*cue.spatial):std::nullopt;
+          if(cue.spatial&&!spatial)return false;
+          // Pre-rendered DSP retains its filter history. Position and
+          // pan/3D blend can still change without touching the PCM buffer.
+          const auto controls=audio::ResolveLiveMutableControls(definition,cue.layer,binding->physical_values,spatial.has_value());
+          if(!controls){
+            const auto snapshot=audio::EvaluateFevLayerGainPitch(definition,cue.layer,binding->physical_values,spatial.has_value());
+            if(!snapshot||snapshot->unhandled)return false;
+            return g_native_fmod_mixer->SetVoiceSpatialMix(id,spatial,snapshot->values.pan,snapshot->values.pan3d_level);
           }
-          const auto controls=audio::ResolveLiveMutableControls(definition,cue.layer,binding->physical_values);
-          return controls&&g_native_fmod_mixer->SetVoiceGain(id,controls->gain)&&
+          return g_native_fmod_mixer->SetVoiceGain(id,controls->gain)&&
               g_native_fmod_mixer->SetVoiceFrequencyRatio(id,controls->ratio)&&
-              (!controls->pan||g_native_fmod_mixer->SetVoicePan(id,*controls->pan));
+              g_native_fmod_mixer->SetVoiceSpatialMix(id,spatial,controls->pan,controls->pan3d_level);
         },
         [&](uint64_t id){(void)g_native_fmod_mixer->StopVoice(id);});
     }

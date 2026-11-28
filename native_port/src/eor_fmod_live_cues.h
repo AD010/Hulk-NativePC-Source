@@ -22,13 +22,14 @@ inline std::optional<size_t> ResolveLiveFmodCue(const FevEventTable& table,
 // Only controls with a native live setter. Named DSP is currently baked into
 // PCM, so it cannot be updated by this path without changing filter history.
 inline std::optional<FevGainPitch> ResolveLiveMutableControls(const FevEventEntry& event,
-    uint32_t layer,std::span<const float> parameters) noexcept {
+    uint32_t layer,std::span<const float> parameters,bool spatial_ready=false) noexcept {
   if(layer>=event.layer_records.size())return {};
   for(const auto& effect:event.layer_records[layer].effects){
     const auto route=ReadFevCurveRoute(event,effect);
-    if(!route||(route->target!=FevTarget::Volume&&route->target!=FevTarget::Pitch&&route->target!=FevTarget::Pan))return {};
+    if(!route||(route->target!=FevTarget::Volume&&route->target!=FevTarget::Pitch&&route->target!=FevTarget::Pan&&
+       !(spatial_ready&&route->target==FevTarget::Pan3DLevel)))return {};
   }
-  const auto controls=EvaluateFevLayerGainPitch(event,layer,parameters);
+  const auto controls=EvaluateFevLayerGainPitch(event,layer,parameters,spatial_ready);
   if(!controls||controls->unhandled||!ValidFevVoiceRatio(controls->values.ratio)||
      !std::isfinite(controls->values.gain)||controls->values.gain<0.f||controls->values.gain>1.f)return {};
   return controls->values;

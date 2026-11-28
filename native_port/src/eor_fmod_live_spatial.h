@@ -7,7 +7,8 @@ namespace hulk::eor::audio {
 struct LiveFmodSpatial {
   SpatialPose listener;
   SpatialVector listener_velocity, position, velocity;
-  uint32_t core_flags=0;
+  uint32_t core_flags=0,mode=0;
+  float min_distance=0.f,max_distance=0.f;
 };
 template<class Read>
 std::optional<SpatialVector> ReadFmodSpatialVector(uint32_t p,uint32_t offset,Read&& read) noexcept {
@@ -40,9 +41,44 @@ std::optional<LiveFmodSpatial> CaptureLiveFmodSpatial(uint32_t event_system,uint
   const auto lp=ReadFmodSpatialVector(*core,33288,read),lv=ReadFmodSpatialVector(*core,33216,read),
       lf=ReadFmodSpatialVector(*core,33252,read),lu=ReadFmodSpatialVector(*core,33228,read),
       pos=ReadFmodSpatialVector(channel,292,read),vel=ReadFmodSpatialVector(channel,304,read);
-  if(!lp||!lv||!lf||!lu||!pos||!vel)return {};
+  const auto lo=word(channel,320),hi=word(channel,324);
+  if(!lp||!lv||!lf||!lu||!pos||!vel||!lo||!hi)return {};
+  const float minimum=std::bit_cast<float>(*lo),maximum=std::bit_cast<float>(*hi);
+  if(!std::isfinite(minimum)||!std::isfinite(maximum)||minimum<0.f||maximum<minimum)return {};
   SpatialPose listener{*lp,*lf,*lu};
   if(!ValidSpatialPose(listener)||word(channel,112)!=handle||word(channel,48)!=sound||word(event_system,16)!=core)return {};
-  return LiveFmodSpatial{listener,*lv,*pos,*vel,*flags};
+  return LiveFmodSpatial{listener,*lv,*pos,*vel,*flags,*mode,minimum,maximum};
+}
+// FMOD Ex mode bits (old ABI). The native shadow uses a unit rolloff
+// factor; the original global rolloff, cones and occlusion are not yet
+// reproduced. Custom curves are not admitted via this approximation.
+inline std::optional<SpatialVoiceState> ResolveLiveFmodSpatial(const LiveFmodSpatial& raw) noexcept {
+  constexpr uint32_t head_relative=0x00040000u,world_relative=0x00080000u,
+      log_rolloff=0x00100000u,linear_rolloff=0x00200000u,custom_rolloff=0x04000000u;
+  if(!(raw.mode&16u)||(raw.mode&custom_rolloff)||
+     (raw.mode&(head_relative|world_relative))==(head_relative|world_relative)||
+     (raw.mode&(log_rolloff|linear_rolloff))==(log_rolloff|linear_rolloff)||
+     !ValidSpatialPose(raw.listener)||!ValidSpatialVector(raw.position)||
+     !std::isfinite(raw.min_distance)||!std::isfinite(raw.max_distance)||
+     raw.min_distance<1.e-4f||raw.max_distance<raw.min_distance||raw.max_distance>1.e9f)return {};
+  // FMOD Ex INIT_3D_RIGHTHANDED = 2; X3DAudio is left handed.
+  const auto convert=[&](SpatialVector v){if(raw.core_flags&2u)v.z=-v.z;return v;};
+  SpatialVoiceState out;
+  if(!(raw.mode&head_relative)){
+    out.listener={convert(raw.listener.position),convert(raw.listener.front),convert(raw.listener.up)};
+  }
+  out.emitter.position=convert(raw.position);
+  out.distance_scale=raw.min_distance;
+  const double x=double(out.emitter.position.x)-out.listener.position.x,
+      y=double(out.emitter.position.y)-out.listener.position.y,
+      z=double(out.emitter.position.z)-out.listener.position.z;
+  const double distance=std::sqrt(x*x+y*y+z*z);
+  const double clamped=distance<raw.min_distance?raw.min_distance:
+      (distance>raw.max_distance?raw.max_distance:distance);
+  if(raw.mode&linear_rolloff){
+    if(raw.max_distance==raw.min_distance)return {};
+    out.distance_gain=static_cast<float>((raw.max_distance-clamped)/(raw.max_distance-raw.min_distance));
+  }else out.distance_gain=static_cast<float>(raw.min_distance/clamped);
+  return ValidSpatialState(out)?std::optional<SpatialVoiceState>(out):std::nullopt;
 }
 } // namespace hulk::eor::audio

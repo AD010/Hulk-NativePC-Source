@@ -59,6 +59,8 @@ int main(int argc,char** argv){
   assert(ResolveLiveMutableControls(controlled,0,values)->gain==.75f);
   controlled.layer_records[0].effects[0].header[1]=0x404;
   assert(!ResolveLiveMutableControls(controlled,0,values));
+  const auto spatial_control=ResolveLiveMutableControls(controlled,0,values,true);
+  assert(spatial_control&&spatial_control->pan3d_level==.75f);
   controlled.layer_records[0].effects[0].header[1]=0x44;
   assert(!ResolveLiveMutableControls(controlled,0,values));
   if(argc==1)return 0;

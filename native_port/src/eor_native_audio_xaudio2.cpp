@@ -107,11 +107,17 @@ struct NativeXAudio2Mixer::State {
       emitter.CurveDistanceScaler=s.distance_scale;emitter.ChannelRadius=s.channel_radius;
       float azimuths[2]={1.5f*X3DAUDIO_PI,.5f*X3DAUDIO_PI};
       if(voice.channels==2u)emitter.pChannelAzimuths=azimuths;
+      // The FMOD shadow already calculated its distance gain. Use a flat
+      // X3DAudio curve for direction, then apply that gain only to the 3D leg.
+      X3DAUDIO_DISTANCE_CURVE_POINT unity_points[2]={{0.f,1.f},{1.f,1.f}};
+      X3DAUDIO_DISTANCE_CURVE unity_curve{unity_points,2};
+      if(s.distance_gain>=0.f)emitter.pVolumeCurve=&unity_curve;
       std::array<float,128> spatial{};
       X3DAUDIO_DSP_SETTINGS settings{};
       settings.SrcChannelCount=voice.channels;settings.DstChannelCount=voice.output_channels;
       settings.pMatrixCoefficients=spatial.data();
       X3DAudioCalculate(spatial_handle,&listener,&emitter,X3DAUDIO_CALCULATE_MATRIX,&settings);
+      if(s.distance_gain>=0.f)for(size_t i=0;i<count;++i)spatial[i]*=s.distance_gain;
       if(!BlendSpatialMatrix(std::span<const float>(flat).first(count),
           std::span<const float>(spatial).first(count),level.value_or(1.f),
           std::span<float>(matrix).first(count)))return false;
@@ -244,7 +250,7 @@ bool NativeXAudio2Mixer::PlayPcm16(Bus bus,std::span<const int16_t> samples,
      FAILED(voice->source->SetFrequencyRatio(options.frequency_ratio)) ||
      FAILED(voice->source->SubmitSourceBuffer(&buffer)))return false;
   if(!state_->UpdateVolume(*voice))return false;
-  if((options.stereo_pan||options.spatial)&&!state_->UpdateMatrix(*voice,options.stereo_pan,{}))return false;
+  if((options.stereo_pan||options.spatial)&&!state_->UpdateMatrix(*voice,options.stereo_pan,options.spatial_level))return false;
   if(!voice->automation.empty()&&!state_->ApplyFevBlock(*voice,FevVoiceBlockAt(voice->automation,voice->automation_clock.Frame())))return false;
   if(!voice->clock.pending && !voice->clock.paused && FAILED(voice->source->Start(0)))return false;
   // Publish an ID only after a real XAudio2 buffer has been accepted.
@@ -528,6 +534,21 @@ bool NativeXAudio2Mixer::SetVoiceSpatialState(VoiceId id,const SpatialVoiceState
     const auto old=voice->spatial;
     voice->spatial=spatial;
     if(state_->UpdateMatrix(*voice,voice->pan,voice->spatial_level))return true;
+    voice->spatial=old;return false;
+  }
+  return false;
+}
+bool NativeXAudio2Mixer::SetVoiceSpatialMix(VoiceId id,std::optional<SpatialVoiceState> spatial,
+    std::optional<float> pan,std::optional<float> level) noexcept {
+  if(!Ready()||!id||(spatial&&!ValidSpatialState(*spatial))||
+     (level&&(!spatial||!std::isfinite(*level)||*level<0.f||*level>1.f))||
+     (pan&&(!std::isfinite(*pan)||*pan< -1.f||*pan>1.f)))return false;
+  std::lock_guard lock(state_->mutex);
+  Update();
+  for(auto& voice:state_->voices)if(voice->id==id){
+    const auto old=voice->spatial;
+    voice->spatial=spatial;
+    if(state_->UpdateMatrix(*voice,pan,level))return true;
     voice->spatial=old;return false;
   }
   return false;
