@@ -47,12 +47,27 @@ inline float ResolveLiveShadowGain(const LiveFmodCue& cue,float fev_gain) noexce
 struct LiveCueKey {
   uint32_t event,project,start,instance,channel,variant;
   uint64_t serial=0;
-  auto Tie() const noexcept {return std::tie(event,project,start,instance,channel,variant,serial);}
+  // The allocator may reuse the same channel/instance while selecting a
+  // different layer or definition with the same variant ordinal. Own the
+  // name: live event snapshots are replaced every audio update.
+  uint32_t layer=0,instance_ordinal=0,variant_count=0,weight=0;
+  std::string definition;
+  auto Tie() const noexcept {return std::tie(event,project,start,instance,channel,variant,serial,
+      layer,instance_ordinal,variant_count,weight,definition);}
   bool operator<(const LiveCueKey& other) const noexcept {return Tie()<other.Tie();}
   bool operator==(const LiveCueKey& other) const noexcept {return Tie()==other.Tie();}
 };
-inline LiveCueKey KeyForLiveCue(const LiveFmodEvent& event,const LiveFmodCue& cue) noexcept {
-  return {event.owner,event.project_owner,event.start_stamp,cue.instance_owner,cue.channel,cue.variant,cue.start_serial};
+inline bool MatchesLiveCue(const LiveCueKey& key,const LiveFmodEvent& event,const LiveFmodCue& cue) noexcept {
+  return key.event==event.owner && key.project==event.project_owner &&
+      key.start==event.start_stamp && key.instance==cue.instance_owner &&
+      key.channel==cue.channel && key.variant==cue.variant && key.serial==cue.start_serial &&
+      key.layer==cue.layer && key.instance_ordinal==cue.instance &&
+      key.variant_count==cue.variant_count && key.weight==cue.weight &&
+      key.definition==cue.definition;
+}
+inline LiveCueKey KeyForLiveCue(const LiveFmodEvent& event,const LiveFmodCue& cue) {
+  return {event.owner,event.project_owner,event.start_stamp,cue.instance_owner,cue.channel,
+      cue.variant,cue.start_serial,cue.layer,cue.instance,cue.variant_count,cue.weight,cue.definition};
 }
 // Diagnostic shadow admission only. Remember failed/naturally ended voices
 // until their observed instance changes; never restart on every update.
@@ -67,7 +82,7 @@ class LiveCueRegistry {
       });
       bool keep=false;
       if(event!=active.end()){
-        const bool exact=std::any_of(event->cues.begin(),event->cues.end(),[&](const auto& c){return KeyForLiveCue(*event,c)==key;});
+        const bool exact=std::any_of(event->cues.begin(),event->cues.end(),[&](const auto& c){return MatchesLiveCue(key,*event,c);});
         // A structurally valid partial snapshot can prove a channel ended,
         // even when unrelated channels have unknown waveform selections.
         const bool unknown=!event->cues_complete&&(!event->cue_channels_complete||
