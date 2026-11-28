@@ -194,3 +194,23 @@ byte at +1021 after the transition call; the USA member offset and
 semantics have not yet been established. Other jump/ledge methods and
 PS3 updates have not been exhaustively mapped. The two committed
 transfers must not be reported as a proven complete gameplay fix.
+
+### TU1 water transition flag transfer
+
+The previously unresolved actor byte is now mapped with three independent
+code witnesses, not only the 16-byte layout shift. USA setter 8228CED0
+and TU1 setter 82294148 write the respective +1005/+1021 byte. USA
+8228CEF8..8228CF2C and TU1 82294170..822941A4 run the corresponding
+transition and clear the same field through state+164. USA 821DBE18
+and TU1 821E1348 use the respective byte at 821DBE3C/821E136C to select
+the same state identifier 0x6FB3040C. Therefore the added TU1
+82295678..8229567C clear after 82295674 corresponds to loading the actor
+from USA state+164 and clearing actor+1005 after USA 8228E3BC, before
+the unconditional branch 8228E3C0. The new generator validates this
+original instruction neighborhood and translated memory/call operands,
+then emits only the corresponding byte clear. Three synthetic tests
+passed. All three TU1 changes are in the USA codegen build path; no
+console update binaries or generated source are committed. Other
+state-machine differences, building ledge behavior and the PS3 patch
+remain unverified. Actual generated Windows code and gameplay remain
+untested; the generators preserve original code for unsupported layouts.
