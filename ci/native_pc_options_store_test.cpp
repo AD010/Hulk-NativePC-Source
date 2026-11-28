@@ -334,7 +334,8 @@ int main() {
           });
     };
     auto event=[&](PcEvent ev){return menu.Handle(10,20,ev,true,paint,read,action);};
-    Expect(menu.Enter(10,20,paint) && event(PcEvent::Select) && event(PcEvent::Down),
+    Expect(menu.Enter(10,20,paint) && event(PcEvent::Select) && visual.title=="PC Settings" &&
+           event(PcEvent::Select) && event(PcEvent::Down),
            "Original settings page did not select its resolution row");
     Expect(event(PcEvent::Increase) && visual.compact.find("2560x1600 (restart)")!=std::string::npos,
            "Original resolution action did not display its pending setting");
@@ -342,22 +343,25 @@ int main() {
     Expect(text.find("window_width = 2560")!=std::string::npos &&
            text.find("window_height = 1600")!=std::string::npos &&
            text.find("window_size =")==std::string::npos,"Resolution transaction malformed");
-    Expect(event(PcEvent::Select) && visual.title.starts_with("Controls") &&
-           event(PcEvent::Select) && visual.title.starts_with("Audio") &&
-           event(PcEvent::Increase) && muted,"Original audio page failed to apply mute");
-    Expect(event(PcEvent::Back) && visual.count==0,"Original settings page failed to return");
+    Expect(event(PcEvent::Back) && event(PcEvent::Down) && event(PcEvent::Select) &&
+           visual.title.starts_with("Controls") &&
+           event(PcEvent::Back) && event(PcEvent::Down) && event(PcEvent::Select) &&
+           visual.title.starts_with("Audio") && event(PcEvent::Increase) && muted,
+           "Original audio page failed to apply mute");
+    Expect(event(PcEvent::Back) && visual.title=="PC Settings" &&
+           event(PcEvent::Back) && visual.count==0,"Original settings page failed to return");
     unsigned exits=0;
     auto exit_event=[&](PcEvent ev,bool focused=true) {
       return menu.Handle(10,20,ev,focused,paint,read,action,[&]{++exits;return true;});
     };
-    Expect(exit_event(PcEvent::Select) && exit_event(PcEvent::Select) &&
-           exit_event(PcEvent::Select) && exit_event(PcEvent::Select) &&
+    Expect(exit_event(PcEvent::Select) && visual.count==4 &&
+           exit_event(PcEvent::Up) && exit_event(PcEvent::Select) &&
            visual.title.find("Exit to Windows?")!=std::string::npos && exits==0,
            "Original menu must display confirmation without exiting");
-    Expect(exit_event(PcEvent::Back) && exits==0,"Original exit cancellation failed");
+    Expect(exit_event(PcEvent::Back) && exits==0 && visual.title=="PC Settings",
+           "Original exit cancellation failed");
     Expect(exit_event(PcEvent::Select) && exit_event(PcEvent::Select) &&
-           exit_event(PcEvent::Select) && exit_event(PcEvent::Select) &&
-           exit_event(PcEvent::Select) && exits==1 && !menu.Owns(10,20),
+           exits==1 && !menu.Owns(10,20),
            "Original focused confirmation must request one native close");
   }
   hulk::options::PcMenuPageSession page;

@@ -89,10 +89,10 @@ std::optional<PcSettingsEvent> CapturePcSettingsEvent(uint32_t root,uint32_t con
   if(!VerifySettingsEventAbi(read))return {};
   return PcSettingsEvent{root,context,id->definition,event};
 }
-inline constexpr std::string_view kPcEntryText="PC Graphics / Controls / Audio / Exit";
+inline constexpr std::string_view kPcEntryText="PC Settings";
 // Do not rebind the keys driving this same native menu while it is open.
 // Gameplay bindings, camera, display and graphics are editable here.
-enum class PcSettingsSection { Entry, Graphics, Controls, Audio, Exit };
+enum class PcSettingsSection { Entry, Categories, Graphics, Controls, Audio, Exit };
 inline bool PcStorageRowOption(const options::PcMenuRow& row,PcSettingsSection section) noexcept {
   using S=options::PcMenuSection;using K=options::PcMenuRowKind;
   if(section==PcSettingsSection::Audio)return row.section==S::Audio && row.kind==K::Choice;
@@ -103,6 +103,9 @@ inline bool PcStorageRowOption(const options::PcMenuRow& row,PcSettingsSection s
         key!="hulk_bind_alt_back" && key!="hulk_bind_start" &&
         key!="hulk_bind_select" && !key.starts_with("hulk_bind_menu_");
   }
+  // Native EoR uses physical host targets, not NativeX render scales,
+  // compatibility presentation filters or compatibility post-AA.
+  if(std::string_view(row.key).starts_with("native_x_renderer_"))return false;
   return section==PcSettingsSection::Graphics && (row.section==S::Display || row.section==S::Graphics ||
           row.section==S::PostProcessing || row.section==S::Enhancements) &&
          (row.kind==K::Choice || row.kind==K::Number || row.kind==K::WindowSize);
@@ -174,7 +177,7 @@ inline std::string_view PcStorageNextValue(const options::PcMenuRow& row,
 // freshly authenticated native row visibility and selector focus.
 class OriginalPcStorageMenu {
  public:
-  void Leave() noexcept {owner_=row_=0;section_=PcSettingsSection::Entry;cursor_=0;}
+  void Leave() noexcept {owner_=row_=0;section_=PcSettingsSection::Entry;cursor_=category_=0;}
   bool Owns(uint32_t owner,uint32_t row) const noexcept {
     return owner_ && row_ && owner_==owner && row_==row;
   }
@@ -188,35 +191,59 @@ class OriginalPcStorageMenu {
       Paint&& paint,ReadValue&& read_value,Commit&& commit,
       const std::function<bool()>& request_exit={}) {
     if(!Owns(owner,row))return false;
-    if(!focused) {if(section_!=PcSettingsSection::Entry) {section_=PcSettingsSection::Entry;cursor_=0;(void)PaintPcMenuEntry(paint,kPcEntryText);}return false;}
+    if(!focused) {if(section_!=PcSettingsSection::Entry) {section_=PcSettingsSection::Entry;cursor_=category_=0;(void)PaintPcMenuEntry(paint,kPcEntryText);}return false;}
+    const auto show_categories=[&]() {
+      PcMenuVisual frame;
+      frame.title="PC Settings";
+      constexpr std::array<std::string_view,4> names{"Graphics","Controls","Audio","Exit to Windows"};
+      frame.count=request_exit?names.size():names.size()-1;
+      category_%=frame.count;
+      frame.compact=frame.title+": "+std::string(names[category_])+" (Select)";
+      for(size_t i=0;i<frame.count;++i)
+        frame.rows[i]=(i==category_?"> ":"  ")+std::string(names[i]);
+      if(PaintPcMenuVisual(paint,frame))return true;
+      Leave();return false;
+    };
     if(section_==PcSettingsSection::Entry) {
       if(event!=PcEvent::Select)return false;
-      section_=PcSettingsSection::Graphics;cursor_=0;
-    } else if(event==PcEvent::Back) {
-      if(!PaintPcMenuEntry(paint,kPcEntryText))return false;
-      section_=PcSettingsSection::Entry;cursor_=0;return true;
-    } else if(section_==PcSettingsSection::Exit) {
+      section_=PcSettingsSection::Categories;category_=0;cursor_=0;
+      return show_categories();
+    }
+    if(event==PcEvent::Back) {
+      if(section_==PcSettingsSection::Categories) {
+        if(!PaintPcMenuEntry(paint,kPcEntryText))return false;
+        section_=PcSettingsSection::Entry;category_=cursor_=0;return true;
+      }
+      section_=PcSettingsSection::Categories;cursor_=0;
+      return show_categories();
+    }
+    if(section_==PcSettingsSection::Exit) {
       if(event!=PcEvent::Select)return true;
       if(request_exit && request_exit()){Leave();return true;}
       (void)PaintPcMenuEntry(paint,"Exit unavailable - Back to cancel");
       return true;
-    } else if(event==PcEvent::Select) {
-      switch(section_) {
-        case PcSettingsSection::Graphics:section_=PcSettingsSection::Controls;break;
-        case PcSettingsSection::Controls:section_=PcSettingsSection::Audio;break;
-        case PcSettingsSection::Audio:
-          // This is a real, focused EoR selector event. Require another
-          // explicit Select to confirm; Back cancels via the normal path.
-          if(request_exit) {
-            if(!PaintPcMenuEntry(paint,"Exit to Windows? Select to confirm / Back to cancel"))return true;
-            section_=PcSettingsSection::Exit;cursor_=0;return true;
-          }
-          section_=PcSettingsSection::Graphics;break;
-        default:section_=PcSettingsSection::Graphics;break;
+    }
+    if(section_==PcSettingsSection::Categories) {
+      const size_t count=request_exit?4u:3u;
+      category_%=count;
+      if(event==PcEvent::Up || event==PcEvent::Down) {
+        category_=(category_+(event==PcEvent::Up?count-1u:1u))%count;
+        return show_categories();
       }
-      cursor_=0;
+      if(event!=PcEvent::Select)return true;
+      constexpr PcSettingsSection sections[]={PcSettingsSection::Graphics,
+        PcSettingsSection::Controls,PcSettingsSection::Audio,PcSettingsSection::Exit};
+      const auto next=sections[category_];
+      if(next==PcSettingsSection::Exit) {
+        if(!PaintPcMenuEntry(paint,"Exit to Windows? Select to confirm / Back to cancel"))return true;
+        section_=next;return true;
+      }
+      section_=next;cursor_=0;
+      // Opening a page must not modify its first setting.
+      event=PcEvent::None;
     } else if(event!=PcEvent::Up && event!=PcEvent::Down &&
-              event!=PcEvent::Increase && event!=PcEvent::Decrease)return false;
+              event!=PcEvent::Increase && event!=PcEvent::Decrease &&
+              event!=PcEvent::Select)return false;
     std::vector<const options::PcMenuRow*> rows;
     for(const auto& r:options::kPcMenuRows)if(PcStorageRowOption(r,section_))rows.push_back(&r);
     if(rows.empty()){Leave();return false;}
@@ -227,8 +254,8 @@ class OriginalPcStorageMenu {
     const auto pending=pending_.find(selected.key);
     std::string value=pending==pending_.end()?read_value(selected.key):pending->second;
     bool failed=false,committed=false;
-    if(event==PcEvent::Increase || event==PcEvent::Decrease) {
-      const auto next=PcStorageNextValue(selected,value,event==PcEvent::Increase);
+    if(event==PcEvent::Increase || event==PcEvent::Decrease || event==PcEvent::Select) {
+      const auto next=PcStorageNextValue(selected,value,event!=PcEvent::Decrease);
       if(!next.empty() && options::IsPcMenuChoice(selected,next)) {
         const auto result=commit(selected.key,next);
         failed=!result.persisted;committed=result.persisted;
@@ -268,7 +295,7 @@ class OriginalPcStorageMenu {
     Leave();return committed;
   }
  private:
-  uint32_t owner_=0,row_=0;PcSettingsSection section_=PcSettingsSection::Entry;size_t cursor_=0;
+  uint32_t owner_=0,row_=0;PcSettingsSection section_=PcSettingsSection::Entry;size_t cursor_=0,category_=0;
   std::map<std::string,std::string,std::less<>> pending_;
 };
 } // namespace hulk::eor::ui
