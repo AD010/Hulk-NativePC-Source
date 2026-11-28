@@ -323,11 +323,22 @@ inline std::optional<OriginalSourceTargetFormat> PlanOriginalNativeTargets(
       const auto& gpu=*draw.observed_vs_matrices;
       if(final_resolved || !active_color || !active_depth ||
          active_color!=gpu.original_rt0_guest_object ||
-         *active_depth!=gpu.original_depth_guest_object ||
-         !initialized_color.contains(active_color))return {};
-      const auto control=draw.observed_shader_constants->fixed_graphics_state->
-          ReadOriginalXenosRegister(0x2200u);
-      if(!control ||
+         *active_depth!=gpu.original_depth_guest_object)return {};
+      const auto& fixed=*draw.observed_shader_constants->fixed_graphics_state;
+      const auto control=fixed.ReadOriginalXenosRegister(0x2200u);
+      const auto color_mask=fixed.ReadOriginalXenosRegister(0x2104u);
+      const auto color_control=fixed.ReadOriginalXenosRegister(0x2202u);
+      if(!control || !color_mask || !color_control)return {};
+      // An authenticated depth/stencil-only pass cannot consume or write
+      // color. Its depth/stencil planes still require independent initialization.
+      // Do not mark color initialized: later color draws and Resolve still
+      // require a full original color clear.
+      const bool depth_only=xdk::IsVerifiedVertexOnlyDepthDraw(draw) &&
+          xdk::ClassifyOriginalPixelStage(gpu.original_vs_guest_object,
+              gpu.original_ps_guest_object,gpu.original_depth_guest_object,
+              *color_mask,*control,*color_control)==
+                  xdk::OriginalPixelStageKind::VertexOnlyDepthStencil;
+      if((!initialized_color.contains(active_color) && !depth_only) ||
          ((*control&2u) && !initialized_depth.contains(*active_depth)) ||
          ((*control&1u) && !initialized_stencil.contains(*active_depth)))return {};
       // Read-after-write is tied to the exact sampled XDK object. A stale
