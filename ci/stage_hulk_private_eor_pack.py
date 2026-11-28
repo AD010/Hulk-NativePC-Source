@@ -6,6 +6,8 @@ added to a public artifact or accepted from an unverified archive.
 """
 import argparse
 import hashlib
+import json
+import re
 import os
 from pathlib import Path
 import shutil
@@ -39,7 +41,11 @@ def verified_pack(path):
         return data
 
 
-def append_private_pack(release, pack):
+def append_private_pack(release, pack, source_sha=None, source_tree=None):
+    if bool(source_sha) != bool(source_tree):
+        raise ValueError('Source commit and tree must be recorded together')
+    if source_sha and not all(re.fullmatch(r'[0-9a-f]{40}', value) for value in (source_sha, source_tree)):
+        raise ValueError('Invalid source commit/tree')
     data = verified_pack(pack)
     release = Path(release)
     with zipfile.ZipFile(release) as z:
@@ -48,6 +54,16 @@ def append_private_pack(release, pack):
             raise ValueError('Expected already-verified flat Windows release ZIP')
         if not {'incredible_hulk.exe', 'incredible_hulk.toml'}.issubset(names):
             raise ValueError('Windows game files absent')
+        if 'build_manifest.json' in {n.casefold() for n in names}:
+            raise ValueError('Unexpected old build manifest')
+        fingerprints = {n: hashlib.sha256(z.read(n)).hexdigest() for n in names}
+    fingerprints.update({n: hashlib.sha256(payload).hexdigest() for n, payload in data.items()})
+    if source_sha:
+        data['build_manifest.json'] = (json.dumps({
+            'schema': 1, 'source_commit': source_sha, 'source_tree': source_tree,
+            'files_sha256': fingerprints,
+            'runtime_status': 'development_build_not_gameplay_certified',
+        }, indent=2, sort_keys=True) + '\n').encode('utf-8')
     fd, name = tempfile.mkstemp(prefix='hulk-private-', suffix='.zip', dir=release.parent)
     os.close(fd)
     tmp = Path(name)
@@ -59,9 +75,11 @@ def append_private_pack(release, pack):
         with zipfile.ZipFile(tmp) as z:
             if set(z.namelist()) != set(names) | set(data) or z.testzip() is not None:
                 raise ValueError('Combined private release ZIP failed verification')
-            for name, payload in data.items():
-                if z.read(name) != payload:
-                    raise ValueError('Combined private bank changed')
+            for name, digest in fingerprints.items():
+                if hashlib.sha256(z.read(name)).hexdigest() != digest:
+                    raise ValueError('Combined private file changed: ' + name)
+            if source_sha and z.read('build_manifest.json') != data['build_manifest.json']:
+                raise ValueError('Build manifest changed')
         os.replace(tmp, release)
     finally:
         tmp.unlink(missing_ok=True)
@@ -69,10 +87,19 @@ def append_private_pack(release, pack):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('release', type=Path)
-    parser.add_argument('pack', type=Path)
+    parser.add_argument('release', type=Path, nargs='?')
+    parser.add_argument('pack', type=Path, nargs='?')
+    parser.add_argument('--check-pack', type=Path)
+    parser.add_argument('--source-sha')
+    parser.add_argument('--source-tree')
     args = parser.parse_args()
-    append_private_pack(args.release, args.pack)
+    if args.check_pack:
+        verified_pack(args.check_pack)
+        print('[HULK/PRIVATE-PACK] All six required banks authenticated before compilation')
+        return
+    if not args.release or not args.pack:
+        parser.error('release and pack are required')
+    append_private_pack(args.release, args.pack, args.source_sha, args.source_tree)
     print('[HULK/PRIVATE-PACK] All six authenticated EoR banks included in private release')
 
 
