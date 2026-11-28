@@ -38,6 +38,7 @@ struct NativeXAudio2Mixer::State {
     PendingVoiceClock clock;
     std::vector<int16_t> samples;
     unsigned bus=0;
+    uint16_t channels=0;
     float gain=1.f;
     ~Voice() noexcept {
       if(source) {
@@ -68,6 +69,13 @@ struct NativeXAudio2Mixer::State {
     // transferable pointer.
     if(com_owned && GetCurrentThreadId()==owner_thread_id)
       CoUninitialize();
+  }
+  bool UpdatePan(Voice& voice,float pan) noexcept {
+    const auto matrix=FevStereoMatrix(pan,voice.channels);
+    XAUDIO2_VOICE_DETAILS details{};
+    master->GetVoiceDetails(&details);
+    return matrix&&details.InputChannels==2u&&
+        SUCCEEDED(voice.source->SetOutputMatrix(master,voice.channels,2,matrix->data(),XAUDIO2_COMMIT_NOW));
   }
   bool UpdateVolume(Voice& voice) noexcept {
     return voice.source && SUCCEEDED(voice.source->SetVolume(muted?0.f:
@@ -131,6 +139,7 @@ bool NativeXAudio2Mixer::PlayPcm16(Bus bus,std::span<const int16_t> samples,
     if(state_->voices.capacity()<64u)state_->voices.reserve(64u);
     voice=std::make_unique<State::Voice>();
     voice->bus=bus_id;
+    voice->channels=channels;
     voice->gain=gain;
     voice->clock={options.delay_ms,options.delay_ms!=0,options.start_paused};
     voice->samples.assign(samples.begin(),samples.end());
@@ -151,6 +160,7 @@ bool NativeXAudio2Mixer::PlayPcm16(Bus bus,std::span<const int16_t> samples,
   buffer.Flags=XAUDIO2_END_OF_STREAM;
   buffer.AudioBytes=static_cast<UINT32>(voice->samples.size()*sizeof(int16_t));
   buffer.pAudioData=reinterpret_cast<const BYTE*>(voice->samples.data());
+  buffer.PlayBegin=options.start_frame;
   buffer.LoopBegin=options.loop_begin;buffer.LoopLength=options.loop_length;
   buffer.LoopCount=options.loop_count;
   const auto filter=NativeFilter(options.filter,options.filter_frequency,options.filter_one_over_q);
@@ -158,6 +168,7 @@ bool NativeXAudio2Mixer::PlayPcm16(Bus bus,std::span<const int16_t> samples,
      FAILED(voice->source->SetFrequencyRatio(options.frequency_ratio)) ||
      FAILED(voice->source->SubmitSourceBuffer(&buffer)))return false;
   if(!state_->UpdateVolume(*voice))return false;
+  if(options.stereo_pan&&!state_->UpdatePan(*voice,*options.stereo_pan))return false;
   if(!voice->clock.pending && !voice->clock.paused && FAILED(voice->source->Start(0)))return false;
   // Publish an ID only after a real XAudio2 buffer has been accepted.
   voice->id=++state_->last_voice_id;
@@ -290,6 +301,8 @@ bool NativeXAudio2Mixer::PlayEventVariantWithFevDsp(Bus bus,const hulk::eor::Ind
       if(!controls)return false;
       gain*=controls->gain;
       options.frequency_ratio*=controls->ratio;
+      if(controls->pan)options.stereo_pan=controls->pan;
+      if(controls->offset_ms)options.start_frame=FevOffsetFrame(*controls->offset_ms,sample->frames,sample->rate);
       if(!ValidGain(gain)||!ValidVoiceRatio(options.frequency_ratio))return false;
     }
     const Fsb3Sample source{sample->name,sample->frames,sample->mode,sample->rate,
@@ -375,6 +388,14 @@ bool NativeXAudio2Mixer::SetVoiceFrequencyRatio(VoiceId id,float ratio) noexcept
   Update();
   for(auto& voice:state_->voices)if(voice->id==id)
     return SUCCEEDED(voice->source->SetFrequencyRatio(ratio));
+  return false;
+}
+bool NativeXAudio2Mixer::SetVoicePan(VoiceId id,float pan) noexcept {
+  if(!Ready()||!id)return false;
+  std::lock_guard lock(state_->mutex);
+  Update();
+  for(auto& voice:state_->voices)if(voice->id==id)
+    return state_->UpdatePan(*voice,pan);
   return false;
 }
 bool NativeXAudio2Mixer::SetVoiceFilter(VoiceId id,VoiceFilter filter,float frequency,float one_over_q) noexcept {

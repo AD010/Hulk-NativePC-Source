@@ -96,6 +96,7 @@ class NativeXAudio2Mixer {
   size_t PauseEventVoices(std::span<const VoiceId> voices,bool pause) noexcept;
   bool AdvanceScheduledVoices(uint32_t elapsed_ms) noexcept;
   bool SetVoiceFrequencyRatio(VoiceId id,float ratio) noexcept;
+  bool SetVoicePan(VoiceId id,float pan) noexcept;
   bool SetVoiceFilter(VoiceId id,VoiceFilter filter,float frequency,float one_over_q) noexcept;
   bool StopVoice(VoiceId id) noexcept;
   bool PauseVoice(VoiceId id,bool pause) noexcept;

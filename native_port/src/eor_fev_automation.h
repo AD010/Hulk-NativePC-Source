@@ -185,13 +185,19 @@ inline std::optional<FevLayerGainPitch> EvaluateFevLayerGainPitch(
       if(!EvaluateFevLinkedResonance(event,record,size_t(&fx-record.effects.data()),physical_values))return {};
       continue; // handled by automatic named DSP blocks
     }
-    if(route->target!=FevTarget::Volume&&route->target!=FevTarget::Pitch){++out.unhandled;continue;}
+
     const auto domain=ReadFevParameterDomain(event.parameters[route->parameter]);
     if(!domain)return {};
     const auto x=domain->Normalize(physical_values[route->parameter]);
     if(!x)return {};
     const auto value=SampleFevCurve(fx,*x);
-    if(!value||!AccumulateFevGainPitch(out.values,route->target,*value))return {};
+    if(!value)return {};
+    if(route->target==FevTarget::Volume||route->target==FevTarget::Pitch){
+      if(!AccumulateFevGainPitch(out.values,route->target,*value))return {};
+    }else{
+      if(!AccumulateFevPosition(out.values,route->target,*value))return {};
+      if(route->target==FevTarget::Pan3DLevel)++out.unhandled; // needs actual listener/emitter
+    }
   }
   return out;
 }
@@ -205,7 +211,7 @@ inline std::optional<FevGainPitch> ResolveFevFixedGainPitch(
     if(i&&snapshots[i].first_frame<=snapshots[i-1].first_frame)return {};
     const auto result=EvaluateFevLayerGainPitch(event,layer,snapshots[i].physical_values);
     if(!result||result->unhandled)return {};
-    if(fixed&&(fixed->gain!=result->values.gain||fixed->ratio!=result->values.ratio))return {};
+    if(fixed&&*fixed!=result->values)return {};
     fixed=result->values;
   }
   return fixed;

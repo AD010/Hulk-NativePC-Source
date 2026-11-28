@@ -32,7 +32,7 @@ int main(int argc,char** argv){
   controls=EvaluateFevLayerGainPitch(event,0,a);
   assert(controls&&controls->values.ratio==.25f);
   event.layer_records[0].effects.back().header[1]=0x24;
-  controls=EvaluateFevLayerGainPitch(event,0,b);assert(controls&&controls->unhandled==1);
+  controls=EvaluateFevLayerGainPitch(event,0,b);assert(controls&&!controls->unhandled&&controls->values.pan==0.f);
   assert(!ResolveFevFixedGainPitch(event,0,snapshots));
   event.layer_records[0].effects.back().header[1]=0x0c;
   assert(!ResolveFevFixedGainPitch(event,0,snapshots));
@@ -79,9 +79,20 @@ int main(int argc,char** argv){
   linked_layer.effects[1].control=0;
   linked_layer.effects[0].name={};linked_layer.effects[0].header[1]=0x0c;
   assert(EvaluateFevLayerGainPitch(linked_event,0,b)->unhandled==0);
+  FevGainPitch position;
+  assert(AccumulateFevPosition(position,FevTarget::Pan,0.f)&&position.pan==1.f);
+  assert(AccumulateFevPosition(position,FevTarget::Pan,1.f)&&position.pan==-1.f);
+  assert(AccumulateFevPosition(position,FevTarget::Pan3DLevel,.25f)&&position.pan3d_level==.25f);
+  assert(OriginalFevOffsetMs(0.f)==0u&&OriginalFevOffsetMs(0.f,.25f)==250u);
+  assert(OriginalFevOffsetMs(1.f)>59000u&&OriginalFevOffsetMs(1.f)<61000u);
+  assert(!OriginalFevOffsetMs(-1.f)&&!OriginalFevOffsetMs(0.f,-1.f));
+  assert(FevOffsetFrame(1500,48000,48000)==24000u&&FevOffsetFrame(1000,48000,48000)==0u);
+  assert((FevStereoMatrix(-1.f,1)==std::array<float,4>{1,0,0,0}));
+  assert((FevStereoMatrix(1.f,2)==std::array<float,4>{0,0,0,1}));
+  assert((FevStereoMatrix(0.f,2)==std::array<float,4>{1,0,0,1}));
   if(argc==1)return 0;
   assert(argc==2);std::ifstream file(argv[1],std::ios::binary);assert(file);
-  unsigned projects=0,parameters=0,curves=0,constants=0,named=0,named_constants=0,points=0,interpolated=0,mapped=0;
+  unsigned projects=0,parameters=0,curves=0,constants=0,named=0,named_constants=0,points=0,interpolated=0,mapped=0,position_checks=0;
   for(;;){uint32_t h[4];if(!file.read(reinterpret_cast<char*>(h),16)){assert(file.eof()&&!file.gcount());break;}
     std::vector<std::byte> bytes(h[3]);assert(file.read(reinterpret_cast<char*>(bytes.data()),bytes.size()));if(!h[0])continue;
     auto t=AudioText(bytes);auto end=t.find('\0');auto table=InspectFevEventTable(AudioBytes(bytes).subspan(end+1),t.substr(0,end));assert(table);++projects;
@@ -96,10 +107,18 @@ int main(int argc,char** argv){
       for(const auto& layer:ev.layer_records)for(const auto& fx:layer.effects){++curves;assert(ValidFevCurve(fx));bool constant=true;auto initial=ReadFevCurvePoint(fx.points.front()).value;
         for(const auto& raw:fx.points){++points;const auto point=ReadFevCurvePoint(raw);assert(SampleFevCurve(fx,point.position)==point.value);constant &= point.value==initial;}
         for(unsigned i=0;i<=256;++i){const auto sample=SampleFevCurve(fx,float(i)/256.f);assert(sample&&std::isfinite(*sample)&&*sample>=0&&*sample<=1);++interpolated;
+          if(fx.name.empty()&&fx.control==UINT32_MAX){
+            const auto route=ReadFevCurveRoute(ev,fx);assert(route);
+            if(route->target==FevTarget::Pan||route->target==FevTarget::TimeOffset||route->target==FevTarget::Pan3DLevel){
+              FevGainPitch v;assert(AccumulateFevPosition(v,route->target,*sample));++position_checks;
+            }
+          }
           if(!fx.name.empty()){const auto physical=MapOriginalNamedDspValue(fx,*sample);assert(physical&&std::isfinite(*physical));const auto range=OriginalUsaDspRange(ClassifyFevDsp(fx.name),0);assert(range&&*physical>=range->minimum&&*physical<=range->maximum);++mapped;}}
         if(constant){++constants;assert(SampleFevCurve(fx,.37f)==initial);}if(!fx.name.empty()){++named;assert(ClassifyFevDsp(fx.name)!=DspKind::Unknown);named_constants+=constant;}
       }
     }
   }
+  assert(position_checks==145205u);
+  std::cout<<"Position mappings: "<<position_checks<<"\n";
   std::cout<<projects<<" projects, "<<parameters<<" parameter domains, "<<curves<<" curves, "<<points<<" points, "<<constants<<" constant curves, "<<named<<" named, "<<named_constants<<" named constant, "<<interpolated<<" evaluated positions, "<<mapped<<" mapped DSP values\n";
 }

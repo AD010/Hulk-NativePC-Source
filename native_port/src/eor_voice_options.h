@@ -1,6 +1,7 @@
 #pragma once
 #include <cmath>
 #include <cstdint>
+#include <optional>
 #include "eor_dynamic_dsp.h"
 namespace hulk::eor::audio {
 enum class VoiceFilter : uint8_t { Bypass, LowPass, HighPass };
@@ -13,6 +14,8 @@ struct VoiceOptions {
   // One-shot DSP; resolved blocks are borrowed only during PlayPcm16.
   StaticDspChain static_dsp{};
   std::span<const DspParameterBlock> dsp_blocks{};
+  uint32_t start_frame=0;
+  std::optional<float> stereo_pan;
 };
 inline bool ValidVoiceFilter(VoiceFilter filter,float frequency,float one_over_q) noexcept {
   return (filter==VoiceFilter::Bypass||filter==VoiceFilter::LowPass||filter==VoiceFilter::HighPass)&&
@@ -28,6 +31,8 @@ inline bool ValidVoiceOptions(const VoiceOptions& o,uint32_t frames) noexcept {
   if(o.static_dsp.count>o.static_dsp.stages.size() ||
      ((o.static_dsp.count||!o.dsp_blocks.empty())&&o.loop_count) ||
      (o.static_dsp.count&&!o.dsp_blocks.empty()))return false;
+  if(o.start_frame>=frames||(o.start_frame&&o.loop_count)||
+     (o.stereo_pan&&(!std::isfinite(*o.stereo_pan)||*o.stereo_pan< -1.f||*o.stereo_pan>1.f)))return false;
   if(!o.loop_count)return !o.loop_begin&&!o.loop_length;
   if(!o.loop_length)return !o.loop_begin;
   return o.loop_begin<frames&&o.loop_length<=frames-o.loop_begin;
