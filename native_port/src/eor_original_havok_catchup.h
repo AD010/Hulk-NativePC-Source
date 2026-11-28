@@ -4,6 +4,7 @@
 // Preserve bounded catch-up debt at the original game-owned accumulator;
 // never replace the shared game delta or alter an in-flight worker step.
 #include "eor_original_havok_step.h"
+#include "eor_havok_carry.h"
 #include <algorithm>
 #include <array>
 #include <bit>
@@ -31,9 +32,13 @@ inline std::optional<CatchupPlan> PlanOriginalCatchup(
   const auto pending=debt+whole-admitted;
   // Reserve one original fractional carry; never issue more than four
   // whole physics steps per host frame. Keep the remaining exact debt.
-  const auto extra=std::min(pending,kCatchupMaxTotalSteps-admitted-1u);
-  if(pending-extra>120u)return {}; // bounded debt, no spiral on long stalls
-  return CatchupPlan{remainder+float(extra)*step,pending-extra,extra};
+  const auto wanted=std::min(pending,kCatchupMaxTotalSteps-admitted-1u);
+  // PPC single-precision rounding near two fractional steps can create
+  // one additional carry. Validate the actual original loop and debit
+  // only the number of extra steps proven to execute.
+  const auto carry=AdmitOriginalCatchup(remainder,elapsed,step,whole,admitted,wanted,kCatchupMaxTotalSteps);
+  if(!carry||pending-carry->extra>120u)return {};
+  return CatchupPlan{carry->accumulator,pending-carry->extra,carry->extra};
 }
 // The retail scheduler calls its floor helper after its pre-physics callbacks
 // and after reading the live elapsed/step. The same helper is used elsewhere
