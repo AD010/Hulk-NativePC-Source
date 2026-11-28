@@ -78,7 +78,7 @@ def _entries(bank: Path) -> tuple[dict, list[dict]]:
     return manifest, [unique[key] for key in sorted(unique)]
 
 
-def _source_shaders_for_effects(source: Path, effects: set[int]) -> set[str]:
+def _source_shaders_for_effects(source: Path, effects: set[int]) -> set[tuple[str, str]]:
     """Exact stage SHA pairs from private authentic HEORMAT2, never names."""
     data = source.read_bytes()
     if len(data) < 16 or data[:8] != b"HEORMAT2":
@@ -87,24 +87,26 @@ def _source_shaders_for_effects(source: Path, effects: set[int]) -> set[str]:
     if version != 2 or not 0 < count <= 16384 or len(data) != 16 + 72 * count:
         raise ValueError("Malformed original effect/pass shader digest bank")
     found: set[int] = set()
-    selected: set[str] = set()
+    selected: set[tuple[str, str]] = set()
+    seen_passes: set[tuple[int, int]] = set()
     for i in range(count):
         at = 16 + 72 * i
         effect, ordinal = struct.unpack_from("<II", data, at)
         if effect not in effects:
             continue
-        if ordinal > 16384:
-            raise ValueError("Unsafe original effect pass")
+        if ordinal >= 16384 or (effect, ordinal) in seen_passes:
+            raise ValueError("Unsafe or duplicate original effect pass")
+        seen_passes.add((effect, ordinal))
         found.add(effect)
-        selected.add(data[at + 8:at + 40].hex())
-        selected.add(data[at + 40:at + 72].hex())
+        selected.add((data[at + 8:at + 40].hex(), "VS"))
+        selected.add((data[at + 40:at + 72].hex(), "PS"))
     if found != effects:
         raise ValueError("Requested source effect hash is not in original HEORMAT2")
     return selected
 
 
 def _source_shaders_for_passes(
-    source: Path, original_passes: set[tuple[int, int]]) -> set[str]:
+    source: Path, original_passes: set[tuple[int, int]]) -> set[tuple[str, str]]:
     """Choose ONLY the exact VS/PS pair of real, live, observed EoR Draws."""
     data = source.read_bytes()
     if len(data) < 16 or data[:8] != b"HEORMAT2":
@@ -113,16 +115,18 @@ def _source_shaders_for_passes(
     if version != 2 or not 0 < count <= 16384 or len(data) != 16 + 72 * count:
         raise ValueError("Malformed original source pass pair ledger")
     found: set[tuple[int,int]] = set()
-    programs: set[str] = set()
+    programs: set[tuple[str, str]] = set()
     for ordinal in range(count):
         at = 16 + 72 * ordinal
         effect, pass_index = struct.unpack_from("<II", data, at)
         key = (effect, pass_index)
         if key not in original_passes:
             continue
+        if key in found:
+            raise ValueError("Duplicate observed original effect/pass")
         found.add(key)
-        programs.add(data[at + 8:at + 40].hex())
-        programs.add(data[at + 40:at + 72].hex())
+        programs.add((data[at + 8:at + 40].hex(), "VS"))
+        programs.add((data[at + 40:at + 72].hex(), "PS"))
     if found != original_passes:
         raise ValueError("Observed XDK effect/pass is absent from original ShaderEffects")
     return programs
@@ -166,8 +170,9 @@ def compile_bank(bank: Path, out: Path, xenos: Path, dxc: Path, common: Path,
         if wanted_passes:
             effect_sources.update(
                 _source_shaders_for_passes(effect_catalog, wanted_passes))
-        entries = [row for row in entries if row["sha256"] in effect_sources]
-        if {row["sha256"] for row in entries} != effect_sources:
+        entries = [row for row in entries
+                   if (row["sha256"], row["stage"]) in effect_sources]
+        if {(row["sha256"], row["stage"]) for row in entries} != effect_sources:
             raise ValueError(
                 "Original XDK shader pair references source missing from private bank")
     if limit:
