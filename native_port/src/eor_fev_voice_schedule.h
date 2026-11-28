@@ -60,4 +60,12 @@ inline size_t FevVoiceBlockAt(std::span<const FevVoiceBlock> blocks,uint64_t fra
       [](uint64_t f,const FevVoiceBlock& b){return f<b.first_frame;});
   return it==blocks.begin()?0:static_cast<size_t>(it-blocks.begin()-1);
 }
+// Plan an explicit source-frame seek, independent of the original game's
+// elapsed-time correction. Looping buffers require separate semantics.
+struct FevVoiceSeekPlan {uint32_t frame;size_t block;};
+inline std::optional<FevVoiceSeekPlan> PlanFevVoiceSeek(std::span<const FevVoiceBlock> blocks,
+    uint32_t frame,uint32_t frames,bool looping) noexcept {
+  if(looping||frame>=frames)return {};
+  return FevVoiceSeekPlan{frame,FevVoiceBlockAt(blocks,frame)};
+}
 } // namespace hulk::eor::audio

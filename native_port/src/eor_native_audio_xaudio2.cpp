@@ -45,7 +45,8 @@ struct NativeXAudio2Mixer::State {
     std::optional<SpatialVoiceState> spatial;
     std::optional<float> pan,spatial_level;
     std::array<float,128> flat_matrix{};
-    uint32_t output_channels=0;
+    uint32_t output_channels=0,sample_rate=0;
+    bool looping=false;
     uint32_t first_frame=0;
     uint64_t last_samples=0;
     size_t applied_block=0;
@@ -197,6 +198,8 @@ bool NativeXAudio2Mixer::PlayPcm16(Bus bus,std::span<const int16_t> samples,
     voice=std::make_unique<State::Voice>();
     voice->bus=bus_id;
     voice->channels=channels;
+    voice->sample_rate=sample_rate;
+    voice->looping=options.loop_count!=0;
     voice->spatial=options.spatial;
     voice->gain=gain;
     voice->base_ratio=options.frequency_ratio;
@@ -493,6 +496,68 @@ bool NativeXAudio2Mixer::SetVoiceSpatialState(VoiceId id,const SpatialVoiceState
     voice->spatial=spatial;
     if(state_->UpdateMatrix(*voice,voice->pan,voice->spatial_level))return true;
     voice->spatial=old;return false;
+  }
+  return false;
+}
+bool NativeXAudio2Mixer::SeekVoiceFrame(VoiceId id,uint32_t frame) noexcept {
+  if(!Ready()||!id)return false;
+  std::lock_guard lock(state_->mutex);
+  Update();
+  for(auto& entry:state_->voices)if(entry->id==id){
+    auto& old=*entry;
+    const auto plan=PlanFevVoiceSeek(old.automation,frame,
+        static_cast<uint32_t>(old.samples.size()/old.channels),old.looping);
+    if(!plan)return false;
+    // Prepare a stopped replacement. Its buffer borrows the existing
+    // voice's owned PCM, which remains resident through the entire swap.
+    State::Voice next;
+    next.channels=old.channels;next.output_channels=old.output_channels;
+    next.sample_rate=old.sample_rate;next.bus=old.bus;next.gain=old.gain;
+    next.base_ratio=old.base_ratio;next.max_ratio=old.max_ratio;
+    next.automation_gain=old.automation_gain;next.automation_ratio=old.automation_ratio;
+    next.flat_matrix=old.flat_matrix;next.spatial=old.spatial;
+    next.pan=old.pan;next.spatial_level=old.spatial_level;
+    if(!old.automation.empty()){
+      const auto& controls=old.automation[plan->block].controls;
+      next.automation_gain=controls.gain;next.automation_ratio=controls.ratio;
+      if(controls.pan)next.pan=controls.pan;
+      next.spatial_level=controls.pan3d_level;
+    }
+    WAVEFORMATEX wave{};
+    wave.wFormatTag=WAVE_FORMAT_PCM;wave.nChannels=old.channels;
+    wave.nSamplesPerSec=old.sample_rate;wave.wBitsPerSample=16;
+    wave.nBlockAlign=static_cast<WORD>(old.channels*sizeof(int16_t));
+    wave.nAvgBytesPerSec=wave.nSamplesPerSec*wave.nBlockAlign;
+    if(FAILED(state_->engine->CreateSourceVoice(&next.source,&wave,
+        XAUDIO2_VOICE_USEFILTER,next.max_ratio))||!next.source)return false;
+    XAUDIO2_FILTER_PARAMETERS filter{};old.source->GetFilterParameters(&filter);
+    const auto ratio=next.base_ratio*next.automation_ratio;
+    if(!ValidVoiceRatio(ratio)||ratio>next.max_ratio||
+       FAILED(next.source->SetFrequencyRatio(ratio))||
+       FAILED(next.source->SetFilterParameters(&filter))||
+       !state_->UpdateVolume(next)||
+       !state_->UpdateMatrix(next,next.pan,next.spatial_level))return false;
+    XAUDIO2_BUFFER buffer{};
+    buffer.Flags=XAUDIO2_END_OF_STREAM;
+    buffer.AudioBytes=static_cast<UINT32>(old.samples.size()*sizeof(int16_t));
+    buffer.pAudioData=reinterpret_cast<const BYTE*>(old.samples.data());
+    buffer.PlayBegin=plan->frame;
+    if(FAILED(next.source->SubmitSourceBuffer(&buffer)))return false;
+    // Do not destroy the original until the replacement is admitted.
+    const bool running=!old.clock.paused&&!old.clock.pending;
+    if(running){
+      if(FAILED(old.source->Stop(0)))return false;
+      if(FAILED(next.source->Start(0))){
+        (void)old.source->Start(0);
+        return false;
+      }
+    }
+    std::swap(old.source,next.source); // next's destructor retires old source
+    old.first_frame=plan->frame;old.last_samples=0;
+    old.applied_block=plan->block;
+    old.automation_gain=next.automation_gain;old.automation_ratio=next.automation_ratio;
+    old.pan=next.pan;old.spatial_level=next.spatial_level;
+    return true;
   }
   return false;
 }

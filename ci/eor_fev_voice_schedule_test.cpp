@@ -26,6 +26,12 @@ int main(){
   assert(!ValidFevVoiceRatio(17.f));
   assert(FevVoiceBlockAt(*blocks,0)==0&&FevVoiceBlockAt(*blocks,19)==0);
   assert(FevVoiceBlockAt(*blocks,20)==1&&FevVoiceBlockAt(*blocks,UINT64_MAX)==1);
+  const auto forward=PlanFevVoiceSeek(*blocks,30,64,false);
+  const auto backward=PlanFevVoiceSeek(*blocks,5,64,false);
+  assert(forward&&forward->frame==30&&forward->block==1);
+  assert(backward&&backward->frame==5&&backward->block==0);
+  assert(!PlanFevVoiceSeek(*blocks,64,64,false)&&!PlanFevVoiceSeek(*blocks,5,64,true));
+  assert(PlanFevVoiceSeek({},0,1,false)->block==0);
   snapshots[1].first_frame=0;assert(!BuildFevVoiceSchedule(event,0,snapshots));snapshots[1].first_frame=20;
   event.layer_records[0].effects.back().header[1]=0x44;
   assert(!BuildFevVoiceSchedule(event,0,snapshots));

@@ -101,6 +101,8 @@ class NativeXAudio2Mixer {
   bool SetVoiceFrequencyRatio(VoiceId id,float ratio) noexcept;
   bool SetVoicePan(VoiceId id,float pan) noexcept;
   bool SetVoiceSpatialState(VoiceId id,const SpatialVoiceState& spatial) noexcept;
+  // Explicit non-looping source position; keeps the event's VoiceId and PCM.
+  bool SeekVoiceFrame(VoiceId id,uint32_t frame) noexcept;
   bool SetVoiceFilter(VoiceId id,VoiceFilter filter,float frequency,float one_over_q) noexcept;
   bool StopVoice(VoiceId id) noexcept;
   bool PauseVoice(VoiceId id,bool pause) noexcept;
