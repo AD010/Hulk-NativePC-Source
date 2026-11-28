@@ -1657,11 +1657,19 @@ void CapturePpcDraw(Kind kind, uint32_t guest, const PPCContext& ctx,
   // gap, but do not repeatedly copy full guest registers and mesh allocations
   // for an already unpresentable frame. Explicit mesh research can still
   // request those copies, independent of normal gameplay.
+  // The final timeline gate rejects invalid engine parents and unsupported
+  // Draw ABIs even with complete VS/PS coverage. Apply the SAME gate before
+  // copying megabytes of live guest memory for a frame that cannot replay.
+  // EndVertices requires its actual inline glyph payload, checked below.
+  if(replay && (!OriginalGeometryWrapperHasValidParent(draw) ||
+      (kind==Kind::DrawIndexedVertices && !DecodeOriginalIndexedXdkCall(draw)) ||
+      (kind==Kind::DrawVertices && !DecodeOriginalVerticesXdkCall(draw)) ||
+      kind==Kind::DrawVerticesUP))
+    g_frame_shader_complete.store(false,std::memory_order_relaxed);
   const bool verified_draw_program=draw.observed_vs_matrices && HasOriginalDrawProgram(draw);
   const bool capture_heavy=diagnostic_mesh ||
       (replay && verified_draw_program &&
-       (g_frame_shader_complete.load(std::memory_order_relaxed) ||
-        REXCVAR_GET(hulk_eor_xdk_source_mesh_capture)));
+       g_frame_shader_complete.load(std::memory_order_relaxed));
   if(replay && !capture_heavy)++g_frame_heavy_capture_skipped;
   if(capture_heavy && draw.observed_vs_matrices) {
       // Store the full register bank only for a viable replay frame or
@@ -1779,6 +1787,8 @@ void CapturePpcDraw(Kind kind, uint32_t guest, const PPCContext& ctx,
       draw.source_vertex_streams={};
     }
   }
+  if(replay && kind==Kind::EndVertices && !DecodeOriginalFontVertices(draw))
+    g_frame_shader_complete.store(false,std::memory_order_relaxed);
   g_collector.Record(std::move(draw));
 }
 void CapturePpcCommand(CommandKind kind,uint32_t guest,
@@ -1793,7 +1803,8 @@ void CapturePpcCommand(CommandKind kind,uint32_t guest,
   if(kind==CommandKind::ClearF) {
     event.captured_clear=CaptureOriginalXdkClearF(
         event.gpr,ctx.f1.f64,ReadGuest,guest_base);
-    if(event.captured_clear && REXCVAR_GET(hulk_eor_vulkan_replay)) {
+    if(event.captured_clear && REXCVAR_GET(hulk_eor_vulkan_replay) &&
+       g_frame_shader_complete.load(std::memory_order_relaxed)) {
       auto targets=CaptureUsaVsMatrices(event.gpr[0],ReadGuest,guest_base);
       auto fixed=CaptureUsaFixedGraphicsState(event.gpr[0],ReadGuest,guest_base);
       if(targets && fixed) {
@@ -1812,6 +1823,9 @@ void CapturePpcCommand(CommandKind kind,uint32_t guest,
     }
   }
   std::lock_guard lock(g_mutex);
+  if(REXCVAR_GET(hulk_eor_vulkan_replay) && kind==CommandKind::ClearF &&
+     (!event.captured_clear || event.captured_clear->flags!=event.gpr[1]))
+    g_frame_shader_complete.store(false,std::memory_order_relaxed);
   g_collector.RecordCommand(event);
 }
 void EndPpcHook(native_x_renderer::Call kind) {
