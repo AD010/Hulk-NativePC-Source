@@ -148,9 +148,10 @@ class IncredibleHulkApp : public rex::ReXApp {
           const auto check=hulk::save::format::Read(
               retail,hulk::save::format::Kind::RetailPcLittleEndian);
           REXLOG_INFO("[HULK/RETAIL-PC-SAVE] valid original PC CRC32 "
-                      "and {} indexed fields; inspection only, "
-                      "guest save serializer unchanged",
-                      check.sorted_field_count);
+                      "leading_fields={} verified_tables={} verified_fields={} "
+                      "(read-only; guest serializer unchanged)",
+                      check.sorted_field_count,check.verified_table_count,
+                      check.verified_field_count);
         } catch (const std::exception& error) {
           REXLOG_WARN("[HULK/RETAIL-PC-SAVE] existing PC save not imported "
                       "or modified: {}",error.what());
