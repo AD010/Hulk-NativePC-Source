@@ -39,7 +39,7 @@ struct NativeXAudio2Mixer::State {
     std::vector<int16_t> samples;
     unsigned bus=0;
     uint16_t channels=0;
-    float gain=1.f,base_ratio=1.f,automation_gain=1.f,automation_ratio=1.f;
+    float gain=1.f,base_ratio=1.f,automation_gain=1.f,automation_ratio=1.f,max_ratio=4.f;
     std::vector<FevVoiceBlock> automation;
     uint32_t first_frame=0;
     uint64_t last_samples=0;
@@ -85,7 +85,7 @@ struct NativeXAudio2Mixer::State {
     const auto& controls=voice.automation[index].controls;
     if(controls.pan&&!UpdatePan(voice,*controls.pan))return false;
     const float ratio=voice.base_ratio*controls.ratio;
-    if(!ValidVoiceRatio(ratio)||FAILED(voice.source->SetFrequencyRatio(ratio)))return false;
+    if(!ValidVoiceRatio(ratio)||ratio>voice.max_ratio||FAILED(voice.source->SetFrequencyRatio(ratio)))return false;
     voice.automation_gain=controls.gain;
     voice.automation_ratio=controls.ratio;
     if(!UpdateVolume(voice))return false;
@@ -173,7 +173,10 @@ bool NativeXAudio2Mixer::PlayPcm16(Bus bus,std::span<const int16_t> samples,
   wave.wBitsPerSample=16;
   wave.nBlockAlign=static_cast<WORD>(channels*sizeof(int16_t));
   wave.nAvgBytesPerSec=wave.nSamplesPerSec*wave.nBlockAlign;
-  if(FAILED(state_->engine->CreateSourceVoice(&voice->source,&wave,XAUDIO2_VOICE_USEFILTER,4.f)) ||
+  const auto required=RequiredFevVoiceRatio(options.fev_voice_blocks,options.frequency_ratio);
+  if(!required)return false;
+  voice->max_ratio=*required;
+  if(FAILED(state_->engine->CreateSourceVoice(&voice->source,&wave,XAUDIO2_VOICE_USEFILTER,voice->max_ratio)) ||
      !voice->source)return false;
   XAUDIO2_BUFFER buffer{};
   buffer.Flags=XAUDIO2_END_OF_STREAM;
@@ -415,6 +418,11 @@ bool NativeXAudio2Mixer::SetVoiceFrequencyRatio(VoiceId id,float ratio) noexcept
   std::lock_guard lock(state_->mutex);
   Update();
   for(auto& voice:state_->voices)if(voice->id==id){
+    // XAudio2 clamps to the creation-time maximum. Validate the full
+    // remaining schedule before changing the base, rather than silently
+    // clipping future pitch values or terminating the voice mid-event.
+    const auto required=RequiredFevVoiceRatio(voice->automation,ratio);
+    if(!required||*required>voice->max_ratio)return false;
     const float effective=ratio*voice->automation_ratio;
     if(!ValidVoiceRatio(effective)||FAILED(voice->source->SetFrequencyRatio(effective)))return false;
     voice->base_ratio=ratio;return true;

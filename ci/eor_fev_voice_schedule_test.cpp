@@ -18,7 +18,12 @@ int main(){
   assert((*blocks)[0].controls.ratio==1&&(*blocks)[1].controls.ratio==2);
   assert((*blocks)[0].controls.pan==0&&(*blocks)[1].controls.pan==-.25f);
   assert(ValidFevVoiceSchedule(*blocks,64,1));
-  assert(!ValidFevVoiceSchedule(*blocks,20,1)&&!ValidFevVoiceSchedule(*blocks,64,3));
+  assert(!ValidFevVoiceSchedule(*blocks,20,1)&&ValidFevVoiceSchedule(*blocks,64,3));
+  assert(!ValidFevVoiceSchedule(*blocks,64,9));
+  assert(RequiredFevVoiceRatio(*blocks,1)==4.f&&RequiredFevVoiceRatio(*blocks,3)==6.f);
+  assert(!RequiredFevVoiceRatio(*blocks,9));
+  assert(ValidFevVoiceRatio(.0625f)&&ValidFevVoiceRatio(16.f)&&!ValidFevVoiceRatio(.03f));
+  assert(!ValidFevVoiceRatio(17.f));
   assert(FevVoiceBlockAt(*blocks,0)==0&&FevVoiceBlockAt(*blocks,19)==0);
   assert(FevVoiceBlockAt(*blocks,20)==1&&FevVoiceBlockAt(*blocks,UINT64_MAX)==1);
   snapshots[1].first_frame=0;assert(!BuildFevVoiceSchedule(event,0,snapshots));snapshots[1].first_frame=20;

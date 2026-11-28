@@ -1,6 +1,13 @@
 #pragma once
 #include "eor_fev_automation.h"
 namespace hulk::eor::audio {
+// Original single pitch envelope exp2(8*v-4) spans four octaves in
+// either direction. Keep a bounded native range, but do not discard
+// legitimate values outside the previous quarter-to-fourfold limit.
+inline constexpr float kMinFevVoiceRatio=.0625f,kMaxFevVoiceRatio=16.f;
+inline bool ValidFevVoiceRatio(float ratio) noexcept {
+  return std::isfinite(ratio)&&ratio>=kMinFevVoiceRatio&&ratio<=kMaxFevVoiceRatio;
+}
 struct FevVoiceBlock {
   uint32_t first_frame=0;
   FevGainPitch controls;
@@ -29,12 +36,22 @@ inline bool ValidFevVoiceSchedule(std::span<const FevVoiceBlock> blocks,uint32_t
     const float ratio=base_ratio*c.ratio;
     if(b.first_frame>=frames||(i&&b.first_frame<=blocks[i-1].first_frame)||
        !std::isfinite(c.gain)||c.gain<0.f||c.gain>1.f||
-       !std::isfinite(ratio)||ratio<.25f||ratio>4.f||c.pan3d_level||
+       !ValidFevVoiceRatio(ratio)||c.pan3d_level||
        c.offset_ms!=blocks.front().controls.offset_ms||
        c.pan.has_value()!=blocks.front().controls.pan.has_value()||
        (c.pan&&(!std::isfinite(*c.pan)||*c.pan< -1.f||*c.pan>1.f)))return false;
   }
   return true;
+}
+inline std::optional<float> RequiredFevVoiceRatio(std::span<const FevVoiceBlock> blocks,float base) noexcept {
+  if(!ValidFevVoiceRatio(base))return {};
+  float result=(std::max)(4.f,base);
+  for(const auto& b:blocks){
+    const float ratio=base*b.controls.ratio;
+    if(!ValidFevVoiceRatio(ratio))return {};
+    result=(std::max)(result,ratio);
+  }
+  return result;
 }
 inline size_t FevVoiceBlockAt(std::span<const FevVoiceBlock> blocks,uint64_t frame) noexcept {
   if(blocks.empty())return 0;

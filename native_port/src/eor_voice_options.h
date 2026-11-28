@@ -25,7 +25,7 @@ inline bool ValidVoiceFilter(VoiceFilter filter,float frequency,float one_over_q
       std::isfinite(one_over_q)&&one_over_q>0.f&&one_over_q<=1.5f;
 }
 inline bool ValidVoiceRatio(float ratio) noexcept {
-  return std::isfinite(ratio)&&ratio>=0.25f&&ratio<=4.f;
+  return ValidFevVoiceRatio(ratio);
 }
 inline bool ValidVoiceOptions(const VoiceOptions& o,uint32_t frames) noexcept {
   if(!frames||o.delay_ms>600000u||o.loop_count>255u||!ValidVoiceRatio(o.frequency_ratio)||
