@@ -36,6 +36,17 @@ inline uint32_t NativeMetadataCrc(const uint8_t* p,size_t n) noexcept {
   for(size_t i=0;i<n;++i){crc^=p[i];for(unsigned b=0;b<8;++b)crc=(crc>>1)^((crc&1u)?0xedb88320u:0u);}
   return crc^0xffffffffu;
 }
+// The supplied USA recomp save importer independently established this
+// exact framing: a BE CRC32 at +0, coverage beginning at +12. Bytes 4..11
+// and the internal progress fields remain opaque, not guessed PC fields.
+inline constexpr size_t kLegacyProgressMinimum=64;
+inline constexpr size_t kLegacyProgressMaximum=16u*1024u*1024u;
+inline bool ValidLegacyProgress(const uint8_t* bytes,size_t size) noexcept {
+  if(!bytes||size<kLegacyProgressMinimum||size>kLegacyProgressMaximum)return false;
+  const uint32_t stored=(uint32_t(bytes[0])<<24)|(uint32_t(bytes[1])<<16)|
+                        (uint32_t(bytes[2])<<8)|uint32_t(bytes[3]);
+  return stored==NativeMetadataCrc(bytes+12,size-12);
+}
 inline std::optional<std::vector<uint8_t>> EncodeNativeMetadata(std::u16string_view name) {
   if(!ValidMetadataName(name))return {};
   std::vector<uint8_t> out(kNativeMetadataMagic.begin(),kNativeMetadataMagic.end());
