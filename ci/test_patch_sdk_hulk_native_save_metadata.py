@@ -30,6 +30,18 @@ class NativeMetadata(unittest.TestCase):
         for old in (XAM_INCLUDE,XAM_ENUM):
             with self.assertRaises(ValueError):patch_xam(source.replace(old,'missing'))
         with self.assertRaises(ValueError):patch_xam(result.replace(XAM_ENUM_NEW,XAM_ENUM))
+    def test_backup_transform(self):
+        from patch_sdk_hulk_native_save_metadata import (
+            patch_backup, BACKUP_ANCHOR, BACKUP_HELPER, DELETE_ANCHOR, DELETE_GUARD)
+        source=(SDK/SOURCE).read_text(encoding='utf-8') if SDK else '\n'.join(
+            [BACKUP_ANCHOR,DELETE_ANCHOR,DELETE_ANCHOR])
+        result,changed=patch_backup(source)
+        self.assertTrue(changed)
+        self.assertIn(BACKUP_HELPER,result)
+        self.assertEqual(result.count(DELETE_GUARD+DELETE_ANCHOR),2)
+        self.assertEqual(patch_backup(result),(result,False))
+        with self.assertRaises(ValueError):patch_backup(source.replace(DELETE_ANCHOR,'missing',1))
+        with self.assertRaises(ValueError):patch_backup(result.replace(DELETE_GUARD,'',1))
     def test_native_codec(self):
         compiler=shutil.which('clang++') or shutil.which('g++')
         if not compiler:self.skipTest('No portable C++ compiler')
