@@ -18,7 +18,7 @@ inline constexpr size_t kMaxNativePcmSamples=8u<<20;
 inline constexpr bool ValidPcm16(std::span<const int16_t> pcm,
     uint32_t sample_rate,uint16_t channels) noexcept {
   return (channels==1u || channels==2u) &&
-         sample_rate>=8000u && sample_rate<=96000u &&
+         sample_rate>=4000u && sample_rate<=96000u &&
          !pcm.empty() && pcm.size()<=kMaxNativePcmSamples &&
          pcm.size()%channels==0u;
 }
@@ -44,6 +44,10 @@ class NativeXAudio2Mixer {
   bool PlayIndexedWaveBankPcm16(Bus bus,const hulk::eor::Index& index,
       const std::filesystem::path& wavebanks_arc,uint32_t resource_hash,
       uint32_t sample_index,float gain=1.f);
+  // Explicit source-proven event bank/sample route, not an invented FMOD callback.
+  bool PlayProjectWaveSample(Bus bus,const hulk::eor::Index& index,
+      const std::filesystem::path& project_archive,const std::filesystem::path& wave_archive,
+      uint32_t project_hash,uint32_t bank_ordinal,uint32_t sample_ordinal,float gain=1.f);
   bool SetBusVolume(Bus bus,float gain) noexcept;
   void SetMuted(bool muted) noexcept;
   void Update() noexcept;

@@ -3,6 +3,8 @@
 #endif
 #include "eor_native_audio_xaudio2.h"
 #include "eor_fsb4_pcm.h"
+#include "eor_fsb3_ima.h"
+#include "eor_fmod_project.h"
 #include "eor_archive.h"
 #ifdef _WIN32
 #include <xaudio2.h>
@@ -183,12 +185,30 @@ bool NativeXAudio2Mixer::PlayIndexedWaveBankPcm16(Bus bus,
     if(declared!=end)return false;
     const auto data=hulk::eor::ReadResource(
         wavebanks_arc,*record,64u<<20);
-    // Signed/unsigned PCM8 and PCM16 are genuinely decoded. Xbox XMA and
-    // compressed PC banks remain excluded until a source-accurate decoder.
+    if(const auto bank=InspectOriginalWaveBank(data,resource_hash,index.byte_order()==ByteOrder::Big)) {
+      if(sample_index>=bank->samples.size())return false;
+      const auto& sample=bank->samples[sample_index];
+      const auto pcm=DecodeOriginalIma(sample);
+      return pcm && PlayPcm16(bus,*pcm,sample.rate,sample.channels,gain);
+    }
     return PlayFsb4Pcm16(bus,data,sample_index,gain);
   } catch (...) {
     return false;
   }
+}
+bool NativeXAudio2Mixer::PlayProjectWaveSample(Bus bus,const hulk::eor::Index& index,
+    const std::filesystem::path& project_archive,const std::filesystem::path& wave_archive,
+    uint32_t project_hash,uint32_t bank_ordinal,uint32_t sample_ordinal,float gain) {
+  if(!Ready()||!ValidGain(gain))return false;
+  try {
+    const auto sample=fmod::ReadProjectWaveSample(index,project_archive,wave_archive,
+        project_hash,bank_ordinal,sample_ordinal);
+    if(!sample)return false;
+    const Fsb3Sample source{sample->name,sample->frames,sample->mode,sample->rate,
+        sample->channels,sample->payload};
+    const auto pcm=DecodeOriginalIma(source);
+    return pcm && PlayPcm16(bus,*pcm,source.rate,source.channels,gain);
+  } catch (...) {return false;}
 }
 bool NativeXAudio2Mixer::SetBusVolume(Bus bus,float gain) noexcept {
   const unsigned index=BusIndex(bus);
