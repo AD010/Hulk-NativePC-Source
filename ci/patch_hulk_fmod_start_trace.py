@@ -10,7 +10,8 @@ from pathlib import Path
 PIN = '346a73690303f6633bfdaf9850e78793fe07cdbfb8f849b89fbee320630b11f0'
 FUNC = re.compile(r'^DEFINE_REX_FUNC\(sub_([0-9a-fA-F]{8})\)')
 LABEL = re.compile(r'^\s*loc_([0-9a-fA-F]{8}):')
-ASM = re.compile(r'^\s*// (.+?)\s*$')
+BLOCK = re.compile(r'^\s*// Block: 0x([0-9a-fA-F]{8})\s*$')
+ASM = re.compile(r'^\s*// ([a-z][a-z0-9_.+-]*(?:\s+.*?)?)\s*$')
 PREFIX = 'HULK_FMOD_START_TRACE_V2'
 LEGACY = 'HULK_FMOD_START_TRACE_V1'
 
@@ -19,10 +20,12 @@ def instructions(lines):
     owner = address = None
     out = []
     prologues = {}
+    seen = set()
     for i, line in enumerate(lines):
         m = FUNC.match(line)
         if m:
             owner = address = int(m[1], 16)
+            seen.clear()
             continue
         if owner is None:
             continue
@@ -30,13 +33,16 @@ def instructions(lines):
             if owner in prologues:
                 raise ValueError('Duplicate function prologue')
             prologues[owner] = i
-        m = LABEL.match(line)
+        m = LABEL.match(line) or BLOCK.match(line)
         if m:
             address = int(m[1], 16)
             continue
         m = ASM.match(line)
         if m:
             if owner in (0x82838650, 0x82839368):
+                if address & 3 or address in seen:
+                    raise ValueError("Duplicate or unaligned PPC instruction address")
+                seen.add(address)
                 out.append((owner, address, i, m[1]))
             address += 4
     return out, prologues
@@ -52,7 +58,7 @@ def translated(lines, index, pattern):
     matches = []
     for i in range(index + 1, min(index + 12, len(lines))):
         line = lines[i]
-        if ASM.match(line) or LABEL.match(line) or FUNC.match(line):
+        if ASM.match(line) or LABEL.match(line) or BLOCK.match(line) or FUNC.match(line):
             break
         m = re.search(pattern, line)
         if m:

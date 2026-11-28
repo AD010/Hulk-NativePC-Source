@@ -43,6 +43,21 @@ class TracePatch(unittest.TestCase):
         self.assertLess(out['b'].index('ctx.r3.s64 = 0'),out['b'].index('TraceFmodChannelStart'))
         self.assertEqual(patch(out),out)
         self.assertIn('TraceFmodChannelStart',patch({'both':SELECT+START})['both'])
+    def test_codegen_basic_blocks(self):
+        # Fallthrough blocks have no loc_ label in real generated code.
+        import re
+        blocks = lambda source: re.sub(r'(?m)^loc_([0-9A-Fa-f]{8}):$', r'  // Block: 0x\1', source)
+        a = blocks(SELECT).replace('  // lwz r11,76(r27)', '  // TODO: translation annotation\n  // lwz r11,76(r27)')
+        b = blocks(START).replace('  // ori r10,r10,8', '  // Block: 0x82839608\n  // ori r10,r10,8')
+        out = patch({'a':a,'b':b})
+        self.assertIn('TraceFmodSelectionStore',out['a'])
+        self.assertIn('TraceFmodChannelStart',out['b'])
+        self.assertEqual(patch(out),out)
+        with self.assertRaises(ValueError):
+            patch({'a':a,'b':b.replace('  // Block: 0x82839608','  // Block: 0x82839600')})
+        # A translated operand in a different basic block is not evidence.
+        with self.assertRaises(ValueError):
+            patch({'a':a,'b':b.replace('  PPC_STORE_U32','  // Block: 0x82839610\n  PPC_STORE_U32')})
     def test_reject(self):
         for a,b in [(SELECT,START.replace('ori r10,r10,8','ori r10,r10,4')),
                     (SELECT,START.replace('bl 0x82838650','bl 0x82838654')),
