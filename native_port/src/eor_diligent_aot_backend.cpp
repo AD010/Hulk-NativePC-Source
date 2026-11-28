@@ -342,9 +342,19 @@ struct DiligentEorDirectBackend::State {
       const auto& original=source.host_texture->GetDesc();
       if(original.MipLevels!=1u || original.ArraySize!=1u ||
          original.Width<32 || original.Height<16 || original.Width>256 ||
-         original.Height>256 ||
-         (original.Format!=TEX_FORMAT_RGBA8_UNORM && original.Format!=TEX_FORMAT_BGRA8_UNORM))
+         original.Height>256)
         return nullptr;
+      // The original BC1/BC3 button textures are sampled as normalized
+      // RGBA, just like the uncompressed keycap. Upload replacement art
+      // as RGBA8 rather than treating raw RGBA bytes as compressed blocks.
+      auto prompt_format=original.Format;
+      switch(original.Format) {
+        case TEX_FORMAT_RGBA8_UNORM:
+        case TEX_FORMAT_BGRA8_UNORM:break;
+        case TEX_FORMAT_BC1_UNORM:
+        case TEX_FORMAT_BC3_UNORM:prompt_format=TEX_FORMAT_RGBA8_UNORM;break;
+        default:return nullptr;
+      }
       const PromptKey key{source.original_texture_hash,std::string(token),
           original.Width,original.Height,original.Format};
       if(const auto it=pc_prompt_images.find(key);it!=pc_prompt_images.end())
@@ -367,11 +377,11 @@ struct DiligentEorDirectBackend::State {
       }
       if(pixels.empty())pixels=ui::RasterPcKeycap(token,original.Width,original.Height);
       if(pixels.empty())return nullptr;
-      if(original.Format==TEX_FORMAT_BGRA8_UNORM)
+      if(prompt_format==TEX_FORMAT_BGRA8_UNORM)
         for(size_t i=0;i<pixels.size();i+=4)std::swap(pixels[i],pixels[i+2]);
       TextureDesc desc{};
       desc.Name="Native PC key in original EoR UI material";
-      desc.Type=RESOURCE_DIM_TEX_2D;desc.Format=original.Format;
+      desc.Type=RESOURCE_DIM_TEX_2D;desc.Format=prompt_format;
       desc.Width=original.Width;desc.Height=original.Height;
       desc.ArraySize=1;desc.MipLevels=1;desc.SampleCount=1;
       desc.Usage=USAGE_IMMUTABLE;desc.BindFlags=BIND_SHADER_RESOURCE;
