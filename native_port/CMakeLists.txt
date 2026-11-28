@@ -241,6 +241,7 @@ if(HULK_NATIVE_CORE_ONLY)
         eor_fev_voice_schedule_test
         eor_fev_seek_pcm_test
         eor_fmod_update_clock_test
+        eor_fmod_capture_schedule_test
         eor_fmod_start_trace_test
         eor_fmod_live_events_test
         eor_fmod_live_binding_test

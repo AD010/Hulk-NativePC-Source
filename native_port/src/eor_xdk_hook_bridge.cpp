@@ -18,6 +18,7 @@
 #include "eor_native_audio_xaudio2.h"
 #include "eor_fmod_live_events.h"
 #include "eor_fmod_live_cues.h"
+#include "eor_fmod_capture_schedule.h"
 #include "eor_reverb_route.h"
 #include "eor_fmod_start_trace_bridge.h"
 #include <cstdlib>
@@ -123,7 +124,7 @@ struct BoundNativeFmodEvent {
   std::vector<audio::FevLayerGainPitch> layer_controls;
 };
 std::vector<BoundNativeFmodEvent> g_native_fmod_bound_events;
-std::chrono::steady_clock::time_point g_native_fmod_last_capture{};
+audio::FmodCaptureSchedule g_native_fmod_capture_schedule;
 bool g_native_fmod_capture_failed=false;
 #endif
 std::atomic<uint64_t> g_eor_ready_backbuffers{0};
@@ -566,6 +567,7 @@ void ConfigureNativeFmodSource(const std::filesystem::path& root) noexcept {
             g_native_fmod_mixer->StopAll();
             g_native_fmod_shadow_voices.Clear();
             g_native_fmod_start_trace.Clear();g_native_fmod_trace_base=nullptr;
+            g_native_fmod_capture_schedule.Reset();
             g_native_fmod_index=std::move(index_owner);
             g_native_fmod_project_arc=std::move(project_path);
             g_native_fmod_wave_arc=std::move(wave);
@@ -592,7 +594,7 @@ void StopNativeFmodUpdateService() noexcept {
   g_native_fmod_index.reset();g_native_fmod_project_arc.clear();g_native_fmod_wave_arc.clear();
   g_native_fmod_shadow_voices.Clear();g_native_fmod_shadow_enabled=false;
   g_native_fmod_start_trace.Clear();g_native_fmod_trace_base=nullptr;
-  g_native_fmod_last_capture={};g_native_fmod_capture_failed=false;
+  g_native_fmod_capture_schedule.Reset();g_native_fmod_capture_failed=false;
 #endif
 }
 void TraceFmodSelectionBegin(uint8_t* base,uint32_t child) noexcept {
@@ -629,6 +631,11 @@ void TraceFmodChannelStart(uint8_t* base,uint32_t child) noexcept {
     g_native_fmod_trace_base=base;
     g_native_fmod_start_trace.Forget(child);
     if(channel)(void)g_native_fmod_start_trace.Observe(*selected,*channel);
+    // The generated hook runs on the verified successful wave-start path.
+    // Even a root/single-variant wave without child selection evidence
+    // wakes capture; admission still independently validates its identity.
+    const auto flags=audio::FmodTraceWord(child,20,read),handle=audio::FmodTraceWord(child,36,read);
+    if(flags&&(*flags&8u)&&handle&&*handle)g_native_fmod_capture_schedule.WaveStarted();
   }catch(...){ /* diagnostic failure cannot affect original playback */ }
 #else
   (void)base;(void)child;
@@ -662,11 +669,10 @@ void FinishOriginalFmodUpdate(std::optional<audio::FmodUpdateStamp> stamp,const 
   if(!g_native_fmod_mixer->AdvanceScheduledVoices(*delta))
     REXLOG_WARN("[HULK/FMOD-NATIVE] native voice update rejected");
   // Capture only after the original update has returned successfully.
-  // Bounded diagnostic cadence: do not repeatedly scan every string on
-  // every audio tick, and never interpret a failed read as event removal.
+  // Diagnostic-only mode retains its old cadence; the muted native
+  // playback path samples faster and wakes immediately after a wave start.
   const auto now=std::chrono::steady_clock::now();
-  if(now-g_native_fmod_last_capture<std::chrono::milliseconds(100))return;
-  g_native_fmod_last_capture=now;
+  if(!g_native_fmod_capture_schedule.Begin(now,g_native_fmod_shadow_enabled))return;
   try {
     auto active=audio::CaptureLiveFmodEvents(stamp->owner,read,
       [&](uint32_t event,uint32_t start,uint32_t child,uint32_t parent,uint32_t channel,uint32_t definition)
@@ -720,8 +726,8 @@ void FinishOriginalFmodUpdate(std::optional<audio::FmodUpdateStamp> stamp,const 
     if(bound.size()!=g_native_fmod_bound_events.size())
       REXLOG_INFO("[HULK/FMOD-NATIVE] bound {} of {} observed active event roots to original FEV",bound.size(),active->size());
     if(g_native_fmod_shadow_enabled&&g_native_fmod_catalog&&g_native_fmod_index&&!g_native_fmod_wave_arc.empty()){
-      // At most one new decode/admission per diagnostic tick. The current
-      // snapshot is not a sample-accurate FMOD event scheduler.
+      // Admit a bounded polyphonic batch per shadow update. This remains
+      // a synchronous decode path, not a sample-accurate event scheduler.
       g_native_fmod_shadow_voices.Reconcile(*active,
         [&](const audio::LiveFmodEvent& event,const audio::LiveFmodCue& cue)->uint64_t{
           const auto project=g_native_fmod_catalog->projects.find(event.project);
@@ -767,7 +773,8 @@ void FinishOriginalFmodUpdate(std::optional<audio::FmodUpdateStamp> stamp,const 
           }
           return accepted?id:0;
         },
-        [&](uint64_t id){(void)g_native_fmod_mixer->StopVoice(id);});
+        [&](uint64_t id){(void)g_native_fmod_mixer->StopVoice(id);},
+        audio::FmodCaptureSchedule::ShadowStartBudget());
       g_native_fmod_shadow_voices.UpdateActive(*active,
         [&](uint64_t id,const audio::LiveFmodEvent& event,const audio::LiveFmodCue& cue){
           const auto project=g_native_fmod_catalog->projects.find(event.project);
