@@ -65,4 +65,10 @@ std::optional<std::vector<audio::DspParameterBlock>> ResolveEventNamedDsp(
     uint32_t project_hash,std::string_view group,std::string_view event_name,uint32_t layer,
     std::span<const audio::FevDspBinding> bindings,
     std::span<const audio::FevParameterSnapshot> snapshots,uint32_t sample_rate);
+// Fixed gain/pitch admission from original controls. No live scheduler or
+// unsupported control may be silently approximated as a constant.
+std::optional<audio::FevGainPitch> ResolveEventFixedGainPitch(
+    const Index& index,const std::filesystem::path& project_archive,
+    uint32_t project_hash,std::string_view group,std::string_view event_name,uint32_t layer,
+    std::span<const audio::FevParameterSnapshot> snapshots);
 } // namespace hulk::eor::fmod

@@ -75,8 +75,9 @@ class NativeXAudio2Mixer {
       uint32_t project_hash,std::string_view group,std::string_view event_name,
       uint32_t layer,uint32_t instance,uint32_t variant,float gain=1.f,VoiceId* started=nullptr,
       VoiceOptions options={});
-  // Explicit named-DSP automation route. The caller supplies resolved
-  // physical associations and parameter snapshots; this is not a guest hook.
+  // Named-DSP route. Empty bindings select source FEV parameter ordinals
+  // and fixed volume/pitch. Variable or unsupported controls are rejected.
+  // The caller still supplies parameter snapshots; this is not a guest hook.
   bool PlayEventVariantWithFevDsp(Bus bus,const hulk::eor::Index& index,
       const std::filesystem::path& project_archive,const std::filesystem::path& wave_archive,
       uint32_t project_hash,std::string_view group,std::string_view event_name,

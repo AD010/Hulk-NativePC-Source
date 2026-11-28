@@ -282,6 +282,16 @@ bool NativeXAudio2Mixer::PlayEventVariantWithFevDsp(Bus bus,const hulk::eor::Ind
     const auto blocks=fmod::ResolveEventNamedDsp(index,project_archive,project_hash,
         group,event_name,layer,bindings,snapshots,sample->rate);
     if(!blocks)return false;
+    // Empty bindings request automatic original FEV associations. Admit
+    // fixed controls only until the live event clock is connected.
+    if(bindings.empty()){
+      const auto controls=fmod::ResolveEventFixedGainPitch(index,project_archive,
+          project_hash,group,event_name,layer,snapshots);
+      if(!controls)return false;
+      gain*=controls->gain;
+      options.frequency_ratio*=controls->ratio;
+      if(!ValidGain(gain)||!ValidVoiceRatio(options.frequency_ratio))return false;
+    }
     const Fsb3Sample source{sample->name,sample->frames,sample->mode,sample->rate,
         sample->channels,sample->payload};
     const auto pcm=DecodeOriginalFsb3Sample(source);

@@ -1,5 +1,6 @@
 #pragma once
 #include "eor_fev_event_table.h"
+#include "eor_fev_routes.h"
 #include "eor_dynamic_dsp.h"
 #include <bit>
 #include <cmath>
@@ -129,11 +130,74 @@ struct FevParameterSnapshot {
   uint32_t first_frame=0;
   std::span<const float> physical_values;
 };
+// Original envelope tail[0] selects the controlling EventParameter. Do not
+// derive the association from a parameter name, layer number or curve order.
+inline std::optional<std::vector<FevDspBinding>> ResolveOriginalNamedDspBindings(
+    const FevEventEntry& event,uint32_t layer) {
+  if(layer>=event.layer_records.size())return {};
+  std::vector<FevDspBinding> bindings;
+  const auto& effects=event.layer_records[layer].effects;
+  for(size_t i=0;i<effects.size();++i){
+    const auto& fx=effects[i];if(fx.name.empty())continue;
+    const auto route=ReadFevCurveRoute(event,fx);
+    const auto kind=ClassifyFevDsp(fx.name);
+    const auto range=OriginalUsaDspRange(kind,0);
+    if(!route||route->target!=FevTarget::NamedDsp||!range)return {};
+    const auto resonance=OriginalUsaDspRange(kind,1);
+    bindings.push_back({static_cast<uint32_t>(i),route->parameter,range->minimum,
+                        range->maximum,resonance?resonance->initial:1.f});
+  }
+  return bindings;
+}
+// Evaluate the original volume/pitch contributions for one parameter snapshot.
+// The unhandled controls remain visible to the caller, not silently accepted.
+struct FevLayerGainPitch {FevGainPitch values;uint32_t unhandled=0;};
+inline std::optional<FevLayerGainPitch> EvaluateFevLayerGainPitch(
+    const FevEventEntry& event,uint32_t layer,std::span<const float> physical_values) noexcept {
+  if(layer>=event.layer_records.size()||physical_values.size()!=event.parameters.size())return {};
+  FevLayerGainPitch out;
+  for(const auto& fx:event.layer_records[layer].effects){
+    const auto route=ReadFevCurveRoute(event,fx);
+    if(!route)return {};
+    if(route->target==FevTarget::NamedDsp)continue;
+    if(route->target!=FevTarget::Volume&&route->target!=FevTarget::Pitch){++out.unhandled;continue;}
+    const auto domain=ReadFevParameterDomain(event.parameters[route->parameter]);
+    if(!domain)return {};
+    const auto x=domain->Normalize(physical_values[route->parameter]);
+    if(!x)return {};
+    const auto value=SampleFevCurve(fx,*x);
+    if(!value||!AccumulateFevGainPitch(out.values,route->target,*value))return {};
+  }
+  return out;
+}
+// XAudio2 can apply a fixed source gain and ratio at admission. A varying
+// pitch/volume schedule needs the live event clock, not a one-shot buffer.
+inline std::optional<FevGainPitch> ResolveFevFixedGainPitch(
+    const FevEventEntry& event,uint32_t layer,std::span<const FevParameterSnapshot> snapshots) noexcept {
+  if(snapshots.empty()||snapshots.size()>16384||snapshots.front().first_frame!=0)return {};
+  std::optional<FevGainPitch> fixed;
+  for(size_t i=0;i<snapshots.size();++i){
+    if(i&&snapshots[i].first_frame<=snapshots[i-1].first_frame)return {};
+    const auto result=EvaluateFevLayerGainPitch(event,layer,snapshots[i].physical_values);
+    if(!result||result->unhandled)return {};
+    if(fixed&&(fixed->gain!=result->values.gain||fixed->ratio!=result->values.ratio))return {};
+    fixed=result->values;
+  }
+  return fixed;
+}
 inline std::optional<std::vector<DspParameterBlock>> BuildFevNamedDspBlocks(
     const FevEventEntry& event,uint32_t layer,std::span<const FevDspBinding> bindings,
     std::span<const FevParameterSnapshot> snapshots,uint32_t sample_rate) {
-  if(layer>=event.layer_records.size()||bindings.empty()||bindings.size()>4||
+  if(layer>=event.layer_records.size()||bindings.size()>4||
       snapshots.empty()||snapshots.size()>16384||snapshots.front().first_frame!=0)return {};
+  // An empty caller list selects the original serialized association.
+  // Keep explicit caller bindings supported for forensic comparisons.
+  std::optional<std::vector<FevDspBinding>> automatic;
+  if(bindings.empty()){
+    automatic=ResolveOriginalNamedDspBindings(event,layer);
+    if(!automatic||automatic->size()>4)return {};
+    bindings=*automatic;
+  }
   const auto& effects=event.layer_records[layer].effects;
   // Do not silently omit an unbound named effect or reorder the chain.
   size_t named=0;
