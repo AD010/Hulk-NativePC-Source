@@ -16,6 +16,7 @@
 #ifdef _WIN32
 #include "eor_native_frame_executor.h"
 #include "eor_native_audio_xaudio2.h"
+#include "eor_fmod_live_events.h"
 #endif
 #include "eor_diligent_host_output.h"
 #include "eor_live_material_producer.h"
@@ -103,6 +104,9 @@ std::unique_ptr<audio::NativeXAudio2Mixer> g_native_fmod_mixer;
 std::atomic<bool> g_native_fmod_enabled{false};
 uint8_t* g_native_fmod_base=nullptr;
 uint32_t g_native_fmod_owner=0;
+std::vector<audio::LiveFmodEvent> g_native_fmod_events;
+std::chrono::steady_clock::time_point g_native_fmod_last_capture{};
+bool g_native_fmod_capture_failed=false;
 #endif
 std::atomic<uint64_t> g_eor_ready_backbuffers{0};
 std::atomic<uint64_t> g_eor_gpu_failures{0};
@@ -514,6 +518,7 @@ void StopNativeFmodUpdateService() noexcept {
   std::lock_guard lock(g_native_fmod_mutex);
   g_native_fmod_mixer.reset();
   g_native_fmod_base=nullptr;g_native_fmod_owner=0;
+  g_native_fmod_events.clear();g_native_fmod_last_capture={};g_native_fmod_capture_failed=false;
 #endif
 }
 std::optional<audio::FmodUpdateStamp> CaptureOriginalFmodUpdate(const PPCContext& ctx,uint8_t* base) noexcept {
@@ -543,6 +548,33 @@ void FinishOriginalFmodUpdate(std::optional<audio::FmodUpdateStamp> stamp,const 
   if(g_native_fmod_owner!=stamp->owner||g_native_fmod_base!=base)return;
   if(!g_native_fmod_mixer->AdvanceScheduledVoices(*delta))
     REXLOG_WARN("[HULK/FMOD-NATIVE] native voice update rejected");
+  // Capture only after the original update has returned successfully.
+  // Bounded diagnostic cadence: do not repeatedly scan every string on
+  // every audio tick, and never interpret a failed read as event removal.
+  const auto now=std::chrono::steady_clock::now();
+  if(now-g_native_fmod_last_capture<std::chrono::milliseconds(100))return;
+  g_native_fmod_last_capture=now;
+  try {
+    auto active=audio::CaptureLiveFmodEvents(stamp->owner,read);
+    if(!active){
+      if(!g_native_fmod_capture_failed)
+        REXLOG_WARN("[HULK/FMOD-NATIVE] live event snapshot rejected; original playback retained");
+      g_native_fmod_capture_failed=true;return;
+    }
+    g_native_fmod_capture_failed=false;
+    unsigned reported=0;
+    for(const auto& event:*active){
+      const auto same=std::find_if(g_native_fmod_events.begin(),g_native_fmod_events.end(),
+        [&](const auto& old){return old.owner==event.owner&&old.project_owner==event.project_owner&&
+           old.project==event.project&&old.group==event.group&&old.name==event.name;});
+      if(same==g_native_fmod_events.end()&&reported++<16u)
+        REXLOG_INFO("[HULK/FMOD-NATIVE] active event {} / {} / {} parameters={}",
+          event.project,event.group,event.name,event.parameters.size());
+    }
+    g_native_fmod_events=std::move(*active);
+  } catch (...) {
+    // Diagnostic allocation or read failure must not affect original audio.
+  }
 #else
   (void)stamp;(void)ctx;(void)base;
 #endif
