@@ -31,10 +31,40 @@ int main() {
     const auto kind=big?Kind::XboxBigEndian:Kind::RetailPcLittleEndian;
     const auto report=Inspect(b,kind);
     assert(report.sorted_field_count==25 && !report.pc_payload_conversion_ready);
+    const auto envelope=DecodeEnvelope(b,kind);
+    assert(envelope.fields.size()==25 && envelope.fields.front().id==100 &&
+           envelope.fields.back().raw_value==25);
+    assert(EncodeEnvelope(envelope)==b);
+    auto invalid=envelope;
+    invalid.fields[2].id=invalid.fields[1].id;
+    bool invalid_rejected=false;
+    try{(void)EncodeEnvelope(invalid);}
+    catch(const std::invalid_argument&){invalid_rejected=true;}
+    assert(invalid_rejected);
     b[80]=std::byte{0x8a};
     bool rejected=false;
     try{(void)Inspect(b,kind);}
     catch(const std::invalid_argument&){rejected=true;}
     assert(rejected);
+  }
+  // Both observed formats share 242 leading IDs but not the value data.
+  // The same-platform codec must preserve unknown headers and tail bytes.
+  for(bool big:{false,true}) {
+    std::vector<std::byte> b(4096);
+    const size_t start=big?20u:16u;
+    Put(b,4,4000,big);
+    Put(b,8,0x12345678u,big);
+    for(unsigned i=0;i<242;++i) {
+      Put(b,start+8*i,10u+i*10u,big);
+      Put(b,start+8*i+4,0xff000000u+i,big);
+    }
+    for(size_t i=start+242u*8u+4u;i<b.size();++i)
+      b[i]=std::byte(i&255u);
+    Put(b,0,Crc(b),big);
+    const auto kind=big?Kind::XboxBigEndian:Kind::RetailPcLittleEndian;
+    const auto envelope=DecodeEnvelope(b,kind);
+    assert(envelope.fields.size()==242);
+    assert(envelope.fields.back().raw_value==0xff0000f1u);
+    assert(EncodeEnvelope(envelope)==b);
   }
 }
