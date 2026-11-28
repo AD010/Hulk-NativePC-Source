@@ -17,9 +17,9 @@ int main() {
   }
   const auto offset=b.size();
   Word(b,0);Word(b,100);String(b,"../audio/example.wav");String(b,"demo_preloadsamples_1");
-  Word(b,0);Word(b,123);
+  Word(b,1);Word(b,123);
   const auto w=InspectFevWaveforms(b,"demo");
-  assert(w&&w->size()==1&&w->front().offset==offset&&w->front().bank==2&&w->front().duration_ms==123);
+  assert(w&&w->size()==1&&w->front().offset==offset&&w->front().bank==2&&w->front().sample_ordinal==1&&w->front().duration_ms==123);
   auto trunc=b;trunc.pop_back();auto bad=InspectFevWaveforms(trunc,"demo");assert(bad&&bad->empty());
   b[offset+4]=std::byte{101};bad=InspectFevWaveforms(b,"demo");assert(bad&&bad->empty());
   OriginalWaveBank bank;bank.samples.push_back({"EXAMPLE.wav",1,0,1,1,{}});
@@ -27,4 +27,9 @@ int main() {
   bank.samples.push_back({"example.wav",1,0,1,1,{}});
   assert(!ResolveFevWaveformSample(bank,w->front().path));
   assert(!ResolveFevWaveformSample(bank,"missing.wav"));
+  assert(ResolveFevWaveformSample(bank,w->front())==1u);
+  auto wrong=w->front();wrong.sample_ordinal=2;
+  assert(!ResolveFevWaveformSample(bank,wrong));
+  wrong.sample_ordinal=1;wrong.path="other.wav";
+  assert(!ResolveFevWaveformSample(bank,wrong));
 }

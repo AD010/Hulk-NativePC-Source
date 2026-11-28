@@ -42,7 +42,7 @@ std::optional<CompressedWaveSample> ReadProjectWaveSample(const Index& index,
 // Resolve an observed FEV waveform byte offset within its own project.
 struct WaveformRoute {
   size_t fev_offset=0;
-  uint32_t bank_ordinal=0,weight=0,flags=0,duration_ms=0;
+  uint32_t bank_ordinal=0,weight=0,sample_ordinal=0,duration_ms=0;
   std::string path;
 };
 std::vector<WaveformRoute> ReadProjectWaveforms(const Index& index,

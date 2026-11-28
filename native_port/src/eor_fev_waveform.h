@@ -4,7 +4,7 @@
 namespace hulk::eor::audio {
 struct FevWaveformRef {
   size_t offset=0;
-  uint32_t bank=0,weight=0,flags=0,duration_ms=0;
+  uint32_t bank=0,weight=0,sample_ordinal=0,duration_ms=0;
   std::string_view path;
 };
 inline bool FevAsciiPath(std::string_view s) noexcept {
@@ -43,6 +43,14 @@ inline bool FevEqualAscii(std::string_view a,std::string_view b) noexcept {
   const auto fold=[](unsigned char c){return c>='A'&&c<='Z'?c+32:c;};
   return a.size()==b.size()&&std::equal(a.begin(),a.end(),b.begin(),[&](auto x,auto y){return fold(x)==fold(y);});
 }
+inline bool MatchesFevSampleName(std::string_view s,std::string_view path) noexcept {
+  if(!FevAsciiPath(path))return false;
+  const auto slash=path.find_last_of("/\\");
+  const auto name=slash==std::string_view::npos?path:path.substr(slash+1);
+  const auto stem=name.substr(0,name.size()-4);
+  return FevEqualAscii(s,name)||FevEqualAscii(s,stem)||
+      (s.size()==30&&(FevEqualAscii(s,name.substr(0,30))||FevEqualAscii(s,stem.substr(0,30))));
+}
 inline std::optional<uint32_t> ResolveFevWaveformSample(const OriginalWaveBank& bank,std::string_view path) noexcept {
   if(!FevAsciiPath(path))return {};
   const auto slash=path.find_last_of("/\\");
@@ -57,5 +65,11 @@ inline std::optional<uint32_t> ResolveFevWaveformSample(const OriginalWaveBank& 
     found=i;
   }
   return found;
+}
+// FEV1 v0x002c0000 waveform word after bank name is the sample ordinal.
+inline std::optional<uint32_t> ResolveFevWaveformSample(const OriginalWaveBank& bank,const FevWaveformRef& ref) noexcept {
+  if(ref.sample_ordinal>=bank.samples.size() ||
+     !MatchesFevSampleName(bank.samples[ref.sample_ordinal].name,ref.path))return {};
+  return ref.sample_ordinal;
 }
 } // namespace hulk::eor::audio

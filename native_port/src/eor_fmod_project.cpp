@@ -114,7 +114,7 @@ std::vector<WaveformRoute> ReadProjectWaveforms(const Index& index,
   std::vector<WaveformRoute> result;
   result.reserve(waves->size());
   for(const auto& wave:*waves)
-    result.push_back({wave.offset,wave.bank,wave.weight,wave.flags,wave.duration_ms,std::string(wave.path)});
+    result.push_back({wave.offset,wave.bank,wave.weight,wave.sample_ordinal,wave.duration_ms,std::string(wave.path)});
   return result;
 }
 std::optional<CompressedWaveSample> ReadProjectWaveform(const Index& index,
@@ -130,7 +130,9 @@ std::optional<CompressedWaveSample> ReadProjectWaveform(const Index& index,
   const auto bytes=ReadResource(wave_archive,*ref.indexed,64u<<20);
   const auto bank=audio::InspectOriginalWaveBank(bytes,ref.hash,index.byte_order()==ByteOrder::Big);
   if(!bank || bank->stem!=ref.stem)return {};
-  const auto ordinal=audio::ResolveFevWaveformSample(*bank,wave->path);
+  const audio::FevWaveformRef ref_record{wave->fev_offset,wave->bank_ordinal,
+      wave->weight,wave->sample_ordinal,wave->duration_ms,wave->path};
+  const auto ordinal=audio::ResolveFevWaveformSample(*bank,ref_record);
   if(!ordinal)return {};
   const auto& sample=bank->samples[*ordinal];
   return CompressedWaveSample{std::string(sample.name),sample.frames,sample.mode,
