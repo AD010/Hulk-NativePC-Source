@@ -4154,6 +4154,7 @@ native_x_renderer::HulkEorPresentResult ReplayVerifiedMixedOriginalFrame(
 // XenosRecomp/DXC build without scanning/compiling all 5194 programs.
 void RecordObservedOriginalAotPairDemand(const Frame& snapshot) noexcept {
   if(!snapshot.sequence || snapshot.dropped || snapshot.dropped_commands)return;
+  try {
   {
     std::lock_guard lock(g_mutex);
     // A complete authenticated bank needs no more disk-backed AOT hints.
@@ -4175,7 +4176,6 @@ void RecordObservedOriginalAotPairDemand(const Frame& snapshot) noexcept {
       observed.emplace(effect.effect_hash,effect.pass_index);
   }
   if(observed.empty())return;
-  try {
     std::lock_guard lock(g_mutex);
     if(g_original_shader_aot_demand_path.empty())return;
     std::vector<std::pair<uint32_t,uint32_t>> unseen;

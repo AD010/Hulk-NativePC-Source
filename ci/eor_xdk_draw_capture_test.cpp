@@ -145,6 +145,22 @@ void CheckBufferSnapshots() {
   }
   streaming.Reset();
   assert(streaming.RetainedBytes()==0);
+  // Failed/incomplete Draw preparation can release snapshots of many
+  // different buffer objects before Present, not just revisions of one.
+  OriginalGuestBufferSnapshots rotating(2*bytes);
+  W(guest,address,0x01020304u);
+  const auto retained=rotating.Capture(object,address,bytes,ReadFake,&guest);
+  assert(retained);
+  for(uint32_t i=1;i<=2048;++i){
+    W(guest,address,i);
+    const auto current=rotating.Capture(object+i*4u,address,bytes,ReadFake,&guest);
+    assert(current&&rotating.RetainedBytes()==2*bytes);
+    assert(retained->bytes[0]==std::byte{1});
+  }
+  W(guest,address,0x99887766u);
+  const auto replacement=rotating.Capture(object,address,bytes,ReadFake,&guest);
+  assert(replacement&&replacement!=retained&&replacement->bytes[0]==std::byte{0x99});
+  assert(retained->bytes[0]==std::byte{1}&&rotating.RetainedBytes()==2*bytes);
   // Old versions initially retained by a Draw can become unowned before
   // Present. Reclaim only those expired revisions; keep live bytes immutable.
   OriginalGuestBufferSnapshots lifetime(2*bytes);

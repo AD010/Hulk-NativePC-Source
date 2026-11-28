@@ -1,4 +1,5 @@
 #include "eor_xdk_draw_capture.h"
+#include "eor_snapshot_budget.h"
 #include <bit>
 #include <stdexcept>
 #include <algorithm>
@@ -124,7 +125,7 @@ OriginalGuestBufferSnapshots::Capture(
   // is no budget left to retain this new allocation.
   if(prior==latest_.end() && bytes>budget_-retained_bytes_) {
     ReclaimExpiredVersions();
-    if(bytes>budget_-retained_bytes_)return {};
+    if(!ReclaimUnusedSnapshotEntries(latest_,prior,retained_bytes_,budget_,bytes))return {};
   }
   scratch_.resize(bytes);
   // Failed/partial reads cannot fall back to an older cached revision.
@@ -147,7 +148,7 @@ OriginalGuestBufferSnapshots::Capture(
   if(recyclable>retained_bytes_)return {};
   if(bytes>budget_-(retained_bytes_-recyclable)) {
     ReclaimExpiredVersions();
-    if(bytes>budget_-(retained_bytes_-recyclable))return {};
+    if(!ReclaimUnusedSnapshotEntries(latest_,prior,retained_bytes_,budget_,bytes,recyclable))return {};
   }
   // Complete the new snapshot before replacing a cached version. Allocation
   // failure must preserve the previous valid revision and budget unchanged.
