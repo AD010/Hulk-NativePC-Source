@@ -3204,12 +3204,27 @@ struct AutomaticEorOwner {
           project(produced.material.original_pipeline,produced.material.original_pipeline.original_vertex_shader_sha256);
           ordered.push_back(backend->StageOriginalRuntimeDraw(call,frame.sequence,ordinal,
               produced.material,produced.geometry,textures));
-        } else if(archived) {
-          auto& produced=*archived;
-          project(produced.material.original_pipeline,produced.draw.vertex_source_sha256);
-          backend->AdoptVerifiedOriginalMaterialPasses({&produced.material,1},textures);
-          ordered.push_back(std::move(produced.draw));
         } else {
+          // An archive match is a fast path, not the only native geometry
+          // representation. A genuine streamed surface can change shader
+          // pair, layout, or image ownership while its archive hash stays
+          // constant. Admission checks the existing resident generation
+          // BEFORE inserting this single material. If it rejects, keep
+          // that resident material intact and independently prove the
+          // actual current Draw using the existing transient producer.
+          if(archived) {
+            try {
+              auto& produced=*archived;
+              project(produced.material.original_pipeline,produced.draw.vertex_source_sha256);
+              backend->AdoptVerifiedOriginalMaterialPasses({&produced.material,1},textures);
+              ordered.push_back(std::move(produced.draw));
+              continue;
+            } catch(const std::invalid_argument&) {
+              // No draw or Present has occurred. Do not suppress allocation
+              // failures or relax the transient source/texture/PSO proof.
+              archived.reset();
+            }
+          }
           auto produced=gpu::live::ProduceOriginalRuntimeMaterial(call,frame.sequence,ordinal,
               *pack.shaders,*pack.effects,*pack.virtual_ids,*pack.samplers,contract.format,textures,&scalar_analysis);
           project(produced.material.original_pipeline,produced.material.original_pipeline.original_vertex_shader_sha256);
