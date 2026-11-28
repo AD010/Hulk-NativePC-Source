@@ -282,6 +282,15 @@ class NativeEorLinkCoverage(unittest.TestCase):
         self.assertIn("g_collector.Record(std::move(draw))",capture)
         self.assertIn("g_frame_shader_complete=true;",hook.split("void EndPpcHook(",1)[1])
 
+    def test_original_font_payload_not_gated_by_full_mesh_capture(self):
+        hook=(ROOT / "native_port/src/eor_xdk_hook_bridge.cpp").read_text()
+        capture=hook.split("void CapturePpcDraw(",1)[1].split("void CapturePpcCommand(",1)[0]
+        inline=capture.split("if(kind==Kind::EndVertices && draw.observed_vs_matrices)",1)[1]
+        branch=inline.split("if(kind!=Kind::EndVertices && (diagnostic_mesh || replay_geometry)",1)[0]
+        self.assertIn("CaptureUsaInlineGlyphs(",branch)
+        self.assertEqual(capture.count("CaptureUsaInlineGlyphs("),1)
+        self.assertLess(capture.index("CaptureUsaInlineGlyphs("),capture.index("HasRequiredReplaySnapshot(draw)"))
+
     def test_original_vertex_only_pipeline_preserves_null_pixel_semantics(self):
         bridge=(ROOT / "native_port/src/eor_xdk_hook_bridge.cpp").read_text()
         modules=(ROOT / "native_port/src/eor_diligent_spirv_shaders.cpp").read_text()
