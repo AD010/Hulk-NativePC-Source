@@ -60,6 +60,8 @@ int main(int argc,char** argv){
   registry.Reconcile(active,start,stop);
   assert(registry.Size()==1&&stops==recycled_stops+1&&starts==recycled_starts+1);
   active[0].cues[0].layer++;
+  active[0].cues_complete=false;
+  active[0].cue_channels_complete=false;
   registry.Reconcile(active,start,stop);
   assert(registry.Size()==1&&stops==recycled_stops+2&&starts==recycled_starts+2);
   registry.Reconcile({},start,stop);
