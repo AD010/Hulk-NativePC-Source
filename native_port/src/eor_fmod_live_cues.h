@@ -89,7 +89,12 @@ class LiveCueRegistry {
             std::any_of(event->unresolved_channels.begin(),event->unresolved_channels.end(),[&](const auto& c){
               return c.instance_owner==key.instance&&c.channel==key.channel;
             }));
-        keep=exact||unknown;
+        // A positive observation of a replacement on the SAME channel
+        // overrides unrelated incomplete event coverage. Never retain the
+        // old voice and start the replacement simultaneously.
+        const bool replacement=!exact&&std::any_of(event->cues.begin(),event->cues.end(),
+            [&](const auto& c){return c.instance_owner==key.instance&&c.channel==key.channel;});
+        keep=exact||(!replacement&&unknown);
       }
       if(keep){++it;continue;}
       if(it->second)stop(it->second);
