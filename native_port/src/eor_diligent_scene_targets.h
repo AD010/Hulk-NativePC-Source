@@ -41,7 +41,7 @@ struct VerifiedOriginalXdkScreen {
  // bypass the observed SetRenderTarget chronology.
 inline bool MatchesVerifiedOriginalXdkMainDrawTargets(
     const xdk::OriginalVsMatrices& observed,
-    const VerifiedOriginalXdkScreen& screen,bool depth_bound=true) noexcept {
+    const VerifiedOriginalXdkScreen& screen,bool depth_bound=true,bool vertex_only=false) noexcept {
   return screen.exact_guest_to_native_targets_verified &&
          screen.guest_device && screen.guest_rt0 && (!depth_bound || screen.guest_depth) &&
          observed.original_guest_device == screen.guest_device &&
@@ -49,7 +49,8 @@ inline bool MatchesVerifiedOriginalXdkMainDrawTargets(
          observed.original_depth_guest_object == (depth_bound ? screen.guest_depth : 0u) &&
          observed.original_vertex_declaration_guest_object &&
          observed.original_vs_guest_object &&
-         observed.original_ps_guest_object;
+         (vertex_only ? (depth_bound && !observed.original_ps_guest_object) :
+                        observed.original_ps_guest_object!=0u);
 }
 // Each original XDK surface object owns a distinct native image. Sequential
 // passes share the host extent and format only if every real Draw and Clear
@@ -444,17 +445,19 @@ inline std::optional<OriginalSourceTargetFormat> PlanOriginalNativeTargets(
 }
 inline bool MatchesVerifiedOriginalXdkDrawTargets(
     const xdk::OriginalVsMatrices& observed,const VerifiedSceneFormat& format,
-    bool depth_bound) noexcept {
+    bool depth_bound,bool vertex_only=false) noexcept {
   const auto& graph=format.original_graph;
   if(!graph.active())return MatchesVerifiedOriginalXdkMainDrawTargets(
-      observed,format.original_screen,depth_bound);
+      observed,format.original_screen,depth_bound,vertex_only);
   return format.original_screen.exact_guest_to_native_targets_verified &&
          observed.original_guest_device==format.original_screen.guest_device &&
          graph.HasColor(observed.original_rt0_guest_object) &&
          graph.HasDepth(observed.original_depth_guest_object) &&
          bool(observed.original_depth_guest_object)==depth_bound &&
          observed.original_vertex_declaration_guest_object &&
-         observed.original_vs_guest_object && observed.original_ps_guest_object;
+         observed.original_vs_guest_object &&
+         (vertex_only ? (depth_bound && !observed.original_ps_guest_object) :
+                        observed.original_ps_guest_object!=0u);
 }
 class DiligentSceneTargets {
  public:

@@ -945,7 +945,8 @@ bool DiligentEorDirectBackend::CanReplayOriginalXdkTimeline(
   const bool inherited=first.observed_vs_matrices &&
       MatchesVerifiedOriginalXdkMainDrawTargets(
           *first.observed_vs_matrices,state_->format.original_screen,
-          first.observed_vs_matrices->original_depth_guest_object!=0);
+          first.observed_vs_matrices->original_depth_guest_object!=0,
+          xdk::IsVerifiedVertexOnlyDepthDraw(first));
   bool pre_draw_rt_change=false,pre_draw_depth_change=false;
   for(const auto& event:source.commands) {
     if(event.draw_ordinal!=UINT32_MAX)break;
@@ -964,7 +965,8 @@ bool DiligentEorDirectBackend::CanReplayOriginalXdkTimeline(
       if(!rt || !depth || !cleared || resolved || !call.observed_vs_matrices ||
          call.observed_vs_matrices->original_depth_guest_object!=*depth ||
          !MatchesVerifiedOriginalXdkMainDrawTargets(*call.observed_vs_matrices,
-             state_->format.original_screen,*depth!=0))return false;
+             state_->format.original_screen,*depth!=0,
+             xdk::IsVerifiedVertexOnlyDepthDraw(call)))return false;
       drew=true;
       continue;
     }
@@ -1355,7 +1357,8 @@ aot::BoundIndexedDraw DiligentEorDirectBackend::StageOriginalRuntimeDraw(
        pass.original_pass_index!=call.observed_live_eor_effect_pass->pass_index ||
        !s.effects.HasPair(pass.original_effect_hash,pass.original_pass_index,
                         pass.original_vertex_shader_sha256,pass.original_pixel_shader_sha256))) ||
-     !MatchesVerifiedOriginalXdkDrawTargets(live,s.format,!pass.original_depth_unbound) ||
+     !MatchesVerifiedOriginalXdkDrawTargets(live,s.format,!pass.original_depth_unbound,
+                                            bool(pass.original_vertex_only)) ||
      pass.exact_host_input_layout.size()!=cpu.layout.size() ||
      !std::all_of(cpu.indices.begin(),cpu.indices.end(),[&](uint32_t i){return i<cpu.vertex_count;}))
     throw std::invalid_argument("Transient Draw source/PSO mismatch");
@@ -1538,7 +1541,8 @@ bool DiligentEorDirectBackend::PreflightOriginalScene(
     // BEFORE pipeline compilation, color clears or the first Vulkan Draw.
     if(!d.source_frame ||
        !MatchesVerifiedOriginalXdkDrawTargets(
-           *d.guest_vs_matrices,s.format,!selected->pipeline.original_depth_unbound) ||
+           *d.guest_vs_matrices,s.format,!selected->pipeline.original_depth_unbound,
+           d.original_vertex_only) ||
        !d.guest_shader_constants)
       return false;
     // The native shader's reflected block selects direct c0..255 addressing
