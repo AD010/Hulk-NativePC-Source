@@ -54,7 +54,11 @@ with tempfile.TemporaryDirectory() as temp:
     try:
         module.patch_sdk(root)
     except ValueError:
-        assert "HULK_FRAME_PROBE_V1" not in source.read_text()
+        assert 'next_submit += interval;' in content
+    assert 'if (next_submit <= submitted) next_submit = submitted + interval;' in content
+    assert 'next_submit = Clock::now() + interval;' not in content
+    assert content.index('lock(probe_mutex);') < content.index('const auto now = Clock::now();',content.index('lock(probe_mutex);'))
+    assert "HULK_FRAME_PROBE_V1" not in source.read_text()
     else:
         raise AssertionError("Unknown SDK version was not rejected")
 print("Hulk VdSwap probe patch tests passed")
