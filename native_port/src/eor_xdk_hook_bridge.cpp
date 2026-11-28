@@ -805,7 +805,7 @@ void FinishOriginalFmodUpdate(std::optional<audio::FmodUpdateStamp> stamp,const 
           if(cue.spatial)return audio::ResolveLiveFmodSpatial(*cue.spatial).has_value();
           return cue.audibility && !cue.audibility->spatial;
         });
-      g_native_fmod_shadow_voices.UpdateActive(*active,
+      g_native_fmod_shadow_voices.UpdateActiveReady(*active,
         [&](uint64_t id,const audio::LiveFmodEvent& event,const audio::LiveFmodCue& cue){
           const auto project=g_native_fmod_catalog->projects.find(event.project);
           if(project==g_native_fmod_catalog->projects.end())return false;
@@ -837,7 +837,11 @@ void FinishOriginalFmodUpdate(std::optional<audio::FmodUpdateStamp> stamp,const 
               g_native_fmod_mixer->SetVoiceFrequencyRatio(id,controls->ratio)&&
               g_native_fmod_mixer->SetVoiceSpatialMix(id,spatial,controls->pan,controls->pan3d_level);
         },
-        [&](uint64_t id){(void)g_native_fmod_mixer->StopVoice(id);});
+        [&](uint64_t id){(void)g_native_fmod_mixer->StopVoice(id);},
+        [](const audio::LiveFmodEvent&,const audio::LiveFmodCue& cue) {
+          if(cue.spatial)return audio::ResolveLiveFmodSpatial(*cue.spatial).has_value();
+          return cue.audibility && !cue.audibility->spatial;
+        });
     }
     g_native_fmod_bound_events=std::move(bound);
     g_native_fmod_events=std::move(*active);
