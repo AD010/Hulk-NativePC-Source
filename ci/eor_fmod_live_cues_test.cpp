@@ -65,6 +65,19 @@ int main(int argc,char** argv){
   registry.Reconcile(active,start,stop);
   assert(registry.Size()==1&&stops==recycled_stops+2&&starts==recycled_starts+2);
   registry.Reconcile({},start,stop);
+  // Missing live pose must not create a permanent failed-start entry.
+  active[0]=e;
+  bool source_ready=false;
+  const auto readiness=[&](const auto&,const auto&){return source_ready;};
+  const auto before_deferred=starts;
+  registry.ReconcileReady(active,start,stop,1,readiness);
+  assert(registry.Size()==0&&starts==before_deferred);
+  source_ready=true;
+  registry.ReconcileReady(active,start,stop,1,readiness);
+  assert(registry.Size()==1&&starts==before_deferred+1);
+  registry.ReconcileReady(active,start,stop,1,readiness);
+  assert(registry.Size()==1&&starts==before_deferred+1);
+  registry.Reconcile({},start,stop);
   auto mix_cue=cue;
   assert(ResolveLiveShadowGain(mix_cue,.7f)==.7f);
   mix_cue.audibility=LiveFmodAudibility{.8f,.5f,.4f,false};
