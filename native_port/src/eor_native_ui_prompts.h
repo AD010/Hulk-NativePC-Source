@@ -101,18 +101,29 @@ inline constexpr std::array<std::array<uint8_t,7>,36> kKeyFont{{
 inline std::vector<uint8_t> RasterPcKeycap(std::string_view token,
     uint32_t width,uint32_t height) {
   auto label=PromptLabel(token);
-  if(label.empty() || width<32 || height<16 || width>256 || height>256)return {};
-  // Small original glyphs cannot fit a five-letter label at integer
-  // pixel scale. Prefer an explicit key abbreviation over an Xbox icon.
-  if(label.size()*6u-1u>width-6u) {
-    if(label=="SPACE")label="SPC";
-    else if(label=="ENTER")label="ENT";
-    else if(label=="SHIFT")label="SHFT";
-    else if(label=="RIGHT")label="RGHT";
+  if(label.empty() || width<16 || height<16 || width>256 || height>256)return {};
+  // The original pad artwork can occupy only a 16x16 texture. Never
+  // retain a pad icon solely because its mapped PC key has a long name.
+  const uint32_t margin=width<32u?4u:6u;
+  const auto fits=[&](std::string_view value) {
+    return value.size()*6u-1u<=width-margin;
+  };
+  if(!fits(label)) {
+    constexpr std::array<std::array<std::string_view,3>,14> names{{
+      {"SPACE","SPC","SP"},{"ENTER","ENT","EN"},{"SHIFT","SHF","SH"},
+      {"CTRL","CTL","CT"},{"ALT","ALT","AL"},{"ESC","ESC","ES"},
+      {"TAB","TAB","TB"},{"UP","UP","UP"},{"DOWN","DWN","DN"},
+      {"LEFT","LFT","LF"},{"RIGHT","RGT","RT"},{"LMB","LMB","LM"},
+      {"RMB","RMB","RM"},{"MMB","MMB","MM"}
+    }};
+    for(const auto& name:names)if(label==name[0]) {
+      label=fits(name[1])?name[1]:name[2];
+      break;
+    }
   }
   const auto letters=static_cast<uint32_t>(label.size());
   const auto units=letters*6u-1u;
-  const auto scale=std::min((width-6u)/units,(height-8u)/7u);
+  const auto scale=std::min((width-margin)/units,(height-8u)/7u);
   if(!scale)return {};
   std::vector<uint8_t> pixels(size_t(width)*height*4u);
   auto pixel=[&](uint32_t x,uint32_t y,std::array<uint8_t,4> rgba){

@@ -336,10 +336,15 @@ void ReplayAotScene(const native::FrameGeometry& frame,
       if(!exact_original_timeline || !value.draw.source_frame || !vs || !vr ||
          value.effect_hash || value.pass_index!=0 || value.draw.pixel_shader ||
          value.pixel_source_sha256!=Digest{} || !value.original_samplers.empty() ||
-         !InspectSpirvImageResources(vs->spirv,Stage::Vertex).empty() ||
          !ExtractOriginalDrawVsMatrices(*vr,value.draw) ||
          !ValidateCapturedOriginalShaderRegisters(*vr,value.draw))
         throw std::invalid_argument("Incomplete source vertex-only Draw");
+      auto found=vsImageCache.find(value.vertex_source_sha256);
+      if(found==vsImageCache.end())
+        found=vsImageCache.emplace(value.vertex_source_sha256,
+            InspectSpirvImageResources(vs->spirv,Stage::Vertex)).first;
+      if(!found->second.empty())
+        throw std::invalid_argument("Vertex-only depth Draw has unbound source images");
       commands.push_back(value.draw);
       continue;
     }

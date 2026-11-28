@@ -268,6 +268,7 @@ std::vector<NativeEorDrawBuffers> PositionOnlyDrawBuffersFromOriginalModels(
     throw std::invalid_argument("No indexed Xbox source geometry resident");
   return result;
 }
+using OriginalImageReflectionCache=std::map<std::pair<aot::Digest,aot::Stage>,std::vector<aot::SpirvImageResource>>;
 struct DiligentEorDirectBackend::State {
   State(Diligent::IRenderDevice* d,Diligent::IDeviceContext* c,
         DiligentSceneTargets& sc,DiligentMeshUploadBackend& ms,
@@ -298,6 +299,9 @@ struct DiligentEorDirectBackend::State {
   DiligentMeshUploadBackend& meshes;
   DiligentAotShaderModules& shaders;
   const aot::ShaderBank& bank;
+  // Immutable for this backend's bank generation. Only shader reflection is
+  // cached; each draw's actual material/SRV owner is still validated.
+  OriginalImageReflectionCache original_image_reflection;
   const aot::EffectCatalog& effects;
   native::FrameGeometry frame;
   VerifiedSceneFormat format;
@@ -341,7 +345,7 @@ struct DiligentEorDirectBackend::State {
       if(token.empty())return nullptr;
       const auto& original=source.host_texture->GetDesc();
       if(original.MipLevels!=1u || original.ArraySize!=1u ||
-         original.Width<32 || original.Height<16 || original.Width>256 ||
+         original.Width<16 || original.Height<16 || original.Width>256 ||
          original.Height>256)
         return nullptr;
       // The original BC1/BC3 button textures are sampled as normalized
@@ -443,7 +447,7 @@ struct DiligentEorDirectBackend::State {
 static void ValidateSourceOriginalMaterialPass(
     NativeEorPassResources& owner,const aot::ShaderBank& bank,
     const aot::EffectCatalog& effects,const native::FrameGeometry& frame,
-    const VerifiedSceneFormat& formats) {
+    const VerifiedSceneFormat& formats,OriginalImageReflectionCache& image_cache) {
   if(owner.pipeline.original_runtime_draw_verified!=bool(owner.pipeline.original_runtime_frame))
     throw std::invalid_argument("Original runtime material has no matching source frame");
   const auto target=owner.pipeline.original_color_owner;
@@ -506,7 +510,12 @@ static void ValidateSourceOriginalMaterialPass(
                                       pass.original_pixel_shader_sha256,stage);
       if(!binary)
         throw std::invalid_argument("Original EoR material shader absent from native AOT bank");
-      const auto reflected=aot::InspectSpirvImageResources(binary->spirv,stage);
+      const auto key=std::make_pair(stage==aot::Stage::Vertex ?
+          pass.original_vertex_shader_sha256:pass.original_pixel_shader_sha256,stage);
+      auto found=image_cache.find(key);
+      if(found==image_cache.end())
+        found=image_cache.emplace(key,aot::InspectSpirvImageResources(binary->spirv,stage)).first;
+      const auto& reflected=found->second;
       for(const auto& image:reflected) {
         if((image.spirv_dim!=0 && image.spirv_dim!=1 && image.spirv_dim!=3) ||
            image.image_multisampled || (image.spirv_dim!=1 && image.image_arrayed))
@@ -627,7 +636,7 @@ DiligentEorDirectBackend::DiligentEorDirectBackend(
       depth==Diligent::TEX_FORMAT_UNKNOWN))
     throw std::invalid_argument("Unknown EoR native scene format");
   for(auto& owner:state_->passes)
-    ValidateSourceOriginalMaterialPass(owner,bank,effects,frame,formats);
+    ValidateSourceOriginalMaterialPass(owner,bank,effects,frame,formats,state_->original_image_reflection);
   for(const auto& [position,resident]:state_->draw_buffers) {
     const auto& slots=resident.host_vertex_slots;
     if(!position || resident.position_handle!=position ||
@@ -684,7 +693,7 @@ std::size_t DiligentEorDirectBackend::AdoptVerifiedOriginalMaterialPasses(
   // Every new material passes the same strict shader image/PSO checks
   // that the constructor requires of its initial original-source materials.
   for(auto& pass:incoming)
-    ValidateSourceOriginalMaterialPass(pass,s.bank,s.effects,s.frame,s.format);
+    ValidateSourceOriginalMaterialPass(pass,s.bank,s.effects,s.frame,s.format,s.original_image_reflection);
   for(const auto& pass:incoming) {
     const auto key=PassKey(pass);
     const auto previous=s.material_lookup.find(key);

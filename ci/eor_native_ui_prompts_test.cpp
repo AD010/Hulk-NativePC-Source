@@ -50,6 +50,16 @@ int main(){
     Check(ink);
     Check(image!=RasterPcKeycap("?",64,64));
   }
+  for(uint32_t w:{16u,20u,24u,28u,32u,64u})
+    for(auto key:hulk::options::kBindingTokens) {
+      const auto pixels=RasterPcKeycap(key,w,16u);
+      Check(pixels.size()==size_t(w)*16u*4u);
+      Check(pixels[3]==0);
+      bool ink=false;
+      for(size_t i=0;i<pixels.size();i+=4)
+        if(pixels[i]==245u && pixels[i+3]==255u)ink=true;
+      Check(ink);
+    }
   Check(RasterPcKeycap("Q",1,1).empty());
   Check(RasterPcKeycap("Unknown",64,64).empty());
   std::vector<uint8_t> source(8u*4u*4u,255);
