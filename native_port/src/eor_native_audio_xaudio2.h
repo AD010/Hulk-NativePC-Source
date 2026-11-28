@@ -102,6 +102,8 @@ class NativeXAudio2Mixer {
   bool SetVoicePan(VoiceId id,float pan) noexcept;
   // Refresh a single-snapshot FEV voice without rebaking its DSP samples.
   bool SetVoiceLiveFevGainPitch(VoiceId id,float gain,float ratio) noexcept;
+  bool SetVoiceLiveFevDsp(VoiceId id,const FevEventEntry& event,uint32_t layer,
+      std::span<const float> values,bool spatial_ready) noexcept;
   bool SetVoiceSpatialState(VoiceId id,const SpatialVoiceState& spatial) noexcept;
   // Replace the position and 2D/3D mix together, preserving the source voice.
   bool SetVoiceSpatialMix(VoiceId id,std::optional<SpatialVoiceState> spatial,

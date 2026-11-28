@@ -747,6 +747,7 @@ void FinishOriginalFmodUpdate(std::optional<audio::FmodUpdateStamp> stamp,const 
             accepted=g_native_fmod_mixer->PlayProjectWaveform(audio::Bus::Sfx,*g_native_fmod_index,
                 g_native_fmod_project_arc,g_native_fmod_wave_arc,project->second.hash,*offset,audio::ResolveLiveShadowGain(cue,controls->gain),&id,options);
           }else{
+            options.live_fev_dsp=true;
             const std::array<audio::FevParameterSnapshot,1> snapshots{{{0,std::span<const float>(binding->physical_values)}}};
             accepted=g_native_fmod_mixer->PlayEventVariantWithFevDsp(audio::Bus::Sfx,*g_native_fmod_index,
                 g_native_fmod_project_arc,g_native_fmod_wave_arc,project->second.hash,event.group,event.name,
@@ -769,13 +770,14 @@ void FinishOriginalFmodUpdate(std::optional<audio::FmodUpdateStamp> stamp,const 
           if(cue.spatial&&!spatial)return false;
           if(cue.audibility&&cue.audibility->paused&&
              !g_native_fmod_mixer->PauseVoice(id,*cue.audibility->paused))return false;
-          // Pre-rendered DSP retains its filter history. Position and
-          // pan/3D blend can still change without touching the PCM buffer.
+          // Live DSP updates the next unqueued PCM block, retaining its
+          // original filter history and existing XAudio2 source voice.
           const auto controls=audio::ResolveLiveMutableControls(definition,cue.layer,binding->physical_values,spatial.has_value());
           if(!controls){
             const auto snapshot=audio::EvaluateFevLayerGainPitch(definition,cue.layer,binding->physical_values,spatial.has_value());
             if(!snapshot||snapshot->unhandled)return false;
-            return g_native_fmod_mixer->SetVoiceLiveFevGainPitch(id,snapshot->values.gain,snapshot->values.ratio)&&
+            return g_native_fmod_mixer->SetVoiceLiveFevDsp(id,definition,cue.layer,binding->physical_values,spatial.has_value())&&
+                g_native_fmod_mixer->SetVoiceLiveFevGainPitch(id,snapshot->values.gain,snapshot->values.ratio)&&
                 g_native_fmod_mixer->SetVoiceSpatialMix(id,spatial,snapshot->values.pan,snapshot->values.pan3d_level);
           }
           return g_native_fmod_mixer->SetVoiceGain(id,audio::ResolveLiveShadowGain(cue,controls->gain))&&

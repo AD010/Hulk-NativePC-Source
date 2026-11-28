@@ -24,6 +24,8 @@ struct VoiceOptions {
   std::span<const FevVoiceBlock> fev_voice_blocks{};
   std::optional<SpatialVoiceState> spatial;
   std::optional<float> spatial_level;
+  // Opt-in single-snapshot FEV streaming DSP, not a pre-rendered buffer.
+  bool live_fev_dsp=false;
 };
 inline bool ValidVoiceFilter(VoiceFilter filter,float frequency,float one_over_q) noexcept {
   return (filter==VoiceFilter::Bypass||filter==VoiceFilter::LowPass||filter==VoiceFilter::HighPass)&&
@@ -40,6 +42,8 @@ inline bool ValidVoiceOptions(const VoiceOptions& o,uint32_t frames) noexcept {
      ((o.static_dsp.count||!o.dsp_blocks.empty())&&o.loop_count) ||
      (o.static_dsp.count&&!o.dsp_blocks.empty()))return false;
   const bool moving=HasMovingFevOffset(o.fev_voice_blocks);
+  if(o.live_fev_dsp&&(o.static_dsp.count||o.loop_count||moving||o.dsp_blocks.size()!=1||
+      o.dsp_blocks.front().first_frame!=0||o.fev_voice_blocks.size()!=1))return false;
   // Pre-rendered PCM DSP follows the source position, not the independent
   // event clock. Do not replay its stale history after an automatic seek.
   if(moving&&(o.static_dsp.count||std::any_of(o.dsp_blocks.begin(),o.dsp_blocks.end(),

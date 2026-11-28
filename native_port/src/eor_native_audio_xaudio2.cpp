@@ -4,6 +4,7 @@
 #include "eor_native_audio_xaudio2.h"
 #include "eor_event_voice_group.h"
 #include "eor_fmod_doppler.h"
+#include "eor_live_dsp_stream.h"
 #include "eor_fev_seek_pcm.h"
 #include "eor_fsb4_pcm.h"
 #include "eor_fsb3_ima.h"
@@ -34,12 +35,62 @@ bool ValidGain(float gain) noexcept {
   return std::isfinite(gain) && gain>=0.f && gain<=1.f;
 }
 }
+// One callback object per streamed voice. The three PCM slots never move;
+// the producer refills a slot only after XAudio2 releases it via OnBufferEnd.
+class NativeLiveDspVoice final : public IXAudio2VoiceCallback {
+ public:
+  LiveDspStream stream;
+  bool Prime(IXAudio2SourceVoice* source,uint16_t channels) noexcept {
+    source_=source;channels_=channels;
+    for(auto& slot:slots_){
+      if(stream.AtEnd())break;
+      if(!Submit(slot))return false;
+    }
+    return true;
+  }
+  void Disable() noexcept {disabled_.store(true);}
+  bool Finished() const noexcept {return finished_.load();}
+  void STDMETHODCALLTYPE OnVoiceProcessingPassStart(UINT32) noexcept override {}
+  void STDMETHODCALLTYPE OnVoiceProcessingPassEnd() noexcept override {}
+  void STDMETHODCALLTYPE OnStreamEnd() noexcept override {}
+  void STDMETHODCALLTYPE OnBufferStart(void*) noexcept override {}
+  void STDMETHODCALLTYPE OnLoopEnd(void*) noexcept override {}
+  void STDMETHODCALLTYPE OnVoiceError(void*,HRESULT) noexcept override {finished_.store(true);}
+  void STDMETHODCALLTYPE OnBufferEnd(void* context) noexcept override {
+    if(disabled_.load()||finished_.load())return;
+    for(auto& slot:slots_)if(context==&slot){
+      if(slot.last){finished_.store(true);return;}
+      if(!stream.AtEnd()&&!Submit(slot))finished_.store(true);
+      return;
+    }
+    finished_.store(true);
+  }
+ private:
+  struct Slot {std::array<int16_t,2048> pcm{};bool last=false;};
+  bool Submit(Slot& slot) noexcept {
+    if(disabled_.load()||!source_)return false;
+    const size_t count=stream.Fill(std::span<int16_t>(slot.pcm).first(1024u*channels_));
+    if(!count)return false;
+    slot.last=stream.AtEnd();
+    XAUDIO2_BUFFER buffer{};
+    buffer.Flags=slot.last?XAUDIO2_END_OF_STREAM:0;
+    buffer.AudioBytes=static_cast<UINT32>(count*sizeof(int16_t));
+    buffer.pAudioData=reinterpret_cast<const BYTE*>(slot.pcm.data());
+    buffer.pContext=&slot;
+    return SUCCEEDED(source_->SubmitSourceBuffer(&buffer));
+  }
+  std::array<Slot,3> slots_{};
+  IXAudio2SourceVoice* source_=nullptr;
+  uint16_t channels_=0;
+  std::atomic<bool> disabled_{false},finished_{false};
+};
 struct NativeXAudio2Mixer::State {
   struct Voice {
     IXAudio2SourceVoice* source=nullptr;
     VoiceId id=0;
     PendingVoiceClock clock;
     std::vector<int16_t> samples;
+    std::unique_ptr<NativeLiveDspVoice> live_dsp;
     unsigned bus=0;
     uint16_t channels=0;
     float gain=1.f,base_ratio=1.f,automation_gain=1.f,automation_ratio=1.f,max_ratio=4.f;
@@ -54,6 +105,7 @@ struct NativeXAudio2Mixer::State {
     bool moving_seek=false;
     size_t applied_block=0;
     ~Voice() noexcept {
+      if(live_dsp)live_dsp->Disable();
       if(source) {
         source->Stop(0);
         source->FlushSourceBuffers();
@@ -186,6 +238,7 @@ void NativeXAudio2Mixer::Update() noexcept {
   auto& v=state_->voices;
   v.erase(std::remove_if(v.begin(),v.end(),[](const auto& voice) {
     if(!voice || !voice->source)return true;
+    if(voice->live_dsp)return voice->live_dsp->Finished();
     XAUDIO2_VOICE_STATE status{};
     voice->source->GetState(&status,XAUDIO2_VOICE_NOSAMPLESPLAYED);
     return status.BuffersQueued==0;
@@ -234,7 +287,11 @@ bool NativeXAudio2Mixer::PlayPcm16(Bus bus,std::span<const int16_t> samples,
     voice->clock={options.delay_ms,options.delay_ms!=0,options.start_paused};
     voice->samples.assign(samples.begin(),samples.end());
     if(options.static_dsp.count && !ApplyStaticDsp(voice->samples,sample_rate,channels,options.static_dsp))return false;
-    if(!options.dsp_blocks.empty() &&
+    if(options.live_fev_dsp){
+      voice->live_dsp=std::make_unique<NativeLiveDspVoice>();
+      if(!voice->live_dsp->stream.Initialize(voice->samples,sample_rate,channels,options.start_frame,
+          options.dsp_blocks.front().chain))return false;
+    }else if(!options.dsp_blocks.empty() &&
        !ApplyScheduledDsp(voice->samples,sample_rate,channels,options.dsp_blocks))return false;
   } catch (...) {return false;}
   WAVEFORMATEX wave{};
@@ -247,7 +304,7 @@ bool NativeXAudio2Mixer::PlayPcm16(Bus bus,std::span<const int16_t> samples,
   const auto required=RequiredFevVoiceRatio(options.fev_voice_blocks,options.frequency_ratio);
   if(!required)return false;
   voice->max_ratio=(options.reserve_live_pitch||options.spatial)?kMaxFevVoiceRatio:*required;
-  if(FAILED(state_->engine->CreateSourceVoice(&voice->source,&wave,XAUDIO2_VOICE_USEFILTER,voice->max_ratio)) ||
+  if(FAILED(state_->engine->CreateSourceVoice(&voice->source,&wave,XAUDIO2_VOICE_USEFILTER,voice->max_ratio,voice->live_dsp.get())) ||
      !voice->source)return false;
   XAUDIO2_VOICE_DETAILS details{};state_->master->GetVoiceDetails(&details);
   voice->output_channels=details.InputChannels;
@@ -262,8 +319,9 @@ bool NativeXAudio2Mixer::PlayPcm16(Bus bus,std::span<const int16_t> samples,
   buffer.LoopCount=options.loop_count;
   const auto filter=NativeFilter(options.filter,options.filter_frequency,options.filter_one_over_q);
   if(FAILED(voice->source->SetFilterParameters(&filter)) ||
-     FAILED(voice->source->SetFrequencyRatio(options.frequency_ratio)) ||
-     FAILED(voice->source->SubmitSourceBuffer(&buffer)))return false;
+     FAILED(voice->source->SetFrequencyRatio(options.frequency_ratio)))return false;
+  if(voice->live_dsp){if(!voice->live_dsp->Prime(voice->source,channels))return false;}
+  else if(FAILED(voice->source->SubmitSourceBuffer(&buffer)))return false;
   if(!state_->UpdateVolume(*voice))return false;
   if((options.stereo_pan||options.spatial)&&!state_->UpdateMatrix(*voice,options.stereo_pan,options.spatial_level))return false;
   if(!voice->automation.empty()&&!state_->ApplyFevBlock(*voice,FevVoiceBlockAt(voice->automation,voice->automation_clock.Frame())))return false;
@@ -404,6 +462,7 @@ bool NativeXAudio2Mixer::PlayEventVariantWithFevDsp(Bus bus,const hulk::eor::Ind
     const auto pcm=DecodeOriginalFsb3Sample(source);
     options.dsp_blocks=*blocks;
     if(!pcm)return false;
+    if(options.live_fev_dsp&&(!schedule||schedule->size()!=1||blocks->size()!=1))return false;
     // The predeclared offset trajectory and DSP must share event time.
     // Bake only source selection, then run DSP on the continuous playback
     // sequence, rather than jumping through previously filtered PCM.
@@ -495,7 +554,7 @@ bool NativeXAudio2Mixer::AdvanceScheduledVoices(uint32_t elapsed_ms) noexcept {
     }
     // Use the source cursor, not video FPS or wall time. A discontinuity
     // is not a valid original seek; fail rather than replay stale controls.
-    if(!v.clock.pending&&!v.clock.paused&&!v.automation.empty()){
+    if(!v.live_dsp&&!v.clock.pending&&!v.clock.paused&&!v.automation.empty()){
       XAUDIO2_VOICE_STATE status{};v.source->GetState(&status,0);
       if(!status.BuffersQueued){it=state_->voices.erase(it);continue;}
       if(!v.automation_clock.Observe(status.SamplesPlayed)){it=state_->voices.erase(it);ok=false;continue;}
@@ -554,6 +613,24 @@ bool NativeXAudio2Mixer::SetVoiceLiveFevGainPitch(VoiceId id,float gain,float ra
   }
   return false;
 }
+bool NativeXAudio2Mixer::SetVoiceLiveFevDsp(VoiceId id,const FevEventEntry& event,uint32_t layer,
+    std::span<const float> values,bool spatial_ready) noexcept {
+  if(!Ready()||!id)return false;
+  std::lock_guard lock(state_->mutex);
+  Update();
+  for(auto& voice:state_->voices)if(voice->id==id){
+    if(!voice->live_dsp||voice->automation.size()!=1)return false;
+    try {
+      const auto controls=EvaluateFevLayerGainPitch(event,layer,values,spatial_ready);
+      if(!controls||controls->unhandled||
+          controls->values.offset_ms!=voice->automation[0].controls.offset_ms)return false;
+      const std::array<FevParameterSnapshot,1> snapshot{{{0,values}}};
+      const auto blocks=BuildFevNamedDspBlocks(event,layer,{},snapshot,voice->sample_rate);
+      return blocks&&blocks->size()==1&&voice->live_dsp->stream.Publish(blocks->front().chain);
+    }catch(...){return false;}
+  }
+  return false;
+}
 bool NativeXAudio2Mixer::SetVoicePan(VoiceId id,float pan) noexcept {
   if(!Ready()||!id)return false;
   std::lock_guard lock(state_->mutex);
@@ -598,6 +675,8 @@ bool NativeXAudio2Mixer::SeekVoiceFrame(VoiceId id,uint32_t frame) noexcept {
 bool NativeXAudio2Mixer::ReplaceVoiceAt(VoiceId id,uint32_t frame,std::optional<size_t> automation_block) noexcept {
   for(auto& entry:state_->voices)if(entry->id==id){
     auto& old=*entry;
+    // Streaming DSP requires a separately defined history-reset seek policy.
+    if(old.live_dsp)return false;
     auto plan=PlanFevVoiceSeek(old.automation,frame,
         static_cast<uint32_t>(old.samples.size()/old.channels),old.looping);
     if(!plan)return false;

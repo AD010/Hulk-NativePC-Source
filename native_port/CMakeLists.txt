@@ -229,6 +229,7 @@ if(HULK_NATIVE_CORE_ONLY)
         eor_fmod_live_spatial_test
         eor_fmod_live_mix_test
         eor_fmod_doppler_test
+        eor_live_dsp_stream_test
         eor_native_present_contract_test
         eor_exit_confirmation_test
         eor_resource_generation_test
@@ -242,6 +243,10 @@ if(HULK_NATIVE_CORE_ONLY)
             target_compile_options(${_test} PRIVATE /UNDEBUG)
         else()
             target_compile_options(${_test} PRIVATE -UNDEBUG)
+        endif()
+        if(_test STREQUAL "eor_live_dsp_stream_test")
+            find_package(Threads REQUIRED)
+            target_link_libraries(${_test} PRIVATE Threads::Threads)
         endif()
         add_test(NAME ${_test} COMMAND ${_test})
     endforeach()
