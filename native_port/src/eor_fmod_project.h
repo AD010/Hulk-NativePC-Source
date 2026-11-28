@@ -17,4 +17,26 @@ struct Event {
 Event Inspect(std::span<const std::byte> source, uint32_t expected_hash);
 Event ReadIndexed(const Index& index, const std::filesystem::path& archive,
                   uint32_t hash, size_t max_bytes = 2u << 20);
+// The exact four FEV bank references, including absent optional banks.
+// Resource identity is authenticated separately for the selected platform.
+struct BankReference {
+  std::string stem;
+  uint32_t hash=0,flags=0,opaque=0;
+  std::optional<Resource> indexed;
+};
+std::vector<BankReference> ResolveIndexedProjectBanks(const Index& index,
+    const std::filesystem::path& project_archive,uint32_t project_hash);
+struct CompressedWaveSample {
+  std::string name;
+  uint32_t frames=0,mode=0,rate=0;
+  uint16_t channels=0;
+  std::vector<std::byte> payload;
+};
+// This function routes an explicit FEV bank and sample ordinal through
+// the real indexed resource. It does NOT infer an event's sample ordinal,
+// decode MPEG/ADPCM, or replace an existing playing guest sound.
+std::optional<CompressedWaveSample> ReadProjectWaveSample(const Index& index,
+    const std::filesystem::path& project_archive,
+    const std::filesystem::path& wave_archive,uint32_t project_hash,
+    uint32_t bank_ordinal,uint32_t sample_ordinal);
 } // namespace hulk::eor::fmod
