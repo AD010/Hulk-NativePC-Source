@@ -13,6 +13,9 @@ struct Summary {
   uint32_t crc32=0, length_field=0, sorted_field_count=0, zero_value_count=0;
   size_t total_bytes=0;
   bool pc_payload_conversion_ready=false;
+  // Exact known table schema only; zero means the generic envelope reader
+  // did not authenticate all five indexed regions.
+  uint32_t verified_table_count=0,verified_field_count=0;
 };
 // The verified common table contains hashed identifiers and 32-bit
 // value words. Values may encode platform-specific references. This codec
