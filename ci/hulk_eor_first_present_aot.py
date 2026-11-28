@@ -114,7 +114,7 @@ def compile_prepared_bank(original:Path,work:Path,install:Path,public_repo:Path,
     report=compile_bank(original,work/"verified_spirv",xenos,dxc,common,
         public_repo,workers=workers,effect_catalog=effect_bank,
         effect_hashes=hashes,effect_passes=passes)
-    completed={row["source_sha256"] for row in report["compiled"]}
+    completed={(row["source_sha256"],row["stage"]) for row in report["compiled"]}
     if not required.issubset(completed):
         raise RuntimeError(
             f"Original shader compilation incomplete: {len(required-completed)} "
