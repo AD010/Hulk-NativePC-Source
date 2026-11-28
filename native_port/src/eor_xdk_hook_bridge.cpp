@@ -1674,6 +1674,7 @@ void CapturePpcDraw(Kind kind, uint32_t guest, const PPCContext& ctx,
                                         guest_base,*constants)) {
           if(REXCVAR_GET(hulk_eor_vulkan_replay)) {
             CaptureUsaPixelFetches(ctx.r3.u32,ReadGuest,guest_base,*constants);
+            CaptureUsaVertexFetches(ctx.r3.u32,ReadGuest,guest_base,*constants);
             CaptureUsaBooleanRegisters(ctx.r3.u32,ReadGuest,guest_base,*constants);
             constants->fixed_graphics_state=CaptureUsaFixedGraphicsState(
                 ctx.r3.u32,ReadGuest,guest_base);

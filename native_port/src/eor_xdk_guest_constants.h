@@ -42,6 +42,8 @@ struct OriginalVsMatrices {
   uint32_t finite_register_mask=0;
   std::optional<OriginalRasterWindow> raster;
   std::optional<OriginalSurfaceExtent> original_color_extent,original_depth_extent;
+  // Separate physical Xenos TFETCH slots 16..19 (VS logical s0..s3).
+  std::array<uint32_t,4> original_vertex_texture_guest_objects{};
 };
 // Read only the two source-proven shader object bindings for an epoch
 // that is already ineligible for native replay. This is not a matrix,
@@ -129,6 +131,8 @@ inline std::optional<OriginalVsMatrices> CaptureUsaVsMatrices(
   result.original_depth_extent=ReadUsaSurfaceExtent(result.original_depth_guest_object,reader,reader_state);
   for(uint32_t i=0;i<result.original_texture_guest_objects.size();++i)
     result.original_texture_guest_objects[i]=at(12544+i*4);
+  for(uint32_t i=0;i<result.original_vertex_texture_guest_objects.size();++i)
+    result.original_vertex_texture_guest_objects[i]=at(0x3100u+(16u+i)*4u);
   // USA GetViewport (0x8287E5E8) reads six BE floats. SetScissorRect
   // (0x8287E4C0) clips to the active viewport and consults +11856
   // before intersecting the original signed RECT at +12676.
@@ -273,6 +277,8 @@ struct OriginalShaderRegisters {
   std::optional<OriginalXdkFixedGraphicsState> fixed_graphics_state;
   // XDK boolean constants: 128 VS bits followed by 128 PS bits.
   std::optional<std::array<uint32_t,8>> original_boolean_words;
+  std::array<std::array<uint32_t,6>,4> vertex_fetch{};
+  uint8_t valid_vertex_fetch=0;
 };
 // Original USA AOT DrawIndexedVertices 0x8288E318 uploads registers
 // SQ_BOOL_CONST_0 (0x4900) from device+0x2780. The original setters
@@ -322,6 +328,30 @@ inline void CaptureUsaPixelFetches(uint32_t device,ReadGuestBytes read,void* sta
     }
     if((fetch[0]&3u)==2u && ((fetch[1]|fetch[5])>>12&0x1ffffu))
       registers.valid_pixel_fetch|=static_cast<uint16_t>(1u<<slot);
+  }
+}
+// USA XDK 6534: 8287E0A0/8287E120 index the bound texture object at
+// device+0x3100+4*slot and the fetch at device+0x480+24*slot.
+// Original VS TFETCH constants 16..19 are distinct from PS 0..15.
+inline void CaptureUsaVertexFetches(uint32_t device,ReadGuestBytes read,void* state,
+                                   OriginalShaderRegisters& registers) noexcept {
+  registers.valid_vertex_fetch=0;
+  registers.vertex_fetch={};
+  constexpr uint32_t start=0x480u+16u*24u;
+  std::array<std::byte,4*24> bytes{};
+  if(!device || !read || uint64_t(device)+start+bytes.size()>(uint64_t{1}<<32) ||
+     !read(state,device+start,bytes.data(),bytes.size()))return;
+  for(unsigned slot=0;slot<4;++slot) {
+    auto& fetch=registers.vertex_fetch[slot];
+    for(unsigned i=0;i<6;++i) {
+      const auto* p=bytes.data()+slot*24+i*4;
+      fetch[i]=uint32_t(std::to_integer<uint8_t>(p[0]))<<24 |
+               uint32_t(std::to_integer<uint8_t>(p[1]))<<16 |
+               uint32_t(std::to_integer<uint8_t>(p[2]))<<8 |
+               uint32_t(std::to_integer<uint8_t>(p[3]));
+    }
+    if((fetch[0]&3u)==2u && ((fetch[1]|fetch[5])>>12&0x1ffffu))
+      registers.valid_vertex_fetch|=static_cast<uint8_t>(1u<<slot);
   }
 }
 inline bool CaptureUsaAllShaderRegisters(
