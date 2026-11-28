@@ -134,17 +134,22 @@ class ForwardingBackend final : public native::Backend {
     if(!vs || !vr || (!draw.original_vertex_only && (!ps || !pr)))
       throw std::logic_error("Unknown original Xenos shader or constant layout");
     // Missing original shader/reflection evidence must not replay GPU events.
-    const auto draw_context=
-        "batch draw " + std::to_string(position_) +
-        " (source frame " + std::to_string(draw.source_frame) +
-        ", ordinal " + std::to_string(draw.source_ordinal) + ")";
+    // Build diagnostic strings only on failure. The original city scene
+    // can issue thousands of successful draws per frame; logging metadata
+    // must not allocate strings in their normal submission path.
+    const auto draw_position=position_;
+    const auto draw_context=[&] {
+      return "batch draw " + std::to_string(draw_position) +
+          " (source frame " + std::to_string(draw.source_frame) +
+          ", ordinal " + std::to_string(draw.source_ordinal) + ")";
+    };
     if(!ReplayBeforeDraw(draw))
-      throw std::runtime_error("Original XDK timeline rejected " + draw_context);
+      throw std::runtime_error("Original XDK timeline rejected " + draw_context());
     ++position_;
     // Preserve the exact first failed binding stage instead of reporting
     // only a generic native Draw submission failure after frame rollback.
     const auto reject=[&](const char* stage)->bool {
-      throw std::runtime_error("EoR Vulkan " + draw_context +
+      throw std::runtime_error("EoR Vulkan " + draw_context() +
                                " rejected at " + stage);
     };
     if(!(pair.original_runtime_draw ? target_.BindOriginalRuntimeSurface(pair.original_model_hash,pair.original_surface_ordinal) :
