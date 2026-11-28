@@ -306,6 +306,11 @@ int main() {
   const auto deferred=hulk::options::CommitLivePcMenuValue("fullscreen","true",apply);
   Expect(deferred.persisted && !deferred.live_applied && deferred.RestartRequired() &&
          live_calls==1,"Restart-only setting reached live engine");
+  const auto deferred_binding=hulk::options::CommitOriginalPcMenuValue("hulk_bind_confirm","Space",apply);
+  Expect(deferred_binding.RestartRequired() && live_calls==1,
+         "Original menu confirmation key must not change during navigation");
+  const auto invalid_binding=hulk::options::CommitOriginalPcMenuValue("hulk_bind_confirm","InvalidKey",apply);
+  Expect(!invalid_binding.persisted && live_calls==1,"Invalid deferred binding reached live engine");
   const auto rejected=hulk::options::CommitLivePcMenuValue("vsync","invalid",apply);
   Expect(!rejected.persisted && !rejected.live_applied && !rejected.RestartRequired() &&
          live_calls==1,"Invalid setting reached live engine");
@@ -329,7 +334,7 @@ int main() {
       return key=="audio_mute" && muted?"true":"false";
     };
     auto action=[&](std::string_view key,std::string_view value){
-      return hulk::options::CommitLivePcMenuValue(key,value,
+      return hulk::options::CommitOriginalPcMenuValue(key,value,
           [&](std::string_view k,std::string_view v){
             Expect(k=="audio_mute","Restart-only setting applied while navigating");
             muted=v=="true";return true;
@@ -390,6 +395,15 @@ int main() {
       Expect(hulk::options::IsBindingOption(row.key),"Unexpected menu binding");
     }
   Expect(bind_rows==21,"Menu binding coverage incomplete");
+  unsigned original_bind_rows=0,deferred_bind_rows=0;
+  for(const auto& row:hulk::options::kPcMenuRows)
+    if(row.kind==hulk::options::PcMenuRowKind::Binding &&
+       hulk::eor::ui::PcStorageRowOption(row,hulk::eor::ui::PcSettingsSection::Controls)){
+      ++original_bind_rows;
+      if(hulk::options::OriginalPcMenuDeferredBinding(row.key))++deferred_bind_rows;
+    }
+  Expect(original_bind_rows==21 && deferred_bind_rows==9,
+         "Original EoR controls do not expose all bindings with navigation protection");
   page.Enter(10,1);
   Expect(!page.Select(10,2,"vsync","false",apply).persisted,
          "Stale page generation accepted");

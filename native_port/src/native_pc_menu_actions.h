@@ -41,4 +41,17 @@ PcMenuCommitResult CommitLivePcMenuValue(std::string_view key,std::string_view v
   }
   return CommitPcMenuValue(key,value,SaveLiveOption,apply);
 }
+// The original EoR UI receives the same actions as gameplay. A binding
+// used to navigate that page must not be applied while editing the page.
+inline bool OriginalPcMenuDeferredBinding(std::string_view key) noexcept {
+  return IsBindingOption(key) &&
+      (key=="hulk_bind_confirm" || key=="hulk_bind_back" ||
+       key=="hulk_bind_alt_back" || key=="hulk_bind_start" ||
+       key=="hulk_bind_select" || key.starts_with("hulk_bind_menu_"));
+}
+template<class Apply>
+PcMenuCommitResult CommitOriginalPcMenuValue(std::string_view key,std::string_view value,Apply&& apply) {
+  if(OriginalPcMenuDeferredBinding(key))return {SaveLiveOption(key,value),false};
+  return CommitLivePcMenuValue(key,value,apply);
+}
 } // namespace hulk::options

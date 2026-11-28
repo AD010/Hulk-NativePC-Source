@@ -91,19 +91,13 @@ std::optional<PcSettingsEvent> CapturePcSettingsEvent(uint32_t root,uint32_t con
   return PcSettingsEvent{root,context,id->definition,event};
 }
 inline constexpr std::string_view kPcEntryText="PC Settings";
-// Do not rebind the keys driving this same native menu while it is open.
-// Gameplay bindings, camera, display and graphics are editable here.
+// Menu-driving bindings are editable, but apply only after restart.
+// Gameplay-only bindings, camera, display and graphics remain editable.
 enum class PcSettingsSection { Entry, Categories, Graphics, Controls, Audio, Exit };
 inline bool PcStorageRowOption(const options::PcMenuRow& row,PcSettingsSection section) noexcept {
   using S=options::PcMenuSection;using K=options::PcMenuRowKind;
   if(section==PcSettingsSection::Audio)return row.section==S::Audio && row.kind==K::Choice;
-  if(section==PcSettingsSection::Controls) {
-    if(row.section!=S::Controls)return false;
-    const std::string_view key=row.key;
-    return key!="hulk_bind_confirm" && key!="hulk_bind_back" &&
-        key!="hulk_bind_alt_back" && key!="hulk_bind_start" &&
-        key!="hulk_bind_select" && !key.starts_with("hulk_bind_menu_");
-  }
+  if(section==PcSettingsSection::Controls)return row.section==S::Controls;
   // Native EoR uses physical host targets, not NativeX render scales,
   // compatibility presentation filters or compatibility post-AA.
   if(std::string_view(row.key).starts_with("native_x_renderer_"))return false;

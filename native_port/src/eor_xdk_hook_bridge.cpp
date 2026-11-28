@@ -448,7 +448,7 @@ void DispatchOriginalPcMenu(PPCContext& ctx,uint8_t* base,PPCFunc* original,[[ma
             return rex::cvar::GetFlagByName(std::string(key));
           },
           [](std::string_view key,std::string_view value){
-            return options::CommitLivePcMenuValue(key,value,[](std::string_view k,std::string_view v){
+            return options::CommitOriginalPcMenuValue(key,value,[](std::string_view k,std::string_view v){
               return rex::cvar::SetFlagByName(std::string(k),std::string(v));});
           },[] {return hulk::GameWindowRequestClose();});
       };
