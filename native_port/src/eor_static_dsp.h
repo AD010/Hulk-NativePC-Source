@@ -29,7 +29,7 @@ constexpr std::optional<OriginalDspRange> OriginalUsaDspRange(DspKind kind,unsig
 }
 // Explicit physical parameters supplied by a verified caller, NOT normalized
 // FEV automation coordinates. These are native approximations to the named
-// FMOD DSPs except the USA-verified scalar Distortion transfer function.
+// FMOD DSPs reconstructed from the USA scalar paths; host rounding differs.
 struct StaticDspStage {DspKind kind=DspKind::Unknown;float value=0.f,q=0.70710678f;};
 struct StaticDspChain {std::array<StaticDspStage,4> stages{};uint8_t count=0;};
 inline bool ValidStaticDsp(const StaticDspChain& chain,uint32_t rate) noexcept {
@@ -41,7 +41,7 @@ inline bool ValidStaticDsp(const StaticDspChain& chain,uint32_t rate) noexcept {
     else if(s.kind==DspKind::LowpassSimple||s.kind==DspKind::Highpass||s.kind==DspKind::Lowpass){
       const auto range=OriginalUsaDspRange(s.kind,0);
       if(!range||s.value<range->minimum||s.value>range->maximum||
-         (s.kind==DspKind::Lowpass&&s.value>=rate*0.49f)||s.q<0.1f||s.q>10.f)return false;
+         (s.kind==DspKind::Lowpass&&(s.value>=rate*0.49f||s.q<1.f))||s.q<0.1f||s.q>10.f)return false;
     }else return false;
   }
   return true;
@@ -99,20 +99,46 @@ struct OriginalUsaHighpass {
     x2=x1;x1=x;y2=y1;y1=y;return y;
   }
 };
+// USA 0x827A2C80 prewarps the analog prototype; 0x827A2DE8
+// applies the bilinear transform. Two sections have distinct damping.
+// This is the zero-initial-state, fixed-parameter path only.
+struct OriginalUsaLowpass {
+  struct Section {float a1=0.f,a2=0.f,z1=0.f,z2=0.f;};
+  std::array<Section,2> section{};
+  float gain=1.f;
+  void Configure(float cutoff,uint32_t rate,float resonance) noexcept {
+    const float r=float(rate);
+    const float warp=2.f*(std::tan((float(std::atan(1.0))*4.f/r)*cutoff)*r);
+    constexpr std::array<float,2> damping{0.7653669714927673f,1.8477590084075928f};
+    gain=1.f;
+    for(unsigned i=0;i<2;++i){
+      const float linear=(damping[i]/resonance)/warp;
+      const float quadratic=1.f/(warp*warp);
+      const float l=linear,q=quadratic*r;
+      const float den=std::fma(std::fma(q,4.f,2.f*l),r,1.f);
+      const float inv=1.f/den;
+      section[i].a1=std::fma(-8.f,r*q,2.f)*inv;
+      section[i].a2=(std::fma(q,4.f,-2.f*l)*r+1.f)*inv;
+      gain*=inv;
+    }
+  }
+  float Process(float x) noexcept {
+    x*=gain;
+    for(auto& s:section){
+      const float w=std::fma(-s.a2,s.z2,std::fma(-s.a1,s.z1,x));
+      x=(std::fma(2.f,s.z1,s.z2)+w);
+      s.z2=s.z1;s.z1=w;
+    }
+    return x;
+  }
+};
 inline bool ApplyStaticDsp(std::span<int16_t> pcm,uint32_t rate,uint16_t channels,const StaticDspChain& chain) noexcept {
   if((channels!=1&&channels!=2)||pcm.empty()||pcm.size()%channels||!ValidStaticDsp(chain,rate))return false;
   for(unsigned i=0;i<chain.count;++i){
     const auto& s=chain.stages[i];
     if(s.kind==DspKind::Distortion&&s.value==0)continue;
-    double b0=1,b1=0,b2=0,a1=0,a2=0;
-    const double w=2*std::numbers::pi*double(s.value)/rate;
-    if(s.kind==DspKind::Lowpass){
-      const double c=std::cos(w),alpha=std::sin(w)/(2*s.q),a0=1+alpha;
-      a1=-2*c/a0;a2=(1-alpha)/a0;
-      b0=(1-c)/(2*a0);b1=2*b0;
-      b2=b0;
-    }
-    std::array<double,2> z1{},z2{};
+    std::array<OriginalUsaLowpass,2> low{};
+    if(s.kind==DspKind::Lowpass)for(auto& f:low)f.Configure(s.value,rate,s.q);
     std::array<OriginalUsaSimpleLowpassState,2> simple{};
     std::array<OriginalUsaHighpass,2> high{};
     if(s.kind==DspKind::Highpass)for(auto& f:high)f.Configure(s.value,rate,s.q);
@@ -122,7 +148,7 @@ inline bool ApplyStaticDsp(std::span<int16_t> pcm,uint32_t rate,uint16_t channel
       if(s.kind==DspKind::Distortion)y=OriginalUsaDistortion(static_cast<float>(x),s.value);
       else if(s.kind==DspKind::LowpassSimple)y=simple[ch].Process(static_cast<float>(x),alpha);
       else if(s.kind==DspKind::Highpass)y=high[ch].Process(static_cast<float>(x));
-      else {y=b0*x+z1[ch];z1[ch]=b1*x-a1*y+z2[ch];z2[ch]=b2*x-a2*y;}
+      else y=low[ch].Process(static_cast<float>(x));
       pcm[n]=static_cast<int16_t>(std::lround(std::clamp(y*32768.,-32768.,32767.)));
     }
   }
