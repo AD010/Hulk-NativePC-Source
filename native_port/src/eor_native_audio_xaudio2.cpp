@@ -108,7 +108,8 @@ bool NativeXAudio2Mixer::PlayPcm16(Bus bus,std::span<const int16_t> samples,
   const auto bus_id=BusIndex(bus);
   if(!Ready() || bus_id>=3u || !ValidGain(gain) ||
      !ValidPcm16(samples,sample_rate,channels) ||
-     !ValidVoiceOptions(options,static_cast<uint32_t>(samples.size()/channels)))return false;
+     !ValidVoiceOptions(options,static_cast<uint32_t>(samples.size()/channels)) ||
+     !ValidStaticDsp(options.static_dsp,sample_rate))return false;
   std::lock_guard lock(state_->mutex);
   Update();
   // Bound simultaneous live voices and copy only the source PCM retained by
@@ -133,6 +134,7 @@ bool NativeXAudio2Mixer::PlayPcm16(Bus bus,std::span<const int16_t> samples,
     voice->gain=gain;
     voice->clock={options.delay_ms,options.delay_ms!=0,options.start_paused};
     voice->samples.assign(samples.begin(),samples.end());
+    if(options.static_dsp.count && !ApplyStaticDsp(voice->samples,sample_rate,channels,options.static_dsp))return false;
   } catch (...) {return false;}
   WAVEFORMATEX wave{};
   wave.wFormatTag=WAVE_FORMAT_PCM;
