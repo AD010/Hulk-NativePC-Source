@@ -668,7 +668,27 @@ void FinishOriginalFmodUpdate(std::optional<audio::FmodUpdateStamp> stamp,const 
     g_native_fmod_owner=stamp->owner;g_native_fmod_base=base;
     REXLOG_INFO("[HULK/FMOD-NATIVE] verified original EventSystem update; native clock connected (original playback retained)");
   }
-  if(g_native_fmod_owner!=stamp->owner||g_native_fmod_base!=base)return;
+  if(g_native_fmod_owner!=stamp->owner||g_native_fmod_base!=base) {
+    // A new EventSystem can be created after the old system shuts down.
+    // Never switch between two simultaneously valid original owners or
+    // dereference a stale guest mapping from a previous runtime instance.
+    if(g_native_fmod_base!=base ||
+       audio::CaptureFmodUpdateStamp(g_native_fmod_owner,read))return;
+    // The new owner already passed the pinned update ABI and delta
+    // checks above. Retire every old shadow voice and selection before
+    // observing the replacement, preserving original audible playback.
+    try {
+      g_native_fmod_mixer->StopAll();
+      g_native_fmod_shadow_voices.Clear();
+      g_native_fmod_start_trace.Clear();
+      g_native_fmod_trace_base=nullptr;
+      g_native_fmod_events.clear();
+      g_native_fmod_bound_events.clear();
+      g_native_fmod_capture_schedule.Reset();
+      g_native_fmod_capture_failed=false;
+      g_native_fmod_owner=stamp->owner;
+    } catch (...) {return;}
+  }
   if(!g_native_fmod_mixer->AdvanceScheduledVoices(*delta))
     REXLOG_WARN("[HULK/FMOD-NATIVE] native voice update rejected");
   // Capture only after the original update has returned successfully.
