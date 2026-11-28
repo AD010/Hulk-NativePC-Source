@@ -193,6 +193,13 @@ class OriginalPcStorageMenu {
       const std::function<bool()>& request_exit={}) {
     if(!Owns(owner,row))return false;
     if(!focused) {if(section_!=PcSettingsSection::Entry) {section_=PcSettingsSection::Entry;cursor_=category_=0;(void)PaintPcMenuEntry(paint,kPcEntryText);}return false;}
+    // Once the focused PC row consumed an input, a repaint failure must
+    // never dispatch that same input to the retail StorageOption action.
+    // Restore native rows/entry if possible, then invalidate the session.
+    const auto failed_pc_paint=[&]() {
+      try {(void)PaintPcMenuEntry(paint,kPcEntryText);}catch(...){}
+      Leave();return true;
+    };
     const auto show_categories=[&]() {
       PcMenuVisual frame;
       frame.title="PC Settings";
@@ -203,7 +210,7 @@ class OriginalPcStorageMenu {
       for(size_t i=0;i<frame.count;++i)
         frame.rows[i]=(i==category_?"> ":"  ")+std::string(names[i]);
       if(PaintPcMenuVisual(paint,frame))return true;
-      Leave();return false;
+      return failed_pc_paint();
     };
     const auto show_exit=[&]() {
       PcMenuVisual frame;
@@ -214,7 +221,7 @@ class OriginalPcStorageMenu {
       frame.rows[2]=exit_.Yes()?"> Yes - exit to Windows":"  Yes - exit to Windows";
       frame.compact=frame.title+(exit_.Yes()?" Yes":" No")+" (Select / Left / Right)";
       if(PaintPcMenuVisual(paint,frame))return true;
-      Leave();return true; // consumed PC event; never dispatch original storage action
+      return failed_pc_paint(); // consumed PC event; never dispatch original storage action
     };
     if(section_==PcSettingsSection::Entry) {
       if(event!=PcEvent::Select)return false;
@@ -223,7 +230,7 @@ class OriginalPcStorageMenu {
     }
     if(event==PcEvent::Back) {
       if(section_==PcSettingsSection::Categories) {
-        if(!PaintPcMenuEntry(paint,kPcEntryText))return false;
+        if(!PaintPcMenuEntry(paint,kPcEntryText))return failed_pc_paint();
         section_=PcSettingsSection::Entry;category_=cursor_=0;return true;
       }
       section_=PcSettingsSection::Categories;cursor_=0;
@@ -269,19 +276,19 @@ class OriginalPcStorageMenu {
               event!=PcEvent::Select)return false;
     std::vector<const options::PcMenuRow*> rows;
     for(const auto& r:options::kPcMenuRows)if(PcStorageRowOption(r,section_))rows.push_back(&r);
-    if(rows.empty()){Leave();return false;}
+    if(rows.empty())return failed_pc_paint();
     cursor_%=rows.size();
     if(event==PcEvent::Up)cursor_=(cursor_+rows.size()-1)%rows.size();
     if(event==PcEvent::Down)cursor_=(cursor_+1)%rows.size();
     const auto& selected=*rows[cursor_];
     const auto pending=pending_.find(selected.key);
     std::string value=pending==pending_.end()?read_value(selected.key):pending->second;
-    bool failed=false,committed=false;
+    bool failed=false;
     if(event==PcEvent::Increase || event==PcEvent::Decrease || event==PcEvent::Select) {
       const auto next=PcStorageNextValue(selected,value,event!=PcEvent::Decrease);
       if(!next.empty() && options::IsPcMenuChoice(selected,next)) {
         const auto result=commit(selected.key,next);
-        failed=!result.persisted;committed=result.persisted;
+        failed=!result.persisted;
         if(result.persisted) {
           value=std::string(next);
           if(result.live_applied)pending_.erase(selected.key);
@@ -313,9 +320,9 @@ class OriginalPcStorageMenu {
       else if(p!=pending_.end())frame.rows[i]+=" (restart)";
     }
     if(PaintPcMenuVisual(paint,frame))return true;
-    // Never let the original action run after a persistent PC change.
+    // The event belonged to the PC page even when no setting was saved.
     // A vanished widget ends the session before another event can apply.
-    Leave();return committed;
+    return failed_pc_paint();
   }
  private:
   uint32_t owner_=0,row_=0;PcSettingsSection section_=PcSettingsSection::Entry;size_t cursor_=0,category_=0;
