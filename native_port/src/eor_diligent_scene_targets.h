@@ -219,8 +219,12 @@ inline bool OriginalSampledTargetsReady(uint32_t mask,uint32_t valid,
   return true;
 }
 inline std::optional<OriginalSourceTargetFormat> PlanOriginalNativeTargets(
-    const xdk::Frame& source,uint32_t width,uint32_t height) {
-  if(!width || !height || !xdk::ValidateOriginalCommandTimeline(source))return {};
+    const xdk::Frame& source,uint32_t width=0,uint32_t height=0) {
+  // With no requested source extent, the terminal authenticated Resolve
+  // defines the logical screen. This does not determine physical pixels:
+  // PlanFrame uses the native swapchain independently. Existing callers
+  // may still enforce a known source extent explicitly.
+  if(bool(width)!=bool(height) || !xdk::ValidateOriginalCommandTimeline(source))return {};
   OriginalSourceTargetFormat output{};
   auto& graph=output.format.original_graph;
   auto& screen=output.format.original_screen;
@@ -428,7 +432,7 @@ inline std::optional<OriginalSourceTargetFormat> PlanOriginalNativeTargets(
         if(!register_extent(dest,extent) || !register_samples(dest,1u) ||
            !register_color(dest,graph.color_formats.at(active_color)))return {};
         if(dest==front) {
-          if(extent.width!=width || extent.height!=height)return {};
+          if(width && (extent.width!=width || extent.height!=height))return {};
           graph.final_color=active_color;graph.front_buffer=dest;final_resolved=true;
         } else {resolve_destinations.insert(dest);completed_resolves.insert(dest);}
         break;

@@ -2593,11 +2593,15 @@ struct AutomaticSceneContract {
 };
 std::optional<AutomaticSceneContract> OriginalTargetContract(
     const Frame& frame,native::Size backbuffer,const OfflineShaderPack& pack) {
-  const auto target=gpu::PlanOriginalNativeTargets(frame,1280,720);
+  const auto target=gpu::PlanOriginalNativeTargets(frame);
   if(!target)return {};
   AutomaticSceneContract result{};
   result.format=target->format;
-  const bool aspect_change=uint64_t(backbuffer.width)*720u!=uint64_t(backbuffer.height)*1280u;
+  const auto& graph=result.format.original_graph;
+  const auto source=graph.extents.at(graph.final_color);
+  const double source_aspect=double(source.width)/source.height;
+  const bool aspect_change=uint64_t(backbuffer.width)*source.height!=
+                           uint64_t(backbuffer.height)*source.width;
   if(aspect_change && (!pack.shaders || !pack.reflection || !pack.effects || !pack.virtual_ids))return {};
   // All known source images have a single output. A distinct source RT is
   // never aliased to the main scene just because it is the same extent.
@@ -2632,7 +2636,7 @@ std::optional<AutomaticSceneContract> OriginalTargetContract(
                                                       ui::ResolveUsaBufferedFontLayout(draw);
         if(!font)return {};
       } else if(!state.original_color_extent ||
-                (state.original_color_extent->width==1280u && state.original_color_extent->height==720u)) {
+                (state.original_color_extent->width==source.width && state.original_color_extent->height==source.height)) {
         const auto* shader=pack.shaders->Find(*vs,aot::Stage::Vertex);
         const auto* reflection=pack.reflection->Find(*vs,aot::Stage::Vertex);
         if(!shader || !reflection)return {};
@@ -2645,13 +2649,13 @@ std::optional<AutomaticSceneContract> OriginalTargetContract(
         if(!clip_xyw_preserved &&
            (!draw.observed_shader_constants ||
             !aot::IdentifyLiveScalarProjection(*shader,*reflection,
-                *draw.observed_shader_constants,1280.0/720.0)))
+                *draw.observed_shader_constants,source_aspect)))
           return {};
       }
     }
   }
   native::FrameSetup setup;
-  setup.backbuffer=backbuffer;setup.original_guest={1280,720};
+  setup.backbuffer=backbuffer;setup.original_guest={source.width,source.height};
   setup.engine_draw_hook_verified=true;
   setup.offline_shader_cache_verified=true;
   setup.samples=target->samples;
@@ -2667,6 +2671,8 @@ bool SameAutomaticScene(const AutomaticSceneContract& a,
   const auto& y=b.format.original_screen;
   return a.output.backbuffer.width==b.output.backbuffer.width &&
          a.output.backbuffer.height==b.output.backbuffer.height &&
+         a.output.original_guest.width==b.output.original_guest.width &&
+         a.output.original_guest.height==b.output.original_guest.height &&
          a.output.samples==b.output.samples &&
          a.format.color==b.format.color && a.format.depth==b.format.depth &&
          x.guest_device==y.guest_device && x.guest_rt0==y.guest_rt0 &&
@@ -3140,7 +3146,9 @@ struct AutomaticEorOwner {
           // 16:9. Only the requirement for projection expansion depends
           // on whether the physical output changes the original aspect.
           const auto& extent=call.observed_vs_matrices->original_color_extent;
-          if(extent && (extent->width!=1280u || extent->height!=720u)) {
+          const auto source=contract.output.original_guest;
+          const double source_aspect=double(source.width)/source.height;
+          if(extent && (extent->width!=source.width || extent->height!=source.height)) {
             pipeline.original_view_space=gpu::VerifiedOriginalViewSpace::Offscreen;
             pipeline.original_view_space_verified=true;
             return;
@@ -3148,7 +3156,7 @@ struct AutomaticEorOwner {
           const auto* vertex=pack.shaders->Find(digest,aot::Stage::Vertex);
           const auto* reflected=pack.reflection->Find(digest,aot::Stage::Vertex);
           const auto projection=vertex && reflected && call.observed_shader_constants ?
-              aot::IdentifyLiveScalarProjection(*vertex,*reflected,*call.observed_shader_constants,1280.0/720.0) :
+              aot::IdentifyLiveScalarProjection(*vertex,*reflected,*call.observed_shader_constants,source_aspect) :
               std::nullopt;
           if(!projection) {
             if(!vertex || !(vertex->scalar_preserves_clip_xyw ? *vertex->scalar_preserves_clip_xyw :
@@ -3165,7 +3173,7 @@ struct AutomaticEorOwner {
             const auto& live=*call.observed_vs_matrices;
             const auto& raster=live.raster;
             if(raster && raster->x==0 && raster->y==0 &&
-               raster->width==1280 && raster->height==720 && !raster->scissor_enabled &&
+               raster->width==float(source.width) && raster->height==float(source.height) && !raster->scissor_enabled &&
                call.observed_live_pixel_shader_header &&
                call.observed_live_pixel_shader_header->pixel_sampling) {
               const auto sampled=call.observed_live_pixel_shader_header->pixel_sampling->sampled_slots;
@@ -3188,7 +3196,7 @@ struct AutomaticEorOwner {
           pipeline.original_view_space=gpu::VerifiedOriginalViewSpace::MainPerspective;
           pipeline.original_view_space_verified=true;
           pipeline.source_main_view=gpu::VerifiedOriginalMainView{
-              projection->proof,projection->registers.index,1280.0/720.0,true};
+              projection->proof,projection->registers.index,source_aspect,true};
         };
         if(IsVerifiedVertexOnlyDepthDraw(call)) {
           auto produced=gpu::live::ProduceOriginalVertexOnlyMaterial(call,frame.sequence,ordinal,
