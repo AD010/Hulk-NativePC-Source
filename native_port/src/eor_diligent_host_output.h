@@ -14,12 +14,15 @@
 namespace Diligent {struct ITextureView;struct IRenderDevice;struct IDeviceContext;struct ISwapChain;}
 namespace native_x_renderer {class Device;class Blitter;}
 namespace hulk::eor::gpu {
+#ifdef _WIN32
+class VulkanColorTransfer;
+#endif
 class DiligentEorHostOutput final {
  public:
   explicit DiligentEorHostOutput(native_x_renderer::Device& host);
   // Independent Vulkan owner: Diligent device/context/swapchain belong to
-  // the native Win32 host, not NativeX's Xenos/EDRAM presenter. Only exact
-  // same-format full-size frames can be copied by this overload.
+  // the native Win32 host, not NativeX's Xenos/EDRAM presenter. Windows
+  // uses the same native Vulkan transfer as the exclusive Win32 host.
   DiligentEorHostOutput(Diligent::IRenderDevice& device,
       Diligent::IDeviceContext& context,Diligent::ISwapChain& swapchain);
   DiligentEorHostOutput(const DiligentEorHostOutput&)=delete;
@@ -51,6 +54,9 @@ class DiligentEorHostOutput final {
   Diligent::IDeviceContext* native_context_=nullptr;
   Diligent::ISwapChain* native_swapchain_=nullptr;
   std::unique_ptr<native_x_renderer::Blitter> blitter_;
+#ifdef _WIN32
+  std::unique_ptr<VulkanColorTransfer> native_transfer_;
+#endif
   bool initialized_=false;
   bool native_vsync_=false;
   uint64_t presented_=0;

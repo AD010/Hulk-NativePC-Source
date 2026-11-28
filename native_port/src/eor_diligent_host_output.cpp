@@ -1,4 +1,7 @@
 #include "eor_diligent_host_output.h"
+#ifdef _WIN32
+#include "eor_vulkan_color_transfer.h"
+#endif
 #include "blit.h"
 #include "device.h"
 #include "DeviceContext.h"
@@ -20,13 +23,16 @@ DiligentEorHostOutput::~DiligentEorHostOutput() noexcept=default;
 bool DiligentEorHostOutput::Initialize() {
   if(initialized_)return true;
   if(native_device_ && native_context_ && native_swapchain_ && !device_) {
-    // Native EoR owns the real Vulkan device and swapchain. For HDR/sRGB or
-    // BGRA8-to-RGBA8 conversion it may reuse the pre-existing Diligent
-    // fullscreen blitter, but never instantiates the NativeX Device,
-    // Xenos command processor, EDRAM, PM4 or an emulated guest frame.
-    // Exact-format EoR frames use CopyTexture and have no dependency on
-    // NativeX's blit pipelines. Delay utility shader creation until a real
-    // color-space conversion requires it.
+    // Both Windows EoR output owners use the same Vulkan transfer
+    // implementation. A borrowed native device does not imply a dependency
+    // on NativeX's fullscreen shader compiler or its blit pipelines.
+#ifdef _WIN32
+    try {
+      auto transfer=std::make_unique<VulkanColorTransfer>();
+      if(!transfer->Initialize(native_device_,native_context_))return false;
+      native_transfer_=std::move(transfer);
+    } catch (...) {return false;}
+#endif
     initialized_=true;
     return true;
   }
@@ -70,6 +76,15 @@ bool DiligentEorHostOutput::CompositeToBackbuffer(
      !native::HasFullNativeCompositePixels(
          {original.Width,original.Height},dest,output))
     return false;
+#ifdef _WIN32
+  if(native_device_ && !device_) {
+    // Never fall back to the compatibility blitter after touching Vulkan.
+    // This path shares exact-copy / verified RGBA8<->BGRA8 conversion
+    // semantics with the sole independent Win32 swapchain owner.
+    try {return native_transfer_ && native_transfer_->Copy(source,target);}
+    catch (...) {return false;}
+  }
+#endif
   // Original EoR already produced the finished physical-resolution image.
   // When its Vulkan format exactly matches the physical swapchain, use a
   // native GPU texture copy instead of NativeX's rasterizing blitter. This
