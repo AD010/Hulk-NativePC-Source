@@ -10,6 +10,7 @@
 #include <span>
 #include <string_view>
 #include "eor_voice_options.h"
+#include "eor_fev_automation.h"
 #include <optional>
 #include <vector>
 
@@ -74,6 +75,14 @@ class NativeXAudio2Mixer {
       uint32_t project_hash,std::string_view group,std::string_view event_name,
       uint32_t layer,uint32_t instance,uint32_t variant,float gain=1.f,VoiceId* started=nullptr,
       VoiceOptions options={});
+  // Explicit named-DSP automation route. The caller supplies resolved
+  // physical associations and parameter snapshots; this is not a guest hook.
+  bool PlayEventVariantWithFevDsp(Bus bus,const hulk::eor::Index& index,
+      const std::filesystem::path& project_archive,const std::filesystem::path& wave_archive,
+      uint32_t project_hash,std::string_view group,std::string_view event_name,
+      uint32_t layer,uint32_t instance,uint32_t variant,
+      std::span<const FevDspBinding> bindings,std::span<const FevParameterSnapshot> snapshots,
+      float gain=1.f,VoiceId* started=nullptr,VoiceOptions options={});
   // An accepted delayed voice has an ID before playback begins. Call once
   // per elapsed game-time interval; pause freezes the pending clock.
   // Admit all explicitly selected cues as a group before starting any.

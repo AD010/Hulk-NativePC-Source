@@ -2,6 +2,7 @@
 // This validates FEV1 references; it does NOT decode audio or launch FMOD.
 #pragma once
 #include "eor_archive.h"
+#include "eor_fev_automation.h"
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
@@ -57,4 +58,11 @@ std::optional<size_t> ResolveEventWaveform(const Index& index,
     const std::filesystem::path& project_archive,uint32_t project_hash,
     std::string_view group,std::string_view event_name,
     uint32_t layer,uint32_t instance,uint32_t variant);
+// Produce DSP blocks from original event data and explicit caller-proven
+// associations. Nonconstant interpolation between knots is not inferred.
+std::optional<std::vector<audio::DspParameterBlock>> ResolveEventNamedDsp(
+    const Index& index,const std::filesystem::path& project_archive,
+    uint32_t project_hash,std::string_view group,std::string_view event_name,uint32_t layer,
+    std::span<const audio::FevDspBinding> bindings,
+    std::span<const audio::FevParameterSnapshot> snapshots,uint32_t sample_rate);
 } // namespace hulk::eor::fmod

@@ -264,6 +264,31 @@ bool NativeXAudio2Mixer::PlayEventVariant(Bus bus,const hulk::eor::Index& index,
         project_hash,*offset,gain,started,options);
   } catch (...) {return false;}
 }
+bool NativeXAudio2Mixer::PlayEventVariantWithFevDsp(Bus bus,const hulk::eor::Index& index,
+    const std::filesystem::path& project_archive,const std::filesystem::path& wave_archive,
+    uint32_t project_hash,std::string_view group,std::string_view event_name,
+    uint32_t layer,uint32_t instance,uint32_t variant,
+    std::span<const FevDspBinding> bindings,std::span<const FevParameterSnapshot> snapshots,
+    float gain,VoiceId* started,VoiceOptions options) {
+  if(started)*started=0;
+  if(!Ready()||!ValidGain(gain)||options.loop_count||options.static_dsp.count||
+     !options.dsp_blocks.empty())return false;
+  try {
+    const auto offset=fmod::ResolveEventWaveform(index,project_archive,project_hash,
+        group,event_name,layer,instance,variant);
+    if(!offset)return false;
+    const auto sample=fmod::ReadProjectWaveform(index,project_archive,wave_archive,project_hash,*offset);
+    if(!sample)return false;
+    const auto blocks=fmod::ResolveEventNamedDsp(index,project_archive,project_hash,
+        group,event_name,layer,bindings,snapshots,sample->rate);
+    if(!blocks)return false;
+    const Fsb3Sample source{sample->name,sample->frames,sample->mode,sample->rate,
+        sample->channels,sample->payload};
+    const auto pcm=DecodeOriginalFsb3Sample(source);
+    options.dsp_blocks=*blocks;
+    return pcm&&PlayPcm16(bus,*pcm,source.rate,source.channels,gain,started,options);
+  } catch (...) {return false;}
+}
 std::optional<std::vector<VoiceId>> NativeXAudio2Mixer::PlayEventGroup(Bus bus,
     const hulk::eor::Index& index,const std::filesystem::path& project_archive,
     const std::filesystem::path& wave_archive,uint32_t project_hash,
