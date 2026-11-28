@@ -402,6 +402,27 @@ int main() {
     Expect(Read(config).find("hulk_original_fog_distance_multiplier = 4")!=std::string::npos,
            "Fog distance preference not saved");
   }
+  {
+    for(const auto& item : std::array<std::pair<std::string_view,std::string_view>,3>{{
+      {"hulk_city_far_plane","8000.0"},
+      {"hulk_city_zone_buffer","500.0"},
+      {"hulk_city_lod_multiplier","5.0"}}}) {
+      const auto* row=hulk::options::FindPcMenuRow(item.first);
+      Expect(row && hulk::eor::ui::PcStorageRowOption(*row,hulk::eor::ui::PcSettingsSection::Graphics),
+             "Missing city distance row in original graphics page");
+      Expect(hulk::options::IsPcMenuChoice(*row,item.second),"City preset not selectable");
+      unsigned live_calls=0;
+      const auto result=hulk::options::CommitOriginalPcMenuValue(item.first,item.second,
+          [&](std::string_view,std::string_view){++live_calls;return true;});
+      Expect(result.persisted && result.RestartRequired() && !live_calls,
+             "Archive-only setting must persist without claiming live application");
+      Expect(Read(config).find(std::string(item.first)+" = "+std::string(item.second))!=std::string::npos,
+             "City preset missing from existing configuration");
+      Expect(!hulk::options::CommitOriginalPcMenuValue(item.first,"99999.0",
+          [](std::string_view,std::string_view){return true;}).persisted,
+             "Invalid city preset accepted");
+    }
+  }
   hulk::options::PcMenuPageSession page;
   unsigned bind_rows=0;
   for(const auto& row:hulk::options::kPcMenuRows)
