@@ -1,4 +1,5 @@
 #include "../native_port/src/native_pc_save_format.h"
+#include "../native_port/src/native_pc_save_known_tables.h"
 #include <cassert>
 #include <stdexcept>
 #include <vector>
@@ -18,7 +19,16 @@ uint32_t Crc(const std::vector<std::byte>& b) {
   return crc^0xffffffffu;
 }
 }
-int main() {
+int main(int argc,char** argv) {
+  // Optional private owner samples, never required or published by CI.
+  if(argc==3) {
+    for(int i=1;i<=2;++i) {
+      const auto kind=i==1?Kind::XboxBigEndian:Kind::RetailPcLittleEndian;
+      const auto result=Read(argv[i],kind);
+      assert(result.verified_table_count==5&&result.verified_field_count==853);
+      assert(!result.pc_payload_conversion_ready);
+    }
+  } else assert(argc==1);
   for(bool big:{false,true}) {
     std::vector<std::byte> b(512);
     Put(b,4,480,big);
@@ -35,6 +45,10 @@ int main() {
     assert(envelope.fields.size()==25 && envelope.fields.front().id==100 &&
            envelope.fields.back().raw_value==25);
     assert(EncodeEnvelope(envelope)==b);
+    bool unknown_schema=false;
+    try{(void)DecodeKnownTables(b,kind);}
+    catch(const std::invalid_argument&){unknown_schema=true;}
+    assert(unknown_schema);
     auto invalid=envelope;
     invalid.fields[2].id=invalid.fields[1].id;
     bool invalid_rejected=false;
@@ -66,5 +80,9 @@ int main() {
     assert(envelope.fields.size()==242);
     assert(envelope.fields.back().raw_value==0xff0000f1u);
     assert(EncodeEnvelope(envelope)==b);
+    bool unknown_schema=false;
+    try{(void)DecodeKnownTables(b,kind);}
+    catch(const std::invalid_argument&){unknown_schema=true;}
+    assert(unknown_schema);
   }
 }
