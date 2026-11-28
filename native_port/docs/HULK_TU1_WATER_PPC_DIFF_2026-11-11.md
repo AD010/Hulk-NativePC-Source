@@ -117,3 +117,51 @@ This is not acceptable for water-state-machine fixes. An invalid/duplicate
 instruction address also fails closed. Local synthetic regression: six tests
 passed (relocation, topology, external call, changed constant, duplicate and
 missing address). No game input changed, no Windows build or water claim.
+
+## 28 November — actual EU XEXP decode and first USA transfer
+
+Used the existing private TU archive, EU base and already decoded USA PE. A
+standalone bounded LZX reader, based on the format and the ReXGlue/Xenia
+reference-window approach, decoded the XEXP without running a console VM or
+downloading the SDK. No proprietary binary or generated guest source is
+committed. Verified the pinned XEXP SHA256 and base signature, original key
+via the patched header, SHA1 of all 22 encrypted-body blocks after decryption.
+Header decode: one compressed record. Image records: 56 zero, 136 copy,
+329 compressed. Private mapped EU original PE SHA256:
+d1e94d0e5b2ec2528d1f0720788e778edc372abc20283b6cbe9c5eea866ecc45.
+Private mapped EU TU1 PE SHA256:
+ddfd359182cfe6eb9b99ba5ddf12918ed3f54dc0ddc7bbf169a8d23a8567b807
+(21626880 bytes). Header SHA256:
+36bdbd6458cefdf047168edf87a8c16ebf899ec64a93c8bed874ab6055866065.
+These hashes are locally measured, not independently published image hashes.
+The reconstructed PE headers and function/RTTI string neighborhoods are
+coherent; full independent decoder cross-validation remains outstanding.
+
+Cross-version registration string HulkWaterJump: USA 8228EC70, EU base
+8228F1C8, EU TU1 82295F40 (load references). WaterJumpData references:
+8228D358, 8228D8B0, 822945F8 respectively. Matched nearby method entry
+8228D760 / 8228DCB8 / 82294A00; exact method-range SHA256 respectively
+09a4d5a3d1314897f4d4adfdbf653182b9332871d708890082cb2250ac8fc583,
+fa2a523a97cdcda1874aa31ed4c739fa0666057f9718774a84e8b812f5cd3b91,
+fa9792007270c93855bed676d9d823babbd6d3aabb2a2f22bea3e53036c5bbb3.
+The ranges end at 8228DAA0 / 8228DFF8 / 82294D60. Vtable references at
+820C64E0 / 820C64E8 / 820C4DD0. TU1 82294A54..82294A6C compares
+state+220 against float -1 (820005D0), and if CR6.GT is set stores
+float -5 (82002F04). In USA the corresponding original copy of actor+84
+to state+220 is at 8228D7A8. Transfer exactly this conditional store in
+the generated USA C++ after verifying the source XEX hash and four
+contiguous original assembly comments and translated store. The patch
+runs before the existing Windows recomp target, is idempotent, and
+preserves original code when the expected generated form is absent.
+Three synthetic Python tests pass; no actual Windows codegen/build or
+gameplay confirmation has been performed.
+
+Further matched candidate method 8228DD18 / 8228E270 / 82294FD8:
+EU TU1 82295514 onward changes vertical difference scale from .5 to 2,
+and 822955A0..822955B8 updates state+196 from current actor+84 and
+recomputes +200 using the new target height. These are NOT transferred
+by the first fix; additional register/data-layout and control-flow
+verification is necessary, including separate building-ledge cases.
+The first patch is not proof of a complete jump bug fix.
+Reference: ElGuslml/rexglue-sdk recomp src/system/lzx.cpp,
+src/system/xex_module.cpp; kyz/libmspack LZX format implementation.

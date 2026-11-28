@@ -335,7 +335,10 @@ if(HULK_WITH_NATIVE_X)
             COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/../ci/test_patch_hulk_fmod_start_trace.py"
             COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/../ci/patch_hulk_fmod_start_trace.py"
                 "${CMAKE_CURRENT_SOURCE_DIR}/generated/default" "${CMAKE_CURRENT_SOURCE_DIR}/game/default.xex"
-            VERBATIM COMMENT "Verify and instrument original FMOD start-time selection")
+            COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/../ci/test_patch_hulk_tu1_water_origin.py"
+            COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/../ci/patch_hulk_tu1_water_origin.py"
+                "${CMAKE_CURRENT_SOURCE_DIR}/generated/default" "${CMAKE_CURRENT_SOURCE_DIR}/game/default.xex"
+            VERBATIM COMMENT "Verify original FMOD start trace and TU1 water-origin fix")
         add_dependencies(hulk_fmod_start_trace_codegen incredible_hulk_codegen)
         add_dependencies(incredible_hulk_recomp hulk_fmod_start_trace_codegen)
     endif()
