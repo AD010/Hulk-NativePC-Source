@@ -102,16 +102,19 @@ def patch_cpp(source):
 
 XAM_SOURCE='src/kernel/xam/xam_content.cpp'
 XAM_INCLUDE="#include <rex/cvar.h>\n"
-XAM_INCLUDE_NEW="#include <rex/cvar.h>\n#include <rex/system/xam/hulk_native_save_root.h>\n"
+XAM_INCLUDE_NEW="#include <rex/cvar.h>\n#include <rex/system/xam/hulk_native_save_root.h>\n#include <rex/system/xam/hulk_native_save_metadata.h>\n"
 XAM_ENUM="    // Also enumerate common content (xuid=0)\n    if (xuid != 0) {"
 XAM_ENUM_NEW="    // HULK/NATIVE-SAVE-ENUM: the native Documents root is shared\n    // across the compatibility XUID arguments. Enumerate it just once;\n    // common DLC and other titles retain their existing behavior.\n    const bool hulk_single_root = !hulk::native_save::WindowsRoot(\n        REX_KERNEL_STATE()->title_id(), uint32_t(content_type),\n        rex::cvar::Query<bool>(\"hulk_native_pc_saves\")).empty();\n    if (xuid != 0 && !hulk_single_root) {"
 
+XAM_CREATE="      if (result == X_ERROR_SUCCESS) {\n        content_manager->WriteContentHeaderFile(xuid, content_data);\n      }"
+XAM_CREATE_NEW="      if (result == X_ERROR_SUCCESS) {\n        const auto header_result = content_manager->WriteContentHeaderFile(xuid, content_data);\n        // HULK/NATIVE-SAVE-CREATE-RESULT: a Windows save cannot be\n        // reported as created if metadata persistence failed. Unmount\n        // without deleting staged files or the previous recovery copies.\n        const uint32_t title = content_data.title_id == kCurrentlyRunningTitleId\n            ? REX_KERNEL_STATE()->title_id() : uint32_t(content_data.title_id);\n        if (header_result != X_ERROR_SUCCESS &&\n            hulk::save::IsHulkSaveSlot(content_data.file_name()) &&\n            !hulk::native_save::WindowsRoot(title, uint32_t(content_data.content_type),\n                rex::cvar::Query<bool>(\"hulk_native_pc_saves\")).empty()) {\n          content_manager->CloseContent(root_name);\n          result = header_result;\n          disposition = kDispositionState::Unknown;\n        }\n      }"
+
 def patch_xam(source):
-    if XAM_INCLUDE_NEW in source and XAM_ENUM_NEW in source:
+    if all(part in source for part in (XAM_INCLUDE_NEW,XAM_ENUM_NEW,XAM_CREATE_NEW)):
         return source,False
-    if XAM_INCLUDE_NEW in source or 'HULK/NATIVE-SAVE-ENUM' in source:
+    if XAM_INCLUDE_NEW in source or 'HULK/NATIVE-SAVE-ENUM' in source or 'HULK/NATIVE-SAVE-CREATE-RESULT' in source:
         raise ValueError('Partial native save enumeration patch')
-    for old,new in ((XAM_INCLUDE,XAM_INCLUDE_NEW),(XAM_ENUM,XAM_ENUM_NEW)):
+    for old,new in ((XAM_INCLUDE,XAM_INCLUDE_NEW),(XAM_ENUM,XAM_ENUM_NEW),(XAM_CREATE,XAM_CREATE_NEW)):
         if source.count(old)!=1:raise ValueError('Native save enumeration anchor drift')
         source=source.replace(old,new,1)
     return source,True
