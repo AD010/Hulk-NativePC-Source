@@ -21,6 +21,27 @@ int main(int argc,char** argv){
   auto fail=[&](const auto&,const auto&){++starts;return uint64_t(0);};
   registry.Reconcile(active,fail,stop);registry.Reconcile(active,fail,stop);assert(starts==4&&stops==3);
   registry.Reconcile({},start,stop);assert(stops==3);
+  // Existing voices update without re-admission. Failed updates do not restart.
+  active[0]=e;registry.Reconcile(active,start,stop);
+  unsigned updates=0;auto update=[&](uint64_t,const auto&,const auto&){++updates;return true;};
+  registry.UpdateActive(active,update,stop);assert(updates==1);
+  registry.UpdateActive(active,[&](uint64_t,const auto&,const auto&){++updates;return false;},stop);
+  assert(updates==2);const auto previous_starts=starts,previous_stops=stops;
+  registry.Reconcile(active,start,stop);registry.UpdateActive(active,update,stop);
+  assert(starts==previous_starts&&stops==previous_stops&&updates==2);
+  registry.Reconcile({},start,stop);
+  FevEventEntry controlled;controlled.layer_records.resize(1);
+  std::array<std::byte,24> fields{};fields[10]=std::byte{0x80};fields[11]=std::byte{0x3f};
+  controlled.parameters.push_back({"Intensity",fields,{}});
+  FevEffectRecord fx;fx.control=UINT32_MAX;fx.header={0,0x0c};fx.points={{{0,0,2}},{{0x3f800000,0x3f800000,2}}};
+  controlled.layer_records[0].effects.push_back(fx);
+  std::array<float,1> values{.25f};auto controls=ResolveLiveMutableControls(controlled,0,values);
+  assert(controls&&controls->gain==.25f);values[0]=.75f;
+  assert(ResolveLiveMutableControls(controlled,0,values)->gain==.75f);
+  controlled.layer_records[0].effects[0].header[1]=0x404;
+  assert(!ResolveLiveMutableControls(controlled,0,values));
+  controlled.layer_records[0].effects[0].header[1]=0x44;
+  assert(!ResolveLiveMutableControls(controlled,0,values));
   if(argc==1)return 0;
   assert(argc==2);std::ifstream f(argv[1],std::ios::binary);assert(f);unsigned projects=0;size_t waves=0,nonwaves=0;
   for(;;){uint32_t h[4];if(!f.read(reinterpret_cast<char*>(h),16)){assert(f.eof()&&!f.gcount());break;}

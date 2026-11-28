@@ -225,7 +225,7 @@ bool NativeXAudio2Mixer::PlayPcm16(Bus bus,std::span<const int16_t> samples,
   wave.nAvgBytesPerSec=wave.nSamplesPerSec*wave.nBlockAlign;
   const auto required=RequiredFevVoiceRatio(options.fev_voice_blocks,options.frequency_ratio);
   if(!required)return false;
-  voice->max_ratio=*required;
+  voice->max_ratio=options.reserve_live_pitch?kMaxFevVoiceRatio:*required;
   if(FAILED(state_->engine->CreateSourceVoice(&voice->source,&wave,XAUDIO2_VOICE_USEFILTER,voice->max_ratio)) ||
      !voice->source)return false;
   XAUDIO2_VOICE_DETAILS details{};state_->master->GetVoiceDetails(&details);

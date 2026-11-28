@@ -14,6 +14,8 @@ struct VoiceOptions {
   VoiceFilter filter=VoiceFilter::Bypass;
   float filter_frequency=1.f,filter_one_over_q=1.f;
   bool start_paused=false;
+  // Reserve the full original pitch range for explicitly live-controlled voices.
+  bool reserve_live_pitch=false;
   // One-shot DSP; resolved blocks are borrowed only during PlayPcm16.
   StaticDspChain static_dsp{};
   std::span<const DspParameterBlock> dsp_blocks{};

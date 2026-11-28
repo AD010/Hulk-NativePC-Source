@@ -674,9 +674,13 @@ void FinishOriginalFmodUpdate(std::optional<audio::FmodUpdateStamp> stamp,const 
           bool accepted=false;
           // Source waveform route checks the archive/index pairing again.
           // Use current observed parameters, not a fabricated future curve.
-          if(cue.layer<definition.layer_records.size()&&definition.layer_records[cue.layer].effects.empty()){
+          if(const auto controls=audio::ResolveLiveMutableControls(definition,cue.layer,binding->physical_values)){
+            audio::VoiceOptions options;
+            options.reserve_live_pitch=true;
+            options.frequency_ratio=controls->ratio;
+            options.stereo_pan=controls->pan;
             accepted=g_native_fmod_mixer->PlayProjectWaveform(audio::Bus::Sfx,*g_native_fmod_index,
-                g_native_fmod_project_arc,g_native_fmod_wave_arc,project->second.hash,*offset,1.f,&id);
+                g_native_fmod_project_arc,g_native_fmod_wave_arc,project->second.hash,*offset,controls->gain,&id,options);
           }else{
             const std::array<audio::FevParameterSnapshot,1> snapshots{{{0,std::span<const float>(binding->physical_values)}}};
             accepted=g_native_fmod_mixer->PlayEventVariantWithFevDsp(audio::Bus::Sfx,*g_native_fmod_index,
@@ -686,6 +690,28 @@ void FinishOriginalFmodUpdate(std::optional<audio::FmodUpdateStamp> stamp,const 
           REXLOG_INFO("[HULK/FMOD-NATIVE] muted shadow cue {} / {} variant={} admitted={} id={}",
               event.project,cue.definition,cue.variant,accepted,id);
           return accepted?id:0;
+        },
+        [&](uint64_t id){(void)g_native_fmod_mixer->StopVoice(id);});
+      g_native_fmod_shadow_voices.UpdateActive(*active,
+        [&](uint64_t id,const audio::LiveFmodEvent& event,const audio::LiveFmodCue& cue){
+          const auto project=g_native_fmod_catalog->projects.find(event.project);
+          if(project==g_native_fmod_catalog->projects.end())return false;
+          const auto binding=audio::BindLiveFevEvent(event,project->first,project->second.table);
+          if(!binding||!audio::ResolveLiveFmodCue(project->second.table,*binding,cue))return false;
+          const auto& definition=project->second.table.events[binding->event_index];
+          if(cue.layer>=definition.layer_records.size())return false;
+          // A pre-rendered DSP voice cannot use this direct gain/pitch
+          // route. Leave its original diagnostic snapshot unchanged.
+          for(const auto& fx:definition.layer_records[cue.layer].effects){
+            const auto route=audio::ReadFevCurveRoute(definition,fx);
+            if(!route)return false;
+            if(route->target!=audio::FevTarget::Volume&&route->target!=audio::FevTarget::Pitch&&
+               route->target!=audio::FevTarget::Pan)return true;
+          }
+          const auto controls=audio::ResolveLiveMutableControls(definition,cue.layer,binding->physical_values);
+          return controls&&g_native_fmod_mixer->SetVoiceGain(id,controls->gain)&&
+              g_native_fmod_mixer->SetVoiceFrequencyRatio(id,controls->ratio)&&
+              (!controls->pan||g_native_fmod_mixer->SetVoicePan(id,*controls->pan));
         },
         [&](uint64_t id){(void)g_native_fmod_mixer->StopVoice(id);});
     }

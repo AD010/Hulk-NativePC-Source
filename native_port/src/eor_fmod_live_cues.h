@@ -2,6 +2,7 @@
 #include "eor_fmod_live_binding.h"
 #include <map>
 #include <tuple>
+#include "eor_fev_voice_schedule.h"
 namespace hulk::eor::audio {
 // Resolve the observed ordinal against the authenticated source definition.
 // Reject mismatched layer, definition, weight, count or non-wave records.
@@ -17,6 +18,20 @@ inline std::optional<size_t> ResolveLiveFmodCue(const FevEventTable& table,
      def.weights.size()!=def.variants.size()||cue.variant>=def.variants.size()||
      cue.weight!=def.weights[cue.variant])return {};
   return def.variants[cue.variant];
+}
+// Only controls with a native live setter. Named DSP is currently baked into
+// PCM, so it cannot be updated by this path without changing filter history.
+inline std::optional<FevGainPitch> ResolveLiveMutableControls(const FevEventEntry& event,
+    uint32_t layer,std::span<const float> parameters) noexcept {
+  if(layer>=event.layer_records.size())return {};
+  for(const auto& effect:event.layer_records[layer].effects){
+    const auto route=ReadFevCurveRoute(event,effect);
+    if(!route||(route->target!=FevTarget::Volume&&route->target!=FevTarget::Pitch&&route->target!=FevTarget::Pan))return {};
+  }
+  const auto controls=EvaluateFevLayerGainPitch(event,layer,parameters);
+  if(!controls||controls->unhandled||!ValidFevVoiceRatio(controls->values.ratio)||
+     !std::isfinite(controls->values.gain)||controls->values.gain<0.f||controls->values.gain>1.f)return {};
+  return controls->values;
 }
 struct LiveCueKey {
   uint32_t event,project,start,instance,channel,variant;
@@ -52,6 +67,19 @@ class LiveCueRegistry {
         auto [it,inserted]=voices_.try_emplace(KeyForLiveCue(event,cue),0);
         if(!inserted)continue;
         --budget;it->second=start(event,cue);
+      }
+    }
+  }
+  // Update only exact, currently observed identities. A failed update retires
+  // that native voice but preserves the tombstone until the original cue ends.
+  template<class Update,class Stop>
+  void UpdateActive(std::span<const LiveFmodEvent> active,Update&& update,Stop&& stop) {
+    for(const auto& event:active){
+      if(!event.cues_complete)continue;
+      for(const auto& cue:event.cues){
+        const auto it=voices_.find(KeyForLiveCue(event,cue));
+        if(it==voices_.end()||!it->second)continue;
+        if(!update(it->second,event,cue)){stop(it->second);it->second=0;}
       }
     }
   }
