@@ -198,3 +198,7 @@ from these source changes. No Actions release was launched in this step.
 ### Optional native FMOD Ex host playback check
 
 The optional `hulk_fmod_ex_probe` target uses a locally supplied matching legacy Windows x64 SDK and DLL pair. See `docs/FMOD_USA_START_AND_SPATIAL_ABI_2026-11-28.md` for invocation and limitations. It is not part of the normal game build or package, and does not change the current audio route.
+
+### Native host archive layout
+
+The native graphics, streamed model and audio loaders share a portable archive location resolver. A self-contained original-source archive set under `Data` (or `Assets`) is now considered before legacy `DATA/XENON` layouts. Localized index/project subdirectories can share their own parent archives; detached root indices retain legacy discovery. The existing pinned USA index and archive readers remain in force. The native FMOD loader requires both the project and wave archive before adopting a source. This does not rename or convert any game assets, alter the guest VFS or remove the XEX. The existing native save root remains under Documents/SEGA/The Incredible Hulk/NativePC/SavedGames, with retail HULK.sav separate. Portable layout tests passed on GCC and Clang; Windows integration is not compiled or exercised.

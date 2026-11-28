@@ -256,6 +256,7 @@ if(HULK_NATIVE_CORE_ONLY)
         eor_fmod_reverb_room_test
         eor_live_dsp_stream_test
         eor_native_present_contract_test
+        eor_original_archive_layout_test
         eor_snapshot_budget_test
         eor_exit_confirmation_test
         eor_original_pc_menu_input_test

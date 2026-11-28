@@ -2,6 +2,7 @@
 // Never writes guest memory, never bypasses the original NativeX or Xenos.
 // This is an input provenance oracle, not a completed Vulkan renderer.
 #include "eor_xdk_hook_bridge.h"
+#include "eor_original_archive_layout.h"
 #include "eor_original_pause_vm.h"
 #include "eor_native_ui_prompts.h"
 #include "eor_original_pc_menu.h"
@@ -543,42 +544,30 @@ void ConfigureNativeFmodSource(const std::filesystem::path& root) noexcept {
 #ifdef _WIN32
   if(root.empty()||!g_native_fmod_enabled.load(std::memory_order_acquire))return;
   try {
-    const auto base=root/"DATA"/"XENON";
-    const auto xenon=root/"XENON";
-    for(const auto& index_path:{base/"USENGLISH"/"INDEX.IND",base/"INDEX.IND",
-        xenon/"USENGLISH"/"INDEX.IND",xenon/"INDEX.IND",root/"USENGLISH"/"INDEX.IND",
-        root/"INDEX.IND",root/"index(2).ind"}){
-      if(!std::filesystem::is_regular_file(index_path))continue;
+    for(const auto& location:hulk::eor::source::OriginalArchiveLocations(root)){
+      const auto archive=location.directory/"FMODPROJ.ARC";
+      if(!hulk::eor::source::IsArchiveFile(archive))continue;
+      auto wave=hulk::eor::source::OriginalWaveArchive(location);
+      if(wave.empty())continue;
       try {
-        const auto index=Index::LoadPinnedUsa(index_path);
-        for(const auto& dir:{index_path.parent_path(),base/"USENGLISH",base,xenon/"USENGLISH",xenon,root}){
-          const auto archive=dir/"FMODPROJ.ARC";
-          if(!std::filesystem::is_regular_file(archive))continue;
-          try {
-            auto catalog=fmod::LoadLiveFevCatalog(index,archive);
-            if(!catalog)continue;
-            std::filesystem::path wave;
-            for(const auto& wave_dir:{dir,base/"USENGLISH",base,xenon/"USENGLISH",xenon,root}){
-              const auto candidate=wave_dir/"WAVEBANK.ARC";
-              if(std::filesystem::is_regular_file(candidate)){wave=candidate;break;}
-            }
-            auto index_owner=std::make_unique<Index>(index);
-            auto project_path=archive;
-            std::lock_guard lock(g_native_fmod_mutex);
-            if(!g_native_fmod_mixer)return;
-            REXLOG_INFO("[HULK/FMOD-NATIVE] loaded {} verified source projects",catalog->projects.size());
-            g_native_fmod_mixer->StopAll();
-            g_native_fmod_shadow_voices.Clear();
-            g_native_fmod_start_trace.Clear();g_native_fmod_trace_base=nullptr;
-            g_native_fmod_capture_schedule.Reset();
-            g_native_fmod_index=std::move(index_owner);
-            g_native_fmod_project_arc=std::move(project_path);
-            g_native_fmod_wave_arc=std::move(wave);
-            g_native_fmod_catalog=std::move(catalog);
-            g_native_fmod_bound_events.clear();
-            return;
-          } catch (...) {}
-        }
+        const auto index=Index::LoadPinnedUsa(location.index);
+        auto catalog=fmod::LoadLiveFevCatalog(index,archive);
+        if(!catalog)continue;
+        auto index_owner=std::make_unique<Index>(index);
+        auto project_path=archive;
+        std::lock_guard lock(g_native_fmod_mutex);
+        if(!g_native_fmod_mixer)return;
+        REXLOG_INFO("[HULK/FMOD-NATIVE] loaded {} verified source projects",catalog->projects.size());
+        g_native_fmod_mixer->StopAll();
+        g_native_fmod_shadow_voices.Clear();
+        g_native_fmod_start_trace.Clear();g_native_fmod_trace_base=nullptr;
+        g_native_fmod_capture_schedule.Reset();
+        g_native_fmod_index=std::move(index_owner);
+        g_native_fmod_project_arc=std::move(project_path);
+        g_native_fmod_wave_arc=std::move(wave);
+        g_native_fmod_catalog=std::move(catalog);
+        g_native_fmod_bound_events.clear();
+        return;
       } catch (...) {}
     }
     REXLOG_WARN("[HULK/FMOD-NATIVE] matching pinned USA index/project archive not found");
@@ -3080,36 +3069,20 @@ struct AutomaticArchivePaths {
 };
 std::optional<AutomaticArchivePaths> FindAutomaticArchives(
     const std::filesystem::path& root) {
-  if(root.empty())return {};
-  const auto base=root/"DATA"/"XENON";
-  // The game-data resolver can return the original root OR its DATA or
-  // XENON directory. Look in the actual owner layout, including the
-  // separately supplied, digest-verified archive index.
-  const auto xenon=root/"XENON";
-  for(const auto& index:{base/"INDEX.IND",base/"indexXBOX360.ind",
-       base/"USENGLISH"/"INDEX.IND",base/"UKENGLISH"/"INDEX.IND",
-       xenon/"INDEX.IND",xenon/"indexXBOX360.ind",
-       xenon/"USENGLISH"/"INDEX.IND",xenon/"UKENGLISH"/"INDEX.IND",
-       root/"USENGLISH"/"INDEX.IND",root/"UKENGLISH"/"INDEX.IND",
-       root/"INDEX.IND",root/"indexXBOX360.ind",root/"index(1).ind",root/"index(2).ind",
-       root/"Data"/"Xenon"/"INDEX.IND"}) {
-    if(!std::filesystem::is_regular_file(index))continue;
-    for(const auto& dir:{index.parent_path(),base,xenon,root}) {
-      const auto models=dir/"MODELS.ARC";
-      const auto textures=dir/"TEXTURES.ARC";
-      if(!std::filesystem::is_regular_file(models) ||
-         !std::filesystem::is_regular_file(textures))continue;
-      std::filesystem::path streams;
-      for(const auto& candidate:{dir/"TEXSTREAMS.ARC",dir/"TEXSTREAM.ARC",dir/"TexStreams.arc"})
-        if(std::filesystem::is_regular_file(candidate)){streams=candidate;break;}
-      try {
-        // Both owner indices have been independently compared at the
-        // complete graphics table level, including TexStreams. The
-        // second pinned source index is NOT a regional guess.
-        (void)Index::LoadPinnedUsaGraphicsArchive(index);
-        return AutomaticArchivePaths{index,models,textures,streams};
-      } catch(const std::exception&) {}
-    }
+  for(const auto& location:hulk::eor::source::OriginalArchiveLocations(root)) {
+    const auto& index=location.index;
+    const auto& dir=location.directory;
+    const auto models=dir/"MODELS.ARC";
+    const auto textures=dir/"TEXTURES.ARC";
+    if(!hulk::eor::source::IsArchiveFile(models) ||
+       !hulk::eor::source::IsArchiveFile(textures))continue;
+    std::filesystem::path streams;
+    for(const auto& candidate:{dir/"TEXSTREAMS.ARC",dir/"TEXSTREAM.ARC",dir/"TexStreams.arc"})
+      if(hulk::eor::source::IsArchiveFile(candidate)){streams=candidate;break;}
+    try {
+      (void)Index::LoadPinnedUsaGraphicsArchive(index);
+      return AutomaticArchivePaths{index,models,textures,streams};
+    } catch(const std::exception&) {}
   }
   return {};
 }
@@ -4605,26 +4578,10 @@ native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(
             game_root=g_original_game_asset_root;
           }
           if(!game_root.empty()) {
-            const auto base=game_root/"DATA"/"XENON";
-            using SourcePath=std::pair<std::filesystem::path,std::filesystem::path>;
-            const std::array<SourcePath,8> sources{{
-                {base/"INDEX.IND",base/"MODELS.ARC"},
-                {base/"indexXBOX360.ind",base/"MODELS.ARC"},
-                {base/"USENGLISH"/"INDEX.IND",base/"MODELS.ARC"},
-                {base/"UKENGLISH"/"INDEX.IND",base/"MODELS.ARC"},
-                // The owner's extracted original source archive may live
-                // beside the original game's default.xex. Both accepted
-                // USA model indices are individually SHA-256 pinned.
-                {game_root/"indexXBOX360.ind",game_root/"MODELS.ARC"},
-                {game_root/"INDEX.IND",game_root/"MODELS.ARC"},
-                {game_root/"index(1).ind",game_root/"MODELS.ARC"},
-                {game_root/"Data"/"Xenon"/"INDEX.IND",
-                 game_root/"Data"/"Xenon"/"MODELS.ARC"},
-            }};
-            for(const auto& [index,models]:sources) {
-              if(!std::filesystem::is_regular_file(index) ||
-                 !std::filesystem::is_regular_file(models))
-                continue;
+            for(const auto& location:hulk::eor::source::OriginalArchiveLocations(game_root)) {
+              const auto& index=location.index;
+              const auto models=location.directory/"MODELS.ARC";
+              if(!hulk::eor::source::IsArchiveFile(models))continue;
               try {
                 auto source=std::make_unique<world::ArchiveModelSource>(
                     index,models);
