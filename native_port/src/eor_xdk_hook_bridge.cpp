@@ -3288,13 +3288,15 @@ class ExclusiveEorSession : public std::enable_shared_from_this<ExclusiveEorSess
     } catch (...) {queued=false;}
   }
  private:
-  void ReportRejected(uint64_t sequence,const char* reason) {
-    // Log transitions as well as periodic samples. The first five guest
-    // Presents may be empty; a later rejection must not remain invisible.
-    if(last_rejection_!=reason || sequence<=5 || sequence%120==0) {
-      REXLOG_WARN("[HULK/EOR-WIN32] frame={} not presented: {}",sequence,reason);
-      last_rejection_=reason;
-    }
+  void ReportRejected(uint64_t sequence,const char* reason) noexcept {
+    try {
+      // Log transitions, including late first failures; never terminate
+      // the noexcept window callback because logging allocated memory.
+      if(last_rejection_!=reason || sequence<=5 || sequence%120==0) {
+        REXLOG_WARN("[HULK/EOR-WIN32] frame={} not presented: {}",sequence,reason);
+        last_rejection_=reason;
+      }
+    } catch (...) {}
   }
   void Drain() noexcept {
     std::shared_ptr<const Frame> frame;
@@ -3313,6 +3315,10 @@ class ExclusiveEorSession : public std::enable_shared_from_this<ExclusiveEorSess
     if(!frame)return;
     bool staged=false;
     try {
+      if(!host || !host->Device() || !host->Context() || !host->SwapChain()) {
+        ReportRejected(frame->sequence,"native host device unavailable");
+        return;
+      }
       RecordObservedOriginalAotPairDemand(*frame);
       AdoptNewPrivateOriginalSpirvIfSafe(frame->sequence,host->Context());
       std::optional<OfflineShaderPack> current;
@@ -3320,7 +3326,8 @@ class ExclusiveEorSession : public std::enable_shared_from_this<ExclusiveEorSess
         std::lock_guard lock(g_mutex);
         current=g_offline_shader_pack;
       }
-      if(!current || !current->samplers || !current->virtual_ids) {
+      if(!current || !current->shaders || !current->effects ||
+         !current->reflection || !current->samplers || !current->virtual_ids) {
         ReportRejected(frame->sequence,"verified shader bank or metadata unavailable");
         return;
       }
@@ -3328,9 +3335,17 @@ class ExclusiveEorSession : public std::enable_shared_from_this<ExclusiveEorSess
         ReportRejected(frame->sequence,"no original XDK Draw calls");
         return;
       }
-      if(!std::all_of(frame->calls.begin(),frame->calls.end(),HasRequiredReplaySnapshot) ||
-         !ValidateOriginalCommandTimeline(*frame)) {
-        ReportRejected(frame->sequence,"incomplete original XDK replay snapshots or command timeline");
+      const auto missing=std::find_if_not(frame->calls.begin(),frame->calls.end(),HasRequiredReplaySnapshot);
+      if(missing!=frame->calls.end()) {
+        const auto ordinal=static_cast<size_t>(missing-frame->calls.begin());
+        const auto reason="incomplete XDK Draw snapshot at ordinal "+std::to_string(ordinal)+
+            " of "+std::to_string(frame->calls.size())+" kind="+
+            std::to_string(static_cast<unsigned>(missing->kind));
+        ReportRejected(frame->sequence,reason.c_str());
+        return;
+      }
+      if(!ValidateOriginalCommandTimeline(*frame)) {
+        ReportRejected(frame->sequence,"incomplete original XDK command timeline");
         return;
       }
       if(!host->Device() || !host->Context() || !host->SwapChain()) {
@@ -3384,9 +3399,11 @@ class ExclusiveEorSession : public std::enable_shared_from_this<ExclusiveEorSess
       const auto result=owner->native_executor->Submit(
           owner->contract.output,draws,*frame,std::move(retained));
       staged=result==gpu::NativeFrameSubmission::IncompleteSource;
-      if(result!=gpu::NativeFrameSubmission::Submitted)
-        ReportRejected(frame->sequence,staged?"incomplete original GPU source":"native GPU submission failed");
-      else
+      if(result!=gpu::NativeFrameSubmission::Submitted) {
+        const auto* detail=owner->native_executor->LastFailure();
+        ReportRejected(frame->sequence,*detail?detail:
+            (staged?"incomplete original GPU source":"native GPU submission failed"));
+      } else
         last_rejection_.clear();
       if(result==gpu::NativeFrameSubmission::Submitted && !presented_) {
         presented_=true;
@@ -3396,10 +3413,10 @@ class ExclusiveEorSession : public std::enable_shared_from_this<ExclusiveEorSess
       if(result==gpu::NativeFrameSubmission::FailedAfterGpu)
         g_eor_gpu_failures.fetch_add(1,std::memory_order_relaxed);
     } catch(const std::exception& error) {
-      if(frame->sequence<=5 || frame->sequence%120==0)
-        REXLOG_WARN("[HULK/EOR-WIN32] source frame {}: {}",frame->sequence,error.what());
-    } catch (...) {}
-    if(staged)owner->backend->DiscardUnsubmittedOriginalFontDraws(frame->sequence);
+      ReportRejected(frame->sequence,error.what());
+    } catch (...) {ReportRejected(frame->sequence,"unknown original frame preparation exception");}
+    if(staged && owner && owner->backend)
+      owner->backend->DiscardUnsubmittedOriginalFontDraws(frame->sequence);
   }
   bool presented_=false;
   std::string last_rejection_;

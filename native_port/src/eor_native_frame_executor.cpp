@@ -6,6 +6,10 @@
 #include "Fence.h"
 #include "RefCntAutoPtr.hpp"
 #include <deque>
+#include <array>
+#include <algorithm>
+#include <cstring>
+#include <exception>
 #include <utility>
 
 namespace hulk::eor::gpu {
@@ -26,6 +30,11 @@ struct EorNativeFrameExecutor::State {
   uint64_t last_signal=0;
   uint64_t last_submitted_frame=0;
   bool completion_failed=false;
+  std::array<char,768> failure{};
+  void SetFailure(const char* message) noexcept {
+    const auto n=(std::min)(std::strlen(message),failure.size()-1);
+    std::memcpy(failure.data(),message,n);failure[n]=0;
+  }
   std::deque<Pending> pending;
 };
 EorNativeFrameExecutor::EorNativeFrameExecutor(
@@ -62,6 +71,9 @@ EorNativeFrameExecutor::EorNativeFrameExecutor(
   }
 }
 EorNativeFrameExecutor::~EorNativeFrameExecutor() noexcept {Shutdown();}
+const char* EorNativeFrameExecutor::LastFailure() const noexcept {
+  return state_?state_->failure.data():"Native frame executor not allocated";
+}
 void EorNativeFrameExecutor::RetireCompleted() noexcept {
   if(!state_ || !state_->fence || !state_->backend)return;
   try {
@@ -82,7 +94,15 @@ NativeFrameSubmission EorNativeFrameExecutor::Submit(
     std::span<const aot::BoundIndexedDraw> draws,
     const xdk::Frame& source,
     std::vector<std::shared_ptr<const void>> retained) noexcept {
-  if(state_ && state_->completion_failed)return NativeFrameSubmission::FailedAfterGpu;
+  if(state_)state_->SetFailure("");
+  if(state_ && state_->completion_failed) {
+    state_->SetFailure("Previous GPU completion failed; device recovery required");
+    return NativeFrameSubmission::FailedAfterGpu;
+  }
+  const auto reject=[this](const char* reason) noexcept {
+    if(state_)state_->SetFailure(reason);
+    return NativeFrameSubmission::IncompleteSource;
+  };
   const auto& frame=physical_frame;
   // Timeline planning can allocate and the driver may throw on descriptor
   // queries. A rejected pre-Draw frame must not escape this noexcept API
@@ -99,24 +119,26 @@ NativeFrameSubmission EorNativeFrameExecutor::Submit(
        source.sequence<=state_->last_submitted_frame ||
        !xdk::ValidateOriginalCommandTimeline(source) ||
        !state_->backend->CanReplayOriginalXdkTimeline(source))
-      return NativeFrameSubmission::IncompleteSource;
+      return reject("Original frame ownership, timeline or shader bank validation failed");
     for(size_t i=0;i<draws.size();++i)
       if(draws[i].draw.source_frame!=source.sequence ||
          draws[i].draw.source_ordinal!=i)
-        return NativeFrameSubmission::IncompleteSource;
+        return reject("Original Draw sequence does not match native order");
     if(!native::HasFullNativeCompositePixels(frame.world,frame.composite,
          frame.backbuffer))
-      return NativeFrameSubmission::IncompleteSource;
+      return reject("Native physical frame extent is incomplete");
     // Resize BEFORE DrawIndexed, never inside Present.
     // Borrowed worker handles are already resized by their sole owner.
     // Never resize or physically Present a swapchain owned by that worker.
-    if(state_->host && !state_->host->ResizeToClient())return NativeFrameSubmission::IncompleteSource;
+    if(state_->host && !state_->host->ResizeToClient())return reject("Native swapchain resize unavailable");
     const auto& swap=state_->swapchain->GetDesc();
     if(frame.backbuffer.width!=swap.Width ||
        frame.backbuffer.height!=swap.Height)
-      return NativeFrameSubmission::IncompleteSource;
+      return reject("Native swapchain extent changed");
+  } catch (const std::exception& e) {
+    return reject(e.what());
   } catch (...) {
-    return NativeFrameSubmission::IncompleteSource;
+    return reject("Unknown native frame validation exception");
   }
 
   RetireCompleted();
@@ -124,7 +146,7 @@ NativeFrameSubmission EorNativeFrameExecutor::Submit(
   // work. Moving owners into a temporary deque element after Draw can free
   // them on allocation failure before the exception handler waits for idle.
   try {state_->pending.emplace_back();}
-  catch (...) {return NativeFrameSubmission::IncompleteSource;}
+  catch (...) {return reject("Native GPU ownership allocation failed");}
   auto& current=state_->pending.back();
   current.source_frame=source.sequence;
   current.owners.swap(retained); // nonthrowing; value=0 means not fenced yet
@@ -155,6 +177,11 @@ NativeFrameSubmission EorNativeFrameExecutor::Submit(
     state_->last_submitted_frame=source.sequence;
     return NativeFrameSubmission::Submitted;
   } catch (...) {
+    // Preserve the original Draw/binding failure before cleanup changes
+    // the state. Fixed-size storage cannot throw from this noexcept API.
+    try {throw;}
+    catch(const std::exception& e){state_->SetFailure(e.what());}
+    catch(...){state_->SetFailure("Unknown native GPU replay exception");}
     if(began_gpu) {
       // A partially submitted frame must never be replayed or replaced by
       // a competing renderer, even if the completion barrier itself fails.

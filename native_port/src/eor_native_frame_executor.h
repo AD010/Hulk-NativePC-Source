@@ -46,6 +46,8 @@ class EorNativeFrameExecutor final {
 
   // Poll on the same native Vulkan render thread as Submit; never retire
   // transient font/debris buffers just because the source frame advanced.
+  // Valid until the next Submit or Shutdown; render thread only.
+  const char* LastFailure() const noexcept;
   void RetireCompleted() noexcept;
   void Shutdown() noexcept;
  private:
