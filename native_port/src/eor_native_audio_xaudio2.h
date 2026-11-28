@@ -10,6 +10,8 @@
 #include <span>
 #include <string_view>
 #include "eor_voice_options.h"
+#include <optional>
+#include <vector>
 
 namespace hulk::eor {class Index;}
 namespace hulk::eor::audio {
@@ -27,6 +29,11 @@ inline constexpr bool ValidPcm16(std::span<const int16_t> pcm,
          pcm.size()%channels==0u;
 }
 
+struct EventCueRequest {
+  uint32_t layer=0,instance=0,variant=0;
+  float gain=1.f;
+  VoiceOptions options{};
+};
 // This class is independent of the PPC guest runtime and GPU renderer.
 // Feed it verified decoded PCM16; caller retains original FMOD event routing.
 class NativeXAudio2Mixer {
@@ -69,6 +76,14 @@ class NativeXAudio2Mixer {
       VoiceOptions options={});
   // An accepted delayed voice has an ID before playback begins. Call once
   // per elapsed game-time interval; pause freezes the pending clock.
+  // Admit all explicitly selected cues as a group before starting any.
+  // Returned IDs belong to the caller's verified event instance.
+  std::optional<std::vector<VoiceId>> PlayEventGroup(Bus bus,const hulk::eor::Index& index,
+      const std::filesystem::path& project_archive,const std::filesystem::path& wave_archive,
+      uint32_t project_hash,std::string_view group,std::string_view event_name,
+      std::span<const EventCueRequest> cues);
+  size_t StopEventVoices(std::span<const VoiceId> voices) noexcept;
+  size_t PauseEventVoices(std::span<const VoiceId> voices,bool pause) noexcept;
   bool AdvanceScheduledVoices(uint32_t elapsed_ms) noexcept;
   bool SetVoiceFrequencyRatio(VoiceId id,float ratio) noexcept;
   bool SetVoiceFilter(VoiceId id,VoiceFilter filter,float frequency,float one_over_q) noexcept;

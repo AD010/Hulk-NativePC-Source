@@ -8,6 +8,7 @@ struct VoiceOptions {
   float frequency_ratio=1.f;
   VoiceFilter filter=VoiceFilter::Bypass;
   float filter_frequency=1.f,filter_one_over_q=1.f;
+  bool start_paused=false;
 };
 inline bool ValidVoiceFilter(VoiceFilter filter,float frequency,float one_over_q) noexcept {
   return (filter==VoiceFilter::Bypass||filter==VoiceFilter::LowPass||filter==VoiceFilter::HighPass)&&

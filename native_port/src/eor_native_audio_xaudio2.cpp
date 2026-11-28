@@ -2,6 +2,7 @@
 #define NOMINMAX
 #endif
 #include "eor_native_audio_xaudio2.h"
+#include "eor_event_voice_group.h"
 #include "eor_fsb4_pcm.h"
 #include "eor_fsb3_ima.h"
 #include "eor_fmod_project.h"
@@ -130,7 +131,7 @@ bool NativeXAudio2Mixer::PlayPcm16(Bus bus,std::span<const int16_t> samples,
     voice=std::make_unique<State::Voice>();
     voice->bus=bus_id;
     voice->gain=gain;
-    voice->clock={options.delay_ms,options.delay_ms!=0,false};
+    voice->clock={options.delay_ms,options.delay_ms!=0,options.start_paused};
     voice->samples.assign(samples.begin(),samples.end());
   } catch (...) {return false;}
   WAVEFORMATEX wave{};
@@ -153,7 +154,7 @@ bool NativeXAudio2Mixer::PlayPcm16(Bus bus,std::span<const int16_t> samples,
      FAILED(voice->source->SetFrequencyRatio(options.frequency_ratio)) ||
      FAILED(voice->source->SubmitSourceBuffer(&buffer)))return false;
   if(!state_->UpdateVolume(*voice))return false;
-  if(!voice->clock.pending && FAILED(voice->source->Start(0)))return false;
+  if(!voice->clock.pending && !voice->clock.paused && FAILED(voice->source->Start(0)))return false;
   // Publish an ID only after a real XAudio2 buffer has been accepted.
   voice->id=++state_->last_voice_id;
   const auto id=voice->id;
@@ -258,6 +259,37 @@ bool NativeXAudio2Mixer::PlayEventVariant(Bus bus,const hulk::eor::Index& index,
     return offset && PlayProjectWaveform(bus,index,project_archive,wave_archive,
         project_hash,*offset,gain,started,options);
   } catch (...) {return false;}
+}
+std::optional<std::vector<VoiceId>> NativeXAudio2Mixer::PlayEventGroup(Bus bus,
+    const hulk::eor::Index& index,const std::filesystem::path& project_archive,
+    const std::filesystem::path& wave_archive,uint32_t project_hash,
+    std::string_view group,std::string_view event_name,std::span<const EventCueRequest> cues) {
+  if(!Ready())return {};
+  std::lock_guard lock(state_->mutex);
+  return AdmitEventVoiceGroup<EventCueRequest>(cues,[&](const EventCueRequest& cue) {
+    auto options=cue.options;options.start_paused=true;
+    VoiceId id=0;
+    if(!PlayEventVariant(bus,index,project_archive,wave_archive,project_hash,
+        group,event_name,cue.layer,cue.instance,cue.variant,cue.gain,&id,options))
+      return VoiceId{0};
+    return id;
+  },[&](const EventCueRequest& cue,VoiceId id) {
+    return cue.options.start_paused || PauseVoice(id,false);
+  },[&](VoiceId id) noexcept {(void)StopVoice(id);});
+}
+size_t NativeXAudio2Mixer::StopEventVoices(std::span<const VoiceId> voices) noexcept {
+  if(!Ready())return 0;
+  std::lock_guard lock(state_->mutex);
+  size_t done=0;
+  for(auto id:voices)if(StopVoice(id))++done;
+  return done;
+}
+size_t NativeXAudio2Mixer::PauseEventVoices(std::span<const VoiceId> voices,bool pause) noexcept {
+  if(!Ready())return 0;
+  std::lock_guard lock(state_->mutex);
+  size_t done=0;
+  for(auto id:voices)if(PauseVoice(id,pause))++done;
+  return done;
 }
 bool NativeXAudio2Mixer::StopVoice(VoiceId id) noexcept {
   if(!Ready()||!id)return false;
