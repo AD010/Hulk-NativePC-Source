@@ -4,6 +4,8 @@
 #include "eor_archive.h"
 #include "eor_fev_automation.h"
 #include "eor_fev_voice_schedule.h"
+#include "eor_fmod_live_binding.h"
+#include <memory>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
@@ -76,4 +78,16 @@ std::optional<std::vector<audio::FevVoiceBlock>> ResolveEventVoiceSchedule(
     const Index& index,const std::filesystem::path& project_archive,
     uint32_t project_hash,std::string_view group,std::string_view event_name,uint32_t layer,
     std::span<const audio::FevParameterSnapshot> snapshots,bool spatial_ready=false,bool moving_seek_ready=false);
+// Own archive bytes for all string_view/span fields of the parsed FEV.
+// No copies or moves can detach those views from their backing allocation.
+struct LiveFevCatalog {
+  struct Project {uint32_t hash=0;audio::FevEventTable table;};
+  LiveFevCatalog()=default;
+  LiveFevCatalog(const LiveFevCatalog&)=delete;
+  LiveFevCatalog& operator=(const LiveFevCatalog&)=delete;
+  std::vector<std::byte> archive_bytes;
+  std::map<std::string,Project,std::less<>> projects;
+};
+std::unique_ptr<LiveFevCatalog> LoadLiveFevCatalog(const Index& index,
+    const std::filesystem::path& archive);
 } // namespace hulk::eor::fmod

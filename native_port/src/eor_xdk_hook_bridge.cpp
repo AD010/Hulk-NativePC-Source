@@ -17,6 +17,7 @@
 #include "eor_native_frame_executor.h"
 #include "eor_native_audio_xaudio2.h"
 #include "eor_fmod_live_events.h"
+#include "eor_fmod_project.h"
 #endif
 #include "eor_diligent_host_output.h"
 #include "eor_live_material_producer.h"
@@ -105,6 +106,13 @@ std::atomic<bool> g_native_fmod_enabled{false};
 uint8_t* g_native_fmod_base=nullptr;
 uint32_t g_native_fmod_owner=0;
 std::vector<audio::LiveFmodEvent> g_native_fmod_events;
+std::unique_ptr<fmod::LiveFevCatalog> g_native_fmod_catalog;
+struct BoundNativeFmodEvent {
+  uint32_t owner=0,project_hash=0;
+  audio::LiveFevBinding binding;
+  std::vector<audio::FevLayerGainPitch> layer_controls;
+};
+std::vector<BoundNativeFmodEvent> g_native_fmod_bound_events;
 std::chrono::steady_clock::time_point g_native_fmod_last_capture{};
 bool g_native_fmod_capture_failed=false;
 #endif
@@ -512,13 +520,48 @@ bool StartNativeFmodUpdateService() noexcept {
 #endif
   return false;
 }
+void ConfigureNativeFmodSource(const std::filesystem::path& root) noexcept {
+#ifdef _WIN32
+  if(root.empty()||!g_native_fmod_enabled.load(std::memory_order_acquire))return;
+  try {
+    const auto base=root/"DATA"/"XENON";
+    const auto xenon=root/"XENON";
+    for(const auto& index_path:{base/"USENGLISH"/"INDEX.IND",base/"INDEX.IND",
+        xenon/"USENGLISH"/"INDEX.IND",xenon/"INDEX.IND",root/"USENGLISH"/"INDEX.IND",
+        root/"INDEX.IND",root/"index(2).ind"}){
+      if(!std::filesystem::is_regular_file(index_path))continue;
+      try {
+        const auto index=Index::LoadPinnedUsa(index_path);
+        for(const auto& dir:{index_path.parent_path(),base/"USENGLISH",base,xenon/"USENGLISH",xenon,root}){
+          const auto archive=dir/"FMODPROJ.ARC";
+          if(!std::filesystem::is_regular_file(archive))continue;
+          try {
+            auto catalog=fmod::LoadLiveFevCatalog(index,archive);
+            if(!catalog)continue;
+            std::lock_guard lock(g_native_fmod_mutex);
+            if(!g_native_fmod_mixer)return;
+            REXLOG_INFO("[HULK/FMOD-NATIVE] loaded {} verified source projects",catalog->projects.size());
+            g_native_fmod_catalog=std::move(catalog);
+            g_native_fmod_bound_events.clear();
+            return;
+          } catch (...) {}
+        }
+      } catch (...) {}
+    }
+    REXLOG_WARN("[HULK/FMOD-NATIVE] matching pinned USA index/project archive not found");
+  } catch (...) {}
+#else
+  (void)root;
+#endif
+}
 void StopNativeFmodUpdateService() noexcept {
 #ifdef _WIN32
   g_native_fmod_enabled.store(false,std::memory_order_release);
   std::lock_guard lock(g_native_fmod_mutex);
   g_native_fmod_mixer.reset();
   g_native_fmod_base=nullptr;g_native_fmod_owner=0;
-  g_native_fmod_events.clear();g_native_fmod_last_capture={};g_native_fmod_capture_failed=false;
+  g_native_fmod_events.clear();g_native_fmod_bound_events.clear();g_native_fmod_catalog.reset();
+  g_native_fmod_last_capture={};g_native_fmod_capture_failed=false;
 #endif
 }
 std::optional<audio::FmodUpdateStamp> CaptureOriginalFmodUpdate(const PPCContext& ctx,uint8_t* base) noexcept {
@@ -563,7 +606,24 @@ void FinishOriginalFmodUpdate(std::optional<audio::FmodUpdateStamp> stamp,const 
     }
     g_native_fmod_capture_failed=false;
     unsigned reported=0;
+    std::vector<BoundNativeFmodEvent> bound;
     for(const auto& event:*active){
+      if(g_native_fmod_catalog){
+        const auto project=g_native_fmod_catalog->projects.find(event.project);
+        if(project!=g_native_fmod_catalog->projects.end()){
+          auto binding=audio::BindLiveFevEvent(event,project->first,project->second.table);
+          if(binding){
+            const auto& definition=project->second.table.events[binding->event_index];
+            BoundNativeFmodEvent item{event.owner,project->second.hash,std::move(*binding),{}};
+            for(uint32_t layer=0;layer<definition.layer_records.size();++layer){
+              const auto controls=audio::EvaluateFevLayerGainPitch(definition,layer,item.binding.physical_values);
+              if(!controls)break;
+              item.layer_controls.push_back(*controls);
+            }
+            if(item.layer_controls.size()==definition.layer_records.size())bound.push_back(std::move(item));
+          }
+        }
+      }
       const auto same=std::find_if(g_native_fmod_events.begin(),g_native_fmod_events.end(),
         [&](const auto& old){return old.owner==event.owner&&old.project_owner==event.project_owner&&
            old.project==event.project&&old.group==event.group&&old.name==event.name;});
@@ -571,6 +631,9 @@ void FinishOriginalFmodUpdate(std::optional<audio::FmodUpdateStamp> stamp,const 
         REXLOG_INFO("[HULK/FMOD-NATIVE] active event {} / {} / {} parameters={}",
           event.project,event.group,event.name,event.parameters.size());
     }
+    if(bound.size()!=g_native_fmod_bound_events.size())
+      REXLOG_INFO("[HULK/FMOD-NATIVE] bound {} of {} observed active event roots to original FEV",bound.size(),active->size());
+    g_native_fmod_bound_events=std::move(bound);
     g_native_fmod_events=std::move(*active);
   } catch (...) {
     // Diagnostic allocation or read failure must not affect original audio.

@@ -20,6 +20,7 @@ namespace hulk::eor::xdk {
 // Experimental host mixer lifecycle, only when explicitly enabled.
 // Call-through original FMOD remains authoritative until event ownership is proven.
 bool StartNativeFmodUpdateService() noexcept;
+void ConfigureNativeFmodSource(const std::filesystem::path& root) noexcept;
 void StopNativeFmodUpdateService() noexcept;
 std::optional<audio::FmodUpdateStamp> CaptureOriginalFmodUpdate(const PPCContext& ctx,uint8_t* base) noexcept;
 void FinishOriginalFmodUpdate(std::optional<audio::FmodUpdateStamp> stamp,const PPCContext& ctx,uint8_t* base) noexcept;

@@ -219,4 +219,27 @@ std::optional<std::vector<audio::FevVoiceBlock>> ResolveEventVoiceSchedule(
   }
   return match?audio::BuildFevVoiceSchedule(*match,layer,snapshots,spatial_ready,moving_seek_ready):std::nullopt;
 }
+std::unique_ptr<LiveFevCatalog> LoadLiveFevCatalog(const Index& index,
+    const std::filesystem::path& archive) {
+  if(index.byte_order()!=ByteOrder::Big||!MatchesIndexedArchive(index,"FmodProjects",archive))return {};
+  const auto group=index.groups().find("FmodProjects");
+  if(group==index.groups().end()||group->second.size()>65536u)return {};
+  const auto size=std::filesystem::file_size(archive);
+  if(size>(64u<<20))return {};
+  auto result=std::make_unique<LiveFevCatalog>();
+  result->archive_bytes.resize(static_cast<size_t>(size));
+  std::ifstream file(archive,std::ios::binary);
+  if(!file.read(reinterpret_cast<char*>(result->archive_bytes.data()),
+      static_cast<std::streamsize>(result->archive_bytes.size())))return {};
+  const audio::AudioBytes all(result->archive_bytes);
+  for(const auto& rec:group->second){
+    if(rec.offset>all.size()||rec.size>all.size()-rec.offset||rec.size>(2u<<20))return {};
+    const auto bytes=all.subspan(rec.offset,rec.size);
+    auto project=Inspect(bytes,rec.hash);
+    auto table=audio::InspectFevEventTable(bytes.subspan(project.embedded_fev_offset),project.identifier);
+    if(!table||!result->projects.emplace(std::move(project.identifier),
+          LiveFevCatalog::Project{rec.hash,std::move(*table)}).second)return {};
+  }
+  return result;
+}
 } // namespace hulk::eor::fmod
