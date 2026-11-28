@@ -59,6 +59,7 @@ inline KnownTables DecodeNativeProgress(std::span<const std::byte> bytes) {
 // These host file APIs do not require a guest mount, XUID, XAM, or ReXGlue.
 // Caller chooses a new NativePC path, never the original retail HULK.sav.
 inline bool StoreNativeProgress(const std::filesystem::path& path,const KnownTables& data) {
+  if(path.extension()!=".hpr")return false; // Never replace a retail or guest HULK.SAV.
   const auto bytes=EncodeNativeProgress(data);
   return hulk::save::CommitMetadata(path,bytes.data(),bytes.size());
 }
@@ -72,5 +73,33 @@ inline KnownTables LoadNativeProgress(const std::filesystem::path& path) {
   if(!in.read(reinterpret_cast<char*>(bytes.data()),static_cast<std::streamsize>(bytes.size()))||in.peek()!=std::char_traits<char>::eof()||in.bad())
     throw std::runtime_error("Cannot read complete native Hulk progress");
   return DecodeNativeProgress(bytes);
+}
+enum class NativeMirrorResult { Unchanged, Stored, Unsupported, IoFailure };
+// Use only after the source save has completed its normal host flush.
+// Never substitute an older mirror for the live guest file automatically.
+inline NativeMirrorResult MirrorOriginalProgress(const std::filesystem::path& source,
+    const std::filesystem::path& target,Kind kind) noexcept {
+  try {
+    if(target.extension()!=".hpr"||source==target)return NativeMirrorResult::IoFailure;
+    std::ifstream input(source,std::ios::binary|std::ios::ate);
+    if(!input)return NativeMirrorResult::IoFailure;
+    const auto length=input.tellg();
+    if(length<0||static_cast<uint64_t>(length)>known_detail::maximum)
+      return NativeMirrorResult::Unsupported;
+    std::vector<std::byte> bytes(static_cast<size_t>(length));
+    input.seekg(0);
+    if(!input.read(reinterpret_cast<char*>(bytes.data()),static_cast<std::streamsize>(length))||
+        input.peek()!=std::char_traits<char>::eof()||input.bad())
+      return NativeMirrorResult::IoFailure;
+    KnownTables data;
+    try {data=DecodeKnownTables(bytes,kind);}
+    catch(const std::invalid_argument&){return NativeMirrorResult::Unsupported;}
+    // Avoid accumulating another durable transaction for unchanged saves.
+    try {
+      if(EncodeKnownTables(LoadNativeProgress(target))==bytes)
+        return NativeMirrorResult::Unchanged;
+    } catch(...) {} // Missing/invalid old mirror never authorizes overwriting the source.
+    return StoreNativeProgress(target,data)?NativeMirrorResult::Stored:NativeMirrorResult::IoFailure;
+  } catch(...) {return NativeMirrorResult::IoFailure;}
 }
 }
