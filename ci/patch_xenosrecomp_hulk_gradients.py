@@ -109,10 +109,12 @@ def main():
     from patch_xenosrecomp_hulk_programs import MARK as PROGRAMS_MARK, patch_programs
     cpp,hpp,common=c.read_text(),h.read_text(),s.read_text()
     if PROGRAMS_MARK in cpp:
-        patch_programs(cpp)  # verify the entire installed frontend
+        patched=patch_programs(cpp)  # verify and update the installed frontend
         if GATE not in cpp or HPP_NEW not in hpp or HELPER not in common:
             raise ValueError('Incomplete original gradient/compiler support')
-        changed=False
+        changed=patched!=cpp
+        if changed:
+            c.write_text(patched,encoding="utf-8",newline="\n")
     else:
         cpp,hpp,common,_=patch_sources(cpp,hpp,common)
         cpp=patch_programs(cpp)

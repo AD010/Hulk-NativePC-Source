@@ -8,6 +8,56 @@ from __future__ import annotations
 MARK = "HULK_EOR_SOURCE_INTERFACE_V2"
 
 
+_IEEE_SCALAR_EDITS = (
+    ('''        case AluScalarOpcode::Logc:
+        case AluScalarOpcode::Log:
+            print("clamp(log2({}), FLT_MIN, FLT_MAX)", op(SCALAR_0));
+            break;''', '''        case AluScalarOpcode::Logc:
+            print("clamp(log2({}), FLT_MIN, FLT_MAX)", op(SCALAR_0));
+            break;
+
+        case AluScalarOpcode::Log:
+            print("log2({})", op(SCALAR_0));
+            break;'''),
+    ('''        case AluScalarOpcode::Rcpc:
+        case AluScalarOpcode::Rcpf:
+        case AluScalarOpcode::Rcp:
+            print("clamp(rcp({}), FLT_MIN, FLT_MAX)", op(SCALAR_0));
+            break;''', '''        case AluScalarOpcode::Rcpc:
+        case AluScalarOpcode::Rcpf:
+            print("clamp(rcp({}), FLT_MIN, FLT_MAX)", op(SCALAR_0));
+            break;
+
+        case AluScalarOpcode::Rcp:
+            print("rcp({})", op(SCALAR_0));
+            break;'''),
+    ('''        case AluScalarOpcode::Rsqc:
+        case AluScalarOpcode::Rsqf:
+        case AluScalarOpcode::Rsq:
+            print("clamp(rsqrt({}), FLT_MIN, FLT_MAX)", op(SCALAR_0));
+            break;''', '''        case AluScalarOpcode::Rsqc:
+        case AluScalarOpcode::Rsqf:
+            print("clamp(rsqrt({}), FLT_MIN, FLT_MAX)", op(SCALAR_0));
+            break;
+
+        case AluScalarOpcode::Rsq:
+            print("rsqrt({})", op(SCALAR_0));
+            break;'''),
+)
+
+
+def patch_ieee_scalar(source: str) -> str:
+    """Preserve the actual IEEE Xenos LOG/RCP/RSQ variants used by Hulk."""
+    states = [(source.count(old), source.count(new)) for old, new in _IEEE_SCALAR_EDITS]
+    if all(state == (0, 1) for state in states):
+        return source
+    if not all(state == (1, 0) for state in states):
+        raise ValueError("Unexpected or partially patched Xenos IEEE scalar emitter")
+    for old, new in _IEEE_SCALAR_EDITS:
+        source = source.replace(old, new, 1)
+    return source
+
+
 def patch_programs(source: str) -> str:
     # Keep the variable spelling used by XenosRecomp's ALU and fetch emitters.
     # Link stages through the container's interpolator register. Pixel inputs
@@ -112,10 +162,10 @@ def patch_programs(source: str) -> str:
     if MARK in source:
         if not all(new in source for _, new in edits):
             raise ValueError("Incomplete Hulk program patch")
-        return source
+        return patch_ieee_scalar(source)
     for old, new in edits:
         expected = 3 if old.startswith("for (auto&") else 2 if old.startswith(("usageIndex,", "assert(!instr.const0Relative")) else 1
         if source.count(old) != expected:
             raise ValueError("Unexpected XenosRecomp program source around " + old[:70])
         source = source.replace(old, new)
-    return source
+    return patch_ieee_scalar(source)

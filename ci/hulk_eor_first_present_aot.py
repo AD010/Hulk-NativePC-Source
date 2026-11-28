@@ -12,6 +12,7 @@ import json
 import os
 from pathlib import Path
 import tempfile
+import struct
 import zipfile
 import time
 from hulk_xenos_aot import (_entries, _private, _source_shaders_for_effects,
@@ -95,6 +96,34 @@ def _observed_original_passes(path:Path,max_passes:int=0) -> tuple[tuple[int,int
     return tuple(ordered)
 
 
+def _installed_shader_keys(path: Path) -> set[tuple[str, str]]:
+    """Read identities only; never reuse or authorize an unverified binary."""
+    with path.open("rb") as stream:
+        size = path.stat().st_size
+        header = stream.read(16)
+        if len(header) != 16 or header[:8] != b"HEORSPV1":
+            raise ValueError("Existing private shader bank header invalid")
+        expected, count = struct.unpack_from("<II", header, 8)
+        if not 0 < count <= expected <= 16384:
+            raise ValueError("Existing private shader bank counts invalid")
+        keys = set()
+        for _ in range(count):
+            record = stream.read(40)
+            if len(record) != 40:
+                raise ValueError("Existing private shader bank record truncated")
+            stage, words = struct.unpack_from("<II", record, 32)
+            if stage not in (1, 2) or not 5 <= words <= (8 << 20) // 4 or stream.tell() + words * 4 > size:
+                raise ValueError("Existing private shader bank record invalid")
+            key = (record[:32].hex(), "VS" if stage == 1 else "PS")
+            if key in keys:
+                raise ValueError("Existing private shader bank duplicate identity")
+            keys.add(key)
+            stream.seek(words * 4, 1)
+        if stream.tell() != size:
+            raise ValueError("Existing private shader bank unexpected tail")
+        return keys
+
+
 def compile_prepared_bank(original:Path,work:Path,install:Path,public_repo:Path,
                           hashes:tuple[int,...],xenos:Path,dxc:Path,common:Path,
                           workers:int=0,passes:tuple[tuple[int,int],...]=()):
@@ -124,6 +153,13 @@ def compile_prepared_bank(original:Path,work:Path,install:Path,public_repo:Path,
     # The live renderer still rejects every Draw with a missing real shader.
     result_dir=work/"verified_spirv"
     install.mkdir(parents=True,exist_ok=True)
+    installed_bank=install/"hulk_shader_bank.bin"
+    if installed_bank.is_file():
+        missing=_installed_shader_keys(installed_bank)-completed
+        if missing:
+            raise RuntimeError(
+                f"New AOT generation lacks {len(missing)} existing source programs; "
+                "retaining the installed bank unchanged")
     to_install={name:original/name for name in META}
     to_install["hulk_shader_bank.bin"]=result_dir/"hulk_shader_bank.bin"
     for name,source in to_install.items():
