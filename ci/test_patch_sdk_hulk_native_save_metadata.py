@@ -67,6 +67,19 @@ class NativeMetadata(unittest.TestCase):
             broken=list(inputs);broken[index]=broken[index].replace(anchor,'missing')
             with self.assertRaises(ValueError):patch_flush(*broken)
         with self.assertRaises(ValueError):patch_flush(header,inputs[1],xam)
+    def test_native_open_identity(self):
+        from patch_sdk_hulk_native_save_metadata import patch_open_identity, OPEN_IDENTITY_PAIRS
+        source=(SDK/SOURCE).read_text(encoding='utf-8') if SDK else '\n'.join(
+            old for old,new in OPEN_IDENTITY_PAIRS)
+        result,changed=patch_open_identity(source)
+        self.assertTrue(changed)
+        self.assertEqual(patch_open_identity(result),(result,False))
+        self.assertIn('if (!native_slot) return data == pkg;',result)
+        self.assertIn('hulk::save::IsHulkSaveSlot(pkg.file_name())',result)
+        for old,new in OPEN_IDENTITY_PAIRS:
+            self.assertIn(new,result)
+            with self.assertRaises(ValueError):patch_open_identity(source.replace(old,'missing'))
+            with self.assertRaises(ValueError):patch_open_identity(result.replace(new,old))
     def test_native_codec(self):
         compiler=shutil.which('clang++') or shutil.which('g++')
         if not compiler:self.skipTest('No portable C++ compiler')
