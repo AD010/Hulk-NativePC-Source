@@ -1,15 +1,31 @@
 #pragma once
 #include "eor_fev_waveform.h"
 #include <stdexcept>
+#include <array>
 namespace hulk::eor::audio {
+struct FevEffectRecord {
+  uint32_t control=0;
+  std::string_view name;
+  std::array<uint32_t,2> header{},tail{};
+  std::vector<std::array<uint32_t,3>> points;
+};
+struct FevLayerRecord {
+  AudioBytes header;
+  std::vector<AudioBytes> instance_fields;
+  std::vector<FevEffectRecord> effects;
+};
 struct FevEventEntry {
   std::string_view group,name,category;
   std::vector<std::vector<uint16_t>> layers;
+  AudioBytes fields;
+  std::vector<FevLayerRecord> layer_records;
   bool has_effects=false,has_parameters=false,has_properties=false;
 };
 struct FevSoundDefinition {
   std::string_view name;
   // nullopt is a type-2 record, not an audio sample.
+  AudioBytes fields;
+  std::vector<uint32_t> weights;
   std::vector<std::optional<size_t>> variants;
 };
 struct FevEventTable {
@@ -21,6 +37,7 @@ struct Cursor {
   AudioBytes b; size_t p=0;
   void require(bool ok) const {if(!ok)throw std::invalid_argument("Unsupported FEV1 event layout");}
   void skip(size_t n){require(p<=b.size()&&n<=b.size()-p);p+=n;}
+  AudioBytes take(size_t n){const auto at=p;skip(n);return b.subspan(at,n);}
   uint32_t u(){const auto at=p;skip(4);return AudioU32(b,at);}
   uint16_t u16(){const auto at=p;skip(2);return AudioU16(b,at);}
   uint32_t count(uint32_t max){const auto n=u();require(n<=max);return n;}
@@ -45,14 +62,21 @@ inline std::optional<FevEventTable> InspectFevEventTable(AudioBytes b,std::strin
       const auto count=r.count(4096);
       for(uint32_t i=0;i<count;++i) {
         FevEventEntry event;event.group=group;event.name=r.str();r.require(!event.name.empty());
-        r.skip(124);const auto layers=r.count(128);
+        event.fields=r.take(124);const auto layers=r.count(128);
         for(uint32_t l=0;l<layers;++l) {
-          r.skip(6);const auto sounds=r.u16(),effects=r.u16();
+          FevLayerRecord layer;layer.header=r.take(6);const auto sounds=r.u16(),effects=r.u16();
           r.require(sounds<=4096&&effects<=128);event.has_effects|=effects!=0;
           std::vector<uint16_t> refs;refs.reserve(sounds);
-          for(uint32_t k=0;k<sounds;++k){refs.push_back(r.u16());r.skip(64);}
+          for(uint32_t k=0;k<sounds;++k){refs.push_back(r.u16());layer.instance_fields.push_back(r.take(64));}
           event.layers.push_back(std::move(refs));
-          for(uint32_t k=0;k<effects;++k){r.skip(4);r.str();r.skip(8);r.skip(size_t(r.count(4096))*12+8);}
+          for(uint32_t k=0;k<effects;++k){
+            FevEffectRecord effect;effect.control=r.u();effect.name=r.str();
+            effect.header={r.u(),r.u()};const auto points=r.count(4096);
+            effect.points.reserve(points);
+            for(uint32_t j=0;j<points;++j)effect.points.push_back({r.u(),r.u(),r.u()});
+            effect.tail={r.u(),r.u()};layer.effects.push_back(std::move(effect));
+          }
+          event.layer_records.push_back(std::move(layer));
         }
         const auto parameters=r.count(1024);event.has_parameters=parameters!=0;
         for(uint32_t k=0;k<parameters;++k){r.str();r.skip(24);r.skip(size_t(r.count(4096))*4);}
@@ -62,9 +86,9 @@ inline std::optional<FevEventTable> InspectFevEventTable(AudioBytes b,std::strin
     }
     const auto defs=r.count(16384);size_t observed=0;
     for(uint32_t i=0;i<defs;++i) {
-      FevSoundDefinition def;def.name=r.str();r.skip(60);const auto count=r.count(4096);
+      FevSoundDefinition def;def.name=r.str();def.fields=r.take(60);const auto count=r.count(4096);
       for(uint32_t k=0;k<count;++k) {
-        const auto at=r.p;const auto type=r.u(),weight=r.u();
+        const auto at=r.p;const auto type=r.u(),weight=r.u();def.weights.push_back(weight);
         if(type==2){def.variants.push_back(std::nullopt);continue;}
         r.require(type==0&&observed<waves->size());
         const auto path=r.str(),bank=r.str();const auto index=r.u(),duration=r.u();

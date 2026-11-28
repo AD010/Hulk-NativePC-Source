@@ -24,6 +24,18 @@ int main(){
   const auto table=InspectFevEventTable(b,"demo");
   assert(table&&table->events.size()==1&&table->definitions.size()==1&&table->events[0].has_effects);
   assert(table->events[0].layers[0][0]==0);
+  const auto& event=table->events[0];
+  assert(event.fields.size()==124 && event.layer_records.size()==1);
+  const auto& layer=event.layer_records[0];
+  assert(layer.header.size()==6 && layer.instance_fields.size()==1);
+  assert(layer.instance_fields[0].size()==64 && layer.effects.size()==2);
+  assert(layer.effects[0].name=="FMOD Lowpass Simple");
+  assert(layer.effects[1].name=="FMOD Distortion");
+  assert(layer.effects[0].control==UINT32_MAX && layer.effects[0].points.size()==3);
+  assert(layer.effects[0].points[0][1]==0x3f800000u);
+  assert(layer.effects[1].tail[1]==1);
+  assert(table->definitions[0].fields.size()==60 && table->definitions[0].weights.size()==2);
+  assert(table->definitions[0].weights[0]==100);
   assert(table->definitions[0].variants[0]==at&&!table->definitions[0].variants[1]);
   auto wrong=b;wrong[point_count+3]=std::byte{1};assert(!InspectFevEventTable(wrong,"demo"));
   for(size_t i=0;i<b.size();++i)assert(!InspectFevEventTable(AudioBytes(b).first(i),"demo"));
