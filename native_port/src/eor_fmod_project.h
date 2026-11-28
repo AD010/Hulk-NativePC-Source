@@ -7,6 +7,7 @@
 #include <filesystem>
 #include <span>
 #include <string>
+#include <string_view>
 namespace hulk::eor::fmod {
 struct Event {
   uint32_t index_hash = 0;
@@ -50,4 +51,10 @@ std::vector<WaveformRoute> ReadProjectWaveforms(const Index& index,
 std::optional<CompressedWaveSample> ReadProjectWaveform(const Index& index,
     const std::filesystem::path& project_archive,
     const std::filesystem::path& wave_archive,uint32_t project_hash,size_t fev_offset);
+// Select one explicit original event layer/instance/variant; this is not
+// an event scheduler. The caller must supply the actual runtime selection.
+std::optional<size_t> ResolveEventWaveform(const Index& index,
+    const std::filesystem::path& project_archive,uint32_t project_hash,
+    std::string_view group,std::string_view event_name,
+    uint32_t layer,uint32_t instance,uint32_t variant);
 } // namespace hulk::eor::fmod

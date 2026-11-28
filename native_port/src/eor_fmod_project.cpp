@@ -1,6 +1,7 @@
 #include "eor_fmod_project.h"
 #include "eor_fsb3_bank.h"
 #include "eor_fev_waveform.h"
+#include "eor_fev_event_table.h"
 #include <algorithm>
 #include <array>
 #include <fstream>
@@ -137,5 +138,27 @@ std::optional<CompressedWaveSample> ReadProjectWaveform(const Index& index,
   const auto& sample=bank->samples[*ordinal];
   return CompressedWaveSample{std::string(sample.name),sample.frames,sample.mode,
       sample.rate,sample.channels,{sample.payload.begin(),sample.payload.end()}};
+}
+std::optional<size_t> ResolveEventWaveform(const Index& index,
+    const std::filesystem::path& project_archive,uint32_t project_hash,
+    std::string_view group,std::string_view event_name,
+    uint32_t layer,uint32_t instance,uint32_t variant) {
+  if(!MatchesIndexedArchive(index,"FmodProjects",project_archive))return {};
+  const auto record=index.FindHash("FmodProjects",project_hash);
+  if(!record || record->reserved || !record->size)return {};
+  const auto bytes=ReadResource(project_archive,*record,2u<<20);
+  const auto project=Inspect(bytes,project_hash);
+  const auto table=audio::InspectFevEventTable(
+      audio::AudioBytes(bytes).subspan(project.embedded_fev_offset),project.identifier);
+  if(!table)return {};
+  const audio::FevEventEntry* match=nullptr;
+  for(const auto& event:table->events)if(event.group==group&&event.name==event_name) {
+    if(match)return {};
+    match=&event;
+  }
+  if(!match||layer>=match->layers.size()||instance>=match->layers[layer].size())return {};
+  const auto& definition=table->definitions[match->layers[layer][instance]];
+  if(variant>=definition.variants.size())return {};
+  return definition.variants[variant];
 }
 } // namespace hulk::eor::fmod
