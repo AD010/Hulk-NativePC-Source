@@ -130,3 +130,68 @@ No reset, repeat extraction, speculative CI series or diagnostics in place
 of implementation. Tests are necessary for correctness, not a substitute
 for a playable independent frame, complete native menus and verified
 final Release ZIP. Build on owner command under the one manual workflow.
+
+## 2026-11-28 — FCIP V2 original-menu and native-port acceptance
+
+Owner supplied a classification diagram: final target is Native Port, not
+Hybrid Emulation Port or AoT Emulator. Static translation of CPU code and
+offline shader translation are allowed implementation/build techniques;
+runtime console hardware emulation is not the release architecture.
+User-visible acceptance is equivalent to an official Windows remaster:
+original fonts, full native in-game menu hierarchy, distinct main-menu
+Exit, physical desktop resolution, native audio/input/saves, stable physics
+and frame pacing. Do not accept a renamed console storage row, a compact
+one-line substitute or an overlay as the final PC menu.
+
+Reviewed [FCIP main at 0f141ad659227d93bd42a4d460067371e9b1434a](https://github.com/TGP482/FCIP-XEXRecomp/tree/0f141ad659227d93bd42a4d460067371e9b1434a)
+and [V2 release](https://github.com/TGP482/FCIP-XEXRecomp/releases/tag/V2),
+published 2026-11-27 19:35:52 UTC. Source inspection only; the release
+binary was not installed or run. License MIT; retain applicable notices.
+
+- [options_menu.cpp](https://github.com/TGP482/FCIP-XEXRecomp/blob/0f141ad659227d93bd42a4d460067371e9b1434a/src/game/options_menu.cpp):
+  adds distinct entries from existing engine widgets after original page
+  initialization, adjusts original layout, uses the native scrollable list
+  for names/values and sections, handles original activation/back/key
+  events, restores reused pages, reapplies labels after localization.
+  Hulk already has a source-pinned OriginalWidgetApi::CreateMenuRow and
+  Find/SetRowText, but current DispatchOriginalPcMenu uses existing_only
+  mode and StorageOption plus reused labels. The current code is transitional,
+  not acceptance. Implement authentic new EoR row instances, positions,
+  focus traversal and per-page callbacks from existing USA source evidence;
+  verify ownership, lifetime and localized captions. CryEngine addresses,
+  widget offsets and layouts are NOT EoR ABI and must not be copied.
+- [exit_menu.cpp](https://github.com/TGP482/FCIP-XEXRecomp/blob/0f141ad659227d93bd42a4d460067371e9b1434a/src/game/exit_menu.cpp):
+  dedicated main-menu Exit row opens the game's own Yes/No message box;
+  confirmed exit requests WM_CLOSE. Hulk must add an equivalent distinct
+  frontend action via its own verified native message-box/VM ABI and existing
+  GameWindowRequestClose; cancel must preserve focus and all game state.
+  A text confirmation inside PC Settings is not final acceptance.
+- [menu_mouse.cpp](https://github.com/TGP482/FCIP-XEXRecomp/blob/0f141ad659227d93bd42a4d460067371e9b1434a/src/common/menu_mouse.cpp):
+  collects Win32 pointer input on the window thread; the owning menu thread
+  performs original hit testing, focus, selection, list navigation and
+  modal handling. Hulk should use the same ownership separation with
+  authenticated EoR hit testing and DPI/aspect-aware physical coordinate
+  mapping, without requiring a virtual controller. Do not copy FCIP pad
+  codes as the final native input design.
+- [0f141ad pipeline change](https://github.com/TGP482/FCIP-XEXRecomp/commit/0f141ad659227d93bd42a4d460067371e9b1434a):
+  source diff remaps recorded MSAA counts to current host settings and
+  deduplicates prebuilt PSOs under a mutex. Adapt the cache discipline to
+  existing EoR material/PSO cache with exact source identities and actual
+  native attachment sample counts. Never skip a required world/HUD/Resolve
+  draw while a PSO is pending. No new shader extraction is necessary.
+
+SDK repository canonical name is now TGP482/Xbox360XEXRecomp (without the
+old hyphen). Latest reviewed main
+[196833f2f6982d99086558049160d765a004882e](https://github.com/TGP482/Xbox360XEXRecomp/commit/196833f2f6982d99086558049160d765a004882e)
+2026-11-27 20:13:36 UTC changes D3DDevice_QueryBufferSpace to report
+recorded-command occupancy during recording, preventing titles from
+discarding a still-populated command buffer. Relevant semantic lesson:
+preserve recorded command ownership and original begin/end sequencing
+when replacing APIs, rather than reporting every buffer empty.
+The SDK still has a platform compatibility layer; do not adopt it wholesale
+or classify native menu additions as proof of a fully independent runtime.
+Hulk's final renderer remains the existing EoR/Vulkan implementation.
+
+None of these references demonstrates a submitted Hulk frame, completed
+EoR menu, native FMOD event routing or native Havok runtime. Those remain
+implementation and acceptance requirements, not completed features.
