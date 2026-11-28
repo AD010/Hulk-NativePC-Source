@@ -58,10 +58,9 @@ struct NativeXAudio2Mixer::State {
     if(com_owned && GetCurrentThreadId()==owner_thread_id)
       CoUninitialize();
   }
-  void UpdateVolume(Voice& voice) noexcept {
-    if(voice.source)
-      (void)voice.source->SetVolume(muted?0.f:
-          voice.gain*bus_volumes[voice.bus],XAUDIO2_COMMIT_NOW);
+  bool UpdateVolume(Voice& voice) noexcept {
+    return voice.source && SUCCEEDED(voice.source->SetVolume(muted?0.f:
+          voice.gain*bus_volumes[voice.bus],XAUDIO2_COMMIT_NOW));
   }
 };
 NativeXAudio2Mixer::NativeXAudio2Mixer() {
@@ -111,10 +110,16 @@ bool NativeXAudio2Mixer::PlayPcm16(Bus bus,std::span<const int16_t> samples,
     retained+=active->samples.size();
   if(retained>kMaxLiveVoiceSamples ||
      samples.size()>kMaxLiveVoiceSamples-retained)return false;
-  auto voice=std::make_unique<State::Voice>();
-  voice->bus=bus_id;
-  voice->gain=gain;
-  voice->samples.assign(samples.begin(),samples.end());
+  std::unique_ptr<State::Voice> voice;
+  try {
+    // No allocation may fail after playback has started. Keep source
+    // sample ownership and the voice registry ready before touching XAudio2.
+    if(state_->voices.capacity()<64u)state_->voices.reserve(64u);
+    voice=std::make_unique<State::Voice>();
+    voice->bus=bus_id;
+    voice->gain=gain;
+    voice->samples.assign(samples.begin(),samples.end());
+  } catch (...) {return false;}
   WAVEFORMATEX wave{};
   wave.wFormatTag=WAVE_FORMAT_PCM;
   wave.nChannels=channels;
@@ -129,7 +134,7 @@ bool NativeXAudio2Mixer::PlayPcm16(Bus bus,std::span<const int16_t> samples,
   buffer.AudioBytes=static_cast<UINT32>(voice->samples.size()*sizeof(int16_t));
   buffer.pAudioData=reinterpret_cast<const BYTE*>(voice->samples.data());
   if(FAILED(voice->source->SubmitSourceBuffer(&buffer)))return false;
-  state_->UpdateVolume(*voice);
+  if(!state_->UpdateVolume(*voice))return false;
   if(FAILED(voice->source->Start(0)))return false;
   state_->voices.push_back(std::move(voice));
   return true;
@@ -190,9 +195,10 @@ bool NativeXAudio2Mixer::SetBusVolume(Bus bus,float gain) noexcept {
   if(!Ready() || index>=3u || !ValidGain(gain))return false;
   std::lock_guard lock(state_->mutex);
   state_->bus_volumes[index]=gain;
+  bool ok=true;
   for(auto& voice:state_->voices)if(voice->bus==index)
-    state_->UpdateVolume(*voice);
-  return true;
+    if(!state_->UpdateVolume(*voice))ok=false;
+  return ok;
 }
 void NativeXAudio2Mixer::SetMuted(bool muted) noexcept {
   if(!Ready())return;

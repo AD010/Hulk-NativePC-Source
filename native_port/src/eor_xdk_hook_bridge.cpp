@@ -19,6 +19,7 @@
 #include "eor_diligent_host_output.h"
 #include "eor_live_material_producer.h"
 #include "eor_live_projection.h"
+#include "eor_resource_generation.h"
 #include "eor_spirv_clip_position.h"
 #include "Buffer.h"
 #include "RenderDevice.h"
@@ -2760,13 +2761,22 @@ struct AutomaticEorResources {
     }
     if(!cached)candidates->LoadFromOriginalXboxArchive(paths.index,paths.models);
   }
+  bool MatchesArchiveDevice(Diligent::IRenderDevice* render_device,
+      const std::filesystem::path& source_root,
+      const std::filesystem::path& candidate_path) const {
+    return render_device && device==render_device && root==source_root &&
+        candidate_file==candidate_path;
+  }
+  bool MatchesShaderPack(const OfflineShaderPack& source) const noexcept {
+    return pack.shaders==source.shaders && pack.effects==source.effects &&
+        pack.reflection==source.reflection && pack.samplers==source.samplers &&
+        pack.virtual_ids==source.virtual_ids;
+  }
   bool Matches(Diligent::IRenderDevice* render_device,const OfflineShaderPack& source,
       const std::filesystem::path& source_root,
       const std::filesystem::path& candidate_path) const {
-    return device==render_device && root==source_root && candidate_file==candidate_path &&
-        pack.shaders==source.shaders && pack.effects==source.effects &&
-        pack.reflection==source.reflection && pack.samplers==source.samplers &&
-        pack.virtual_ids==source.virtual_ids;
+    return MatchesArchiveDevice(render_device,source_root,candidate_path) &&
+        MatchesShaderPack(source);
   }
 };
 // A weak reference cannot retain resources beyond their owning GPU
@@ -3323,12 +3333,22 @@ class ExclusiveEorSession : public std::enable_shared_from_this<ExclusiveEorSess
         ReportRejected(frame->sequence,"incomplete original XDK replay snapshots or command timeline");
         return;
       }
-      if(!resources) {
+      if(!host->Device() || !host->Context() || !host->SwapChain()) {
+        ReportRejected(frame->sequence,"native host device unavailable");
+        return;
+      }
+      const auto update=gpu::SelectNativeResourceUpdate(bool(resources),
+          resources && resources->MatchesArchiveDevice(host->Device(),root,candidate),
+          resources && resources->MatchesShaderPack(*current));
+      if(update==gpu::NativeResourceUpdate::Recreate) {
+        // Destroy the executor before its GPU and archive owners. Resources
+        // allocated on a previous VkDevice cannot be reused on a replacement.
+        owner.reset();
+        resources.reset();
         resources=std::make_shared<AutomaticEorResources>(
             host->Device(),*current,archives,root,candidate);
-      } else if(!resources->Matches(host->Device(),*current,root,candidate)) {
-        // The executor drains submitted draws before the old PSOs and
-        // shader modules disappear. Archive meshes and textures stay resident.
+      } else if(update==gpu::NativeResourceUpdate::ReplaceShaderPack) {
+        // Same device and archive: retain immutable meshes/textures only.
         owner.reset();
         resources->shaders.Clear();
         resources->pack=*current;
@@ -3403,11 +3423,16 @@ std::shared_ptr<const VerifiedWorkerEorOwnerCatalog> BuildAutomaticOriginalOwner
   if(!source || !pack.shaders || !pack.samplers || !pack.virtual_ids)return {};
   const auto& swap=host.swap_chain()->GetDesc();
   const native::Size backbuffer{swap.Width,swap.Height};
-  if(previous && previous->device==&host && previous->accepts_live_source &&
+  auto resources=g_automatic_resources.lock();
+  // The same window and render extent do not authorize an older bank or
+  // archive generation. Verify the actual resource owner before reuse.
+  if(previous && previous->device==&host && resources &&
+     resources->Matches(host.device(),pack,root,candidate) &&
+     previous->source_models.get()==resources->source_models.get() &&
+     previous->accepts_live_source &&
      previous->accepts_live_source(*source,backbuffer))return previous;
   const auto contract=OriginalTargetContract(*source,backbuffer,pack);
   if(!contract)return {};
-  auto resources=g_automatic_resources.lock();
   if(!resources || !resources->Matches(host.device(),pack,root,candidate)) {
     const auto paths=FindAutomaticArchives(root);
     if(!paths)return {};
