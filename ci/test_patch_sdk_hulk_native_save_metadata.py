@@ -48,6 +48,25 @@ class NativeMetadata(unittest.TestCase):
         self.assertEqual(patch_backup(result),(result,False))
         with self.assertRaises(ValueError):patch_backup(source.replace(DELETE_ANCHOR,'missing',1))
         with self.assertRaises(ValueError):patch_backup(result.replace(DELETE_GUARD,'',1))
+    def test_native_flush_transform(self):
+        from patch_sdk_hulk_native_save_metadata import (
+            patch_flush, FLUSH_HEADER, XAM_SOURCE, FLUSH_DECL, FLUSH_CPP,
+            FLUSH_XAM, FLUSH_DECL_NEW, FLUSH_CPP_NEW, FLUSH_XAM_NEW)
+        paths=(FLUSH_HEADER,SOURCE,XAM_SOURCE)
+        inputs=tuple((SDK/p).read_text(encoding='utf-8') for p in paths) if SDK else (
+            FLUSH_DECL,FLUSH_CPP,FLUSH_XAM)
+        header,source,xam,changed=patch_flush(*inputs)
+        self.assertTrue(changed)
+        for actual,expected in zip((header,source,xam),(FLUSH_DECL_NEW,FLUSH_CPP_NEW,FLUSH_XAM_NEW)):
+            self.assertIn(expected,actual)
+        self.assertEqual(patch_flush(header,source,xam),(header,source,xam,False))
+        self.assertIn('FlushCommitFile(file)',source)
+        self.assertIn('global_critical_region_.Acquire()',source)
+        self.assertIn('package.parent_path() != root',source)
+        for index,anchor in enumerate((FLUSH_DECL,FLUSH_CPP,FLUSH_XAM)):
+            broken=list(inputs);broken[index]=broken[index].replace(anchor,'missing')
+            with self.assertRaises(ValueError):patch_flush(*broken)
+        with self.assertRaises(ValueError):patch_flush(header,inputs[1],xam)
     def test_native_codec(self):
         compiler=shutil.which('clang++') or shutil.which('g++')
         if not compiler:self.skipTest('No portable C++ compiler')
