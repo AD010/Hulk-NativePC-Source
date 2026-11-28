@@ -2,6 +2,7 @@
 #include "eor_fmod_live_binding.h"
 #include <map>
 #include <tuple>
+#include <utility>
 #include "eor_fev_voice_schedule.h"
 namespace hulk::eor::audio {
 // Resolve the observed ordinal against the authenticated source definition.
@@ -73,8 +74,9 @@ inline LiveCueKey KeyForLiveCue(const LiveFmodEvent& event,const LiveFmodCue& cu
 // until their observed instance changes; never restart on every update.
 class LiveCueRegistry {
  public:
-  template<class Start,class Stop>
-  void Reconcile(std::span<const LiveFmodEvent> active,Start&& start,Stop&& stop,size_t budget=1) {
+  template<class Start,class Stop,class Ready>
+  void ReconcileReady(std::span<const LiveFmodEvent> active,Start&& start,Stop&& stop,
+                      size_t budget,Ready&& ready) {
     for(auto it=voices_.begin();it!=voices_.end();){
       const auto& key=it->first;
       const auto event=std::find_if(active.begin(),active.end(),[&](const auto& e){
@@ -104,12 +106,20 @@ class LiveCueRegistry {
       // Partial snapshots may contain individually validated cues.
       for(const auto& cue:event.cues){
         if(!budget||voices_.size()>=128)return;
-        if(!cue.instance_owner||!cue.channel)continue;
+        if(!cue.instance_owner||!cue.channel||!ready(event,cue))continue;
+        // An incomplete live pose/control snapshot is not a decoder failure.
+        // Do not allocate a permanent tombstone or spend admission budget
+        // until the original channel has sufficient current evidence.
         auto [it,inserted]=voices_.try_emplace(KeyForLiveCue(event,cue),0);
         if(!inserted)continue;
         --budget;it->second=start(event,cue);
       }
     }
+  }
+  template<class Start,class Stop>
+  void Reconcile(std::span<const LiveFmodEvent> active,Start&& start,Stop&& stop,size_t budget=1) {
+    ReconcileReady(active,std::forward<Start>(start),std::forward<Stop>(stop),budget,
+        [](const LiveFmodEvent&,const LiveFmodCue&){return true;});
   }
   // Update only exact, currently observed identities. A failed update retires
   // that native voice but preserves the tombstone until the original cue ends.
