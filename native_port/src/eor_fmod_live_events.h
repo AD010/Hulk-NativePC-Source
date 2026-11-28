@@ -4,6 +4,8 @@
 #include <bit>
 #include <cmath>
 #include <string>
+#include <set>
+#include <utility>
 #include <vector>
 namespace hulk::eor::audio {
 // USA EventSystem project and active-event intrusive lists, not a playback takeover.
@@ -11,10 +13,17 @@ struct LiveFmodParameter {
   std::string name;
   float minimum=0,maximum=0,normalized=0,physical=0;
 };
+struct LiveFmodCue {
+  uint32_t instance_owner=0,channel=0,layer=0,instance=0,variant=0,variant_count=0,weight=0;
+  std::string definition;
+};
 struct LiveFmodEvent {
   uint32_t owner=0,project_owner=0,flags=0;
   std::string project,group,name;
   std::vector<LiveFmodParameter> parameters;
+  uint32_t parent_owner=0,start_stamp=0;
+  std::vector<LiveFmodCue> cues;
+  bool cues_complete=false;
 };
 template<class Read>
 std::optional<std::vector<LiveFmodEvent>> CaptureLiveFmodEvents(uint32_t system,Read&& read) {
@@ -37,44 +46,106 @@ std::optional<std::vector<LiveFmodEvent>> CaptureLiveFmodEvents(uint32_t system,
     }
     return {};
   };
+  // Direct playing instances: 82839BA8 traverses event+332, layer+84.
+  // 82838650 selects a 24-byte variant record and saves the index at +48.
+  // Shared/polyphonic children use separate ownership, so do not infer their
+  // selected waveform from the parent's mutable last-selection index.
+  const auto cues=[&](uint32_t event)->std::optional<std::vector<LiveFmodCue>>{
+    std::vector<LiveFmodCue> out;
+    const auto layer_end=event+332u;
+    auto layer=word(event,332);uint32_t l=0;
+    while(layer&&*layer!=layer_end){
+      if(l>=128||word(*layer,12)!=event||*layer>UINT32_MAX-84u)return {};
+      const auto instance_end=*layer+84u;
+      auto instance=word(*layer,84);uint32_t i=0;
+      while(instance&&*instance!=instance_end){
+        if(i>=4096||word(*instance,16)!=*layer)return {};
+        const auto flags=word(*instance,20),channel=word(*instance,36),parent=word(*instance,76);
+        if(!flags||!channel||!parent)return {};
+        if((*flags&8u)&&*channel){
+          if(*parent)return {}; // never guess a shared selection
+          const auto owner=word(*instance,12),variant=word(*instance,48);
+          if(!owner||!variant)return {};
+          const auto def=word(*owner,4);if(!def)return {};
+          const auto count=word(*def,76),records=word(*def,84);
+          const auto def_name=name(*def,12);
+          if(!count||!*count||*count>4096u||*variant>=*count||!records||!*records||!def_name||
+             uint64_t(*records)+uint64_t(*variant)*24u>UINT32_MAX-7u)return {};
+          const auto record=*records+*variant*24u;
+          const auto type=word(record,0),weight=word(record,4);
+          if(!type||!weight||*type!=0||out.size()>=4096u)return {};
+          out.push_back({*instance,*channel,l,i,*variant,*count,*weight,*def_name});
+        }
+        instance=word(*instance,0);++i;
+      }
+      if(!instance)return {};
+      layer=word(*layer,0);++l;
+    }
+    if(!layer)return {};
+    return out;
+  };
   if(!CaptureFmodUpdateStamp(system,read)||system>UINT32_MAX-124u)return {};
   std::vector<LiveFmodEvent> result;
+  std::set<uint32_t> visiting,visited;
+  // 8283A718 recurses through event+20 (count), +24 (array), before
+  // updating the parent. Inactive parents may still own active children.
+  const auto visit=[&](auto&& self,uint32_t event,uint32_t parent,unsigned depth)->bool{
+    if(depth>32||visiting.contains(event)||word(event,0)!=event_table||event>UINT32_MAX-344u)return false;
+    if(visited.contains(event))return true;
+    if(visited.size()+visiting.size()>=4096u)return false;
+    visiting.insert(event);
+    const auto count=word(event,20),children=word(event,24),flags=word(event,312);
+    if(!count||*count>1024u||!children||!flags||(*count&&(!*children||uint64_t(*children)+4ull*(*count)>UINT32_MAX)))return false;
+    for(uint32_t i=0;i<*count;++i){
+      const auto child=word(*children,4u*i);
+      if(!child||(*child&&!self(self,*child,event,depth+1)))return false;
+    }
+    if(*flags&0x1000u){
+      const auto group=word(event,68),definition=word(event,32),start=word(event,264);
+      if(!group||!definition||!start||word(*group,0)!=group_table)return false;
+      const auto project=word(*group,44);
+      if(!project||word(*project,0)!=project_table)return false;
+      const uint32_t def=*definition?*definition:event;
+      if(word(def,0)!=event_table)return false;
+      const auto project_name=name(*project,16),event_name=name(def,84),group_name=name(*group,16);
+      if(!project_name||!event_name||!group_name)return false;
+      LiveFmodEvent out;
+      out.owner=event;out.project_owner=*project;out.flags=*flags;out.project=*project_name;
+      out.group=*group_name;out.name=*event_name;out.parent_owner=parent;out.start_stamp=*start;
+      if(auto selected=cues(event)){out.cues=std::move(*selected);out.cues_complete=true;}
+      const uint32_t param_end=event+344u;
+      auto param_node=word(event,344);
+      while(param_node&&*param_node!=param_end){
+        if(*param_node<4u||out.parameters.size()>=1024u)return false;
+        const uint32_t param=*param_node-4u;
+        if(word(param,0)!=param_table||word(param,44)!=event)return false;
+        const auto def=word(param,16),normalized=word(param,20);
+        if(!def||!normalized)return false;
+        const auto p_name=name(*def,4);const auto lo=word(*def,12),hi=word(*def,16);
+        if(!p_name||!lo||!hi)return false;
+        const float a=std::bit_cast<float>(*lo),b=std::bit_cast<float>(*hi),v=std::bit_cast<float>(*normalized);
+        if(!std::isfinite(a)||!std::isfinite(b)||!std::isfinite(b-a)||!(b>a)||!std::isfinite(v)||v<0.f||v>1.f)return false;
+        out.parameters.push_back({*p_name,a,b,v,std::fma(b-a,v,a)});
+        param_node=word(*param_node,0);
+      }
+      if(!param_node)return false;
+      result.push_back(std::move(out));
+    }
+    visiting.erase(event);visited.insert(event);return true;
+  };
   const uint32_t project_end=system+124u;
   auto pn=word(system,124);unsigned projects=0;
   while(pn&&*pn!=project_end){
     if(*pn<4u||++projects>1024u)return {};
     const uint32_t project=*pn-4u;
     if(word(project,0)!=project_table||project>UINT32_MAX-64u)return {};
-    const auto project_name=name(project,16);
     const uint32_t event_end=project+64u;
-    auto en=word(project,64);
+    auto en=word(project,64);std::set<uint32_t> roots;
     while(en&&*en!=event_end){
-      if(*en<44u||result.size()>=4096u)return {};
+      if(*en<44u||roots.size()>=4096u||!roots.insert(*en).second)return {};
       const auto event=word(*en,8);
-      if(!event||*event!=*en-44u||word(*event,0)!=event_table||*event>UINT32_MAX-344u)return {};
-      if(std::any_of(result.begin(),result.end(),[&](const auto& e){return e.owner==*event;}))return {};
-      const auto flags=word(*event,312),group=word(*event,68);
-      if(!flags||!(*flags&0x1000u)||!group||word(*group,0)!=group_table||word(*group,44)!=project)return {};
-      auto event_name=name(*event,84),group_name=name(*group,16);
-      if(!project_name||!event_name||!group_name)return {};
-      LiveFmodEvent out{*event,project,*flags,*project_name,*group_name,*event_name,{}};
-      const uint32_t param_end=*event+344u;
-      auto param_node=word(*event,344);
-      while(param_node&&*param_node!=param_end){
-        if(*param_node<4u||out.parameters.size()>=1024u)return {};
-        const uint32_t param=*param_node-4u;
-        if(word(param,0)!=param_table||word(param,44)!=*event)return {};
-        const auto def=word(param,16),normalized=word(param,20);
-        if(!def||!normalized)return {};
-        const auto p_name=name(*def,4);const auto lo=word(*def,12),hi=word(*def,16);
-        if(!p_name||!lo||!hi)return {};
-        const float a=std::bit_cast<float>(*lo),b=std::bit_cast<float>(*hi),v=std::bit_cast<float>(*normalized);
-        if(!std::isfinite(a)||!std::isfinite(b)||!std::isfinite(b-a)||!(b>a)||!std::isfinite(v)||v<0.f||v>1.f)return {};
-        out.parameters.push_back({*p_name,a,b,v,std::fma(b-a,v,a)});
-        param_node=word(*param_node,0);
-      }
-      if(!param_node)return {};
-      result.push_back(std::move(out));en=word(*en,0);
+      if(!event||*event!=*en-44u||!visit(visit,*event,0,0))return {};
+      en=word(*en,0);
     }
     if(!en)return {};
     pn=word(*pn,0);
