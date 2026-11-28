@@ -22,13 +22,44 @@ READ_NEW='''  // HULK/NATIVE-METADATA-READ: project native metadata into the leg
       !hulk::native_save::WindowsRoot(
           title_id == kCurrentlyRunningTitleId ? kernel_state_->title_id() : title_id,
           uint32_t(content_type), REXCVAR_GET(hulk_native_pc_saves)).empty();
-  if (native_slot && file_size < header_size) {
-    std::array<uint8_t,hulk::save::kNativeMetadataMaximum> bytes{};
-    const bool read_ok = file_size <= bytes.size() &&
-        fread(bytes.data(), 1, static_cast<size_t>(file_size), file) == file_size;
+  if (native_slot) {
+    // Read the known slot through a single bounded stream. Never return
+    // persisted XUID/device/title values from a legacy header.
+    static_assert(header_size == 328, "Unexpected Hulk legacy header layout");
+    std::array<uint8_t,header_size> bytes{};
+    if (file_size > bytes.size() || file_size < 14) {
+      fclose(file);
+      return X_ERROR_FILE_NOT_FOUND;
+    }
+    const auto n = static_cast<size_t>(file_size);
+    const bool read_ok = fread(bytes.data(), 1, n, file) == n;
+    const bool exact = fgetc(file) == EOF && !ferror(file);
     const bool closed = fclose(file) == 0;
-    if (!read_ok || !closed) return X_ERROR_FILE_NOT_FOUND;
-    const auto name = hulk::save::DecodeNativeMetadata(bytes.data(), static_cast<size_t>(file_size));
+    if (!read_ok || !exact || !closed) return X_ERROR_FILE_NOT_FOUND;
+    std::optional<std::u16string> name;
+    if (n == header_size) {
+      // Legacy aggregate: content type at +4, UTF-16BE display name at
+      // +8, 42-byte slot name at +264. Ignore old profile identifiers.
+      if (bytes[4] || bytes[5] || bytes[6] || bytes[7] != 1)
+        return X_ERROR_FILE_NOT_FOUND;
+      const auto* leaf = reinterpret_cast<const char*>(bytes.data() + 264);
+      size_t leaf_size = 0;
+      while (leaf_size < 42 && leaf[leaf_size]) ++leaf_size;
+      if (!hulk::save::IsHulkSaveSlot(std::string_view(leaf, leaf_size)))
+        return X_ERROR_FILE_NOT_FOUND;
+      std::u16string decoded;
+      bool terminated = false;
+      for (size_t i = 8; i < 264; i += 2) {
+        const auto c = static_cast<char16_t>((uint16_t(bytes[i]) << 8) | bytes[i+1]);
+        if (!c) { terminated = true; break; }
+        decoded.push_back(c);
+      }
+      if (!terminated || !hulk::save::ValidMetadataName(decoded))
+        return X_ERROR_FILE_NOT_FOUND;
+      name = std::move(decoded);
+    } else {
+      name = hulk::save::DecodeNativeMetadata(bytes.data(), n);
+    }
     if (!name) return X_ERROR_FILE_NOT_FOUND;
     data = XCONTENT_AGGREGATE_DATA{};
     data.device_id = static_cast<uint32_t>(DummyDeviceId::HDD);
@@ -38,10 +69,6 @@ READ_NEW='''  // HULK/NATIVE-METADATA-READ: project native metadata into the leg
     data.set_file_name(file_name);
     data.set_display_name(*name);
     return X_ERROR_SUCCESS;
-  }
-  if (native_slot && file_size != header_size && file_size != header_size + sizeof(uint32_t)) {
-    fclose(file);
-    return X_ERROR_FILE_NOT_FOUND;
   }
 ''' + READ
 LIST='''      result.emplace_back(std::move(content_data));
