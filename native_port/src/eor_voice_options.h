@@ -1,4 +1,5 @@
 #pragma once
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <optional>
@@ -35,7 +36,12 @@ inline bool ValidVoiceOptions(const VoiceOptions& o,uint32_t frames) noexcept {
   if(o.static_dsp.count>o.static_dsp.stages.size() ||
      ((o.static_dsp.count||!o.dsp_blocks.empty())&&o.loop_count) ||
      (o.static_dsp.count&&!o.dsp_blocks.empty()))return false;
-  if((!o.fev_voice_blocks.empty()&&o.loop_count)||!ValidFevVoiceSchedule(o.fev_voice_blocks,frames,o.frequency_ratio,o.spatial.has_value()))return false;
+  const bool moving=HasMovingFevOffset(o.fev_voice_blocks);
+  // Pre-rendered PCM DSP follows the source position, not the independent
+  // event clock. Do not replay its stale history after an automatic seek.
+  if(moving&&(o.static_dsp.count||std::any_of(o.dsp_blocks.begin(),o.dsp_blocks.end(),
+      [](const auto& b){return b.chain.count!=0;})))return false;
+  if((!o.fev_voice_blocks.empty()&&o.loop_count)||!ValidFevVoiceSchedule(o.fev_voice_blocks,frames,o.frequency_ratio,o.spatial.has_value(),true))return false;
   if(o.spatial&&!ValidSpatialState(*o.spatial))return false;
   if(o.start_frame>=frames||(o.start_frame&&o.loop_count)||
      (o.stereo_pan&&(!std::isfinite(*o.stereo_pan)||*o.stereo_pan< -1.f||*o.stereo_pan>1.f)))return false;

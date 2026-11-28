@@ -35,6 +35,15 @@ int main(){
   snapshots[1].first_frame=0;assert(!BuildFevVoiceSchedule(event,0,snapshots));snapshots[1].first_frame=20;
   event.layer_records[0].effects.back().header[1]=0x44;
   assert(!BuildFevVoiceSchedule(event,0,snapshots));
+  const auto moving=BuildFevVoiceSchedule(event,0,snapshots,false,true);
+  assert(moving&&HasMovingFevOffset(*moving));
+  assert(!ValidFevVoiceSchedule(*moving,64,1)&&ValidFevVoiceSchedule(*moving,64,1,false,true));
+  FevPlaybackClock clock;
+  assert(clock.Observe(21)&&clock.Frame()==21&&FevVoiceBlockAt(*moving,clock.Frame())==1);
+  clock.Rebase();assert(clock.Frame()==21&&clock.Observe(0));
+  assert(clock.Observe(10)&&clock.Frame()==31&&FevVoiceBlockAt(*moving,clock.Frame())==1);
+  assert(!clock.Observe(9)&&clock.Frame()==31);
+  FevPlaybackClock overflow{UINT64_MAX,0};assert(!overflow.Observe(1));
   event.layer_records[0].effects.back().header[1]=0x404;
   assert(!BuildFevVoiceSchedule(event,0,snapshots));
   (*blocks)[1].controls.gain=std::numeric_limits<float>::quiet_NaN();

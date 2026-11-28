@@ -15,20 +15,21 @@ struct FevVoiceBlock {
 // Explicit source-frame schedule. A moving seek needs a separate owner
 // operation; a 3D curve needs actual listener/emitter coordinates.
 inline std::optional<std::vector<FevVoiceBlock>> BuildFevVoiceSchedule(
-    const FevEventEntry& event,uint32_t layer,std::span<const FevParameterSnapshot> snapshots,bool spatial_ready=false) {
+    const FevEventEntry& event,uint32_t layer,std::span<const FevParameterSnapshot> snapshots,bool spatial_ready=false,bool moving_seek_ready=false) {
   if(snapshots.empty()||snapshots.size()>16384||snapshots.front().first_frame!=0)return {};
   std::vector<FevVoiceBlock> result;result.reserve(snapshots.size());
   for(const auto& snapshot:snapshots){
     if(!result.empty()&&snapshot.first_frame<=result.back().first_frame)return {};
     const auto value=EvaluateFevLayerGainPitch(event,layer,snapshot.physical_values,spatial_ready);
     if(!value||value->unhandled||(!spatial_ready&&value->values.pan3d_level))return {};
-    if(!result.empty()&&(value->values.offset_ms!=result.front().controls.offset_ms||
+    if(!result.empty()&&((!moving_seek_ready&&value->values.offset_ms!=result.front().controls.offset_ms)||
+        value->values.offset_ms.has_value()!=result.front().controls.offset_ms.has_value()||
         value->values.pan.has_value()!=result.front().controls.pan.has_value()))return {};
     result.push_back({snapshot.first_frame,value->values});
   }
   return result;
 }
-inline bool ValidFevVoiceSchedule(std::span<const FevVoiceBlock> blocks,uint32_t frames,float base_ratio,bool spatial_ready=false) noexcept {
+inline bool ValidFevVoiceSchedule(std::span<const FevVoiceBlock> blocks,uint32_t frames,float base_ratio,bool spatial_ready=false,bool moving_seek_ready=false) noexcept {
   if(blocks.empty())return true;
   if(blocks.size()>16384||blocks.front().first_frame!=0)return false;
   for(size_t i=0;i<blocks.size();++i){
@@ -38,7 +39,8 @@ inline bool ValidFevVoiceSchedule(std::span<const FevVoiceBlock> blocks,uint32_t
        !std::isfinite(c.gain)||c.gain<0.f||c.gain>1.f||
        !ValidFevVoiceRatio(ratio)||
        (c.pan3d_level&&(!spatial_ready||!std::isfinite(*c.pan3d_level)||*c.pan3d_level<0.f||*c.pan3d_level>1.f))||
-       c.offset_ms!=blocks.front().controls.offset_ms||
+       (!moving_seek_ready&&c.offset_ms!=blocks.front().controls.offset_ms)||
+       c.offset_ms.has_value()!=blocks.front().controls.offset_ms.has_value()||
        c.pan.has_value()!=blocks.front().controls.pan.has_value()||
        (c.pan&&(!std::isfinite(*c.pan)||*c.pan< -1.f||*c.pan>1.f)))return false;
   }
@@ -60,6 +62,22 @@ inline size_t FevVoiceBlockAt(std::span<const FevVoiceBlock> blocks,uint64_t fra
       [](uint64_t f,const FevVoiceBlock& b){return f<b.first_frame;});
   return it==blocks.begin()?0:static_cast<size_t>(it-blocks.begin()-1);
 }
+inline bool HasMovingFevOffset(std::span<const FevVoiceBlock> blocks) noexcept {
+  if(blocks.empty())return false;
+  for(const auto& b:blocks)if(b.controls.offset_ms!=blocks.front().controls.offset_ms)return true;
+  return false;
+}
+// A monotonic schedule clock is separate from the cursor of a replacement
+// source voice. A seek resets the hardware counter, not event time.
+struct FevPlaybackClock {
+  uint64_t origin=0,last=0;
+  bool Observe(uint64_t samples) noexcept {
+    if(samples<last||samples>UINT64_MAX-origin)return false;
+    last=samples;return true;
+  }
+  uint64_t Frame() const noexcept {return origin+last;}
+  void Rebase() noexcept {origin=Frame();last=0;}
+};
 // Plan an explicit source-frame seek, independent of the original game's
 // elapsed-time correction. Looping buffers require separate semantics.
 struct FevVoiceSeekPlan {uint32_t frame;size_t block;};

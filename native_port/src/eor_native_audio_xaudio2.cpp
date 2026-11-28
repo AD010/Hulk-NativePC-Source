@@ -48,7 +48,8 @@ struct NativeXAudio2Mixer::State {
     uint32_t output_channels=0,sample_rate=0;
     bool looping=false;
     uint32_t first_frame=0;
-    uint64_t last_samples=0;
+    FevPlaybackClock automation_clock;
+    bool moving_seek=false;
     size_t applied_block=0;
     ~Voice() noexcept {
       if(source) {
@@ -204,6 +205,8 @@ bool NativeXAudio2Mixer::PlayPcm16(Bus bus,std::span<const int16_t> samples,
     voice->gain=gain;
     voice->base_ratio=options.frequency_ratio;
     voice->first_frame=options.start_frame;
+    voice->moving_seek=HasMovingFevOffset(options.fev_voice_blocks);
+    voice->automation_clock.origin=voice->moving_seek?0u:options.start_frame;
     if(!options.fev_voice_blocks.empty())
       voice->automation.assign(options.fev_voice_blocks.begin(),options.fev_voice_blocks.end());
     voice->clock={options.delay_ms,options.delay_ms!=0,options.start_paused};
@@ -241,7 +244,7 @@ bool NativeXAudio2Mixer::PlayPcm16(Bus bus,std::span<const int16_t> samples,
      FAILED(voice->source->SubmitSourceBuffer(&buffer)))return false;
   if(!state_->UpdateVolume(*voice))return false;
   if((options.stereo_pan||options.spatial)&&!state_->UpdateMatrix(*voice,options.stereo_pan,{}))return false;
-  if(!voice->automation.empty()&&!state_->ApplyFevBlock(*voice,FevVoiceBlockAt(voice->automation,voice->first_frame)))return false;
+  if(!voice->automation.empty()&&!state_->ApplyFevBlock(*voice,FevVoiceBlockAt(voice->automation,voice->automation_clock.Frame())))return false;
   if(!voice->clock.pending && !voice->clock.paused && FAILED(voice->source->Start(0)))return false;
   // Publish an ID only after a real XAudio2 buffer has been accepted.
   voice->id=++state_->last_voice_id;
@@ -368,7 +371,7 @@ bool NativeXAudio2Mixer::PlayEventVariantWithFevDsp(Bus bus,const hulk::eor::Ind
     if(!blocks)return false;
     std::optional<std::vector<FevVoiceBlock>> schedule;
     if(bindings.empty()){
-      schedule=fmod::ResolveEventVoiceSchedule(index,project_archive,project_hash,group,event_name,layer,snapshots,options.spatial.has_value());
+      schedule=fmod::ResolveEventVoiceSchedule(index,project_archive,project_hash,group,event_name,layer,snapshots,options.spatial.has_value(),true);
       if(!schedule||schedule->empty())return false;
       const auto& controls=schedule->front().controls;
       if(controls.offset_ms)options.start_frame=FevOffsetFrame(*controls.offset_ms,sample->frames,sample->rate);
@@ -452,11 +455,19 @@ bool NativeXAudio2Mixer::AdvanceScheduledVoices(uint32_t elapsed_ms) noexcept {
     if(!v.clock.pending&&!v.clock.paused&&!v.automation.empty()){
       XAUDIO2_VOICE_STATE status{};v.source->GetState(&status,0);
       if(!status.BuffersQueued){it=state_->voices.erase(it);continue;}
-      if(status.SamplesPlayed<v.last_samples){it=state_->voices.erase(it);ok=false;continue;}
-      v.last_samples=status.SamplesPlayed;
-      const auto block=FevVoiceBlockAt(v.automation,uint64_t(v.first_frame)+status.SamplesPlayed);
-      if(block!=v.applied_block&&!state_->ApplyFevBlock(v,block)){
-        it=state_->voices.erase(it);ok=false;continue;
+      if(!v.automation_clock.Observe(status.SamplesPlayed)){it=state_->voices.erase(it);ok=false;continue;}
+      const auto block=FevVoiceBlockAt(v.automation,v.automation_clock.Frame());
+      if(block!=v.applied_block){
+        bool applied=false;
+        const auto& target=v.automation[block].controls;
+        if(v.moving_seek&&target.offset_ms!=v.automation[v.applied_block].controls.offset_ms&&target.offset_ms){
+          const auto frame=FevOffsetFrame(*target.offset_ms,
+              static_cast<uint32_t>(v.samples.size()/v.channels),v.sample_rate);
+          // Native explicit absolute-offset policy; original FMOD elapsed-time
+          // correction requires the verified guest event owner's clock.
+          applied=ReplaceVoiceAt(v.id,frame,block);
+        }else applied=state_->ApplyFevBlock(v,block);
+        if(!applied){it=state_->voices.erase(it);ok=false;continue;}
       }
     }
     ++it;
@@ -503,11 +514,18 @@ bool NativeXAudio2Mixer::SeekVoiceFrame(VoiceId id,uint32_t frame) noexcept {
   if(!Ready()||!id)return false;
   std::lock_guard lock(state_->mutex);
   Update();
+  return ReplaceVoiceAt(id,frame,std::nullopt);
+}
+bool NativeXAudio2Mixer::ReplaceVoiceAt(VoiceId id,uint32_t frame,std::optional<size_t> automation_block) noexcept {
   for(auto& entry:state_->voices)if(entry->id==id){
     auto& old=*entry;
-    const auto plan=PlanFevVoiceSeek(old.automation,frame,
+    auto plan=PlanFevVoiceSeek(old.automation,frame,
         static_cast<uint32_t>(old.samples.size()/old.channels),old.looping);
     if(!plan)return false;
+    if(automation_block){
+      if(!old.moving_seek||*automation_block>=old.automation.size())return false;
+      plan->block=*automation_block;
+    }else if(old.moving_seek)return false; // independent event clock owns automatic seeks
     // Prepare a stopped replacement. Its buffer borrows the existing
     // voice's owned PCM, which remains resident through the entire swap.
     State::Voice next;
@@ -553,7 +571,9 @@ bool NativeXAudio2Mixer::SeekVoiceFrame(VoiceId id,uint32_t frame) noexcept {
       }
     }
     std::swap(old.source,next.source); // next's destructor retires old source
-    old.first_frame=plan->frame;old.last_samples=0;
+    old.first_frame=plan->frame;
+    if(automation_block)old.automation_clock.Rebase();
+    else old.automation_clock={plan->frame,0};
     old.applied_block=plan->block;
     old.automation_gain=next.automation_gain;old.automation_ratio=next.automation_ratio;
     old.pan=next.pan;old.spatial_level=next.spatial_level;
