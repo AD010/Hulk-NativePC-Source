@@ -68,6 +68,7 @@ inline constexpr PcMenuRow kPcMenuRows[] = {
   {"Direct EoR Vulkan","hulk_eor_vulkan_replay",PcMenuSection::Developer,PcMenuRowKind::Choice,"false|true"},
   {"Capture original draw","hulk_eor_xdk_capture",PcMenuSection::Developer,PcMenuRowKind::Choice,"false|true"},
   {"Capture source geometry","hulk_eor_xdk_source_mesh_capture",PcMenuSection::Developer,PcMenuRowKind::Choice,"false|true"},
+  {"Native Documents saves (restart)","hulk_native_pc_saves",PcMenuSection::Enhancements,PcMenuRowKind::Choice,"false|true"},
   {"Exit to Windows","exit",PcMenuSection::Display,PcMenuRowKind::Exit,""}
 };
 inline constexpr const PcMenuRow* FindPcMenuRow(std::string_view key) noexcept {
