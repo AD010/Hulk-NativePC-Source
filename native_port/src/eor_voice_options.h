@@ -26,6 +26,8 @@ struct VoiceOptions {
   std::optional<float> spatial_level;
   // Opt-in single-snapshot FEV streaming DSP, not a pre-rendered buffer.
   bool live_fev_dsp=false;
+  // Explicit opt-in to a separate, native approximate wet path.
+  std::optional<float> reverb_send;
 };
 inline bool ValidVoiceFilter(VoiceFilter filter,float frequency,float one_over_q) noexcept {
   return (filter==VoiceFilter::Bypass||filter==VoiceFilter::LowPass||filter==VoiceFilter::HighPass)&&
@@ -50,6 +52,7 @@ inline bool ValidVoiceOptions(const VoiceOptions& o,uint32_t frames) noexcept {
       [](const auto& b){return b.chain.count!=0;})))return false;
   if((!o.fev_voice_blocks.empty()&&o.loop_count)||!ValidFevVoiceSchedule(o.fev_voice_blocks,frames,o.frequency_ratio,o.spatial.has_value(),true))return false;
   if(o.spatial&&!ValidSpatialState(*o.spatial))return false;
+  if(o.reverb_send&&(!std::isfinite(*o.reverb_send)||*o.reverb_send<0.f||*o.reverb_send>1.f))return false;
   if(o.spatial_level&&(!o.spatial||!std::isfinite(*o.spatial_level)||*o.spatial_level<0.f||*o.spatial_level>1.f))return false;
   if(o.start_frame>=frames||(o.start_frame&&o.loop_count)||
      (o.stereo_pan&&(!std::isfinite(*o.stereo_pan)||*o.stereo_pan< -1.f||*o.stereo_pan>1.f)))return false;

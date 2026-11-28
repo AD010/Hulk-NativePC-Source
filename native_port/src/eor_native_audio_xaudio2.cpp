@@ -5,6 +5,7 @@
 #include "eor_event_voice_group.h"
 #include "eor_fmod_doppler.h"
 #include "eor_live_dsp_stream.h"
+#include "eor_reverb_route.h"
 #include "eor_fev_seek_pcm.h"
 #include "eor_fsb4_pcm.h"
 #include "eor_fsb3_ima.h"
@@ -12,6 +13,7 @@
 #include "eor_archive.h"
 #ifdef _WIN32
 #include <xaudio2.h>
+#include <xaudio2fx.h>
 #include <x3daudio.h>
 #include <objbase.h>
 #include "eor_fsb3_mpeg_win.h"
@@ -96,7 +98,7 @@ struct NativeXAudio2Mixer::State {
     float gain=1.f,base_ratio=1.f,automation_gain=1.f,automation_ratio=1.f,max_ratio=4.f;
     std::vector<FevVoiceBlock> automation;
     std::optional<SpatialVoiceState> spatial;
-    std::optional<float> pan,spatial_level;
+    std::optional<float> pan,spatial_level,reverb_send;
     std::array<float,128> flat_matrix{};
     uint32_t output_channels=0,sample_rate=0;
     bool looping=false;
@@ -115,6 +117,7 @@ struct NativeXAudio2Mixer::State {
   };
   IXAudio2* engine=nullptr;
   IXAudio2MasteringVoice* master=nullptr;
+  IXAudio2SubmixVoice* reverb=nullptr;
   bool com_owned=false;
   X3DAUDIO_HANDLE spatial_handle{};
   bool spatial_ready=false;
@@ -129,6 +132,7 @@ struct NativeXAudio2Mixer::State {
   mutable std::recursive_mutex mutex;
   ~State() noexcept {
     voices.clear();
+    if(reverb)reverb->DestroyVoice();
     if(master)master->DestroyVoice();
     if(engine)engine->Release();
     // XAudio2's COM initialization is paired on the owning game thread.
@@ -136,6 +140,43 @@ struct NativeXAudio2Mixer::State {
     // transferable pointer.
     if(com_owned && GetCurrentThreadId()==owner_thread_id)
       CoUninitialize();
+  }
+  bool EnsureReverb() noexcept {
+    if(reverb)return true;
+    XAUDIO2_VOICE_DETAILS details{};master->GetVoiceDetails(&details);
+    // The native APO supports the normal Windows device rate range.
+    if(details.InputSampleRate<20000u||details.InputSampleRate>48000u)return false;
+    IUnknown* apo=nullptr;
+    if(FAILED(XAudio2CreateReverb(&apo))||!apo)return false;
+    XAUDIO2_EFFECT_DESCRIPTOR effect{apo,TRUE,1};
+    XAUDIO2_EFFECT_CHAIN chain{1,&effect};
+    const auto hr=engine->CreateSubmixVoice(&reverb,1,details.InputSampleRate,0,0,nullptr,&chain);
+    apo->Release();
+    if(FAILED(hr)||!reverb){reverb=nullptr;return false;}
+    // Explicit generic environment, not recovered FMOD room parameters.
+    XAUDIO2FX_REVERB_I3DL2_PARAMETERS preset=XAUDIO2FX_I3DL2_PRESET_GENERIC;
+    preset.WetDryMix=100.f;
+    XAUDIO2FX_REVERB_PARAMETERS params{};
+    ReverbConvertI3DL2ToNative(&preset,&params);
+    if(FAILED(reverb->SetEffectParameters(0,&params,sizeof(params)))||
+       FAILED(reverb->SetVolume(muted?0.f:1.f))){
+      reverb->DestroyVoice();reverb=nullptr;return false;
+    }
+    return true;
+  }
+  bool ApplyReverbSend(Voice& voice,float gain) noexcept {
+    if(!voice.reverb_send||!reverb||!voice.source)return false;
+    const auto matrix=NativeWetMatrix(voice.channels,gain);
+    if(!matrix||FAILED(voice.source->SetOutputMatrix(reverb,voice.channels,1,matrix->data())))return false;
+    voice.reverb_send=gain;return true;
+  }
+  bool CreateSource(Voice& voice,const WAVEFORMATEX& wave) noexcept {
+    if(voice.reverb_send&&!EnsureReverb())return false;
+    XAUDIO2_SEND_DESCRIPTOR routes[2]={{0,master},{0,reverb}};
+    XAUDIO2_VOICE_SENDS sends{2,routes};
+    if(FAILED(engine->CreateSourceVoice(&voice.source,&wave,XAUDIO2_VOICE_USEFILTER,
+        voice.max_ratio,voice.live_dsp.get(),voice.reverb_send?&sends:nullptr))||!voice.source)return false;
+    return !voice.reverb_send||ApplyReverbSend(voice,*voice.reverb_send);
   }
   static std::optional<float> EffectivePitch(const Voice& voice,float base,float automation,
       std::optional<float> level) noexcept {
@@ -277,6 +318,7 @@ bool NativeXAudio2Mixer::PlayPcm16(Bus bus,std::span<const int16_t> samples,
     voice->sample_rate=sample_rate;
     voice->looping=options.loop_count!=0;
     voice->spatial=options.spatial;
+    voice->reverb_send=options.reverb_send;
     voice->gain=gain;
     voice->base_ratio=options.frequency_ratio;
     voice->first_frame=options.start_frame;
@@ -304,8 +346,7 @@ bool NativeXAudio2Mixer::PlayPcm16(Bus bus,std::span<const int16_t> samples,
   const auto required=RequiredFevVoiceRatio(options.fev_voice_blocks,options.frequency_ratio);
   if(!required)return false;
   voice->max_ratio=(options.reserve_live_pitch||options.spatial)?kMaxFevVoiceRatio:*required;
-  if(FAILED(state_->engine->CreateSourceVoice(&voice->source,&wave,XAUDIO2_VOICE_USEFILTER,voice->max_ratio,voice->live_dsp.get())) ||
-     !voice->source)return false;
+  if(!state_->CreateSource(*voice,wave))return false;
   XAUDIO2_VOICE_DETAILS details{};state_->master->GetVoiceDetails(&details);
   voice->output_channels=details.InputChannels;
   if(!voice->output_channels||voice->output_channels>64u)return false;
@@ -651,6 +692,14 @@ bool NativeXAudio2Mixer::SetVoiceSpatialState(VoiceId id,const SpatialVoiceState
   }
   return false;
 }
+bool NativeXAudio2Mixer::SetVoiceReverbSend(VoiceId id,float gain) noexcept {
+  if(!Ready()||!id||!ValidGain(gain))return false;
+  std::lock_guard lock(state_->mutex);
+  Update();
+  for(auto& voice:state_->voices)if(voice->id==id)
+    return state_->ApplyReverbSend(*voice,gain);
+  return false;
+}
 bool NativeXAudio2Mixer::SetVoiceSpatialMix(VoiceId id,std::optional<SpatialVoiceState> spatial,
     std::optional<float> pan,std::optional<float> level) noexcept {
   if(!Ready()||!id||(spatial&&!ValidSpatialState(*spatial))||
@@ -692,6 +741,7 @@ bool NativeXAudio2Mixer::ReplaceVoiceAt(VoiceId id,uint32_t frame,std::optional<
     next.base_ratio=old.base_ratio;next.max_ratio=old.max_ratio;
     next.automation_gain=old.automation_gain;next.automation_ratio=old.automation_ratio;
     next.flat_matrix=old.flat_matrix;next.spatial=old.spatial;
+    next.reverb_send=old.reverb_send;
     next.pan=old.pan;next.spatial_level=old.spatial_level;
     if(!old.automation.empty()){
       const auto& controls=old.automation[plan->block].controls;
@@ -704,8 +754,7 @@ bool NativeXAudio2Mixer::ReplaceVoiceAt(VoiceId id,uint32_t frame,std::optional<
     wave.nSamplesPerSec=old.sample_rate;wave.wBitsPerSample=16;
     wave.nBlockAlign=static_cast<WORD>(old.channels*sizeof(int16_t));
     wave.nAvgBytesPerSec=wave.nSamplesPerSec*wave.nBlockAlign;
-    if(FAILED(state_->engine->CreateSourceVoice(&next.source,&wave,
-        XAUDIO2_VOICE_USEFILTER,next.max_ratio))||!next.source)return false;
+    if(!state_->CreateSource(next,wave))return false;
     XAUDIO2_FILTER_PARAMETERS filter{};old.source->GetFilterParameters(&filter);
     if(FAILED(next.source->SetFilterParameters(&filter))||
        !state_->UpdateVolume(next)||
@@ -772,6 +821,7 @@ void NativeXAudio2Mixer::SetMuted(bool muted) noexcept {
   if(!Ready())return;
   std::lock_guard lock(state_->mutex);
   state_->muted=muted;
+  if(state_->reverb)(void)state_->reverb->SetVolume(muted?0.f:1.f);
   for(auto& voice:state_->voices)state_->UpdateVolume(*voice);
 }
 void NativeXAudio2Mixer::StopAll() noexcept {

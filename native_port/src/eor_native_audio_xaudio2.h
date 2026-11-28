@@ -105,6 +105,7 @@ class NativeXAudio2Mixer {
   bool SetVoiceLiveFevDsp(VoiceId id,const FevEventEntry& event,uint32_t layer,
       std::span<const float> values,bool spatial_ready) noexcept;
   bool SetVoiceSpatialState(VoiceId id,const SpatialVoiceState& spatial) noexcept;
+  bool SetVoiceReverbSend(VoiceId id,float gain) noexcept;
   // Replace the position and 2D/3D mix together, preserving the source voice.
   bool SetVoiceSpatialMix(VoiceId id,std::optional<SpatialVoiceState> spatial,
       std::optional<float> pan,std::optional<float> level) noexcept;

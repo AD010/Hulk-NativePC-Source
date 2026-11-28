@@ -18,6 +18,7 @@
 #include "eor_native_audio_xaudio2.h"
 #include "eor_fmod_live_events.h"
 #include "eor_fmod_live_cues.h"
+#include "eor_reverb_route.h"
 #include "eor_fmod_start_trace_bridge.h"
 #include <cstdlib>
 #include "eor_fmod_project.h"
@@ -738,6 +739,14 @@ void FinishOriginalFmodUpdate(std::optional<audio::FmodUpdateStamp> stamp,const 
           if((cue.spatial&&!spatial)||(cue.audibility&&cue.audibility->spatial&&!spatial))return 0; // never reinterpret an invalid 3D snapshot as 2D
           audio::VoiceOptions options;
           options.spatial=spatial;
+          if(spatial){
+            options.reverb_send=0.f;
+            if(cue.spatial->reverb_sends){
+              const auto wet=audio::ResolveNativeReverbSend(*cue.spatial->reverb_sends);
+              if(!wet)return 0;
+              options.reverb_send=*wet;
+            }
+          }
           options.reserve_live_pitch=true;
           options.start_paused=cue.audibility&&cue.audibility->paused.value_or(false);
           if(const auto controls=audio::ResolveLiveMutableControls(definition,cue.layer,binding->physical_values,spatial.has_value())){
@@ -773,6 +782,10 @@ void FinishOriginalFmodUpdate(std::optional<audio::FmodUpdateStamp> stamp,const 
           if(cue.layer>=definition.layer_records.size())return false;
           const auto spatial=cue.spatial?audio::ResolveLiveFmodSpatial(*cue.spatial):std::nullopt;
           if((cue.spatial&&!spatial)||(cue.audibility&&cue.audibility->spatial&&!spatial))return false;
+          if(spatial&&cue.spatial->reverb_sends){
+            const auto wet=audio::ResolveNativeReverbSend(*cue.spatial->reverb_sends);
+            if(!wet||!g_native_fmod_mixer->SetVoiceReverbSend(id,*wet))return false;
+          }
           if(cue.audibility&&cue.audibility->paused&&
              !g_native_fmod_mixer->PauseVoice(id,*cue.audibility->paused))return false;
           // Live DSP updates the next unqueued PCM block, retaining its
