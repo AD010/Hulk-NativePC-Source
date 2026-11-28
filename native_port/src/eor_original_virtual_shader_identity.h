@@ -115,6 +115,17 @@ struct VerifiedPixelSamplerProgram {
   std::vector<uint8_t> container;
 };
 using OriginalPixelSamplerCache=std::map<Digest,VerifiedPixelSamplerProgram>;
+struct OriginalVertexSamplerControls {
+  Digest source{};
+  uint8_t sampled_slots=0; // logical VS s0..s3 (physical TFETCH 16..19)
+};
+std::optional<OriginalVertexSamplerControls> ReadOriginalVertexSamplerControls(
+    std::span<const uint8_t> container,const Digest& expected_source);
+struct VerifiedVertexSamplerProgram {
+  OriginalVertexSamplerControls controls;
+  std::vector<uint8_t> container;
+};
+using OriginalVertexSamplerCache=std::map<Digest,VerifiedVertexSamplerProgram>;
 struct OriginalLiveXdkShaderHeaderWitness {
   uint32_t original_xdk_shader_guest_object=0;
   uint32_t original_virtual_header_guest_address=0;
@@ -134,6 +145,7 @@ struct OriginalLiveXdkShaderHeaderWitness {
   // A unique independently authenticated PS may identify an ambiguous VS.
   // Both fields must never be used to justify each other.
   std::optional<Digest> alias_paired_vertex_source{};
+  std::optional<OriginalVertexSamplerControls> vertex_sampling{};
 };
 // Read the inline ShaderContainer of the current USA XDK shader object and
 // establish archive ownership from the SHA-256 of the complete virtual bytes.
@@ -157,6 +169,10 @@ bool SelectJointOriginalLiveAliasPair(
 std::optional<OriginalPixelSamplerControls> CaptureOriginalPixelSamplerControls(
     const OriginalLiveXdkShaderHeaderWitness& witness,const Digest& original_source,
     ReadOriginalGuestShaderBytes read,void* state,OriginalPixelSamplerCache& cache,
+    const OriginalVirtualShaderIdentity* identities=nullptr);
+std::optional<OriginalVertexSamplerControls> CaptureOriginalVertexSamplerControls(
+    const OriginalLiveXdkShaderHeaderWitness& witness,const Digest& original_source,
+    ReadOriginalGuestShaderBytes read,void* state,OriginalVertexSamplerCache& cache,
     const OriginalVirtualShaderIdentity* identities=nullptr);
 // Decode the actual source digest from an original, byte-exact live
 // ShaderContainer header, only if object/header pointer ABI and the

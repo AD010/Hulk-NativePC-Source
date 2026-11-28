@@ -115,6 +115,7 @@ uint32_t g_frame_heavy_capture_skipped=0; // guarded by g_mutex
 // Only full-source-hash-verified pixel policies are retained across draw
 // calls. Failed guest reads must be retried when streaming finishes.
 aot::OriginalPixelSamplerCache g_pixel_sampling;
+aot::OriginalVertexSamplerCache g_vertex_sampling;
 XdkCallsiteEvidence g_callsite_evidence;
 CompletedFrameMailbox g_frames_for_native;
 #ifdef _WIN32
@@ -1687,6 +1688,16 @@ void CapturePpcDraw(Kind kind, uint32_t guest, const PPCContext& ctx,
   }
   if(replay && capture_heavy && verified_draw_program && g_original_shader_capture_index) {
     const auto& sources=*g_original_shader_capture_index;
+    if(auto& vertex=draw.observed_live_vertex_shader_header;
+       vertex && draw.observed_shader_constants && draw.observed_shader_constants->valid_vertex_fetch) {
+      try {
+        if(const auto sha=aot::ResolveOriginalLiveXdkShaderSource(
+              sources,*vertex,draw.observed_vs_matrices->original_vs_guest_object,
+              aot::Stage::Vertex,g_collector.NextFrameSequence(),g_collector.NextDrawOrdinal()))
+          vertex->vertex_sampling=aot::CaptureOriginalVertexSamplerControls(
+              *vertex,*sha,ReadGuest,guest_base,g_vertex_sampling,&sources);
+      } catch(const std::bad_alloc&) { /* No source policy means no verified VS texture draw. */ }
+    }
     if(auto& pixel=draw.observed_live_pixel_shader_header;
        pixel && REXCVAR_GET(hulk_eor_vulkan_replay) && draw.observed_shader_constants) {
       try {
@@ -2010,6 +2021,7 @@ void ClearOriginalShaderCaptureIndex() noexcept {
   std::lock_guard lock(g_mutex);
   g_original_effect_capture_catalog.reset();
   g_pixel_sampling.clear();
+  g_vertex_sampling.clear();
   g_original_shader_capture_index.reset();
   g_worker_catalog_factory_last_attempt=0;
   // Any old catalogue attached to that original shader generation must
@@ -2207,6 +2219,7 @@ void ClearVerifiedSourceShaderPack() noexcept {
   g_offline_shader_pack.reset();
   if(old && g_original_shader_capture_index==old->virtual_ids) {
     g_pixel_sampling.clear();
+    g_vertex_sampling.clear();
     g_original_shader_capture_index.reset();
   }
   if(old && g_original_effect_capture_catalog==old->effects)
