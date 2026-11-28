@@ -19,6 +19,8 @@ class TestCityDistance(unittest.TestCase):
         self.assertIn('name=="OBJECTS.ARC"',result)
         self.assertIn('ApplySkyFogToRead',result)
         self.assertIn('ApplyLodToRead',result)
+        self.assertIn('logged[index].exchange(scale_bits',result)
+        self.assertIn('record=hulk::city::kLodRecords[index]',result)
         self.assertIn('file_handle_->Read(hulk::city::kLevelsOffset',result)
     def test_reject_unpatched_or_partial(self):
         with self.assertRaises(ValueError):
