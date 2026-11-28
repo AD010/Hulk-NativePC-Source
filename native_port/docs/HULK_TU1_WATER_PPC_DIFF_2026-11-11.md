@@ -214,3 +214,32 @@ console update binaries or generated source are committed. Other
 state-machine differences, building ledge behavior and the PS3 patch
 remain unverified. Actual generated Windows code and gameplay remain
 untested; the generators preserve original code for unsupported layouts.
+
+### TU1 regional transition rejection and unified application
+
+Reused the existing private mapped images. The PlayerJumpData method range
+USA 822820E0..82282E10 and EU TU1 82289198..82289EC8 has 844 instructions
+in both versions; the comparison shows address/constant/field relocations,
+not a large added control-flow block. A later method has a substantive
+new regional guard. USA entry 82288580, EU base 82288AD8, EU TU1 8228F750.
+The original USA call 822885A0 loads a transform into the same stack
+layout as EU TU1 8228F770. TU1 8228F774..8228F7D4 checks the three
+floats at stack+272/+276/+280. Constants 8200402C, 82002FF0, 82002FEC,
+82002FE8, 82002FE4 are -30, -3400, -2600, 1950, 2450 respectively.
+CR6 LT/GT branch conditions reject a transition when y<-30, -3400<x<-2600,
+1950<z<2450. The USA equivalent loads f30/f29/f28 at
+822885B0/B4/B8 and already has a zero-result epilogue at 822887C8.
+The new generator validates that instruction sequence, translated loads,
+zero result register and existing return label, then transfers the exact
+regional condition. No global ledge-disable or speculative new collision
+threshold. This is a verified regional change, not proof that every building
+ledge bug is fixed. Larger TU1 changes in the preceding collision-query
+method around USA 8228727C and TU1 8228E334 remain unmapped.
+
+All four verified transfers now undergo validation together before any
+generated translation unit is written. A mismatch fails the codegen build
+instead of silently shipping a partial fix. Staged writes are per-file
+atomic, not a filesystem-wide transaction; any I/O error fails the build.
+15 Python synthetic regressions passed (including combined translation
+unit, unchanged input on validation failure, and idempotence). Actual
+Windows generated output and gameplay are not tested.

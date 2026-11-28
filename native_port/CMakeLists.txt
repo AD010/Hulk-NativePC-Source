@@ -336,15 +336,13 @@ if(HULK_WITH_NATIVE_X)
             COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/../ci/patch_hulk_fmod_start_trace.py"
                 "${CMAKE_CURRENT_SOURCE_DIR}/generated/default" "${CMAKE_CURRENT_SOURCE_DIR}/game/default.xex"
             COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/../ci/test_patch_hulk_tu1_water_origin.py"
-            COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/../ci/patch_hulk_tu1_water_origin.py"
-                "${CMAKE_CURRENT_SOURCE_DIR}/generated/default" "${CMAKE_CURRENT_SOURCE_DIR}/game/default.xex"
             COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/../ci/test_patch_hulk_tu1_water_trajectory.py"
-            COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/../ci/patch_hulk_tu1_water_trajectory.py"
-                "${CMAKE_CURRENT_SOURCE_DIR}/generated/default" "${CMAKE_CURRENT_SOURCE_DIR}/game/default.xex"
             COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/../ci/test_patch_hulk_tu1_water_exit.py"
-            COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/../ci/patch_hulk_tu1_water_exit.py"
+            COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/../ci/test_patch_hulk_tu1_ledge_region.py"
+            COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/../ci/test_patch_hulk_tu1_bundle.py"
+            COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/../ci/patch_hulk_tu1_bundle.py"
                 "${CMAKE_CURRENT_SOURCE_DIR}/generated/default" "${CMAKE_CURRENT_SOURCE_DIR}/game/default.xex"
-            VERBATIM COMMENT "Verify original FMOD start trace and TU1 water fixes")
+            VERBATIM COMMENT "Verify original FMOD start trace and complete matched TU1 transfer bundle")
         add_dependencies(hulk_fmod_start_trace_codegen incredible_hulk_codegen)
         add_dependencies(incredible_hulk_recomp hulk_fmod_start_trace_codegen)
     endif()
