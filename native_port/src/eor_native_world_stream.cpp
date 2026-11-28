@@ -1,4 +1,5 @@
 #include "eor_native_world_stream.h"
+#include "eor_world_request_order.h"
 #include <algorithm>
 #include <cmath>
 #include <stdexcept>
@@ -68,7 +69,10 @@ void NativeWorldStream::Queue(uint32_t hash, bool urgent) {
       if (it != requests_.end()) {
         // Reorder in place without allocating: erase+push_front could
         // throw mid-promotion and permanently strand a queued model.
-        std::rotate(requests_.begin(), it, it + 1);
+        if(lod_)std::rotate(requests_.begin(),it,it+1);
+        else PromoteWorldRequest(requests_,it,[this](uint32_t candidate){
+          return source_urgent_.contains(candidate);
+        });
         // Promotion can now open the reserved urgent I/O slot even when
         // the speculative staging window is already full.
         wake_.notify_one();
@@ -78,8 +82,13 @@ void NativeWorldStream::Queue(uint32_t hash, bool urgent) {
   }
   queued_.insert(hash);
   try {
-    if (urgent) requests_.push_front(hash);
-    else requests_.push_back(hash);
+    if (urgent && lod_) requests_.push_front(hash);
+    else {
+      requests_.push_back(hash);
+      if(urgent)PromoteWorldRequest(requests_,requests_.end()-1,[this](uint32_t candidate){
+        return source_urgent_.contains(candidate);
+      });
+    }
   } catch (...) {
     queued_.erase(hash);
     throw;

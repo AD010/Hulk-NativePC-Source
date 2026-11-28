@@ -264,6 +264,7 @@ if(HULK_NATIVE_CORE_ONLY)
         eor_native_havok_scheduler_test
         eor_havok_carry_test
         eor_original_fog_test
+        eor_world_request_order_test
         eor_native_lod_test)
         add_executable(${_test} "${CMAKE_CURRENT_SOURCE_DIR}/../ci/${_test}.cpp")
         target_link_libraries(${_test} PRIVATE hulk_native_core)
