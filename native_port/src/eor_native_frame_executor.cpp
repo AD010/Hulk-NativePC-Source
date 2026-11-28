@@ -142,6 +142,29 @@ NativeFrameSubmission EorNativeFrameExecutor::Submit(
   }
 
   RetireCompleted();
+  // Bound retained GPU ownership BEFORE admitting another scene. A failed
+  // fence query must not turn every later source frame into another
+  // retained allocation. Waiting here cannot partially submit this frame.
+  constexpr size_t kMaxPendingFrames=3;
+  if(state_->pending.size()>=kMaxPendingFrames) {
+    try {
+      if(state_->fence && state_->pending.front().value) {
+        state_->fence->Wait(state_->pending.front().value);
+        RetireCompleted();
+      }
+      if(state_->pending.size()>=kMaxPendingFrames) {
+        state_->context->Flush();
+        state_->context->WaitForIdle();
+        const auto last=state_->pending.back().source_frame;
+        state_->backend->RetireCompletedOriginalFontDraws(last);
+        state_->pending.clear();
+      }
+    } catch (...) {
+      state_->completion_failed=true;
+      state_->SetFailure("Cannot retire original GPU owners before next frame");
+      return NativeFrameSubmission::FailedAfterGpu;
+    }
+  }
   // Allocate the ownership record BEFORE ReplayAotScene can submit any GPU
   // work. Moving owners into a temporary deque element after Draw can free
   // them on allocation failure before the exception handler waits for idle.
@@ -162,11 +185,7 @@ NativeFrameSubmission EorNativeFrameExecutor::Submit(
       current.value=signal;
       state_->last_signal=signal;
       RetireCompleted();
-      if(state_->pending.size()>3) {
-        // One completed epoch frees a slot. Leave later submissions in flight.
-        state_->fence->Wait(state_->pending.front().value);
-        RetireCompleted();
-      }
+      // Admission already bounded outstanding owners before this Draw.
     } else {
       // No Vulkan fence available: retain all owners through completion.
       context->Flush();
