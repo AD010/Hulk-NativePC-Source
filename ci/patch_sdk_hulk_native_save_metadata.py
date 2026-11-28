@@ -100,12 +100,33 @@ def patch_cpp(source):
         source=source.replace(old,new,1)
     return INCLUDE+source,True
 
+XAM_SOURCE='src/kernel/xam/xam_content.cpp'
+XAM_INCLUDE="#include <rex/cvar.h>\n"
+XAM_INCLUDE_NEW="#include <rex/cvar.h>\n#include <rex/system/xam/hulk_native_save_root.h>\n"
+XAM_ENUM="    // Also enumerate common content (xuid=0)\n    if (xuid != 0) {"
+XAM_ENUM_NEW="    // HULK/NATIVE-SAVE-ENUM: the native Documents root is shared\n    // across the compatibility XUID arguments. Enumerate it just once;\n    // common DLC and other titles retain their existing behavior.\n    const bool hulk_single_root = !hulk::native_save::WindowsRoot(\n        REX_KERNEL_STATE()->title_id(), uint32_t(content_type),\n        rex::cvar::Query<bool>(\"hulk_native_pc_saves\")).empty();\n    if (xuid != 0 && !hulk_single_root) {"
+
+def patch_xam(source):
+    if XAM_INCLUDE_NEW in source and XAM_ENUM_NEW in source:
+        return source,False
+    if XAM_INCLUDE_NEW in source or 'HULK/NATIVE-SAVE-ENUM' in source:
+        raise ValueError('Partial native save enumeration patch')
+    for old,new in ((XAM_INCLUDE,XAM_INCLUDE_NEW),(XAM_ENUM,XAM_ENUM_NEW)):
+        if source.count(old)!=1:raise ValueError('Native save enumeration anchor drift')
+        source=source.replace(old,new,1)
+    return source,True
+
 def main():
     root=Path(sys.argv[1]);path=root/SOURCE
     before=path.read_text(encoding='utf-8');after,changed=patch_cpp(before)
+    xam_path=root/XAM_SOURCE
+    xam_before=xam_path.read_text(encoding='utf-8')
+    xam_after,xam_changed=patch_xam(xam_before)
+    if patch_xam(xam_after)!=(xam_after,False):raise ValueError('Native save enum not idempotent')
     helper=Path(__file__).resolve().parents[1]/'native_port/src/native_save_metadata.h'
     dest=root/'include/rex/system/xam/hulk_native_save_metadata.h'
     dest.write_text(helper.read_text(encoding='utf-8'),encoding='utf-8',newline='\n')
     if changed:path.write_text(after,encoding='utf-8',newline='\n')
+    if xam_changed:xam_path.write_text(xam_after,encoding='utf-8',newline='\n')
     print('Hulk native save metadata:', 'installed' if changed else 'verified')
 if __name__=='__main__':main()
