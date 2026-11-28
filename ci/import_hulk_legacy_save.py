@@ -5,6 +5,8 @@ DRY RUN by default. This keeps the Xbox-formatted payload unchanged and does
 NOT convert it into the retail Windows-2008 HULK.sav format. Never deletes,
 renames or overwrites original saves, achievements, TU1, or retail PC files.
 Requires an explicit --apply and refuses an occupied target folder.
+By default converts only the metadata to native PC v1; --legacy-header
+keeps the old header for older builds. The original payload is never converted.
 """
 from __future__ import annotations
 import argparse
@@ -62,10 +64,25 @@ def verify_legacy(payload: bytes, header: bytes) -> None:
         raise ValueError("Unrecognized Hulk XContent aggregate header")
 
 
-def plan(legacy_root: Path, documents: Path) -> dict:
+def native_header(header: bytes) -> bytes:
+    if len(header)!=328 or header[:8]!=b'\x00\x00\x00\x01'*2:
+        raise ValueError('Unrecognized Hulk XContent aggregate header')
+    if header[264:306].split(b'\0',1)[0].upper()!=b'HULK.SAV':
+        raise ValueError('Unexpected Hulk slot in original header')
+    raw=header[8:264]
+    # Stop at a UTF-16 code-unit terminator, not an arbitrary zero byte.
+    stop=next((i for i in range(0,len(raw),2) if raw[i:i+2]==b'\0\0'),len(raw))
+    name=raw[:stop].decode('utf-16-be','strict').encode('utf-16-le','strict')
+    if len(name)>254:raise ValueError('Original display name exceeds native metadata limit')
+    body=b'HULKPCM\x01'+(len(name)//2).to_bytes(2,'little')+name
+    return body+(zlib.crc32(body)&0xffffffff).to_bytes(4,'little')
+
+
+def plan(legacy_root: Path, documents: Path, legacy_header: bool=False) -> dict:
     payload_file, header_file = find_source(legacy_root)
     payload, header = payload_file.read_bytes(), header_file.read_bytes()
     verify_legacy(payload, header)
+    target_header = header if legacy_header else native_header(header)
     destination = documents / "SEGA" / "The Incredible Hulk" / "NativePC" / "SavedGames"
     return {
         "source_payload": str(payload_file),
@@ -75,10 +92,13 @@ def plan(legacy_root: Path, documents: Path) -> dict:
         "payload_sha256": hash_file(payload),
         "header_length": len(header),
         "header_sha256": hash_file(header),
+        "target_header_sha256": hash_file(target_header),
+        "target_header_length": len(target_header),
+        "metadata_format": "legacy-xcontent" if legacy_header else "native-pc-v1",
         "crc32_verified": True,
         "target_exists": destination.exists() or destination.is_symlink(),
         "retail_save_path_untouched": str(documents / "SEGA" / "The Incredible Hulk" / "HULK.sav"),
-        "_bytes": (payload, header),
+        "_bytes": (payload, target_header),
     }
 
 
@@ -107,13 +127,13 @@ def import_once(report: dict) -> dict:
         # Preserve staged data for recovery; NEVER modify/delete originals.
         raise
     expected = ((dest / SLOT / SLOT, report["payload_sha256"]),
-                (dest / "Headers" / (SLOT + ".header"), report["header_sha256"]))
+                (dest / "Headers" / (SLOT + ".header"), report["target_header_sha256"]))
     if any(hash_file(path.read_bytes()) != digest for path, digest in expected):
         raise RuntimeError("Post-import integrity verification failed")
     return {
         "status": "imported", "destination": str(dest),
         "verified_payload_sha256": report["payload_sha256"],
-        "verified_header_sha256": report["header_sha256"],
+        "verified_header_sha256": report["target_header_sha256"],
     }
 
 
@@ -122,8 +142,9 @@ def main() -> None:
     p.add_argument("legacy_root", type=Path)
     p.add_argument("documents", type=Path)
     p.add_argument("--apply", action="store_true")
+    p.add_argument("--legacy-header", action="store_true", help="Retain old header for pre-native-metadata builds")
     args = p.parse_args()
-    report = plan(args.legacy_root, args.documents)
+    report = plan(args.legacy_root, args.documents, args.legacy_header)
     if args.apply:
         report.update(import_once(report))
     else:
