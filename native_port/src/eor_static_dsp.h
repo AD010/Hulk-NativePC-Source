@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstdint>
 #include <numbers>
+#include <optional>
 #include <span>
 #include <string_view>
 namespace hulk::eor::audio {
@@ -15,9 +16,20 @@ constexpr DspKind ClassifyFevDsp(std::string_view name) noexcept {
   if(name=="FMOD Lowpass")return DspKind::Lowpass;
   return DspKind::Unknown;
 }
+// Parameter descriptors from the SHA-pinned USA image (48-byte records).
+// Resonance is the legacy FMOD parameter, not necessarily the biquad Q.
+struct OriginalDspRange {float minimum,maximum,initial;};
+constexpr std::optional<OriginalDspRange> OriginalUsaDspRange(DspKind kind,unsigned parameter) noexcept {
+  if(kind==DspKind::Distortion&&parameter==0)return OriginalDspRange{0,1,.5f};
+  if(kind==DspKind::LowpassSimple&&parameter==0)return OriginalDspRange{10,22000,5000};
+  if(kind==DspKind::Highpass&&parameter==0)return OriginalDspRange{1,22000,5000};
+  if(kind==DspKind::Lowpass&&parameter==0)return OriginalDspRange{10,22000,5000};
+  if((kind==DspKind::Lowpass||kind==DspKind::Highpass)&&parameter==1)return OriginalDspRange{1,10,1};
+  return {};
+}
 // Explicit physical parameters supplied by a verified caller, NOT normalized
 // FEV automation coordinates. These are native approximations to the named
-// FMOD DSPs, not the proprietary FMOD implementation.
+// FMOD DSPs except the USA-verified scalar Distortion transfer function.
 struct StaticDspStage {DspKind kind=DspKind::Unknown;float value=0.f,q=0.70710678f;};
 struct StaticDspChain {std::array<StaticDspStage,4> stages{};uint8_t count=0;};
 inline bool ValidStaticDsp(const StaticDspChain& chain,uint32_t rate) noexcept {
@@ -27,10 +39,17 @@ inline bool ValidStaticDsp(const StaticDspChain& chain,uint32_t rate) noexcept {
     if(!std::isfinite(s.value)||!std::isfinite(s.q))return false;
     if(s.kind==DspKind::Distortion){if(s.value<0||s.value>1)return false;}
     else if(s.kind==DspKind::LowpassSimple||s.kind==DspKind::Highpass||s.kind==DspKind::Lowpass){
-      if(s.value<10||s.value>=rate*0.49f||s.q<0.1f||s.q>10.f)return false;
+      const auto range=OriginalUsaDspRange(s.kind,0);
+      if(!range||s.value<range->minimum||s.value>range->maximum||s.value>=rate*0.49f||s.q<0.1f||s.q>10.f)return false;
     }else return false;
   }
   return true;
+}
+// USA PPC scalar callback body 0x8279EF30 (tail at 0x8279F054).
+// Vector reciprocal-estimate rounding is not asserted bit-identical.
+inline float OriginalUsaDistortion(float x,float level) noexcept {
+  const float k=level<1.f?2.f*level/(1.f-level):19994.681640625f;
+  return (x*(1.f+k))/std::fma(std::abs(x),k,1.f);
 }
 inline bool ApplyStaticDsp(std::span<int16_t> pcm,uint32_t rate,uint16_t channels,const StaticDspChain& chain) noexcept {
   if((channels!=1&&channels!=2)||pcm.empty()||pcm.size()%channels||!ValidStaticDsp(chain,rate))return false;
@@ -39,7 +58,6 @@ inline bool ApplyStaticDsp(std::span<int16_t> pcm,uint32_t rate,uint16_t channel
     if(s.kind==DspKind::Distortion&&s.value==0)continue;
     double b0=1,b1=0,b2=0,a1=0,a2=0;
     const double w=2*std::numbers::pi*double(s.value)/rate;
-    const double drive=1+15*double(s.value),norm=std::tanh(drive);
     if(s.kind==DspKind::LowpassSimple){a1=-std::exp(-w);b0=1+a1;}
     else if(s.kind==DspKind::Highpass||s.kind==DspKind::Lowpass){
       const double c=std::cos(w),alpha=std::sin(w)/(2*s.q),a0=1+alpha;
@@ -51,7 +69,7 @@ inline bool ApplyStaticDsp(std::span<int16_t> pcm,uint32_t rate,uint16_t channel
     std::array<double,2> z1{},z2{};
     for(std::size_t n=0;n<pcm.size();++n){
       const auto ch=n%channels;const double x=pcm[n]/32768.;double y;
-      if(s.kind==DspKind::Distortion)y=(1-s.value)*x+s.value*std::tanh(drive*x)/norm;
+      if(s.kind==DspKind::Distortion)y=OriginalUsaDistortion(static_cast<float>(x),s.value);
       else {y=b0*x+z1[ch];z1[ch]=b1*x-a1*y+z2[ch];z2[ch]=b2*x-a2*y;}
       pcm[n]=static_cast<int16_t>(std::lround(std::clamp(y*32768.,-32768.,32767.)));
     }

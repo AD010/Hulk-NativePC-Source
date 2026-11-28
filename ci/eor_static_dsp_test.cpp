@@ -10,9 +10,20 @@ static std::vector<int16_t> Tone(double hz){
 }
 static double Energy(const std::vector<int16_t>& v){double sum=0;for(size_t i=1200;i<v.size();++i)sum+=double(v[i])*v[i];return sum;}
 int main(){
+  assert(OriginalUsaDspRange(DspKind::Highpass,0)->minimum==1.f);
+  assert(OriginalUsaDspRange(DspKind::Lowpass,0)->maximum==22000.f);
+  assert(OriginalUsaDspRange(DspKind::Lowpass,1)->initial==1.f);
+  assert(!OriginalUsaDspRange(DspKind::LowpassSimple,1));
   StaticDspChain c;auto v=Tone(500),old=v;assert(ApplyStaticDsp(v,48000,1,c)&&v==old);
   c.count=1;c.stages[0]={DspKind::Distortion,0,1};assert(ApplyStaticDsp(v,48000,1,c)&&v==old);
   c.stages[0].value=.5f;assert(ApplyStaticDsp(v,48000,1,c)&&v!=old);
+  assert(OriginalUsaDistortion(.25f,.5f)==.5f);
+  assert(OriginalUsaDistortion(-.5f,.5f)==-.75f);
+  assert(OriginalUsaDistortion(1.f,1.f)==1.f);
+  assert(OriginalUsaDistortion(0.f,1.f)==0.f);
+  std::vector<int16_t> exact{8192,-16384,0};
+  assert(ApplyStaticDsp(exact,48000,1,c));
+  assert(exact[0]==16384&&exact[1]==-24576&&exact[2]==0);
   for(auto k:{DspKind::Lowpass,DspKind::LowpassSimple,DspKind::Highpass}){
     c.stages[0]={k,1000,.70710678f};auto low=Tone(100),high=Tone(10000);
     double el=Energy(low),eh=Energy(high);assert(ApplyStaticDsp(low,48000,1,c)&&ApplyStaticDsp(high,48000,1,c));
