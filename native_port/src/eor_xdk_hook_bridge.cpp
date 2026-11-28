@@ -751,7 +751,7 @@ void FinishOriginalFmodUpdate(std::optional<audio::FmodUpdateStamp> stamp,const 
     if(g_native_fmod_shadow_enabled&&g_native_fmod_catalog&&g_native_fmod_index&&!g_native_fmod_wave_arc.empty()){
       // Admit a bounded polyphonic batch per shadow update. This remains
       // a synchronous decode path, not a sample-accurate event scheduler.
-      g_native_fmod_shadow_voices.Reconcile(*active,
+      g_native_fmod_shadow_voices.ReconcileReady(*active,
         [&](const audio::LiveFmodEvent& event,const audio::LiveFmodCue& cue)->uint64_t{
           const auto project=g_native_fmod_catalog->projects.find(event.project);
           if(project==g_native_fmod_catalog->projects.end())return 0;
@@ -798,7 +798,13 @@ void FinishOriginalFmodUpdate(std::optional<audio::FmodUpdateStamp> stamp,const 
           return accepted?id:0;
         },
         [&](uint64_t id){(void)g_native_fmod_mixer->StopVoice(id);},
-        audio::FmodCaptureSchedule::ShadowStartBudget());
+        audio::FmodCaptureSchedule::ShadowStartBudget(),
+        [](const audio::LiveFmodEvent&,const audio::LiveFmodCue& cue) {
+          // A later frame can provide the missing pose or affirmative 2D
+          // evidence. Reject for now, but allow later native admission.
+          if(cue.spatial)return audio::ResolveLiveFmodSpatial(*cue.spatial).has_value();
+          return cue.audibility && !cue.audibility->spatial;
+        });
       g_native_fmod_shadow_voices.UpdateActive(*active,
         [&](uint64_t id,const audio::LiveFmodEvent& event,const audio::LiveFmodCue& cue){
           const auto project=g_native_fmod_catalog->projects.find(event.project);
