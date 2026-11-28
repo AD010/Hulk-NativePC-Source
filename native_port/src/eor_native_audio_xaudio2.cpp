@@ -159,6 +159,13 @@ struct NativeXAudio2Mixer::State {
     // Caller has already destroyed every source voice.
     for(auto& bus:room_buses){if(bus.voice)bus.voice->DestroyVoice();bus={};}
   }
+  void TouchRoomBuses(const Voice& voice) noexcept {
+    if(!voice.room_routes.count)return;
+    const auto now=GetTickCount64();
+    for(size_t i=0;i<voice.room_routes.count;++i)
+      for(auto& bus:room_buses)
+        if(bus.voice&&bus.owner==voice.room_routes.routes[i].owner)bus.last_used=now;
+  }
   bool RoomReferenced(uint32_t owner) const noexcept {
     for(const auto& voice:voices)
       for(size_t i=0;i<voice->room_routes.count;++i)if(voice->room_routes.routes[i].owner==owner)return true;
@@ -208,7 +215,11 @@ struct NativeXAudio2Mixer::State {
       if(!target)return false;
       routes[i+1]={0,target};
     }
-    if(!voice.room_routes.SameTopology(wanted)){
+    const bool same_topology=voice.room_routes.SameTopology(wanted);
+    if(!same_topology){
+      // Retain a tail from the last actual disconnection, including a
+      // long-paused voice whose parameters have not recently changed.
+      TouchRoomBuses(voice);
       std::array<float,128> dry{};
       voice.source->GetOutputMatrix(master,voice.channels,voice.output_channels,dry.data());
       XAUDIO2_VOICE_SENDS sends{static_cast<UINT32>(wanted.count+1),routes.data()};
@@ -219,6 +230,7 @@ struct NativeXAudio2Mixer::State {
       if(FAILED(voice.source->SetOutputMatrix(master,voice.channels,voice.output_channels,dry.data())))return false;
     }
     for(size_t i=0;i<wanted.count;++i){
+      if(same_topology&&voice.room_routes.routes[i].gain==wanted.routes[i].gain)continue;
       const auto matrix=NativeWetMatrix(voice.channels,wanted.routes[i].gain);
       if(!matrix||FAILED(voice.source->SetOutputMatrix(routes[i+1].pOutputVoice,voice.channels,1,matrix->data())))return false;
     }
@@ -376,6 +388,8 @@ void NativeXAudio2Mixer::Update() noexcept {
   if(!Ready())return;
   std::lock_guard lock(state_->mutex);
   auto& v=state_->voices;
+  // Refresh room references before pruning completed source voices.
+  for(const auto& voice:v)if(voice)state_->TouchRoomBuses(*voice);
   v.erase(std::remove_if(v.begin(),v.end(),[](const auto& voice) {
     if(!voice || !voice->source)return true;
     if(voice->live_dsp)return voice->live_dsp->Finished();
@@ -664,6 +678,7 @@ bool NativeXAudio2Mixer::StopVoice(VoiceId id) noexcept {
   const auto it=std::find_if(state_->voices.begin(),state_->voices.end(),
       [id](const auto& voice){return voice->id==id;});
   if(it==state_->voices.end())return false;
+  state_->TouchRoomBuses(**it);
   state_->voices.erase(it);
   return true;
 }
