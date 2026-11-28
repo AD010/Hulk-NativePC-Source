@@ -49,6 +49,7 @@ void FinishOriginalCameraSpeed(std::optional<vm::CameraSpeedEvent> event,uint8_t
 void RestoreOriginalCameraGetter(uint32_t method,const PPCContext& ctx,uint8_t* base) noexcept;
 void ObserveOriginalHavokStep(uint32_t method,const PPCContext& ctx,uint8_t* base) noexcept;
 void ApplyOriginalHavokCatchup(const PPCContext& ctx,uint8_t* base) noexcept;
+void ApplyOriginalFogRenderDistance(uint32_t owner,uint32_t stack,uint32_t lr,uint8_t* base) noexcept;
 // Source-verified original 0x825F84C0 EoR material state slot to
 // both original VS/PS XDK shader objects. 92-byte records and exact
 // SetVertexShader/SetPixelShader handle sources are proven in USA PPC.

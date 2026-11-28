@@ -11,6 +11,7 @@
 #include <string>
 #include "eor_original_havok_step.h"
 #include "eor_original_havok_catchup.h"
+#include "eor_original_fog.h"
 #include "eor_usa_material_textures.h"
 #include "eor_diligent_aot_backend.h"
 #ifdef _WIN32
@@ -86,6 +87,8 @@ REXCVAR_DEFINE_BOOL(hulk_original_havok_step_probe, false, "Hulk/Diagnostics",
                     "Verify original Havok world and split-step delta; does not modify timing");
 REXCVAR_DEFINE_BOOL(hulk_original_havok_catchup, false, "Hulk/Physics",
                     "Experimental bounded catch-up in original 60Hz EoR physics scheduler");
+REXCVAR_DEFINE_INT32(hulk_original_fog_distance_multiplier,1,"Hulk/Graphics",
+                    "Experimental original atmosphere distance multiplier; 1 preserves original fog").range(1,4);
 REXCVAR_DEFINE_INT32(hulk_original_subtitles, -1, "Hulk/Original Settings",
                     "Original subtitle preference: -1 inherits the game, 0 off, 1 on").range(-1,1);
 REXCVAR_DEFINE_INT32(hulk_original_music_volume,-1,"Hulk/Original Settings",
@@ -981,6 +984,54 @@ void RestoreOriginalSubtitleOption(const PPCContext& ctx,uint8_t* base) noexcept
 #endif
 }
 
+void ApplyOriginalFogRenderDistance(uint32_t owner,uint32_t stack,uint32_t lr,uint8_t* base) noexcept {
+#ifdef _WIN32
+  const int scale=REXCVAR_GET(hulk_original_fog_distance_multiplier);
+  if(!base||scale<=1||scale>4)return;
+  using namespace hulk::eor::world;
+  const auto read=[&](uint32_t a,std::byte* p,size_t n){return ReadGuest(base,a,p,n);};
+  if(!VerifyFogRenderCall(lr,stack,owner,read))return;
+  const auto decode=[](const std::array<std::byte,8>& v){
+    FogRange f;
+    for(unsigned i=0;i<4;++i){
+      f.near_bits=(f.near_bits<<8)|std::to_integer<uint32_t>(v[i]);
+      f.far_bits=(f.far_bits<<8)|std::to_integer<uint32_t>(v[i+4]);
+    }
+    return f;
+  };
+  const uint32_t a=owner+kFogRenderCopyA, c=owner+kFogRenderCopyB;
+  std::array<std::byte,8> source{},first{},second{},replacement{};
+  if(!read(kOriginalFogState+76u,source.data(),8)||!read(a,first.data(),8)||!read(c,second.data(),8))return;
+  const auto scaled=ScaleOriginalFogCopies(decode(source),decode(first),decode(second),scale);
+  if(!scaled)return;
+  for(unsigned i=0;i<4;++i){
+    replacement[i]=std::byte(scaled->near_bits>>(24-8*i));
+    replacement[i+4]=std::byte(scaled->far_bits>>(24-8*i));
+  }
+  // Both copies must reside in one writable committed host region. Do
+  // not partially update one copy if the other cannot be written.
+  if((a<0xe0000000u)!=(c<0xe0000000u))return;
+  const uint64_t offset=uint64_t(a)+(a>=0xe0000000u?4096u:0u);
+  if(offset>UINTPTR_MAX-uintptr_t(base))return;
+  const auto start=uintptr_t(base)+uintptr_t(offset);
+  const size_t span=size_t(c-a)+8;
+  if(span>UINTPTR_MAX-start)return;
+  MEMORY_BASIC_INFORMATION info{};
+  if(VirtualQuery(reinterpret_cast<void*>(start),&info,sizeof(info))!=sizeof(info)||
+     info.State!=MEM_COMMIT||(info.Protect&PAGE_GUARD))return;
+  const auto protection=info.Protect&0xffu;
+  if(protection!=PAGE_READWRITE&&protection!=PAGE_WRITECOPY&&
+     protection!=PAGE_EXECUTE_READWRITE&&protection!=PAGE_EXECUTE_WRITECOPY)return;
+  const auto region=uintptr_t(info.BaseAddress);
+  if(start<region||start-region>info.RegionSize||info.RegionSize-(start-region)<span)return;
+  auto* dst=reinterpret_cast<std::byte*>(start);
+  if(std::memcmp(dst,first.data(),8)||std::memcmp(dst+(c-a),second.data(),8))return;
+  std::memcpy(dst,replacement.data(),8);
+  std::memcpy(dst+(c-a),replacement.data(),8);
+#else
+  (void)owner;(void)stack;(void)lr;(void)base;
+#endif
+}
 void ApplyOriginalHavokCatchup(const PPCContext& ctx,uint8_t* base) noexcept {
 #ifdef _WIN32
   // Called from the original floor routine. All other callers must leave

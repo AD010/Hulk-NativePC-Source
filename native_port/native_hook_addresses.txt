@@ -176,3 +176,6 @@
 826676C0
 # Original FMOD EventSystem update, vtable 82089600 slot +8; call-through.
 82841DB0
+
+# Original USA temporary atmosphere render-state builder; caller and bytes pinned.
+825E7668
