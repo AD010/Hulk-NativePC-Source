@@ -756,12 +756,13 @@ void FinishOriginalFmodUpdate(std::optional<audio::FmodUpdateStamp> stamp,const 
           // Source waveform route checks the archive/index pairing again.
           // Use current observed parameters, not a fabricated future curve.
           const auto spatial=cue.spatial?audio::ResolveLiveFmodSpatial(*cue.spatial):std::nullopt;
-          if((cue.spatial&&!spatial)||(cue.audibility&&cue.audibility->spatial&&!spatial))return 0; // never reinterpret an invalid 3D snapshot as 2D
+          if(!spatial&&(!cue.audibility||cue.audibility->spatial||cue.spatial))return 0; // require positive 2D evidence, never guess a missing 3D pose
           audio::VoiceOptions options;
           options.spatial=spatial;
-          if(spatial&&cue.spatial->reverb_sends){
-            if(const auto wet=audio::ResolveNativeRoomRoutes(*cue.spatial->reverb_sends))
-              options.room_routes=*wet;
+          const auto* sends=spatial && cue.spatial->reverb_sends ? &*cue.spatial->reverb_sends :
+              !spatial && cue.audibility && cue.audibility->flat_reverb_sends ? &*cue.audibility->flat_reverb_sends : nullptr;
+          if(sends){
+            if(const auto wet=audio::ResolveNativeRoomRoutes(*sends))options.room_routes=*wet;
           }
           options.reserve_live_pitch=true;
           options.start_paused=cue.audibility&&cue.audibility->paused.value_or(false);
@@ -798,13 +799,13 @@ void FinishOriginalFmodUpdate(std::optional<audio::FmodUpdateStamp> stamp,const 
           const auto& definition=project->second.table.events[binding->event_index];
           if(cue.layer>=definition.layer_records.size())return false;
           const auto spatial=cue.spatial?audio::ResolveLiveFmodSpatial(*cue.spatial):std::nullopt;
-          if((cue.spatial&&!spatial)||(cue.audibility&&cue.audibility->spatial&&!spatial))return false;
-          if(spatial&&cue.spatial->reverb_sends){
-            // Missing/invalid room evidence does not turn the dry voice off.
-            // On actual host route failure the registry retires the shadow.
-            if(const auto wet=audio::ResolveNativeRoomRoutes(*cue.spatial->reverb_sends))
-              if(!g_native_fmod_mixer->SetVoiceRoomRoutes(id,*wet))return false;
-          }else if(!spatial&&!g_native_fmod_mixer->SetVoiceRoomRoutes(id,{}))return false;
+          if(!spatial&&(!cue.audibility||cue.audibility->spatial||cue.spatial))return false;
+          const auto* sends=spatial && cue.spatial->reverb_sends ? &*cue.spatial->reverb_sends :
+              !spatial && cue.audibility && cue.audibility->flat_reverb_sends ? &*cue.audibility->flat_reverb_sends : nullptr;
+          // Only a validated empty list clears wet routing. Missing evidence
+          // retains the previous route for either 2D or 3D audio.
+          if(sends)if(const auto wet=audio::ResolveNativeRoomRoutes(*sends))
+            if(!g_native_fmod_mixer->SetVoiceRoomRoutes(id,*wet))return false;
           if(cue.audibility&&cue.audibility->paused&&
              !g_native_fmod_mixer->PauseVoice(id,*cue.audibility->paused))return false;
           // Live DSP updates the next unqueued PCM block, retaining its

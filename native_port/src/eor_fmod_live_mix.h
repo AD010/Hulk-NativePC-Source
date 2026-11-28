@@ -1,5 +1,6 @@
 #pragma once
 #include "eor_fmod_start_trace.h"
+#include "eor_fmod_acoustics.h"
 #include <bit>
 #include <cmath>
 namespace hulk::eor::audio {
@@ -7,6 +8,8 @@ struct LiveFmodAudibility {
   float channel=0.f,group=0.f,combined=0.f;
   bool spatial=false;
   std::optional<bool> paused={};
+  // Flat channels can carry reverb sends independently of a 3D pose.
+  std::optional<OriginalFmodReverbSends> flat_reverb_sends={};
 };
 // USA 82790A38: own pause bit and ancestor group byte +89, parent +28.
 // A malformed or unreadable chain is not evidence of an unpaused voice.
@@ -58,8 +61,10 @@ std::optional<LiveFmodAudibility> CaptureLiveFmodAudibility(uint32_t event_syste
     value=*g*value;value=value*(*a);value=value*(*b);value=value*(*c);value=value*(*d);
   }
   value=value*(*base);
+  const auto paused=ReadFmodEffectivePause(channel,*group,read);
+  const auto flat_reverb=spatial?std::nullopt:ReadOriginalFmodReverbSends(*core,channel,handle,read);
   if(!std::isfinite(value)||word(channel,112)!=handle||word(channel,48)!=sound||
-     word(channel,140)!=group||word(channel,40)!=core||word(event_system,16)!=core)return {};
-  return LiveFmodAudibility{*base,*group_base,value,spatial,ReadFmodEffectivePause(channel,*group,read)};
+     word(channel,140)!=group||word(channel,40)!=core||word(event_system,16)!=core||word(*sound,100)!=mode)return {};
+  return LiveFmodAudibility{*base,*group_base,value,spatial,paused,flat_reverb};
 }
 } // namespace hulk::eor::audio
