@@ -1,7 +1,7 @@
 #pragma once
 #include <cmath>
 #include <cstdint>
-#include "eor_static_dsp.h"
+#include "eor_dynamic_dsp.h"
 namespace hulk::eor::audio {
 enum class VoiceFilter : uint8_t { Bypass, LowPass, HighPass };
 struct VoiceOptions {
@@ -10,8 +10,9 @@ struct VoiceOptions {
   VoiceFilter filter=VoiceFilter::Bypass;
   float filter_frequency=1.f,filter_one_over_q=1.f;
   bool start_paused=false;
-  // Static one-shot DSP only; dynamic FMOD curves need their own scheduler.
+  // One-shot DSP; resolved blocks are borrowed only during PlayPcm16.
   StaticDspChain static_dsp{};
+  std::span<const DspParameterBlock> dsp_blocks{};
 };
 inline bool ValidVoiceFilter(VoiceFilter filter,float frequency,float one_over_q) noexcept {
   return (filter==VoiceFilter::Bypass||filter==VoiceFilter::LowPass||filter==VoiceFilter::HighPass)&&
@@ -24,7 +25,9 @@ inline bool ValidVoiceRatio(float ratio) noexcept {
 inline bool ValidVoiceOptions(const VoiceOptions& o,uint32_t frames) noexcept {
   if(!frames||o.delay_ms>600000u||o.loop_count>255u||!ValidVoiceRatio(o.frequency_ratio)||
      !ValidVoiceFilter(o.filter,o.filter_frequency,o.filter_one_over_q))return false;
-  if(o.static_dsp.count>o.static_dsp.stages.size() || (o.static_dsp.count && o.loop_count))return false;
+  if(o.static_dsp.count>o.static_dsp.stages.size() ||
+     ((o.static_dsp.count||!o.dsp_blocks.empty())&&o.loop_count) ||
+     (o.static_dsp.count&&!o.dsp_blocks.empty()))return false;
   if(!o.loop_count)return !o.loop_begin&&!o.loop_length;
   if(!o.loop_length)return !o.loop_begin;
   return o.loop_begin<frames&&o.loop_length<=frames-o.loop_begin;

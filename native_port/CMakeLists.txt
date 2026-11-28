@@ -215,6 +215,7 @@ if(HULK_NATIVE_CORE_ONLY)
         eor_voice_options_test
         eor_event_voice_group_test
         eor_static_dsp_test
+        eor_dynamic_dsp_test
         eor_native_present_contract_test
         eor_exit_confirmation_test
         eor_resource_generation_test

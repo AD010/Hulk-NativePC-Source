@@ -135,6 +135,8 @@ bool NativeXAudio2Mixer::PlayPcm16(Bus bus,std::span<const int16_t> samples,
     voice->clock={options.delay_ms,options.delay_ms!=0,options.start_paused};
     voice->samples.assign(samples.begin(),samples.end());
     if(options.static_dsp.count && !ApplyStaticDsp(voice->samples,sample_rate,channels,options.static_dsp))return false;
+    if(!options.dsp_blocks.empty() &&
+       !ApplyScheduledDsp(voice->samples,sample_rate,channels,options.dsp_blocks))return false;
   } catch (...) {return false;}
   WAVEFORMATEX wave{};
   wave.wFormatTag=WAVE_FORMAT_PCM;

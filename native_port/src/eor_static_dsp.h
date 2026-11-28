@@ -101,11 +101,12 @@ struct OriginalUsaHighpass {
 };
 // USA 0x827A2C80 prewarps the analog prototype; 0x827A2DE8
 // applies the bilinear transform. Two sections have distinct damping.
-// This is the zero-initial-state, fixed-parameter path only.
+// Coefficient transitions follow the scalar history rescale at 827A30BC.
 struct OriginalUsaLowpass {
   struct Section {float a1=0.f,a2=0.f,z1=0.f,z2=0.f;};
   std::array<Section,2> section{};
   float gain=1.f;
+  std::array<float,2> section_gain{};
   void Configure(float cutoff,uint32_t rate,float resonance) noexcept {
     const float r=float(rate);
     const float warp=2.f*(std::tan((float(std::atan(1.0))*4.f/r)*cutoff)*r);
@@ -119,6 +120,13 @@ struct OriginalUsaLowpass {
       const float inv=1.f/den;
       section[i].a1=std::fma(-8.f,r*q,2.f)*inv;
       section[i].a2=(std::fma(q,4.f,-2.f*l)*r+1.f)*inv;
+      // PPC rescales the history at offsets 284 and 288 separately,
+      // using the old/new normalization of each prototype section.
+      if(section_gain[i]!=0.f) {
+        auto& history=i==0?section[0].z1:section[0].z2;
+        history*=inv/section_gain[i];
+      }
+      section_gain[i]=inv;
       gain*=inv;
     }
   }
