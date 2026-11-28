@@ -387,6 +387,21 @@ int main() {
            exits==1 && !menu.Owns(10,20),
            "Original focused confirmation must request one native close");
   }
+  {
+    const auto* fog=hulk::options::FindPcMenuRow("hulk_original_fog_distance_multiplier");
+    Expect(fog && hulk::eor::ui::PcStorageRowOption(*fog,hulk::eor::ui::PcSettingsSection::Graphics),
+           "Original graphics page lacks fog-distance control");
+    unsigned fog_calls=0;
+    const auto fog_apply=[&](std::string_view key,std::string_view value){
+      ++fog_calls;return key=="hulk_original_fog_distance_multiplier" && value=="4";
+    };
+    Expect(hulk::options::CommitOriginalPcMenuValue(fog->key,"4",fog_apply).live_applied &&
+           fog_calls==1,"Fog multiplier not applied live");
+    Expect(!hulk::options::CommitOriginalPcMenuValue(fog->key,"5",fog_apply).persisted &&
+           fog_calls==1,"Invalid fog multiplier accepted");
+    Expect(Read(config).find("hulk_original_fog_distance_multiplier = 4")!=std::string::npos,
+           "Fog distance preference not saved");
+  }
   hulk::options::PcMenuPageSession page;
   unsigned bind_rows=0;
   for(const auto& row:hulk::options::kPcMenuRows)

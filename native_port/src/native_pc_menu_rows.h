@@ -61,6 +61,7 @@ inline constexpr PcMenuRow kPcMenuRows[] = {
   {"Select / Back button","hulk_bind_select",PcMenuSection::Controls,PcMenuRowKind::Binding,""},
   {"Right stick click","hulk_bind_rstick_click",PcMenuSection::Controls,PcMenuRowKind::Binding,""},
   {"Anisotropic filtering","anisotropic_override",PcMenuSection::Enhancements,PcMenuRowKind::Choice,"-1|0|1|2|3|4|5"},
+  {"Fog distance (experimental)","hulk_original_fog_distance_multiplier",PcMenuSection::Graphics,PcMenuRowKind::Choice,"1|2|3|4"},
   {"Direct EoR Vulkan","hulk_eor_vulkan_replay",PcMenuSection::Developer,PcMenuRowKind::Choice,"false|true"},
   {"Capture original draw","hulk_eor_xdk_capture",PcMenuSection::Developer,PcMenuRowKind::Choice,"false|true"},
   {"Capture source geometry","hulk_eor_xdk_source_mesh_capture",PcMenuSection::Developer,PcMenuRowKind::Choice,"false|true"},
