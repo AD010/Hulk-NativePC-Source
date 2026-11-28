@@ -123,16 +123,26 @@ class LiveCueRegistry {
   }
   // Update only exact, currently observed identities. A failed update retires
   // that native voice but preserves the tombstone until the original cue ends.
-  template<class Update,class Stop>
-  void UpdateActive(std::span<const LiveFmodEvent> active,Update&& update,Stop&& stop) {
+  template<class Update,class Stop,class Ready>
+  void UpdateActiveReady(std::span<const LiveFmodEvent> active,Update&& update,
+                         Stop&& stop,Ready&& ready) {
     for(const auto& event:active){
       // Partial snapshots may contain individually validated cues.
       for(const auto& cue:event.cues){
         const auto it=voices_.find(KeyForLiveCue(event,cue));
         if(it==voices_.end()||!it->second)continue;
+        // A temporarily incomplete pose is not a failed native setter.
+        // Preserve the last verified controls and voice position until
+        // a complete snapshot arrives, or reconciliation proves it ended.
+        if(!ready(event,cue))continue;
         if(!update(it->second,event,cue)){stop(it->second);it->second=0;}
       }
     }
+  }
+  template<class Update,class Stop>
+  void UpdateActive(std::span<const LiveFmodEvent> active,Update&& update,Stop&& stop) {
+    UpdateActiveReady(active,std::forward<Update>(update),std::forward<Stop>(stop),
+        [](const LiveFmodEvent&,const LiveFmodCue&){return true;});
   }
   void Clear() noexcept {voices_.clear();} // caller already stopped mixer
   size_t Size() const noexcept {return voices_.size();}
