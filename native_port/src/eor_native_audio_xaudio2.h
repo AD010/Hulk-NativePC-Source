@@ -107,6 +107,7 @@ class NativeXAudio2Mixer {
       std::span<const float> values,bool spatial_ready) noexcept;
   bool SetVoiceSpatialState(VoiceId id,const SpatialVoiceState& spatial) noexcept;
   bool SetVoiceReverbSend(VoiceId id,float gain) noexcept;
+  bool SetVoiceRoomRoutes(VoiceId id,const NativeRoomRoutes& routes) noexcept;
   bool SetReverbRoom(const OriginalFmodReverbRoom& room) noexcept;
   // Replace the position and 2D/3D mix together, preserving the source voice.
   bool SetVoiceSpatialMix(VoiceId id,std::optional<SpatialVoiceState> spatial,

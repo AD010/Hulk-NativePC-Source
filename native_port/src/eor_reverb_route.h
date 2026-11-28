@@ -1,6 +1,11 @@
 #pragma once
 #include "eor_fmod_acoustics.h"
+#include "eor_room_routes.h"
 namespace hulk::eor::audio {
+using NativeRoomRoutes=NativeRoomRouteSet<OriginalFmodReverbRoom>;
+inline std::optional<NativeRoomRoutes> ResolveNativeRoomRoutes(const OriginalFmodReverbSends& sends) noexcept {
+  return PlanNativeRoomRoutes<OriginalFmodReverbRoom>(sends,ValidOriginalFmodReverbRoom);
+}
 // Native fallback: collapse observed zone sends into one wet bus. This is
 // not equivalent to multiple independent FMOD reverberation processors.
 inline std::optional<float> ResolveNativeReverbSend(const OriginalFmodReverbSends& sends) noexcept {

@@ -99,6 +99,7 @@ struct NativeXAudio2Mixer::State {
     std::vector<FevVoiceBlock> automation;
     std::optional<SpatialVoiceState> spatial;
     std::optional<float> pan,spatial_level,reverb_send;
+    NativeRoomRoutes room_routes;
     std::array<float,128> flat_matrix{};
     uint32_t output_channels=0,sample_rate=0;
     bool looping=false;
@@ -119,6 +120,8 @@ struct NativeXAudio2Mixer::State {
   IXAudio2MasteringVoice* master=nullptr;
   IXAudio2SubmixVoice* reverb=nullptr;
   std::optional<OriginalFmodReverbRoom> reverb_room;
+  struct RoomBus {uint32_t owner=0;IXAudio2SubmixVoice* voice=nullptr;OriginalFmodReverbRoom room{};uint64_t last_used=0;};
+  std::array<RoomBus,32> room_buses{};
   bool com_owned=false;
   X3DAUDIO_HANDLE spatial_handle{};
   bool spatial_ready=false;
@@ -133,6 +136,7 @@ struct NativeXAudio2Mixer::State {
   mutable std::recursive_mutex mutex;
   ~State() noexcept {
     voices.clear();
+    ClearRoomBuses();
     if(reverb)reverb->DestroyVoice();
     if(master)master->DestroyVoice();
     if(engine)engine->Release();
@@ -141,6 +145,85 @@ struct NativeXAudio2Mixer::State {
     // transferable pointer.
     if(com_owned && GetCurrentThreadId()==owner_thread_id)
       CoUninitialize();
+  }
+  static bool ConfigureRoom(IXAudio2SubmixVoice* target,const OriginalFmodReverbRoom& room) noexcept {
+    if(!target||!ValidOriginalFmodReverbRoom(room))return false;
+    XAUDIO2FX_REVERB_I3DL2_PARAMETERS preset{100.f,room.room,room.room_hf,room.rolloff,
+        room.decay,room.decay_hf,room.reflections,room.reflections_delay,room.reverb,
+        room.reverb_delay,room.diffusion,room.density,room.hf_reference};
+    XAUDIO2FX_REVERB_PARAMETERS params{};
+    ReverbConvertI3DL2ToNative(&preset,&params);
+    return SUCCEEDED(target->SetEffectParameters(0,&params,sizeof(params)));
+  }
+  void ClearRoomBuses() noexcept {
+    // Caller has already destroyed every source voice.
+    for(auto& bus:room_buses){if(bus.voice)bus.voice->DestroyVoice();bus={};}
+  }
+  bool RoomReferenced(uint32_t owner) const noexcept {
+    for(const auto& voice:voices)
+      for(size_t i=0;i<voice->room_routes.count;++i)if(voice->room_routes.routes[i].owner==owner)return true;
+    return false;
+  }
+  IXAudio2SubmixVoice* EnsureRoomBus(uint32_t owner,const OriginalFmodReverbRoom& room) noexcept {
+    if(!owner||!ValidOriginalFmodReverbRoom(room))return nullptr;
+    const auto now=GetTickCount64();
+    RoomBus* available=nullptr;
+    for(auto& bus:room_buses){
+      if(bus.owner==owner&&bus.voice){
+        if(!(bus.room==room)&&!ConfigureRoom(bus.voice,room))return nullptr;
+        bus.room=room;bus.last_used=now;return bus.voice;
+      }
+      if(!bus.voice&&!available)available=&bus;
+    }
+    // Keep a disconnected room alive for its tail. Never evict a room
+    // referenced by a current source, including paused/delayed voices.
+    if(!available)for(auto& bus:room_buses)
+      if(now-bus.last_used>=25000u&&!RoomReferenced(bus.owner)){available=&bus;break;}
+    if(!available)return nullptr;
+    XAUDIO2_VOICE_DETAILS details{};master->GetVoiceDetails(&details);
+    if(details.InputSampleRate<20000u||details.InputSampleRate>48000u)return nullptr;
+    IUnknown* apo=nullptr;
+    if(FAILED(XAudio2CreateReverb(&apo))||!apo)return nullptr;
+    XAUDIO2_EFFECT_DESCRIPTOR effect{apo,TRUE,1};
+    XAUDIO2_EFFECT_CHAIN chain{1,&effect};
+    IXAudio2SubmixVoice* target=nullptr;
+    const auto hr=engine->CreateSubmixVoice(&target,1,details.InputSampleRate,0,0,nullptr,&chain);
+    apo->Release();
+    if(FAILED(hr)||!target)return nullptr;
+    if(!ConfigureRoom(target,room)||FAILED(target->SetVolume(muted?0.f:1.f))){
+      target->DestroyVoice();return nullptr;
+    }
+    if(available->voice)available->voice->DestroyVoice();
+    *available={owner,target,room,now};
+    return target;
+  }
+  bool ApplyRoomRoutes(Voice& voice,const NativeRoomRoutes& wanted) noexcept {
+    if(!voice.source||voice.reverb_send||!wanted.Valid(ValidOriginalFmodReverbRoom)||
+       !voice.output_channels||voice.output_channels>64)return false;
+    std::array<XAUDIO2_SEND_DESCRIPTOR,9> routes{};
+    routes[0]={0,master};
+    for(size_t i=0;i<wanted.count;++i){
+      const auto& route=wanted.routes[i];
+      auto* target=EnsureRoomBus(route.owner,route.room);
+      if(!target)return false;
+      routes[i+1]={0,target};
+    }
+    if(!voice.room_routes.SameTopology(wanted)){
+      std::array<float,128> dry{};
+      voice.source->GetOutputMatrix(master,voice.channels,voice.output_channels,dry.data());
+      XAUDIO2_VOICE_SENDS sends{static_cast<UINT32>(wanted.count+1),routes.data()};
+      if(FAILED(voice.source->SetOutputVoices(&sends)))return false;
+      // SetOutputVoices resets all matrices. Record the new topology before
+      // any later call can fail, so referenced submixes cannot be evicted.
+      voice.room_routes=wanted;
+      if(FAILED(voice.source->SetOutputMatrix(master,voice.channels,voice.output_channels,dry.data())))return false;
+    }
+    for(size_t i=0;i<wanted.count;++i){
+      const auto matrix=NativeWetMatrix(voice.channels,wanted.routes[i].gain);
+      if(!matrix||FAILED(voice.source->SetOutputMatrix(routes[i+1].pOutputVoice,voice.channels,1,matrix->data())))return false;
+    }
+    voice.room_routes=wanted;
+    return true;
   }
   bool ApplyReverbRoom(const OriginalFmodReverbRoom& room) noexcept {
     if(!ValidOriginalFmodReverbRoom(room))return false;
@@ -184,7 +267,15 @@ struct NativeXAudio2Mixer::State {
     XAUDIO2_VOICE_SENDS sends{2,routes};
     if(FAILED(engine->CreateSourceVoice(&voice.source,&wave,XAUDIO2_VOICE_USEFILTER,
         voice.max_ratio,voice.live_dsp.get(),voice.reverb_send?&sends:nullptr))||!voice.source)return false;
-    return !voice.reverb_send||ApplyReverbSend(voice,*voice.reverb_send);
+    if(voice.reverb_send)return ApplyReverbSend(voice,*voice.reverb_send);
+    if(voice.room_routes.count){
+      const auto wanted=voice.room_routes;
+      voice.room_routes={};
+      XAUDIO2_VOICE_DETAILS details{};master->GetVoiceDetails(&details);
+      voice.output_channels=details.InputChannels;
+      if(!ApplyRoomRoutes(voice,wanted))return false;
+    }
+    return true;
   }
   static std::optional<float> EffectivePitch(const Voice& voice,float base,float automation,
       std::optional<float> level) noexcept {
@@ -327,6 +418,7 @@ bool NativeXAudio2Mixer::PlayPcm16(Bus bus,std::span<const int16_t> samples,
     voice->looping=options.loop_count!=0;
     voice->spatial=options.spatial;
     voice->reverb_send=options.reverb_send;
+    voice->room_routes=options.room_routes;
     voice->gain=gain;
     voice->base_ratio=options.frequency_ratio;
     voice->first_frame=options.start_frame;
@@ -706,6 +798,13 @@ bool NativeXAudio2Mixer::SetReverbRoom(const OriginalFmodReverbRoom& room) noexc
   if(state_->reverb_room&&*state_->reverb_room==room)return true;
   return state_->ApplyReverbRoom(room);
 }
+bool NativeXAudio2Mixer::SetVoiceRoomRoutes(VoiceId id,const NativeRoomRoutes& routes) noexcept {
+  if(!Ready()||!id||!routes.Valid(ValidOriginalFmodReverbRoom))return false;
+  std::lock_guard lock(state_->mutex);
+  Update();
+  for(auto& voice:state_->voices)if(voice->id==id)return state_->ApplyRoomRoutes(*voice,routes);
+  return false;
+}
 bool NativeXAudio2Mixer::SetVoiceReverbSend(VoiceId id,float gain) noexcept {
   if(!Ready()||!id||!ValidGain(gain))return false;
   std::lock_guard lock(state_->mutex);
@@ -756,6 +855,7 @@ bool NativeXAudio2Mixer::ReplaceVoiceAt(VoiceId id,uint32_t frame,std::optional<
     next.automation_gain=old.automation_gain;next.automation_ratio=old.automation_ratio;
     next.flat_matrix=old.flat_matrix;next.spatial=old.spatial;
     next.reverb_send=old.reverb_send;
+    next.room_routes=old.room_routes;
     next.pan=old.pan;next.spatial_level=old.spatial_level;
     if(!old.automation.empty()){
       const auto& controls=old.automation[plan->block].controls;
@@ -836,12 +936,14 @@ void NativeXAudio2Mixer::SetMuted(bool muted) noexcept {
   std::lock_guard lock(state_->mutex);
   state_->muted=muted;
   if(state_->reverb)(void)state_->reverb->SetVolume(muted?0.f:1.f);
+  for(auto& bus:state_->room_buses)if(bus.voice)(void)bus.voice->SetVolume(muted?0.f:1.f);
   for(auto& voice:state_->voices)state_->UpdateVolume(*voice);
 }
 void NativeXAudio2Mixer::StopAll() noexcept {
   if(!Ready())return;
   std::lock_guard lock(state_->mutex);
   state_->voices.clear();
+  state_->ClearRoomBuses();
 }
 size_t NativeXAudio2Mixer::ActiveVoices() const noexcept {
   if(!Ready())return 0u;

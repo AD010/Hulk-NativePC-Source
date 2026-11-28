@@ -722,10 +722,6 @@ void FinishOriginalFmodUpdate(std::optional<audio::FmodUpdateStamp> stamp,const 
     if(g_native_fmod_shadow_enabled&&g_native_fmod_catalog&&g_native_fmod_index&&!g_native_fmod_wave_arc.empty()){
       // At most one new decode/admission per diagnostic tick. The current
       // snapshot is not a sample-accurate FMOD event scheduler.
-      audio::NativeReverbRoomChoice wet_room;
-      for(const auto& event:*active)for(const auto& cue:event.cues)
-        if(cue.spatial&&cue.spatial->reverb_sends)wet_room.Consider(*cue.spatial->reverb_sends);
-      if(wet_room.room)(void)g_native_fmod_mixer->SetReverbRoom(*wet_room.room);
       g_native_fmod_shadow_voices.Reconcile(*active,
         [&](const audio::LiveFmodEvent& event,const audio::LiveFmodCue& cue)->uint64_t{
           const auto project=g_native_fmod_catalog->projects.find(event.project);
@@ -743,13 +739,9 @@ void FinishOriginalFmodUpdate(std::optional<audio::FmodUpdateStamp> stamp,const 
           if((cue.spatial&&!spatial)||(cue.audibility&&cue.audibility->spatial&&!spatial))return 0; // never reinterpret an invalid 3D snapshot as 2D
           audio::VoiceOptions options;
           options.spatial=spatial;
-          if(spatial){
-            options.reverb_send=0.f;
-            if(cue.spatial->reverb_sends){
-              const auto wet=audio::ResolveNativeReverbSend(*cue.spatial->reverb_sends);
-              if(!wet)return 0;
-              options.reverb_send=*wet;
-            }
+          if(spatial&&cue.spatial->reverb_sends){
+            if(const auto wet=audio::ResolveNativeRoomRoutes(*cue.spatial->reverb_sends))
+              options.room_routes=*wet;
           }
           options.reserve_live_pitch=true;
           options.start_paused=cue.audibility&&cue.audibility->paused.value_or(false);
@@ -787,9 +779,11 @@ void FinishOriginalFmodUpdate(std::optional<audio::FmodUpdateStamp> stamp,const 
           const auto spatial=cue.spatial?audio::ResolveLiveFmodSpatial(*cue.spatial):std::nullopt;
           if((cue.spatial&&!spatial)||(cue.audibility&&cue.audibility->spatial&&!spatial))return false;
           if(spatial&&cue.spatial->reverb_sends){
-            const auto wet=audio::ResolveNativeReverbSend(*cue.spatial->reverb_sends);
-            if(!wet||!g_native_fmod_mixer->SetVoiceReverbSend(id,*wet))return false;
-          }
+            // Missing/invalid room evidence does not turn the dry voice off.
+            // On actual host route failure the registry retires the shadow.
+            if(const auto wet=audio::ResolveNativeRoomRoutes(*cue.spatial->reverb_sends))
+              if(!g_native_fmod_mixer->SetVoiceRoomRoutes(id,*wet))return false;
+          }else if(!spatial&&!g_native_fmod_mixer->SetVoiceRoomRoutes(id,{}))return false;
           if(cue.audibility&&cue.audibility->paused&&
              !g_native_fmod_mixer->PauseVoice(id,*cue.audibility->paused))return false;
           // Live DSP updates the next unqueued PCM block, retaining its
