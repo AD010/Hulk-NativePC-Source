@@ -238,7 +238,9 @@ inline constexpr OriginalPixelStageKind ClassifyOriginalPixelStage(
 }
 inline OriginalPixelStageKind CaptureUsaPixelStageKind(
     uint32_t device,const OriginalShaderObjects& objects,
-    ReadGuestBytes read,void* state) noexcept {
+    ReadGuestBytes read,void* state,
+    std::optional<OriginalXdkFixedGraphicsState>* captured_fixed=nullptr) noexcept {
+  if(captured_fixed)captured_fixed->reset();
   if(!objects.vertex)return OriginalPixelStageKind::Unknown;
   if(objects.pixel)return OriginalPixelStageKind::BoundProgram;
   if(!device || !read || uint64_t(device)+12460u>(uint64_t{1}<<32))
@@ -256,6 +258,7 @@ inline OriginalPixelStageKind CaptureUsaPixelStageKind(
   const auto depth=fixed->ReadOriginalXenosRegister(0x2200u);
   const auto color=fixed->ReadOriginalXenosRegister(0x2202u);
   if(!mask || !depth || !color)return OriginalPixelStageKind::Unknown;
+  if(captured_fixed)*captured_fixed=fixed;
   return ClassifyOriginalPixelStage(objects.vertex,objects.pixel,depth_object,*mask,*depth,*color);
 }
 // Entire original USA XDK 2.0.6534 shader-float banks, snapshotted

@@ -1625,10 +1625,14 @@ void CapturePpcDraw(Kind kind, uint32_t guest, const PPCContext& ctx,
                                draw.observed_vs_matrices->original_ps_guest_object,guest_base);
   else if(identity_only)
     ObserveBoundShaderIdentity(draw,identity_only->vertex,identity_only->pixel,guest_base);
+  // Depth-only draws already read the fixed state to classify the absent
+  // PS. Keep that exact same Draw snapshot for native pipeline creation.
+  std::optional<OriginalXdkFixedGraphicsState> stage_fixed;
   if(draw.observed_vs_matrices) {
     const auto& live=*draw.observed_vs_matrices;
     draw.original_pixel_stage=CaptureUsaPixelStageKind(live.original_guest_device,
-        {live.original_vs_guest_object,live.original_ps_guest_object},ReadGuest,guest_base);
+        {live.original_vs_guest_object,live.original_ps_guest_object},ReadGuest,guest_base,
+        replay?&stage_fixed:nullptr);
   } else if(identity_only)
     draw.original_pixel_stage=CaptureUsaPixelStageKind(draw.gpr[0],*identity_only,ReadGuest,guest_base);
   if(replay && !HasOriginalDrawProgram(draw)) {
@@ -1685,8 +1689,8 @@ void CapturePpcDraw(Kind kind, uint32_t guest, const PPCContext& ctx,
             CaptureUsaPixelFetches(ctx.r3.u32,ReadGuest,guest_base,*constants);
             CaptureUsaVertexFetches(ctx.r3.u32,ReadGuest,guest_base,*constants);
             CaptureUsaBooleanRegisters(ctx.r3.u32,ReadGuest,guest_base,*constants);
-            constants->fixed_graphics_state=CaptureUsaFixedGraphicsState(
-                ctx.r3.u32,ReadGuest,guest_base);
+            constants->fixed_graphics_state=stage_fixed?std::move(stage_fixed):
+                CaptureUsaFixedGraphicsState(ctx.r3.u32,ReadGuest,guest_base);
           }
           draw.observed_shader_constants=std::move(constants);
         }
