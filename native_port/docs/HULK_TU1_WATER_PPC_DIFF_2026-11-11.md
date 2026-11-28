@@ -165,3 +165,32 @@ verification is necessary, including separate building-ledge cases.
 The first patch is not proof of a complete jump bug fix.
 Reference: ElGuslml/rexglue-sdk recomp src/system/lzx.cpp,
 src/system/xex_module.cpp; kyz/libmspack LZX format implementation.
+
+### TU1 trajectory arithmetic transfer
+
+Second matched method range USA 8228DD18..8228E5B8 SHA256
+9854dcddddecaa94b4dc17eb691123e0c46971e0db734cb373046095eb6fef64,
+EU base 8228E270..8228EB10 SHA256
+57497a5ec730d300fa12320dfbe9e8c8b2477419ce58edc0a5153c5435ec5586,
+EU TU1 82294FD8..82295878 SHA256
+54e817cee18def85eb6fcccaedcdde37e73ae54db93f188d3c199f7220dcfd7c.
+The unchanged original USA actor+84 height and state+192/+196/+200/+220
+are matched to the corresponding EU TU1 fields. USA 8228E264 scales
+(previous height - current actor Y) by .5; TU1 82295520 scales by 2.
+TU1 822955A0..822955B8 stores current actor Y at state+196, calculates
+absolute target Y = fmadds(curve, amplitude, initial Y) and stores
+current Y - target Y at state+200. The USA generated patch changes the
+matched arithmetic and store sequence without importing EU addresses,
+register layouts or branch destinations. The absolute target is retained
+in USA f29 for the same original collision/position path. The current
+actor coordinate is sampled once for the state write and subtraction.
+The generator pins the original source XEX, requires the original
+assembly sequence and matching translated floating-point/memory operands,
+and rejects unknown or partially modified input. Three synthetic Python
+tests passed. No actual Windows recomp or gameplay tested.
+
+Remaining source difference: EU TU1 82295678..8229567C clears an actor
+byte at +1021 after the transition call; the USA member offset and
+semantics have not yet been established. Other jump/ledge methods and
+PS3 updates have not been exhaustively mapped. The two committed
+transfers must not be reported as a proven complete gameplay fix.
