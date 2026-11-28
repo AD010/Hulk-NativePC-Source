@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <span>
+#include <vector>
 namespace hulk::save::format {
 enum class Kind { XboxBigEndian, RetailPcLittleEndian };
 struct Summary {
@@ -13,6 +14,22 @@ struct Summary {
   size_t total_bytes=0;
   bool pc_payload_conversion_ready=false;
 };
+// The verified common table contains hashed identifiers and 32-bit
+// value words. Values may encode platform-specific references. This codec
+// preserves all unknown bytes and never authorizes PC/Xbox conversion.
+struct FieldWord {
+  uint32_t id=0,raw_value=0;
+  bool operator==(const FieldWord&) const = default;
+};
+struct Envelope {
+  Kind kind=Kind::XboxBigEndian;
+  std::vector<std::byte> prefix,tail;
+  std::vector<FieldWord> fields;
+};
+// Decode and rebuild the same source envelope, including opaque data.
+// Not a semantic campaign serializer: no assumptions about field types.
+Envelope DecodeEnvelope(std::span<const std::byte> data,Kind kind);
+std::vector<std::byte> EncodeEnvelope(const Envelope& envelope);
 Summary Inspect(std::span<const std::byte> data, Kind kind);
 Summary Read(const std::filesystem::path& path, Kind kind,
              size_t maximum_bytes=16u<<20);
