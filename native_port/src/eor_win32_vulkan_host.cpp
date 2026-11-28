@@ -147,8 +147,10 @@ bool EorWin32VulkanHost::PresentOriginalColor(
       return false; // the next frame must handle the resize
     auto* current=state_->swapchain->GetCurrentBackBufferRTV();
     if(!state_->color_transfer.Copy(source,current))return false;
-    state_->swapchain->Present(vsync?1u:0u);
-    return true;
+    // Copy can take long enough for WM_SIZE/minimize to arrive. Reuse
+    // the physical client/RTV validation immediately before Present;
+    // never resize the swapchain from this already-recorded GPU frame.
+    return Present(vsync);
   } catch (...) {
     // A failed GPU copy is NOT permission to present an older guest frame.
     return false;
