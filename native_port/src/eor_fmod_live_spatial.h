@@ -2,6 +2,7 @@
 #include "eor_fmod_start_trace.h"
 #include "eor_spatial_audio.h"
 #include "eor_fmod_doppler.h"
+#include "eor_fmod_acoustics.h"
 #include <bit>
 namespace hulk::eor::audio {
 // Raw FMOD coordinates, not a claim of matching X3DAudio orientation or rolloff.
@@ -24,6 +25,8 @@ struct LiveFmodSpatial {
   uint32_t core_flags=0,mode=0;
   float min_distance=0.f,max_distance=0.f;
   std::optional<OriginalFmod3dFactors> original={};
+  std::optional<OriginalFmodAcoustics> acoustics={};
+  std::optional<OriginalFmodReverbSends> reverb_sends={};
 };
 template<class Read>
 std::optional<SpatialVector> ReadFmodSpatialVector(uint32_t p,uint32_t offset,Read&& read) noexcept {
@@ -71,9 +74,12 @@ std::optional<LiveFmodSpatial> CaptureLiveFmodSpatial(uint32_t event_system,uint
   if(!rolloff||!cone||!doppler||!global_doppler||!distance_factor||!global_rolloff||!channel_doppler)return {};
   const OriginalFmod3dFactors original{*rolloff,*cone,*doppler,*global_doppler,*distance_factor,*global_rolloff,*channel_doppler};
   if(!ValidOriginalFmod3dFactors(original))return {};
+  const auto acoustics=ReadOriginalFmodAcoustics(channel,read);
+  if(!acoustics)return {};
+  const auto reverb_sends=ReadOriginalFmodReverbSends(*core,channel,handle,read);
   SpatialPose listener{*lp,*lf,*lu};
   if(!ValidSpatialPose(listener)||word(channel,112)!=handle||word(channel,48)!=sound||word(channel,40)!=core||word(*core,33724)!=1u||word(event_system,16)!=core)return {};
-  return LiveFmodSpatial{listener,*lv,*pos,*vel,*flags,*mode,minimum,maximum,original};
+  return LiveFmodSpatial{listener,*lv,*pos,*vel,*flags,*mode,minimum,maximum,original,acoustics,reverb_sends};
 }
 // FMOD Ex mode bits (old ABI). The native shadow uses a unit rolloff
 // factor; the original global rolloff, cones and occlusion are not yet
@@ -98,6 +104,11 @@ inline std::optional<SpatialVoiceState> ResolveLiveFmodSpatial(const LiveFmodSpa
   if(raw.original){
     if(!ValidOriginalFmod3dFactors(*raw.original))return {};
     out.distance_gain=raw.original->rolloff*raw.original->cone;
+    if(raw.acoustics){
+      if(!ValidOriginalFmodAcoustics(*raw.acoustics))return {};
+      out.distance_gain*=raw.acoustics->auxiliary_gain;
+      out.distance_gain*=raw.acoustics->direct_gain;
+    }
     out.doppler_factor=raw.original->doppler;
     out.doppler_from_source=true;
     return ValidSpatialState(out)?std::optional<SpatialVoiceState>(out):std::nullopt;

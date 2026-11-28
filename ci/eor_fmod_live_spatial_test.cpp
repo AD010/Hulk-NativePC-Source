@@ -14,6 +14,7 @@ int main(){
   put(c+112,handle);put(c+40,core);put(c+48,sound);put(sound+100,16);
   put(core+33724,1);
   const auto f=[&](uint32_t addr,float v){put(addr,std::bit_cast<uint32_t>(v));};
+  f(c+356,0.f);f(c+360,0.f);f(c+364,0.f);f(c+368,0.f);f(c+276,1.f);f(c+280,1.f);
   f(c+284,.4f);f(c+328,.5f);f(c+288,1.75f);f(c+388,.25f);
   f(core+33736,2.f);f(core+33728,3.f);f(core+33732,4.f);
   vec(core+33288,1,2,3);vec(core+33216,4,5,6);vec(core+33252,0,0,1);vec(core+33228,0,1,0);
@@ -23,6 +24,11 @@ int main(){
   assert(a->min_distance==2.f&&a->max_distance==10.f);
   auto spatial=ResolveLiveFmodSpatial(*a);assert(spatial&&spatial->emitter.position.z==-9&&spatial->listener.front.z==-1);
   assert(std::abs(spatial->distance_gain-.2f)<1.e-6f);
+  f(c+356,.5f);f(c+276,.5f);f(c+280,.5f);
+  auto occluded=CaptureLiveFmodSpatial(es,handle,read);assert(occluded&&occluded->acoustics);
+  assert(std::abs(ResolveLiveFmodSpatial(*occluded)->distance_gain-.05f)<1.e-6f);
+  f(c+276,1.f);assert(!CaptureLiveFmodSpatial(es,handle,read));
+  f(c+356,0.f);f(c+280,1.f);
   assert(spatial->doppler_from_source&&spatial->doppler_factor==1.75f);
   assert(a->original&&a->original->global_doppler==2.f&&a->original->distance_factor==3.f&&a->original->global_rolloff==4.f&&a->original->channel_doppler==.25f);
   auto raw=*a;raw.mode|=0x04000000u;assert(ResolveLiveFmodSpatial(raw)->distance_gain==.2f);

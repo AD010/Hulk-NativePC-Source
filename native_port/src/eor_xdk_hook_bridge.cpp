@@ -735,7 +735,7 @@ void FinishOriginalFmodUpdate(std::optional<audio::FmodUpdateStamp> stamp,const 
           // Source waveform route checks the archive/index pairing again.
           // Use current observed parameters, not a fabricated future curve.
           const auto spatial=cue.spatial?audio::ResolveLiveFmodSpatial(*cue.spatial):std::nullopt;
-          if(cue.spatial&&!spatial)return 0; // unsupported source rolloff or transform
+          if((cue.spatial&&!spatial)||(cue.audibility&&cue.audibility->spatial&&!spatial))return 0; // never reinterpret an invalid 3D snapshot as 2D
           audio::VoiceOptions options;
           options.spatial=spatial;
           options.reserve_live_pitch=true;
@@ -755,6 +755,11 @@ void FinishOriginalFmodUpdate(std::optional<audio::FmodUpdateStamp> stamp,const 
           }
           REXLOG_INFO("[HULK/FMOD-NATIVE] muted shadow cue {} / {} variant={} admitted={} id={} source_audibility={}",
               event.project,cue.definition,cue.variant,accepted,id,cue.audibility?cue.audibility->combined:-1.f);
+          if(accepted&&cue.spatial&&cue.spatial->acoustics){
+            const auto& a=*cue.spatial->acoustics;
+            REXLOG_INFO("[HULK/FMOD-NATIVE] acoustic source direct={} reflected={} reverb_sends={}",
+                a.direct,a.reflected,cue.spatial->reverb_sends?static_cast<int>(cue.spatial->reverb_sends->count):-1);
+          }
           return accepted?id:0;
         },
         [&](uint64_t id){(void)g_native_fmod_mixer->StopVoice(id);});
@@ -767,7 +772,7 @@ void FinishOriginalFmodUpdate(std::optional<audio::FmodUpdateStamp> stamp,const 
           const auto& definition=project->second.table.events[binding->event_index];
           if(cue.layer>=definition.layer_records.size())return false;
           const auto spatial=cue.spatial?audio::ResolveLiveFmodSpatial(*cue.spatial):std::nullopt;
-          if(cue.spatial&&!spatial)return false;
+          if((cue.spatial&&!spatial)||(cue.audibility&&cue.audibility->spatial&&!spatial))return false;
           if(cue.audibility&&cue.audibility->paused&&
              !g_native_fmod_mixer->PauseVoice(id,*cue.audibility->paused))return false;
           // Live DSP updates the next unqueued PCM block, retaining its
