@@ -53,6 +53,9 @@ class NativeXAudio2Mixer {
       VoiceId* started=nullptr);
   // Independent event-instance controls. Stop destroys only the selected
   // voice; pause retains the original buffer and playback cursor.
+  bool PlayProjectWaveform(Bus bus,const hulk::eor::Index& index,
+      const std::filesystem::path& project_archive,const std::filesystem::path& wave_archive,
+      uint32_t project_hash,size_t fev_offset,float gain=1.f,VoiceId* started=nullptr);
   bool StopVoice(VoiceId id) noexcept;
   bool PauseVoice(VoiceId id,bool pause) noexcept;
   bool SetVoiceGain(VoiceId id,float gain) noexcept;

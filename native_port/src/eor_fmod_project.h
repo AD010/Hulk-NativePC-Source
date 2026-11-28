@@ -39,4 +39,15 @@ std::optional<CompressedWaveSample> ReadProjectWaveSample(const Index& index,
     const std::filesystem::path& project_archive,
     const std::filesystem::path& wave_archive,uint32_t project_hash,
     uint32_t bank_ordinal,uint32_t sample_ordinal);
+// Resolve an observed FEV waveform byte offset within its own project.
+struct WaveformRoute {
+  size_t fev_offset=0;
+  uint32_t bank_ordinal=0,weight=0,flags=0,duration_ms=0;
+  std::string path;
+};
+std::vector<WaveformRoute> ReadProjectWaveforms(const Index& index,
+    const std::filesystem::path& project_archive,uint32_t project_hash);
+std::optional<CompressedWaveSample> ReadProjectWaveform(const Index& index,
+    const std::filesystem::path& project_archive,
+    const std::filesystem::path& wave_archive,uint32_t project_hash,size_t fev_offset);
 } // namespace hulk::eor::fmod

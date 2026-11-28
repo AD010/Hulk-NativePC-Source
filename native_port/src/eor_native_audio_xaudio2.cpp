@@ -221,6 +221,20 @@ bool NativeXAudio2Mixer::PlayProjectWaveSample(Bus bus,const hulk::eor::Index& i
     return pcm && PlayPcm16(bus,*pcm,source.rate,source.channels,gain,started);
   } catch (...) {return false;}
 }
+bool NativeXAudio2Mixer::PlayProjectWaveform(Bus bus,const hulk::eor::Index& index,
+    const std::filesystem::path& project_archive,const std::filesystem::path& wave_archive,
+    uint32_t project_hash,size_t fev_offset,float gain,VoiceId* started) {
+  if(started)*started=0;
+  if(!Ready()||!ValidGain(gain))return false;
+  try {
+    const auto sample=fmod::ReadProjectWaveform(index,project_archive,wave_archive,project_hash,fev_offset);
+    if(!sample)return false;
+    const Fsb3Sample source{sample->name,sample->frames,sample->mode,sample->rate,
+        sample->channels,sample->payload};
+    const auto pcm=DecodeOriginalFsb3Sample(source);
+    return pcm && PlayPcm16(bus,*pcm,source.rate,source.channels,gain,started);
+  } catch (...) {return false;}
+}
 bool NativeXAudio2Mixer::StopVoice(VoiceId id) noexcept {
   if(!Ready()||!id)return false;
   std::lock_guard lock(state_->mutex);

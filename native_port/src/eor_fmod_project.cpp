@@ -1,5 +1,6 @@
 #include "eor_fmod_project.h"
 #include "eor_fsb3_bank.h"
+#include "eor_fev_waveform.h"
 #include <algorithm>
 #include <array>
 #include <fstream>
@@ -95,6 +96,43 @@ std::optional<CompressedWaveSample> ReadProjectWaveSample(const Index& index,
   const auto bank=audio::InspectOriginalWaveBank(bytes,ref.hash,index.byte_order()==ByteOrder::Big);
   if(!bank || bank->stem!=ref.stem || sample_ordinal>=bank->samples.size())return {};
   const auto& sample=bank->samples[sample_ordinal];
+  return CompressedWaveSample{std::string(sample.name),sample.frames,sample.mode,
+      sample.rate,sample.channels,{sample.payload.begin(),sample.payload.end()}};
+}
+std::vector<WaveformRoute> ReadProjectWaveforms(const Index& index,
+    const std::filesystem::path& project_archive,uint32_t project_hash) {
+  if(!MatchesIndexedArchive(index,"FmodProjects",project_archive))
+    throw std::invalid_argument("Original FMOD project archive/index mismatch");
+  const auto record=index.FindHash("FmodProjects",project_hash);
+  if(!record || record->reserved || !record->size)
+    throw std::invalid_argument("Original FMOD project absent");
+  const auto bytes=ReadResource(project_archive,*record,2u<<20);
+  const auto event=Inspect(bytes,project_hash);
+  const auto waves=audio::InspectFevWaveforms(
+      audio::AudioBytes(bytes).subspan(event.embedded_fev_offset),event.identifier);
+  if(!waves)throw std::invalid_argument("Original FEV waveform records invalid");
+  std::vector<WaveformRoute> result;
+  result.reserve(waves->size());
+  for(const auto& wave:*waves)
+    result.push_back({wave.offset,wave.bank,wave.weight,wave.flags,wave.duration_ms,std::string(wave.path)});
+  return result;
+}
+std::optional<CompressedWaveSample> ReadProjectWaveform(const Index& index,
+    const std::filesystem::path& project_archive,const std::filesystem::path& wave_archive,
+    uint32_t project_hash,size_t fev_offset) {
+  const auto waves=ReadProjectWaveforms(index,project_archive,project_hash);
+  const auto wave=std::find_if(waves.begin(),waves.end(),[&](const auto& w){return w.fev_offset==fev_offset;});
+  if(wave==waves.end())return {};
+  const auto refs=ResolveIndexedProjectBanks(index,project_archive,project_hash);
+  if(wave->bank_ordinal>=refs.size() || !refs[wave->bank_ordinal].indexed ||
+     !MatchesIndexedArchive(index,"WaveBanks",wave_archive))return {};
+  const auto& ref=refs[wave->bank_ordinal];
+  const auto bytes=ReadResource(wave_archive,*ref.indexed,64u<<20);
+  const auto bank=audio::InspectOriginalWaveBank(bytes,ref.hash,index.byte_order()==ByteOrder::Big);
+  if(!bank || bank->stem!=ref.stem)return {};
+  const auto ordinal=audio::ResolveFevWaveformSample(*bank,wave->path);
+  if(!ordinal)return {};
+  const auto& sample=bank->samples[*ordinal];
   return CompressedWaveSample{std::string(sample.name),sample.frames,sample.mode,
       sample.rate,sample.channels,{sample.payload.begin(),sample.payload.end()}};
 }
