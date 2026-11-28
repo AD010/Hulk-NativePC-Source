@@ -63,7 +63,8 @@ class NativeMetadata(unittest.TestCase):
         self.assertEqual(patch_flush(header,source,xam),(header,source,xam,False))
         self.assertIn('FlushCommitFile(file)',source)
         self.assertIn(FLUSH_CLOSE_NEW,xam)
-        self.assertLess(xam.index('(void)manager->FlushNativeHulkContent'),xam.index('manager->CloseContent'))
+        close=xam[xam.index(FLUSH_CLOSE_NEW):][:len(FLUSH_CLOSE_NEW)]
+        self.assertLess(close.index('(void)manager->FlushNativeHulkContent'),close.index('manager->CloseContent'))
         self.assertIn('MirrorOriginalProgress(',source)
         self.assertIn('root / "Headers" / "HULK.SAV.hpr"',source)
         self.assertLess(source.index('if (!flushed || !closed)'),source.index('MirrorOriginalProgress('))
