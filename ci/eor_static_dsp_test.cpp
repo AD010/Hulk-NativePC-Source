@@ -14,6 +14,16 @@ int main(){
   assert(OriginalUsaDspRange(DspKind::Lowpass,0)->maximum==22000.f);
   assert(OriginalUsaDspRange(DspKind::Lowpass,1)->initial==1.f);
   assert(!OriginalUsaDspRange(DspKind::LowpassSimple,1));
+  const float a=OriginalUsaSimpleLowpassAlpha(1000.f,48000);
+  assert(a>.115f&&a<.117f);
+  assert(OriginalUsaSimpleLowpassAlpha(22000.f,48000)==1.f);
+  assert(OriginalUsaSimpleLowpassAlpha(20000.f,48000)>.89f);
+  OriginalUsaSimpleLowpassState st;
+  assert(std::abs(st.Process(1.f,.5f)-.25f)<1e-7f);
+  assert(std::abs(st.Process(0.f,.5f)-.25f)<1e-7f);
+  assert(st.Process(.75f,1.f)==.75f&&st.first==.25f&&st.second==.25f);
+  assert(st.Process(0.f,.75f)==.109375f);
+  assert(st.Process(1.f,0.f)==0.f&&st.first==0.f&&st.second==0.f);
   StaticDspChain c;auto v=Tone(500),old=v;assert(ApplyStaticDsp(v,48000,1,c)&&v==old);
   c.count=1;c.stages[0]={DspKind::Distortion,0,1};assert(ApplyStaticDsp(v,48000,1,c)&&v==old);
   c.stages[0].value=.5f;assert(ApplyStaticDsp(v,48000,1,c)&&v!=old);
