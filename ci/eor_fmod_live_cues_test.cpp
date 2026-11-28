@@ -78,6 +78,22 @@ int main(int argc,char** argv){
   registry.ReconcileReady(active,start,stop,1,readiness);
   assert(registry.Size()==1&&starts==before_deferred+1);
   registry.Reconcile({},start,stop);
+  // Keep an already playing voice and its sample position through a
+  // transient missing pose. A later complete update uses the same ID.
+  active[0]=e;
+  registry.Reconcile(active,start,stop);
+  const auto prior_pose_stops=stops,prior_pose_starts=starts;
+  unsigned pose_updates=0;
+  auto pose_update=[&](uint64_t id,const auto&,const auto&){
+    assert(id==prior_pose_starts);++pose_updates;return true;
+  };
+  registry.UpdateActiveReady(active,pose_update,stop,
+      [](const auto&,const auto&){return false;});
+  assert(registry.Size()==1&&pose_updates==0&&stops==prior_pose_stops);
+  registry.UpdateActiveReady(active,pose_update,stop,
+      [](const auto&,const auto&){return true;});
+  assert(pose_updates==1&&starts==prior_pose_starts&&stops==prior_pose_stops);
+  registry.Reconcile({},start,stop);
   auto mix_cue=cue;
   assert(ResolveLiveShadowGain(mix_cue,.7f)==.7f);
   mix_cue.audibility=LiveFmodAudibility{.8f,.5f,.4f,false};
