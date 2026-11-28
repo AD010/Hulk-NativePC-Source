@@ -751,6 +751,18 @@ void FinishOriginalFmodUpdate(std::optional<audio::FmodUpdateStamp> stamp,const 
     if(g_native_fmod_shadow_enabled&&g_native_fmod_catalog&&g_native_fmod_index&&!g_native_fmod_wave_arc.empty()){
       // Admit a bounded polyphonic batch per shadow update. This remains
       // a synchronous decode path, not a sample-accurate event scheduler.
+      const auto source_ready=[&](const audio::LiveFmodEvent& event,const audio::LiveFmodCue& cue) {
+        // Parameter lists can be incomplete during original event updates.
+        // Do not tombstone a new cue or stop an existing voice just because
+        // the current FEV binding cannot yet be authenticated.
+        if(cue.spatial) {
+          if(!audio::ResolveLiveFmodSpatial(*cue.spatial))return false;
+        } else if(!cue.audibility || cue.audibility->spatial)return false;
+        const auto project=g_native_fmod_catalog->projects.find(event.project);
+        if(project==g_native_fmod_catalog->projects.end())return false;
+        const auto binding=audio::BindLiveFevEvent(event,project->first,project->second.table);
+        return binding && audio::ResolveLiveFmodCue(project->second.table,*binding,cue).has_value();
+      };
       g_native_fmod_shadow_voices.ReconcileReady(*active,
         [&](const audio::LiveFmodEvent& event,const audio::LiveFmodCue& cue)->uint64_t{
           const auto project=g_native_fmod_catalog->projects.find(event.project);
@@ -799,12 +811,7 @@ void FinishOriginalFmodUpdate(std::optional<audio::FmodUpdateStamp> stamp,const 
         },
         [&](uint64_t id){(void)g_native_fmod_mixer->StopVoice(id);},
         audio::FmodCaptureSchedule::ShadowStartBudget(),
-        [](const audio::LiveFmodEvent&,const audio::LiveFmodCue& cue) {
-          // A later frame can provide the missing pose or affirmative 2D
-          // evidence. Reject for now, but allow later native admission.
-          if(cue.spatial)return audio::ResolveLiveFmodSpatial(*cue.spatial).has_value();
-          return cue.audibility && !cue.audibility->spatial;
-        });
+        source_ready);
       g_native_fmod_shadow_voices.UpdateActiveReady(*active,
         [&](uint64_t id,const audio::LiveFmodEvent& event,const audio::LiveFmodCue& cue){
           const auto project=g_native_fmod_catalog->projects.find(event.project);
@@ -838,10 +845,7 @@ void FinishOriginalFmodUpdate(std::optional<audio::FmodUpdateStamp> stamp,const 
               g_native_fmod_mixer->SetVoiceSpatialMix(id,spatial,controls->pan,controls->pan3d_level);
         },
         [&](uint64_t id){(void)g_native_fmod_mixer->StopVoice(id);},
-        [](const audio::LiveFmodEvent&,const audio::LiveFmodCue& cue) {
-          if(cue.spatial)return audio::ResolveLiveFmodSpatial(*cue.spatial).has_value();
-          return cue.audibility && !cue.audibility->spatial;
-        });
+        source_ready);
     }
     g_native_fmod_bound_events=std::move(bound);
     g_native_fmod_events=std::move(*active);
