@@ -423,6 +423,22 @@ int main() {
              "Invalid city preset accepted");
     }
   }
+  {
+    const auto* row=hulk::options::FindPcMenuRow("hulk_native_pc_saves");
+    Expect(row && hulk::eor::ui::PcStorageRowOption(*row,hulk::eor::ui::PcSettingsSection::Graphics),
+           "Native Documents save path missing from original menu");
+    unsigned live_calls=0;
+    auto apply_save=[&](std::string_view,std::string_view){++live_calls;return true;};
+    Expect(hulk::options::CommitOriginalPcMenuValue(row->key,"true",apply_save).RestartRequired(),
+           "Changing save roots must be deferred until restart");
+    Expect(live_calls==0 && Read(config).find("hulk_native_pc_saves = true")!=std::string::npos,
+           "Native save setting was not safely persisted");
+    Expect(!hulk::options::CommitOriginalPcMenuValue(row->key,"invalid",apply_save).persisted,
+           "Invalid native save root preference accepted");
+    Expect(hulk::options::CommitOriginalPcMenuValue(row->key,"false",apply_save).RestartRequired(),
+           "Native Documents save path could not be switched back");
+    Expect(live_calls==0,"A mounted save root was changed during gameplay");
+  }
   hulk::options::PcMenuPageSession page;
   unsigned bind_rows=0;
   for(const auto& row:hulk::options::kPcMenuRows)
