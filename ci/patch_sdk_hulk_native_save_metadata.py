@@ -150,11 +150,26 @@ def patch_flush(header,source,xam):
     if any(s.count(old)!=1 for s,old,new in pairs):raise ValueError('Native save flush anchor drift')
     return (*[s.replace(old,new,1) for s,old,new in pairs],True)
 
+OPEN_IDENTITY_PAIRS=(
+    ("    if (data.content_type == pkg.content_type && data.file_name() == pkg.file_name() &&\n        query_title == pkg_title) {","    const bool native_same_slot =\n        data.content_type == pkg.content_type && query_title == pkg_title &&\n        hulk::save::IsHulkSaveSlot(data.file_name()) &&\n        hulk::save::IsHulkSaveSlot(pkg.file_name()) &&\n        !hulk::native_save::WindowsRoot(query_title, uint32_t(data.content_type),\n            REXCVAR_GET(hulk_native_pc_saves)).empty();\n    if (native_same_slot ||\n        (data.content_type == pkg.content_type && data.file_name() == pkg.file_name() &&\n         query_title == pkg_title)) {"),
+    ("  return std::any_of(open_packages_.cbegin(), open_packages_.cend(), [&data](const auto& content) {\n    return data == content.second->GetPackageContentData();\n  });","  // HULK/NATIVE-SAVE-OPEN-IDENTITY: the physical Windows slot is shared\n  // by every compatibility device selector and case variant.\n  const uint32_t title = data.title_id == kCurrentlyRunningTitleId\n      ? kernel_state_->title_id() : uint32_t(data.title_id);\n  const bool native_slot = hulk::save::IsHulkSaveSlot(data.file_name()) &&\n      !hulk::native_save::WindowsRoot(title, uint32_t(data.content_type),\n          REXCVAR_GET(hulk_native_pc_saves)).empty();\n  return std::any_of(open_packages_.cbegin(), open_packages_.cend(), [&](const auto& content) {\n    const auto& pkg = content.second->GetPackageContentData();\n    if (!native_slot) return data == pkg;\n    const uint32_t pkg_title = pkg.title_id == kCurrentlyRunningTitleId\n        ? kernel_state_->title_id() : uint32_t(pkg.title_id);\n    return pkg_title == title && pkg.content_type == data.content_type &&\n        hulk::save::IsHulkSaveSlot(pkg.file_name());\n  });"),
+)
+
+def patch_open_identity(source):
+    if all(source.count(new)==1 for old,new in OPEN_IDENTITY_PAIRS):return source,False
+    if any(new in source for old,new in OPEN_IDENTITY_PAIRS):raise ValueError('Partial native slot identity patch')
+    for old,new in OPEN_IDENTITY_PAIRS:
+        if source.count(old)!=1:raise ValueError('Native slot identity anchor drift')
+        source=source.replace(old,new,1)
+    return source,True
+
 def main():
     root=Path(sys.argv[1]);path=root/SOURCE
     before=path.read_text(encoding='utf-8');after,changed=patch_cpp(before)
     after,backup_changed=patch_backup(after)
     changed=changed or backup_changed
+    after,identity_changed=patch_open_identity(after)
+    changed=changed or identity_changed
     xam_path=root/XAM_SOURCE
     xam_before=xam_path.read_text(encoding='utf-8')
     xam_after,xam_changed=patch_xam(xam_before)
