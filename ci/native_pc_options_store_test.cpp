@@ -324,6 +324,8 @@ int main() {
     bool muted=false;
     auto read=[&](std::string_view key) -> std::string {
       if(key=="window_size")return "1920x1200";
+      if(key=="hulk_original_music_volume" || key=="hulk_original_sfx_volume" ||
+         key=="hulk_original_dialog_volume")return "50";
       return key=="audio_mute" && muted?"true":"false";
     };
     auto action=[&](std::string_view key,std::string_view value){
@@ -348,6 +350,22 @@ int main() {
            event(PcEvent::Back) && event(PcEvent::Down) && event(PcEvent::Select) &&
            visual.title.starts_with("Audio") && event(PcEvent::Increase) && muted,
            "Original audio page failed to apply mute");
+    Expect(event(PcEvent::Down) && event(PcEvent::Increase) &&
+           visual.compact.find("Music volume = 60 (restart)")!=std::string::npos,
+           "Original music preference not selectable");
+    Expect(event(PcEvent::Down) && event(PcEvent::Decrease) &&
+           visual.compact.find("Effects volume = 40 (restart)")!=std::string::npos,
+           "Original effects preference not selectable");
+    Expect(event(PcEvent::Down) && event(PcEvent::Increase) &&
+           visual.compact.find("Dialogue volume = 60 (restart)")!=std::string::npos,
+           "Original dialogue preference not selectable");
+    const auto audio_text=Read(config);
+    Expect(audio_text.find("hulk_original_music_volume = 60")!=std::string::npos &&
+           audio_text.find("hulk_original_sfx_volume = 40")!=std::string::npos &&
+           audio_text.find("hulk_original_dialog_volume = 60")!=std::string::npos,
+           "Original audio preferences not persisted");
+    Expect(hulk::options::IsLivePcMenuOption("hulk_original_havok_catchup"),
+           "Live Havok scheduler switch should not require restart");
     Expect(event(PcEvent::Back) && visual.title=="PC Settings" &&
            event(PcEvent::Back) && visual.count==0,"Original settings page failed to return");
     unsigned exits=0;

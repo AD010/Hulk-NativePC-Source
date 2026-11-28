@@ -17,7 +17,10 @@ inline bool IsLivePcMenuOption(std::string_view key) noexcept {
   return IsBindingOption(key) ||
       key=="hulk_mouse_invert_x" || key=="hulk_mouse_invert_y" ||
       key=="hulk_mouse_horizontal_multiplier" || key=="hulk_mouse_vertical_multiplier" ||
-      key=="vsync" || key=="hulk_guest_swap_fps_cap" || IsLiveHostAudioOption(key);
+      key=="vsync" || key=="hulk_guest_swap_fps_cap" ||
+      // The original scheduler reads this flag at each authenticated floor
+      // callback and resets its thread-local debt when disabled.
+      key=="hulk_original_havok_catchup" || IsLiveHostAudioOption(key);
 }
 template<class Persist,class Apply>
 PcMenuCommitResult CommitPcMenuValue(std::string_view key,std::string_view value,
