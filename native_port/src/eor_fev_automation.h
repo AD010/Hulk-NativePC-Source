@@ -97,9 +97,30 @@ inline std::optional<float> SampleFevCurve(const FevEffectRecord& effect,float x
   }
   return previous.value;
 }
+// USA FEV loader 8283EA90..8283EAB0 reads the second tail word into
+// runtime envelope +48 as a boolean. 8282FE04 / 8282FEE4 map normalized
+// envelope output to the DSP parameter's physical min/max. Named filters
+// use the frequency branch for parameter 0; distortion uses linear Level.
+inline std::optional<float> MapOriginalNamedDspValue(const FevEffectRecord& effect,
+    float normalized) noexcept {
+  const auto kind=ClassifyFevDsp(effect.name);
+  const auto range=OriginalUsaDspRange(kind,effect.header[0]);
+  if(!range||effect.header[0]!=0||effect.tail[1]>1||
+     !std::isfinite(normalized)||normalized<0.f||normalized>1.f)return {};
+  const float low=range->minimum,high=range->maximum;
+  if(normalized==0.f)return low;
+  if(normalized==1.f)return high;
+  if(!effect.tail[1]||kind==DspKind::Distortion)
+    return std::fma(high-low,normalized,low);
+  if(low<=0.f||high<=0.f)return {};
+  const float a=float(std::log(double(low))),b=float(std::log(double(high)));
+  const float value=float(std::exp(double(std::fma(b-a,normalized,a))));
+  if(!std::isfinite(value))return {};
+  return std::clamp(value,low,high);
+}
 // Physical associations are supplied by the verified event owner. The
-// original interpolation is reconstructed; nonlinear DSP mappings and
-// unnamed envelope target semantics remain separate from this evaluator.
+// envelope itself now supplies the original DSP range mapping; callers
+// still supply the controlling parameter and independent resonance value.
 struct FevDspBinding {
   uint32_t effect=0,parameter=0;
   float physical_at_zero=0,physical_at_one=1,resonance=1;
@@ -137,8 +158,13 @@ inline std::optional<std::vector<DspParameterBlock>> BuildFevNamedDspBlocks(
       if(!x)return {};
       const auto value=SampleFevCurve(effects[binding.effect],*x);
       if(!value)return {};
-      chain.stages[i]={ClassifyFevDsp(effects[binding.effect].name),
-          std::lerp(binding.physical_at_zero,binding.physical_at_one,*value),binding.resonance};
+      const auto& effect=effects[binding.effect];
+      const auto kind=ClassifyFevDsp(effect.name);
+      const auto range=OriginalUsaDspRange(kind,0);
+      if(!range||binding.physical_at_zero!=range->minimum||binding.physical_at_one!=range->maximum)return {};
+      const auto physical=MapOriginalNamedDspValue(effect,*value);
+      if(!physical)return {};
+      chain.stages[i]={kind,*physical,binding.resonance};
     }
     if(!ValidStaticDsp(chain,sample_rate))return {};
     blocks.push_back({snapshot.first_frame,chain});

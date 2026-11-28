@@ -38,19 +38,27 @@ int main(int argc,char** argv){
   FevEffectRecord tail;tail.points={{{0,0,2}},{{0x3f000000,0x3f800000,2}}};
   assert(SampleFevCurve(tail,.75f)==1.f);
   tail.points[0][0]=0x3e800000;assert(!SampleFevCurve(tail,.1f));
+  FevEffectRecord cutoff;cutoff.name="FMOD Lowpass";cutoff.tail[1]=1;
+  assert(MapOriginalNamedDspValue(cutoff,0)==10.f&&MapOriginalNamedDspValue(cutoff,1)==22000.f);
+  const auto log_mid=MapOriginalNamedDspValue(cutoff,.5f);
+  assert(log_mid&&std::abs(*log_mid-std::sqrt(220000.f))<.001f);
+  cutoff.tail[1]=0;assert(MapOriginalNamedDspValue(cutoff,.5f)==11005.f);
+  cutoff.tail[1]=2;assert(!MapOriginalNamedDspValue(cutoff,.5f));
+  cutoff.tail[1]=1;cutoff.header[0]=1;assert(!MapOriginalNamedDspValue(cutoff,.5f));
   if(argc==1)return 0;
   assert(argc==2);std::ifstream file(argv[1],std::ios::binary);assert(file);
-  unsigned projects=0,parameters=0,curves=0,constants=0,named=0,named_constants=0,points=0,interpolated=0;
+  unsigned projects=0,parameters=0,curves=0,constants=0,named=0,named_constants=0,points=0,interpolated=0,mapped=0;
   for(;;){uint32_t h[4];if(!file.read(reinterpret_cast<char*>(h),16)){assert(file.eof()&&!file.gcount());break;}
     std::vector<std::byte> bytes(h[3]);assert(file.read(reinterpret_cast<char*>(bytes.data()),bytes.size()));if(!h[0])continue;
     auto t=AudioText(bytes);auto end=t.find('\0');auto table=InspectFevEventTable(AudioBytes(bytes).subspan(end+1),t.substr(0,end));assert(table);++projects;
     for(const auto& ev:table->events){for(const auto& param:ev.parameters){++parameters;auto range=ReadFevParameterDomain(param);assert(range);assert(range->Normalize(range->minimum)==0.f&&range->Normalize(range->maximum)==1.f);assert(range->Physical(0.f)==range->minimum&&range->Physical(1.f)==range->maximum);}
       for(const auto& layer:ev.layer_records)for(const auto& fx:layer.effects){++curves;assert(ValidFevCurve(fx));bool constant=true;auto initial=ReadFevCurvePoint(fx.points.front()).value;
         for(const auto& raw:fx.points){++points;const auto point=ReadFevCurvePoint(raw);assert(SampleFevCurve(fx,point.position)==point.value);constant &= point.value==initial;}
-        for(unsigned i=0;i<=256;++i){const auto sample=SampleFevCurve(fx,float(i)/256.f);assert(sample&&std::isfinite(*sample)&&*sample>=0&&*sample<=1);++interpolated;}
+        for(unsigned i=0;i<=256;++i){const auto sample=SampleFevCurve(fx,float(i)/256.f);assert(sample&&std::isfinite(*sample)&&*sample>=0&&*sample<=1);++interpolated;
+          if(!fx.name.empty()){const auto physical=MapOriginalNamedDspValue(fx,*sample);assert(physical&&std::isfinite(*physical));const auto range=OriginalUsaDspRange(ClassifyFevDsp(fx.name),0);assert(range&&*physical>=range->minimum&&*physical<=range->maximum);++mapped;}}
         if(constant){++constants;assert(SampleFevCurve(fx,.37f)==initial);}if(!fx.name.empty()){++named;assert(ClassifyFevDsp(fx.name)!=DspKind::Unknown);named_constants+=constant;}
       }
     }
   }
-  std::cout<<projects<<" projects, "<<parameters<<" parameter domains, "<<curves<<" curves, "<<points<<" points, "<<constants<<" constant curves, "<<named<<" named, "<<named_constants<<" named constant, "<<interpolated<<" evaluated positions\n";
+  std::cout<<projects<<" projects, "<<parameters<<" parameter domains, "<<curves<<" curves, "<<points<<" points, "<<constants<<" constant curves, "<<named<<" named, "<<named_constants<<" named constant, "<<interpolated<<" evaluated positions, "<<mapped<<" mapped DSP values\n";
 }
