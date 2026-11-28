@@ -116,9 +116,26 @@ def patch_xam(source):
         source=source.replace(old,new,1)
     return source,True
 
+BACKUP_ANCHOR="static const char* kThumbnailFileName = \"__thumbnail.png\";"
+BACKUP_HELPER="// HULK/NATIVE-SAVE-BACKUP: preserve the previous complete host file before\n// a destructive XContent disposition. This is a recovery copy, not a\n// conversion or an atomic replacement of the guest's live payload.\nstatic bool HulkBackupSaveFile(const std::filesystem::path& from,\n                               const std::filesystem::path& to,\n                               uintmax_t maximum) {\n  namespace fs = std::filesystem;\n  try {\n    std::error_code ec;\n    const auto status = fs::symlink_status(from, ec);\n    if (ec && ec != std::errc::no_such_file_or_directory) return false;\n    if (!fs::exists(status)) return true;\n    if (!fs::is_regular_file(status)) return false;\n    const auto size = fs::file_size(from, ec);\n    if (ec || size > maximum) return false;\n    // Empty files carry no recoverable progress.\n    if (!size) return true;\n    std::ifstream in(from, std::ios::binary);\n    if (!in) return false;\n    std::vector<uint8_t> bytes(static_cast<size_t>(size));\n    if (!in.read(reinterpret_cast<char*>(bytes.data()),\n                 static_cast<std::streamsize>(bytes.size()))) return false;\n    if (in.peek() != std::char_traits<char>::eof() || in.bad()) return false;\n    return hulk::save::CommitMetadata(to, bytes.data(), bytes.size());\n  } catch (...) {\n    return false;\n  }\n}\n\n"
+DELETE_ANCHOR="  auto dir_removed = std::filesystem::remove_all(package_path, ec);"
+DELETE_GUARD="  // HULK/NATIVE-SAVE-PRESERVE: CREATE_ALWAYS and TRUNCATE_EXISTING\n  // call DeleteContent before the guest writes replacement progress.\n  // Save a durable copy outside the package tree before either delete.\n  if (hulk::save::IsHulkSaveSlot(data.file_name()) &&\n      !hulk::native_save::WindowsRoot(\n          data.title_id == kCurrentlyRunningTitleId ? kernel_state_->title_id() : uint32_t(data.title_id),\n          uint32_t(data.content_type), REXCVAR_GET(hulk_native_pc_saves)).empty()) {\n    const auto backup_header = ResolvePackageHeaderPath(\n        data.file_name(), xuid, data.title_id, data.content_type);\n    auto payload_backup = backup_header;\n    payload_backup += \".payload-backup\";\n    auto metadata_backup = backup_header;\n    metadata_backup += \".metadata-backup\";\n    if (!HulkBackupSaveFile(package_path / \"HULK.SAV\", payload_backup, 16u << 20) ||\n        !HulkBackupSaveFile(backup_header, metadata_backup, 332u))\n      return X_ERROR_ACCESS_DENIED;\n  }\n"
+
+def patch_backup(source):
+    if BACKUP_HELPER in source and source.count(DELETE_GUARD+DELETE_ANCHOR)==2:
+        return source,False
+    if 'HULK/NATIVE-SAVE-BACKUP' in source or 'HULK/NATIVE-SAVE-PRESERVE' in source:
+        raise ValueError('Partial native save backup patch')
+    if source.count(BACKUP_ANCHOR)!=1 or source.count(DELETE_ANCHOR)!=2:
+        raise ValueError('Native save destructive disposition anchor drift')
+    return source.replace(BACKUP_ANCHOR,BACKUP_HELPER+BACKUP_ANCHOR,1).replace(
+        DELETE_ANCHOR,DELETE_GUARD+DELETE_ANCHOR),True
+
 def main():
     root=Path(sys.argv[1]);path=root/SOURCE
     before=path.read_text(encoding='utf-8');after,changed=patch_cpp(before)
+    after,backup_changed=patch_backup(after)
+    changed=changed or backup_changed
     xam_path=root/XAM_SOURCE
     xam_before=xam_path.read_text(encoding='utf-8')
     xam_after,xam_changed=patch_xam(xam_before)
