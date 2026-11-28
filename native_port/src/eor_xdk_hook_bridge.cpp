@@ -2177,7 +2177,18 @@ void CapturePpcDraw(Kind kind, uint32_t guest, const PPCContext& ctx,
     draw.original_font_fetch=CaptureUsaFontFetchAtDraw(draw,ReadGuest,guest_base);
   // Only a requested direct Vulkan render performs byte-exact guest
   // resource capture; diagnostics-only XDK observer is unaffected.
-  if((diagnostic_mesh || replay_geometry) && draw.observed_vs_matrices) {
+  // EndVertices is itself part of the source command timeline. Capture
+  // its exact inline font payload even if full replay/mesh capture is off
+  // or an earlier draw made this frame ineligible. This is bounded by the
+  // existing glyph snapshot budget and never authorizes GPU submission.
+  if(kind==Kind::EndVertices && draw.observed_vs_matrices) {
+    try {
+      draw.inline_glyphs=CaptureUsaInlineGlyphs(
+          draw,ctx.r31.u32,ctx.r1.u32,ReadGuest,guest_base,g_original_glyph_buffers);
+    } catch(const std::bad_alloc&) {}
+  }
+  if(kind!=Kind::EndVertices && (diagnostic_mesh || replay_geometry) &&
+     draw.observed_vs_matrices) {
     try {
       const auto& state=*draw.observed_vs_matrices;
       // Source snapshots are deduplicated by the existing per-Present
@@ -2187,10 +2198,7 @@ void CapturePpcDraw(Kind kind, uint32_t guest, const PPCContext& ctx,
       // streams. Prioritize the mandatory vertex/index pair BEFORE optional
       // stale bound slots: otherwise an unused slot 15 can exhaust the budget
       // and turn a valid real DrawIndexed into a missing source IB.
-      if(kind==Kind::EndVertices) {
-        draw.inline_glyphs=CaptureUsaInlineGlyphs(
-            draw,ctx.r31.u32,ctx.r1.u32,ReadGuest,guest_base,g_original_glyph_buffers);
-      } else {
+      {
         draw.captured_vertex_bindings=true;
         draw.vertex_declaration=ReadUsaVertexDeclaration(
             state.original_vertex_declaration_guest_object,ReadGuest,guest_base);
