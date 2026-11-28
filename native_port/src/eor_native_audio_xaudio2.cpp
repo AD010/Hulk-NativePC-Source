@@ -9,6 +9,7 @@
 #include "eor_archive.h"
 #ifdef _WIN32
 #include <xaudio2.h>
+#include <x3daudio.h>
 #include <objbase.h>
 #include "eor_fsb3_mpeg_win.h"
 #include <algorithm>
@@ -41,6 +42,10 @@ struct NativeXAudio2Mixer::State {
     uint16_t channels=0;
     float gain=1.f,base_ratio=1.f,automation_gain=1.f,automation_ratio=1.f,max_ratio=4.f;
     std::vector<FevVoiceBlock> automation;
+    std::optional<SpatialVoiceState> spatial;
+    std::optional<float> pan,spatial_level;
+    std::array<float,128> flat_matrix{};
+    uint32_t output_channels=0;
     uint32_t first_frame=0;
     uint64_t last_samples=0;
     size_t applied_block=0;
@@ -55,6 +60,8 @@ struct NativeXAudio2Mixer::State {
   IXAudio2* engine=nullptr;
   IXAudio2MasteringVoice* master=nullptr;
   bool com_owned=false;
+  X3DAUDIO_HANDLE spatial_handle{};
+  bool spatial_ready=false;
   DWORD owner_thread_id=0;
   std::vector<std::unique_ptr<Voice>> voices;
   std::array<float,3> bus_volumes{1.f,1.f,1.f};
@@ -74,16 +81,48 @@ struct NativeXAudio2Mixer::State {
     if(com_owned && GetCurrentThreadId()==owner_thread_id)
       CoUninitialize();
   }
+  bool UpdateMatrix(Voice& voice,std::optional<float> pan,std::optional<float> level) noexcept {
+    if(!voice.source||!voice.output_channels||voice.output_channels>64u)return false;
+    auto flat=voice.flat_matrix;
+    const auto count=size_t(voice.channels)*voice.output_channels;
+    if(pan){
+      const auto stereo=FevStereoMatrix(*pan,voice.channels);
+      if(!stereo||voice.output_channels!=2u)return false;
+      std::copy_n(stereo->begin(),count,flat.begin());
+    }
+    auto matrix=flat;
+    if(voice.spatial){
+      if(!spatial_ready||!ValidSpatialState(*voice.spatial))return false;
+      const auto& s=*voice.spatial;
+      const auto vector=[](SpatialVector v){return X3DAUDIO_VECTOR{v.x,v.y,v.z};};
+      X3DAUDIO_LISTENER listener{};
+      listener.Position=vector(s.listener.position);listener.OrientFront=vector(s.listener.front);
+      listener.OrientTop=vector(s.listener.up);
+      X3DAUDIO_EMITTER emitter{};
+      emitter.Position=vector(s.emitter.position);emitter.OrientFront=vector(s.emitter.front);
+      emitter.OrientTop=vector(s.emitter.up);emitter.ChannelCount=voice.channels;
+      emitter.CurveDistanceScaler=s.distance_scale;emitter.ChannelRadius=s.channel_radius;
+      float azimuths[2]={1.5f*X3DAUDIO_PI,.5f*X3DAUDIO_PI};
+      if(voice.channels==2u)emitter.pChannelAzimuths=azimuths;
+      std::array<float,128> spatial{};
+      X3DAUDIO_DSP_SETTINGS settings{};
+      settings.SrcChannelCount=voice.channels;settings.DstChannelCount=voice.output_channels;
+      settings.pMatrixCoefficients=spatial.data();
+      X3DAudioCalculate(spatial_handle,&listener,&emitter,X3DAUDIO_CALCULATE_MATRIX,&settings);
+      if(!BlendSpatialMatrix(std::span<const float>(flat).first(count),
+          std::span<const float>(spatial).first(count),level.value_or(1.f),
+          std::span<float>(matrix).first(count)))return false;
+    }else if(level)return false;
+    if(FAILED(voice.source->SetOutputMatrix(master,voice.channels,voice.output_channels,matrix.data(),XAUDIO2_COMMIT_NOW)))return false;
+    voice.pan=pan;voice.spatial_level=level;return true;
+  }
   bool UpdatePan(Voice& voice,float pan) noexcept {
-    const auto matrix=FevStereoMatrix(pan,voice.channels);
-    XAUDIO2_VOICE_DETAILS details{};
-    master->GetVoiceDetails(&details);
-    return matrix&&details.InputChannels==2u&&
-        SUCCEEDED(voice.source->SetOutputMatrix(master,voice.channels,2,matrix->data(),XAUDIO2_COMMIT_NOW));
+    return UpdateMatrix(voice,pan,voice.spatial_level);
   }
   bool ApplyFevBlock(Voice& voice,size_t index) noexcept {
     const auto& controls=voice.automation[index].controls;
-    if(controls.pan&&!UpdatePan(voice,*controls.pan))return false;
+    if((controls.pan||controls.pan3d_level||voice.spatial)&&
+       !UpdateMatrix(voice,controls.pan?controls.pan:voice.pan,controls.pan3d_level))return false;
     const float ratio=voice.base_ratio*controls.ratio;
     if(!ValidVoiceRatio(ratio)||ratio>voice.max_ratio||FAILED(voice.source->SetFrequencyRatio(ratio)))return false;
     voice.automation_gain=controls.gain;
@@ -108,6 +147,9 @@ NativeXAudio2Mixer::NativeXAudio2Mixer() {
      FAILED(next->engine->CreateMasteringVoice(&next->master)) ||
      !next->master)
     return;
+  DWORD channel_mask=0;
+  if(SUCCEEDED(next->master->GetChannelMask(&channel_mask))&&channel_mask)
+    next->spatial_ready=SUCCEEDED(X3DAudioInitialize(channel_mask,X3DAUDIO_SPEED_OF_SOUND,next->spatial_handle));
   state_=std::move(next);
 }
 NativeXAudio2Mixer::~NativeXAudio2Mixer() noexcept =default;
@@ -155,6 +197,7 @@ bool NativeXAudio2Mixer::PlayPcm16(Bus bus,std::span<const int16_t> samples,
     voice=std::make_unique<State::Voice>();
     voice->bus=bus_id;
     voice->channels=channels;
+    voice->spatial=options.spatial;
     voice->gain=gain;
     voice->base_ratio=options.frequency_ratio;
     voice->first_frame=options.start_frame;
@@ -178,6 +221,10 @@ bool NativeXAudio2Mixer::PlayPcm16(Bus bus,std::span<const int16_t> samples,
   voice->max_ratio=*required;
   if(FAILED(state_->engine->CreateSourceVoice(&voice->source,&wave,XAUDIO2_VOICE_USEFILTER,voice->max_ratio)) ||
      !voice->source)return false;
+  XAUDIO2_VOICE_DETAILS details{};state_->master->GetVoiceDetails(&details);
+  voice->output_channels=details.InputChannels;
+  if(!voice->output_channels||voice->output_channels>64u)return false;
+  voice->source->GetOutputMatrix(state_->master,channels,voice->output_channels,voice->flat_matrix.data());
   XAUDIO2_BUFFER buffer{};
   buffer.Flags=XAUDIO2_END_OF_STREAM;
   buffer.AudioBytes=static_cast<UINT32>(voice->samples.size()*sizeof(int16_t));
@@ -190,7 +237,7 @@ bool NativeXAudio2Mixer::PlayPcm16(Bus bus,std::span<const int16_t> samples,
      FAILED(voice->source->SetFrequencyRatio(options.frequency_ratio)) ||
      FAILED(voice->source->SubmitSourceBuffer(&buffer)))return false;
   if(!state_->UpdateVolume(*voice))return false;
-  if(options.stereo_pan&&!state_->UpdatePan(*voice,*options.stereo_pan))return false;
+  if((options.stereo_pan||options.spatial)&&!state_->UpdateMatrix(*voice,options.stereo_pan,{}))return false;
   if(!voice->automation.empty()&&!state_->ApplyFevBlock(*voice,FevVoiceBlockAt(voice->automation,voice->first_frame)))return false;
   if(!voice->clock.pending && !voice->clock.paused && FAILED(voice->source->Start(0)))return false;
   // Publish an ID only after a real XAudio2 buffer has been accepted.
@@ -318,7 +365,7 @@ bool NativeXAudio2Mixer::PlayEventVariantWithFevDsp(Bus bus,const hulk::eor::Ind
     if(!blocks)return false;
     std::optional<std::vector<FevVoiceBlock>> schedule;
     if(bindings.empty()){
-      schedule=fmod::ResolveEventVoiceSchedule(index,project_archive,project_hash,group,event_name,layer,snapshots);
+      schedule=fmod::ResolveEventVoiceSchedule(index,project_archive,project_hash,group,event_name,layer,snapshots,options.spatial.has_value());
       if(!schedule||schedule->empty())return false;
       const auto& controls=schedule->front().controls;
       if(controls.offset_ms)options.start_frame=FevOffsetFrame(*controls.offset_ms,sample->frames,sample->rate);
@@ -435,6 +482,18 @@ bool NativeXAudio2Mixer::SetVoicePan(VoiceId id,float pan) noexcept {
   Update();
   for(auto& voice:state_->voices)if(voice->id==id)
     return state_->UpdatePan(*voice,pan);
+  return false;
+}
+bool NativeXAudio2Mixer::SetVoiceSpatialState(VoiceId id,const SpatialVoiceState& spatial) noexcept {
+  if(!Ready()||!id||!ValidSpatialState(spatial))return false;
+  std::lock_guard lock(state_->mutex);
+  Update();
+  for(auto& voice:state_->voices)if(voice->id==id){
+    const auto old=voice->spatial;
+    voice->spatial=spatial;
+    if(state_->UpdateMatrix(*voice,voice->pan,voice->spatial_level))return true;
+    voice->spatial=old;return false;
+  }
   return false;
 }
 bool NativeXAudio2Mixer::SetVoiceFilter(VoiceId id,VoiceFilter filter,float frequency,float one_over_q) noexcept {

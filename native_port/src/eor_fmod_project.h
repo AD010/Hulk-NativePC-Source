@@ -75,5 +75,5 @@ std::optional<audio::FevGainPitch> ResolveEventFixedGainPitch(
 std::optional<std::vector<audio::FevVoiceBlock>> ResolveEventVoiceSchedule(
     const Index& index,const std::filesystem::path& project_archive,
     uint32_t project_hash,std::string_view group,std::string_view event_name,uint32_t layer,
-    std::span<const audio::FevParameterSnapshot> snapshots);
+    std::span<const audio::FevParameterSnapshot> snapshots,bool spatial_ready=false);
 } // namespace hulk::eor::fmod

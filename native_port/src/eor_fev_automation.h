@@ -170,7 +170,7 @@ inline std::optional<std::vector<FevDspBinding>> ResolveOriginalNamedDspBindings
 // The unhandled controls remain visible to the caller, not silently accepted.
 struct FevLayerGainPitch {FevGainPitch values;uint32_t unhandled=0;};
 inline std::optional<FevLayerGainPitch> EvaluateFevLayerGainPitch(
-    const FevEventEntry& event,uint32_t layer,std::span<const float> physical_values) noexcept {
+    const FevEventEntry& event,uint32_t layer,std::span<const float> physical_values,bool spatial_ready=false) noexcept {
   if(layer>=event.layer_records.size()||physical_values.size()!=event.parameters.size())return {};
   FevLayerGainPitch out;
   const auto& record=event.layer_records[layer];
@@ -196,7 +196,7 @@ inline std::optional<FevLayerGainPitch> EvaluateFevLayerGainPitch(
       if(!AccumulateFevGainPitch(out.values,route->target,*value))return {};
     }else{
       if(!AccumulateFevPosition(out.values,route->target,*value))return {};
-      if(route->target==FevTarget::Pan3DLevel)++out.unhandled; // needs actual listener/emitter
+      if(route->target==FevTarget::Pan3DLevel&&!spatial_ready)++out.unhandled;
     }
   }
   return out;
@@ -210,7 +210,7 @@ inline std::optional<FevGainPitch> ResolveFevFixedGainPitch(
   for(size_t i=0;i<snapshots.size();++i){
     if(i&&snapshots[i].first_frame<=snapshots[i-1].first_frame)return {};
     const auto result=EvaluateFevLayerGainPitch(event,layer,snapshots[i].physical_values);
-    if(!result||result->unhandled)return {};
+    if(!result||result->unhandled||result->values.pan3d_level)return {};
     if(fixed&&*fixed!=result->values)return {};
     fixed=result->values;
   }

@@ -15,20 +15,20 @@ struct FevVoiceBlock {
 // Explicit source-frame schedule. A moving seek needs a separate owner
 // operation; a 3D curve needs actual listener/emitter coordinates.
 inline std::optional<std::vector<FevVoiceBlock>> BuildFevVoiceSchedule(
-    const FevEventEntry& event,uint32_t layer,std::span<const FevParameterSnapshot> snapshots) {
+    const FevEventEntry& event,uint32_t layer,std::span<const FevParameterSnapshot> snapshots,bool spatial_ready=false) {
   if(snapshots.empty()||snapshots.size()>16384||snapshots.front().first_frame!=0)return {};
   std::vector<FevVoiceBlock> result;result.reserve(snapshots.size());
   for(const auto& snapshot:snapshots){
     if(!result.empty()&&snapshot.first_frame<=result.back().first_frame)return {};
-    const auto value=EvaluateFevLayerGainPitch(event,layer,snapshot.physical_values);
-    if(!value||value->unhandled||value->values.pan3d_level)return {};
+    const auto value=EvaluateFevLayerGainPitch(event,layer,snapshot.physical_values,spatial_ready);
+    if(!value||value->unhandled||(!spatial_ready&&value->values.pan3d_level))return {};
     if(!result.empty()&&(value->values.offset_ms!=result.front().controls.offset_ms||
         value->values.pan.has_value()!=result.front().controls.pan.has_value()))return {};
     result.push_back({snapshot.first_frame,value->values});
   }
   return result;
 }
-inline bool ValidFevVoiceSchedule(std::span<const FevVoiceBlock> blocks,uint32_t frames,float base_ratio) noexcept {
+inline bool ValidFevVoiceSchedule(std::span<const FevVoiceBlock> blocks,uint32_t frames,float base_ratio,bool spatial_ready=false) noexcept {
   if(blocks.empty())return true;
   if(blocks.size()>16384||blocks.front().first_frame!=0)return false;
   for(size_t i=0;i<blocks.size();++i){
@@ -36,7 +36,8 @@ inline bool ValidFevVoiceSchedule(std::span<const FevVoiceBlock> blocks,uint32_t
     const float ratio=base_ratio*c.ratio;
     if(b.first_frame>=frames||(i&&b.first_frame<=blocks[i-1].first_frame)||
        !std::isfinite(c.gain)||c.gain<0.f||c.gain>1.f||
-       !ValidFevVoiceRatio(ratio)||c.pan3d_level||
+       !ValidFevVoiceRatio(ratio)||
+       (c.pan3d_level&&(!spatial_ready||!std::isfinite(*c.pan3d_level)||*c.pan3d_level<0.f||*c.pan3d_level>1.f))||
        c.offset_ms!=blocks.front().controls.offset_ms||
        c.pan.has_value()!=blocks.front().controls.pan.has_value()||
        (c.pan&&(!std::isfinite(*c.pan)||*c.pan< -1.f||*c.pan>1.f)))return false;

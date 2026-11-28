@@ -203,7 +203,7 @@ std::optional<audio::FevGainPitch> ResolveEventFixedGainPitch(
 std::optional<std::vector<audio::FevVoiceBlock>> ResolveEventVoiceSchedule(
     const Index& index,const std::filesystem::path& project_archive,
     uint32_t project_hash,std::string_view group,std::string_view event_name,uint32_t layer,
-    std::span<const audio::FevParameterSnapshot> snapshots) {
+    std::span<const audio::FevParameterSnapshot> snapshots,bool spatial_ready) {
   if(!MatchesIndexedArchive(index,"FmodProjects",project_archive))return {};
   const auto record=index.FindHash("FmodProjects",project_hash);
   if(!record||record->reserved||!record->size)return {};
@@ -217,6 +217,6 @@ std::optional<std::vector<audio::FevVoiceBlock>> ResolveEventVoiceSchedule(
     if(match)return {};
     match=&event;
   }
-  return match?audio::BuildFevVoiceSchedule(*match,layer,snapshots):std::nullopt;
+  return match?audio::BuildFevVoiceSchedule(*match,layer,snapshots,spatial_ready):std::nullopt;
 }
 } // namespace hulk::eor::fmod
