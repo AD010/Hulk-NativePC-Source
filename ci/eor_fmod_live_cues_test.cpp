@@ -30,6 +30,12 @@ int main(int argc,char** argv){
   registry.Reconcile(active,start,stop);registry.UpdateActive(active,update,stop);
   assert(starts==previous_starts&&stops==previous_stops&&updates==2);
   registry.Reconcile({},start,stop);
+  active[0]=e;active[0].cues_complete=false;
+  active[0].cues.push_back(cue);active[0].cues.back().instance_owner++;
+  registry.Reconcile(active,start,stop,2);assert(registry.Size()==2);
+  const auto prior_updates=updates;registry.UpdateActive(active,update,stop);assert(updates==prior_updates+2);
+  active[0].cues.clear();registry.Reconcile(active,start,stop);assert(registry.Size()==2);
+  active[0].cues_complete=true;registry.Reconcile(active,start,stop);assert(registry.Size()==0);
   FevEventEntry controlled;controlled.layer_records.resize(1);
   std::array<std::byte,24> fields{};fields[10]=std::byte{0x80};fields[11]=std::byte{0x3f};
   controlled.parameters.push_back({"Intensity",fields,{}});

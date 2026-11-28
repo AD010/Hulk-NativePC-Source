@@ -27,6 +27,18 @@ int main(){
   assert(e.cues[0].definition=="sample"&&e.cues[0].variant==1&&e.cues[0].weight==75);
   put(0xa000+48,2);s=CaptureLiveFmodEvents(0x1000,read);assert(s&&!s->front().cues_complete);put(0xa000+48,1);
   put(0xa000+76,0x1234);s=CaptureLiveFmodEvents(0x1000,read);assert(s&&!s->front().cues_complete);put(0xa000+76,0);
+  // Two children share the same source definition but own different channels.
+  put(0xa000+120,0x13000);put(0x13000,0x14000);put(0x14000,0xa000+120);
+  for(uint32_t child:{0x13000u,0x14000u}){
+    put(child+16,0x9000);put(child+76,0xa000);put(child+20,8);put(child+36,child+0x1000);put(child+12,0xc000);
+  }
+  s=CaptureLiveFmodEvents(0x1000,read);assert(s&&!s->front().cues_complete&&s->front().cues.empty());
+  put(0xd000+76,1);put(0xe000,0);put(0xe000+4,100);
+  s=CaptureLiveFmodEvents(0x1000,read);assert(s&&!s->front().cues_complete&&s->front().cues.size()==2);
+  assert(s->front().cues[0].variant==0&&s->front().cues[1].variant==0);
+  assert(s->front().cues[0].channel!=s->front().cues[1].channel);
+  put(0x14000,0x13000);s=CaptureLiveFmodEvents(0x1000,read);assert(s&&!s->front().cues_complete&&s->front().cues.empty());
+  put(0xa000+120,0xa000+120);put(0xd000+76,2);
   // A child may also be listed as a project root; visit it only once.
   put(0x3000+20,1);put(0x3000+24,0x11000);put(0x11000,0x12000);
   put(0x12000,0x82089270);put(0x12000+20,0);put(0x12000+24,0);put(0x12000+32,0x3000);

@@ -60,7 +60,7 @@ class LiveCueRegistry {
       it=voices_.erase(it);
     }
     for(const auto& event:active){
-      if(!event.cues_complete)continue;
+      // Partial snapshots may contain individually validated cues.
       for(const auto& cue:event.cues){
         if(!budget||voices_.size()>=128)return;
         if(!cue.instance_owner||!cue.channel)continue;
@@ -75,7 +75,7 @@ class LiveCueRegistry {
   template<class Update,class Stop>
   void UpdateActive(std::span<const LiveFmodEvent> active,Update&& update,Stop&& stop) {
     for(const auto& event:active){
-      if(!event.cues_complete)continue;
+      // Partial snapshots may contain individually validated cues.
       for(const auto& cue:event.cues){
         const auto it=voices_.find(KeyForLiveCue(event,cue));
         if(it==voices_.end()||!it->second)continue;

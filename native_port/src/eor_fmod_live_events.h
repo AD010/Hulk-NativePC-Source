@@ -46,12 +46,37 @@ std::optional<std::vector<LiveFmodEvent>> CaptureLiveFmodEvents(uint32_t system,
     }
     return {};
   };
-  // Direct playing instances: 82839BA8 traverses event+332, layer+84.
-  // 82838650 selects a 24-byte variant record and saves the index at +48.
-  // Shared/polyphonic children use separate ownership, so do not infer their
-  // selected waveform from the parent's mutable last-selection index.
-  const auto cues=[&](uint32_t event)->std::optional<std::vector<LiveFmodCue>>{
-    std::vector<LiveFmodCue> out;
+  // USA 8283A3DC walks the sound instance's child list at +120.
+  // 82838664..82838678 selects through the parent (+76); the index at
+  // parent+48 is mutable. A child is unambiguous here only for a single
+  // wave variant. A multi-variant child needs a start-time selection trace.
+  struct CueSnapshot {std::vector<LiveFmodCue> items;bool complete=true;};
+  const auto cues=[&](uint32_t event)->std::optional<CueSnapshot>{
+    CueSnapshot out;
+    std::set<uint32_t> seen;
+    const auto capture=[&](uint32_t node,uint32_t layer,uint32_t parent,uint32_t l,uint32_t i)->bool{
+      if(!seen.insert(node).second||seen.size()>4096u||word(node,16)!=layer||word(node,76)!=parent)return false;
+      const auto flags=word(node,20),channel=word(node,36);
+      if(!flags||!channel)return false;
+      if(!(*flags&8u)||!*channel)return true;
+      const auto owner=word(node,12);if(!owner)return false;
+      const auto def=word(*owner,4);if(!def)return false;
+      if(parent){
+        const auto po=word(parent,12);if(!po||word(*po,4)!=def)return false;
+      }
+      const auto count=word(*def,76),records=word(*def,84);
+      const auto def_name=name(*def,12);
+      if(!count||!*count||*count>4096u||!records||!*records||!def_name)return false;
+      if(parent&&*count!=1u){out.complete=false;return true;}
+      const auto variant=parent?std::optional<uint32_t>(0):word(node,48);
+      if(!variant||*variant>=*count||uint64_t(*records)+uint64_t(*variant)*24u>UINT32_MAX-7u)return false;
+      const auto record=*records+*variant*24u;
+      const auto type=word(record,0),weight=word(record,4);
+      if(!type||!weight)return false;
+      if(*type!=0){out.complete=false;return true;}
+      out.items.push_back({node,*channel,l,i,*variant,*count,*weight,*def_name});
+      return true;
+    };
     const auto layer_end=event+332u;
     auto layer=word(event,332);uint32_t l=0;
     while(layer&&*layer!=layer_end){
@@ -59,23 +84,20 @@ std::optional<std::vector<LiveFmodEvent>> CaptureLiveFmodEvents(uint32_t system,
       const auto instance_end=*layer+84u;
       auto instance=word(*layer,84);uint32_t i=0;
       while(instance&&*instance!=instance_end){
-        if(i>=4096||word(*instance,16)!=*layer)return {};
-        const auto flags=word(*instance,20),channel=word(*instance,36),parent=word(*instance,76);
-        if(!flags||!channel||!parent||*instance>UINT32_MAX-120u||
-           word(*instance,120)!=*instance+120u)return {}; // shared children need separate capture
-        if((*flags&8u)&&*channel){
-          if(*parent)return {}; // never guess a shared selection
-          const auto owner=word(*instance,12),variant=word(*instance,48);
-          if(!owner||!variant)return {};
-          const auto def=word(*owner,4);if(!def)return {};
-          const auto count=word(*def,76),records=word(*def,84);
-          const auto def_name=name(*def,12);
-          if(!count||!*count||*count>4096u||*variant>=*count||!records||!*records||!def_name||
-             uint64_t(*records)+uint64_t(*variant)*24u>UINT32_MAX-7u)return {};
-          const auto record=*records+*variant*24u;
-          const auto type=word(record,0),weight=word(record,4);
-          if(!type||!weight||*type!=0||out.size()>=4096u)return {};
-          out.push_back({*instance,*channel,l,i,*variant,*count,*weight,*def_name});
+        if(i>=4096||word(*instance,16)!=*layer||word(*instance,76)!=0u||*instance>UINT32_MAX-120u)return {};
+        const auto child_end=*instance+120u;
+        auto child=word(*instance,120);if(!child)return {};
+        if(*child==child_end){
+          if(!capture(*instance,*layer,0,l,i))return {};
+        }else{
+          // Parent's own channel may be a shared template; do not admit it.
+          if(!seen.insert(*instance).second||seen.size()>4096u)return {};
+          out.complete=false;
+          while(child&&*child!=child_end){
+            if(!capture(*child,*layer,*instance,l,i))return {};
+            child=word(*child,0);
+          }
+          if(!child)return {};
         }
         instance=word(*instance,0);++i;
       }
@@ -113,7 +135,7 @@ std::optional<std::vector<LiveFmodEvent>> CaptureLiveFmodEvents(uint32_t system,
       LiveFmodEvent out;
       out.owner=event;out.project_owner=*project;out.flags=*flags;out.project=*project_name;
       out.group=*group_name;out.name=*event_name;out.parent_owner=parent;out.start_stamp=*start;
-      if(auto selected=cues(event)){out.cues=std::move(*selected);out.cues_complete=true;}
+      if(auto selected=cues(event)){out.cues=std::move(selected->items);out.cues_complete=selected->complete;}
       const uint32_t param_end=event+344u;
       auto param_node=word(event,344);
       while(param_node&&*param_node!=param_end){
