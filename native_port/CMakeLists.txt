@@ -87,7 +87,7 @@ if(WIN32)
     # Its PCM input must come from a verified decoded original sound bank.
     target_compile_definitions(hulk_native_core PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
     target_sources(hulk_native_core PRIVATE src/eor_native_audio_xaudio2.cpp)
-    target_link_libraries(hulk_native_core PUBLIC shell32 ole32 xaudio2)
+    target_link_libraries(hulk_native_core PUBLIC shell32 ole32 xaudio2 mfplat mfuuid wmcodecdspuuid)
 endif()
 
 # Keep the single already-existing physical Vulkan host in one native

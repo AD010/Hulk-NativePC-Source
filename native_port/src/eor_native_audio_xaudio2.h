@@ -13,8 +13,9 @@ namespace hulk::eor {class Index;}
 namespace hulk::eor::audio {
 enum class Bus : uint8_t { Music=0, Sfx=1, Dialog=2 };
 // EoR music and longer dialogue samples exceed one million PCM values.
-// Bounded native audio buffers: at most 16 MiB decoded per source voice.
-inline constexpr size_t kMaxNativePcmSamples=8u<<20;
+// The original longest MPEG cue needs ~35 MiB decoded. Bound each
+// voice to 48 MiB; the existing aggregate limit remains 96 MiB.
+inline constexpr size_t kMaxNativePcmSamples=24u<<20;
 inline constexpr bool ValidPcm16(std::span<const int16_t> pcm,
     uint32_t sample_rate,uint16_t channels) noexcept {
   return (channels==1u || channels==2u) &&

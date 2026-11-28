@@ -9,6 +9,7 @@
 #ifdef _WIN32
 #include <xaudio2.h>
 #include <objbase.h>
+#include "eor_fsb3_mpeg_win.h"
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -188,7 +189,7 @@ bool NativeXAudio2Mixer::PlayIndexedWaveBankPcm16(Bus bus,
     if(const auto bank=InspectOriginalWaveBank(data,resource_hash,index.byte_order()==ByteOrder::Big)) {
       if(sample_index>=bank->samples.size())return false;
       const auto& sample=bank->samples[sample_index];
-      const auto pcm=DecodeOriginalIma(sample);
+      const auto pcm=DecodeOriginalFsb3Sample(sample);
       return pcm && PlayPcm16(bus,*pcm,sample.rate,sample.channels,gain);
     }
     return PlayFsb4Pcm16(bus,data,sample_index,gain);
@@ -206,7 +207,7 @@ bool NativeXAudio2Mixer::PlayProjectWaveSample(Bus bus,const hulk::eor::Index& i
     if(!sample)return false;
     const Fsb3Sample source{sample->name,sample->frames,sample->mode,sample->rate,
         sample->channels,sample->payload};
-    const auto pcm=DecodeOriginalIma(source);
+    const auto pcm=DecodeOriginalFsb3Sample(source);
     return pcm && PlayPcm16(bus,*pcm,source.rate,source.channels,gain);
   } catch (...) {return false;}
 }
