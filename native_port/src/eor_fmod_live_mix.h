@@ -6,7 +6,24 @@ namespace hulk::eor::audio {
 struct LiveFmodAudibility {
   float channel=0.f,group=0.f,combined=0.f;
   bool spatial=false;
+  std::optional<bool> paused={};
 };
+// USA 82790A38: own pause bit and ancestor group byte +89, parent +28.
+// A malformed or unreadable chain is not evidence of an unpaused voice.
+template<class Read>
+std::optional<bool> ReadFmodEffectivePause(uint32_t channel,uint32_t group,Read&& read) noexcept {
+  const auto flags=FmodTraceWord(channel,116,read);
+  if(!flags||!group)return {};
+  if(*flags&1u)return true;
+  for(unsigned i=0;i<64&&group;++i){
+    if(group>UINT32_MAX-89u||(group&3u))return {};
+    std::byte paused{};if(!read(group+89u,&paused,1))return {};
+    if(paused!=std::byte{0})return true;
+    const auto parent=FmodTraceWord(group,28,read);if(!parent||*parent==group)return {};
+    group=*parent;
+  }
+  return group?std::nullopt:std::optional<bool>(false);
+}
 // Exact operation order of the USA scalar audibility getter 827925E0.
 // This is not the speaker matrix, DSP output or final mixed PCM.
 template<class Read>
@@ -43,6 +60,6 @@ std::optional<LiveFmodAudibility> CaptureLiveFmodAudibility(uint32_t event_syste
   value=value*(*base);
   if(!std::isfinite(value)||word(channel,112)!=handle||word(channel,48)!=sound||
      word(channel,140)!=group||word(channel,40)!=core||word(event_system,16)!=core)return {};
-  return LiveFmodAudibility{*base,*group_base,value,spatial};
+  return LiveFmodAudibility{*base,*group_base,value,spatial,ReadFmodEffectivePause(channel,*group,read)};
 }
 } // namespace hulk::eor::audio

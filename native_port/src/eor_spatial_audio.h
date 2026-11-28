@@ -13,6 +13,7 @@ struct SpatialVoiceState {
   // Negative means use the existing X3DAudio distance curve. A nonnegative
   // value supplies an explicit spatial-only gain; 2D remains unchanged.
   float distance_gain=-1.f;
+  float doppler_factor=1.f;
 };
 inline double SpatialDot(SpatialVector a,SpatialVector b) noexcept {
   return double(a.x)*b.x+double(a.y)*b.y+double(a.z)*b.z;
@@ -30,7 +31,8 @@ inline bool ValidSpatialState(const SpatialVoiceState& s) noexcept {
   return ValidSpatialPose(s.listener)&&ValidSpatialPose(s.emitter)&&
       std::isfinite(s.distance_scale)&&s.distance_scale>=1.e-4f&&s.distance_scale<=1.e9f&&
       std::isfinite(s.channel_radius)&&s.channel_radius>=0.f&&s.channel_radius<=1.e9f&&
-      (s.distance_gain==-1.f||(std::isfinite(s.distance_gain)&&s.distance_gain>=0.f&&s.distance_gain<=1.f));
+      (s.distance_gain==-1.f||(std::isfinite(s.distance_gain)&&s.distance_gain>=0.f&&s.distance_gain<=1.f))&&
+      std::isfinite(s.doppler_factor)&&s.doppler_factor>=.5f&&s.doppler_factor<=2.f;
 }
 // Blend the native 2D routing matrix and X3DAudio matrix. This is a native
 // output policy, not a claim of the proprietary FMOD speaker mix law.

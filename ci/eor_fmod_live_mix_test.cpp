@@ -12,6 +12,15 @@ int main(){
   put(core+34140,2);put(core+332,2);put(core+336,array);put(c+112,handle);put(c+40,core);put(c+48,sound);put(c+140,group);
   put(sound+100,8);f(c+164,.8f);f(group+60,.5f);
   auto a=CaptureLiveFmodAudibility(es,handle,read);assert(a&&!a->spatial&&a->combined==.4f);
+  assert(!a->paused);
+  put(c+116,1);assert(CaptureLiveFmodAudibility(es,handle,read)->paused==true);
+  put(c+116,0);put(group+28,0);mem[group+89]=std::byte{0};
+  assert(CaptureLiveFmodAudibility(es,handle,read)->paused==false);
+  constexpr uint32_t parent=0x60000;put(group+28,parent);mem[parent+89]=std::byte{1};
+  assert(CaptureLiveFmodAudibility(es,handle,read)->paused==true);
+  mem[parent+89]=std::byte{0};put(parent+28,group);
+  assert(!CaptureLiveFmodAudibility(es,handle,read)->paused);
+  put(parent+28,0);assert(CaptureLiveFmodAudibility(es,handle,read)->paused==false);
   put(sound+100,16);assert(!CaptureLiveFmodAudibility(es,handle,read));
   f(group+72,.75f);f(c+328,.5f);f(c+284,.25f);f(c+280,.9f);f(c+276,.6f);
   const float expected=(((((.75f*.5f)*.5f)*.25f)*.9f)*.6f)*.8f;

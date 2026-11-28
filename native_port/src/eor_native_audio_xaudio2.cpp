@@ -3,6 +3,7 @@
 #endif
 #include "eor_native_audio_xaudio2.h"
 #include "eor_event_voice_group.h"
+#include "eor_fmod_doppler.h"
 #include "eor_fev_seek_pcm.h"
 #include "eor_fsb4_pcm.h"
 #include "eor_fsb3_ima.h"
@@ -84,7 +85,13 @@ struct NativeXAudio2Mixer::State {
     if(com_owned && GetCurrentThreadId()==owner_thread_id)
       CoUninitialize();
   }
-  bool UpdateMatrix(Voice& voice,std::optional<float> pan,std::optional<float> level) noexcept {
+  static std::optional<float> EffectivePitch(const Voice& voice,float base,float automation,
+      std::optional<float> level) noexcept {
+    return ComposeSpatialPitch(base,automation,voice.spatial?voice.spatial->doppler_factor:1.f,
+        voice.spatial?level.value_or(1.f):0.f,voice.max_ratio);
+  }
+  bool UpdateMatrix(Voice& voice,std::optional<float> pan,std::optional<float> level,
+      std::optional<float> automation_override={}) noexcept {
     if(!voice.source||!voice.output_channels||voice.output_channels>64u)return false;
     auto flat=voice.flat_matrix;
     const auto count=size_t(voice.channels)*voice.output_channels;
@@ -122,7 +129,13 @@ struct NativeXAudio2Mixer::State {
           std::span<const float>(spatial).first(count),level.value_or(1.f),
           std::span<float>(matrix).first(count)))return false;
     }else if(level)return false;
-    if(FAILED(voice.source->SetOutputMatrix(master,voice.channels,voice.output_channels,matrix.data(),XAUDIO2_COMMIT_NOW)))return false;
+    const auto ratio=EffectivePitch(voice,voice.base_ratio,automation_override.value_or(voice.automation_ratio),level);
+    if(!ratio)return false;
+    float previous_ratio=1.f;voice.source->GetFrequencyRatio(&previous_ratio);
+    if(FAILED(voice.source->SetFrequencyRatio(*ratio)))return false;
+    if(FAILED(voice.source->SetOutputMatrix(master,voice.channels,voice.output_channels,matrix.data(),XAUDIO2_COMMIT_NOW))){
+      (void)voice.source->SetFrequencyRatio(previous_ratio);return false;
+    }
     voice.pan=pan;voice.spatial_level=level;return true;
   }
   bool UpdatePan(Voice& voice,float pan) noexcept {
@@ -130,10 +143,12 @@ struct NativeXAudio2Mixer::State {
   }
   bool ApplyFevBlock(Voice& voice,size_t index) noexcept {
     const auto& controls=voice.automation[index].controls;
-    if((controls.pan||controls.pan3d_level||voice.spatial)&&
-       !UpdateMatrix(voice,controls.pan?controls.pan:voice.pan,controls.pan3d_level))return false;
-    const float ratio=voice.base_ratio*controls.ratio;
-    if(!ValidVoiceRatio(ratio)||ratio>voice.max_ratio||FAILED(voice.source->SetFrequencyRatio(ratio)))return false;
+    if(controls.pan||controls.pan3d_level||voice.spatial){
+      if(!UpdateMatrix(voice,controls.pan?controls.pan:voice.pan,controls.pan3d_level,controls.ratio))return false;
+    }else{
+      const auto ratio=EffectivePitch(voice,voice.base_ratio,controls.ratio,voice.spatial_level);
+      if(!ratio||FAILED(voice.source->SetFrequencyRatio(*ratio)))return false;
+    }
     voice.automation_gain=controls.gain;
     voice.automation_ratio=controls.ratio;
     if(!UpdateVolume(voice))return false;
@@ -231,7 +246,7 @@ bool NativeXAudio2Mixer::PlayPcm16(Bus bus,std::span<const int16_t> samples,
   wave.nAvgBytesPerSec=wave.nSamplesPerSec*wave.nBlockAlign;
   const auto required=RequiredFevVoiceRatio(options.fev_voice_blocks,options.frequency_ratio);
   if(!required)return false;
-  voice->max_ratio=options.reserve_live_pitch?kMaxFevVoiceRatio:*required;
+  voice->max_ratio=(options.reserve_live_pitch||options.spatial)?kMaxFevVoiceRatio:*required;
   if(FAILED(state_->engine->CreateSourceVoice(&voice->source,&wave,XAUDIO2_VOICE_USEFILTER,voice->max_ratio)) ||
      !voice->source)return false;
   XAUDIO2_VOICE_DETAILS details{};state_->master->GetVoiceDetails(&details);
@@ -512,9 +527,30 @@ bool NativeXAudio2Mixer::SetVoiceFrequencyRatio(VoiceId id,float ratio) noexcept
     // clipping future pitch values or terminating the voice mid-event.
     const auto required=RequiredFevVoiceRatio(voice->automation,ratio);
     if(!required||*required>voice->max_ratio)return false;
-    const float effective=ratio*voice->automation_ratio;
-    if(!ValidVoiceRatio(effective)||FAILED(voice->source->SetFrequencyRatio(effective)))return false;
+    const auto effective=State::EffectivePitch(*voice,ratio,voice->automation_ratio,voice->spatial_level);
+    if(!effective||FAILED(voice->source->SetFrequencyRatio(*effective)))return false;
     voice->base_ratio=ratio;return true;
+  }
+  return false;
+}
+bool NativeXAudio2Mixer::SetVoiceLiveFevGainPitch(VoiceId id,float gain,float ratio) noexcept {
+  if(!Ready()||!id||!ValidGain(gain)||!ValidVoiceRatio(ratio))return false;
+  std::lock_guard lock(state_->mutex);
+  Update();
+  for(auto& voice:state_->voices)if(voice->id==id){
+    if(voice->automation.size()!=1||voice->moving_seek)return false;
+    const auto effective=State::EffectivePitch(*voice,voice->base_ratio,ratio,voice->spatial_level);
+    if(!effective)return false;
+    float previous=1.f;voice->source->GetFrequencyRatio(&previous);
+    if(FAILED(voice->source->SetFrequencyRatio(*effective)))return false;
+    const auto old_gain=voice->automation_gain;
+    voice->automation_gain=gain;
+    if(!state_->UpdateVolume(*voice)){
+      voice->automation_gain=old_gain;(void)voice->source->SetFrequencyRatio(previous);return false;
+    }
+    voice->automation_ratio=ratio;
+    voice->automation[0].controls.gain=gain;voice->automation[0].controls.ratio=ratio;
+    return true;
   }
   return false;
 }
@@ -592,10 +628,7 @@ bool NativeXAudio2Mixer::ReplaceVoiceAt(VoiceId id,uint32_t frame,std::optional<
     if(FAILED(state_->engine->CreateSourceVoice(&next.source,&wave,
         XAUDIO2_VOICE_USEFILTER,next.max_ratio))||!next.source)return false;
     XAUDIO2_FILTER_PARAMETERS filter{};old.source->GetFilterParameters(&filter);
-    const auto ratio=next.base_ratio*next.automation_ratio;
-    if(!ValidVoiceRatio(ratio)||ratio>next.max_ratio||
-       FAILED(next.source->SetFrequencyRatio(ratio))||
-       FAILED(next.source->SetFilterParameters(&filter))||
+    if(FAILED(next.source->SetFilterParameters(&filter))||
        !state_->UpdateVolume(next)||
        !state_->UpdateMatrix(next,next.pan,next.spatial_level))return false;
     XAUDIO2_BUFFER buffer{};

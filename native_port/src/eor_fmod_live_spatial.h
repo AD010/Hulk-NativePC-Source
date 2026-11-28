@@ -1,6 +1,7 @@
 #pragma once
 #include "eor_fmod_start_trace.h"
 #include "eor_spatial_audio.h"
+#include "eor_fmod_doppler.h"
 #include <bit>
 namespace hulk::eor::audio {
 // Raw FMOD coordinates, not a claim of matching X3DAudio orientation or rolloff.
@@ -79,6 +80,13 @@ inline std::optional<SpatialVoiceState> ResolveLiveFmodSpatial(const LiveFmodSpa
     if(raw.max_distance==raw.min_distance)return {};
     out.distance_gain=static_cast<float>((raw.max_distance-clamped)/(raw.max_distance-raw.min_distance));
   }else out.distance_gain=static_cast<float>(raw.min_distance/clamped);
+  // Experimental unit-scale Doppler; original global/channel factors and
+  // world-unit conversion remain unverified. Head-relative has no listener motion.
+  const auto factor=NativeDopplerFactor(out.listener.position,out.emitter.position,
+      raw.mode&head_relative?SpatialVector{}:convert(raw.listener_velocity),
+      convert(raw.velocity),343.5f,1.f);
+  if(!factor)return {};
+  out.doppler_factor=*factor;
   return ValidSpatialState(out)?std::optional<SpatialVoiceState>(out):std::nullopt;
 }
 } // namespace hulk::eor::audio
