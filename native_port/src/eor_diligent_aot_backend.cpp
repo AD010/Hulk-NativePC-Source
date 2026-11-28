@@ -429,7 +429,7 @@ struct DiligentEorDirectBackend::State {
   std::map<DrawKey,PackedConstants> packed_constants;
   bool frame_preflight_ready=false;
   bool first_draw_depth_bound=false;
-  uint64_t prepared_frame=0;
+  uint64_t prepared_frame=0,last_composited_frame=0;
   bool scene_open=false,constants_ready=false,program_ready=false;
   bool textures_ready=false,finished=false;
   bool source_timeline_active=false;
@@ -878,9 +878,12 @@ bool DiligentEorDirectBackend::RebindOriginalFrontBuffer(const VerifiedSceneForm
      a.guest_depth!=b.guest_depth ||
      !SameOriginalTargetStorage(s.format.original_graph,verified.original_graph))return false;
   if(a.guest_front_buffer==b.guest_front_buffer)return true;
-  // A failed queue fence may leave old staged references alive. Do not
-  // mutate the owner of an epoch whose GPU lifetime has not been retired.
-  if(!s.runtime_uploads.empty() || !s.font_uploads.empty())return false;
+  // Only the guest Present identity changes; the storage contract above
+  // proves all resident native attachments are identical. Successfully
+  // composited epochs can keep their uploads until the real GPU fence.
+  // Reject unfinished staging, not ordinary asynchronous GPU ownership.
+  if(!OnlyCompositedOriginalUploads(s.runtime_uploads,s.last_composited_frame) ||
+     !OnlyCompositedOriginalUploads(s.font_uploads,s.last_composited_frame))return false;
   auto next=verified;
   s.format=std::move(next);
   return true;
@@ -2178,6 +2181,9 @@ bool DiligentEorDirectBackend::Composite(native::Rect dest,native::Size output) 
   // retrying the same original Present could submit a second host frame.
   s.composite_attempted=true;
   if(!s.composite(image,dest,output))return false;
+  if(s.source_timeline_active && s.source_present_recorded &&
+     s.prepared_frame>s.last_composited_frame)
+    s.last_composited_frame=s.prepared_frame;
   s.active={};s.selected=nullptr;s.scene_open=false;
   s.requested_model=0;s.requested_surface=UINT32_MAX;s.surface_ready=false;
   return true;

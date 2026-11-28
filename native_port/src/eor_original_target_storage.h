@@ -2,6 +2,15 @@
 #include <cstdint>
 
 namespace hulk::eor::gpu {
+// Retained uploads from already composited source epochs do not own the
+// rotating guest front-buffer identifier. Unsubmitted epochs still block
+// metadata changes, and GPU retirement remains exclusively fence-driven.
+template<class UploadMap>
+inline bool OnlyCompositedOriginalUploads(const UploadMap& uploads,
+    uint64_t last_composited_frame) noexcept {
+  return uploads.empty() || (last_composited_frame &&
+      uploads.rbegin()->first.first<=last_composited_frame);
+}
 // Compare source-owned offscreen allocations independently of the rotating
 // Present destination. The front buffer is NOT allocated by SceneTargets:
 // the final color image is composited to the physical host swapchain.
