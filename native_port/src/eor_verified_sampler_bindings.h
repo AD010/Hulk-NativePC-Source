@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <span>
 #include <string>
+#include <string_view>
 namespace hulk::eor::gpu {
 enum class OriginalSamplerStage : uint8_t {
   Unknown=0, Vertex=1, Pixel=2
@@ -25,6 +26,12 @@ struct VerifiedEorSampler {
   uint32_t original_resolved_guest_object=0;
   bool original_runtime_material=false;
 };
+inline bool IsOriginalScalarVertexTexture(const VerifiedEorSampler& slot) noexcept {
+  constexpr std::string_view names[]={"HulkTexture2D_s0","HulkTexture2D_s1",
+                                      "HulkTexture2D_s2","HulkTexture2D_s3"};
+  return slot.stage==OriginalSamplerStage::Vertex && slot.original_fetch_register<4u &&
+      slot.exact_shader_variable_name==names[slot.original_fetch_register];
+}
 // Rejects incomplete/ambiguous original texture ownership before touching GPU.
 // These explicit evidentiary flags must originate in a real EoR runtime/Shader
 // reflection capture. They are NEVER inferred from nearby model hashes.

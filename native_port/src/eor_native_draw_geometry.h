@@ -100,6 +100,7 @@ struct OriginalXdkResourceIdentity {
   std::array<uint32_t,16> textures{};
   // Captured original XDK SetStreamSource, not inferred mesh identifiers.
   std::array<uint32_t,16> vertex_buffers{};
+  std::array<uint32_t,4> vertex_textures{};
   bool operator==(const OriginalXdkResourceIdentity&) const = default;
 };
 OriginalXdkResourceIdentity ResourcesAtDraw(

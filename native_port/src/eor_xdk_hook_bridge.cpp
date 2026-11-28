@@ -1693,9 +1693,17 @@ void CapturePpcDraw(Kind kind, uint32_t guest, const PPCContext& ctx,
       try {
         if(const auto sha=aot::ResolveOriginalLiveXdkShaderSource(
               sources,*vertex,draw.observed_vs_matrices->original_vs_guest_object,
-              aot::Stage::Vertex,g_collector.NextFrameSequence(),g_collector.NextDrawOrdinal()))
+              aot::Stage::Vertex,g_collector.NextFrameSequence(),g_collector.NextDrawOrdinal())) {
           vertex->vertex_sampling=aot::CaptureOriginalVertexSamplerControls(
               *vertex,*sha,ReadGuest,guest_base,g_vertex_sampling,&sources);
+          if(vertex->vertex_sampling)
+            for(uint32_t slot=0;slot<4u;++slot) {
+              if(!(vertex->vertex_sampling->sampled_slots&(1u<<slot)))continue;
+              const auto bound=draw.observed_vs_matrices->original_vertex_texture_guest_objects[slot];
+              if(const auto owner=g_original_texture_owners.Find(bound,ReadGuest,guest_base))
+                draw.original_vertex_texture_owners[slot]=*owner;
+            }
+        }
       } catch(const std::bad_alloc&) { /* No source policy means no verified VS texture draw. */ }
     }
     if(auto& pixel=draw.observed_live_pixel_shader_header;

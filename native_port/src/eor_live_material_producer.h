@@ -271,13 +271,53 @@ inline std::vector<VerifiedNativeMaterialImage> OriginalScalarImages(
     throw std::invalid_argument("Unsupported original scalar sampler stages");
   ScalarAnalysisCache local;
   auto& cache=cached?*cached:local;
-  if(!cache.Get(bank,vs,aot::Stage::Vertex).images.empty())
-    throw std::invalid_argument("Unsupported original scalar vertex sampler stage");
   const auto& sampling=*call.observed_live_pixel_shader_header->pixel_sampling;
   if(sampling.source!=ps || (sampling.sampled_slots&~source_mask))
     throw std::invalid_argument("Original scalar sampler program differs from live material");
   uint16_t used=0;
   std::vector<VerifiedNativeMaterialImage> out;
+  // GPURain samples its occlusion image in VS physical TFETCH 16
+  // (logical s0), independently of the fragment-stage s0.
+  const auto& vertex_images=cache.Get(bank,vs,aot::Stage::Vertex).images;
+  const auto* vertex_policy=call.observed_live_vertex_shader_header &&
+      call.observed_live_vertex_shader_header->vertex_sampling ?
+      &*call.observed_live_vertex_shader_header->vertex_sampling : nullptr;
+  uint8_t vertex_used=0;
+  for(const auto& image:vertex_images) {
+    const auto slot=aot::DecodeFixedAotImageSlot(image.exact_variable_name);
+    if(!slot || slot->slot>=4u || slot->dimension!=1u || image.spirv_dim!=1u ||
+       image.image_arrayed || image.image_multisampled || !vertex_policy || vertex_policy->source!=vs)
+      throw std::invalid_argument("Unverified original vertex scalar image");
+    const auto bit=static_cast<uint8_t>(1u<<slot->slot);
+    const auto& captured=*call.observed_shader_constants;
+    const auto guest=call.observed_vs_matrices->original_vertex_texture_guest_objects[slot->slot];
+    if(!guest || (vertex_used&bit) || !(vertex_policy->sampled_slots&bit) ||
+       !(captured.valid_vertex_fetch&bit) || (captured.vertex_fetch[slot->slot][0]&1023u)!=2u)
+      throw std::invalid_argument("Original vertex TFETCH slot not captured");
+    const auto& declarations=*samplers.Find(vs,aot::Stage::Vertex);
+    if(std::count_if(declarations.begin(),declarations.end(),[&](const auto& decl){
+         return decl.original_sampler_register==slot->slot;
+       })!=1)
+      throw std::invalid_argument("Original vertex CTAB slot missing");
+    const bool resolved=scene.original_graph.HasResolve(guest);
+    uint32_t hash=0;
+    if(!resolved) {
+      const auto& owner=call.original_vertex_texture_owners[slot->slot];
+      if(!owner.asset || !owner.wrapper || owner.xdk!=guest || !owner.hash)
+        throw std::invalid_argument("Original vertex image owner unavailable");
+      hash=owner.hash;
+      auto uploaded=residency.Acquire(hash,OriginalTextureColorSpace::Linear,OriginalTextureViewKind::Native2D);
+      if(!uploaded || uploaded->original_texture_hash!=hash || !uploaded->SRV())
+        throw std::invalid_argument("Original vertex image not resident");
+    }
+    VerifiedEorSampler binding{model,surface,call.observed_live_eor_effect_pass->effect_hash,
+      call.observed_live_eor_effect_pass->pass_index,hash,slot->slot,OriginalSamplerStage::Vertex,
+      image.exact_variable_name,true,true,true,resolved?guest:0u};
+    out.push_back({std::move(binding),OriginalTextureColorSpace::Linear,OriginalTextureViewKind::Native2D});
+    vertex_used|=bit;
+  }
+  if(vertex_used!=(vertex_policy?vertex_policy->sampled_slots:0u))
+    throw std::invalid_argument("Incomplete original vertex sampler mapping");
   for(const auto& image:cache.Get(bank,ps,aot::Stage::Pixel).images) {
     const auto slot=aot::DecodeFixedAotImageSlot(image.exact_variable_name);
     if(!slot || slot->slot>=16u || slot->dimension==2u || slot->dimension>3u || image.spirv_dim!=slot->dimension ||
@@ -456,7 +496,8 @@ inline ProducedWorldMaterial ProduceOriginalWorldMaterial(
       owner->original_resource_hash,*surface,method.original_pass_sampler_slot_mask,residency,format,&cache);
   for(const auto& image:out.material.original_images) {
     const auto slot=image.original_binding.original_fetch_register;
-    if(image.shader_reflected_view==OriginalTextureViewKind::NativeCube &&
+    if(image.original_binding.stage==OriginalSamplerStage::Pixel &&
+       image.shader_reflected_view==OriginalTextureViewKind::NativeCube &&
        (call.observed_shader_constants->pixel_fetch[slot][0]&1023u)==254u)
       pass.original_xbox_cube_gamma_mask|=uint16_t(1u<<slot);
   }
@@ -766,7 +807,8 @@ inline ProducedRuntimeMaterial ProduceOriginalRuntimeMaterial(
   for(auto& image:material.original_images) {
     image.original_binding.original_runtime_material=true;
     const auto slot=image.original_binding.original_fetch_register;
-    if(image.shader_reflected_view==OriginalTextureViewKind::NativeCube &&
+    if(image.original_binding.stage==OriginalSamplerStage::Pixel &&
+       image.shader_reflected_view==OriginalTextureViewKind::NativeCube &&
        (call.observed_shader_constants->pixel_fetch[slot][0]&1023u)==254u)
       pass.original_xbox_cube_gamma_mask|=uint16_t(1u<<slot);
   }

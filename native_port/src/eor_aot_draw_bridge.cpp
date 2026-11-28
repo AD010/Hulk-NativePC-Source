@@ -26,6 +26,17 @@ bool MatchesOriginalXdkDraw(
        recorded.original_ps_guest_object!=bound.original_ps_guest_object)
       return false;
   }
+  if(!ProvesOriginalVertexTextureBindings(source,host.original_samplers,&host.vertex_source_sha256))
+    return false;
+  if(host.original_vertex_sampling && host.original_vertex_sampling->sampled_slots) {
+    if(!source.observed_live_vertex_shader_header ||
+       !source.observed_live_vertex_shader_header->vertex_sampling ||
+       host.original_vertex_sampling->source!=source.observed_live_vertex_shader_header->vertex_sampling->source ||
+       host.original_vertex_sampling->sampled_slots!=source.observed_live_vertex_shader_header->vertex_sampling->sampled_slots ||
+       !source.observed_vs_matrices ||
+       source.observed_vs_matrices->original_vertex_texture_guest_objects!=draw.guest_vs_matrices->original_vertex_texture_guest_objects ||
+       source.observed_shader_constants!=draw.guest_shader_constants)return false;
+  }
   if(draw.original_vertex_only) {
     if(!source.observed_shader_constants || !draw.guest_shader_constants ||
        source.observed_shader_constants!=draw.guest_shader_constants ||

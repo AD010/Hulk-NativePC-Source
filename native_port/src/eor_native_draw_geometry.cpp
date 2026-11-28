@@ -492,6 +492,8 @@ std::vector<aot::BoundIndexedDraw> BindVerifiedGeometryDraws(
     item.effect_hash = src.original_effect_hash;
     item.pass_index = src.original_pass_index;
     item.original_samplers = src.original_sampler_slots;
+    if(src.original_live_vertex_shader_header)
+      item.original_vertex_sampling=src.original_live_vertex_shader_header->vertex_sampling;
     if(src.original_live_pixel_shader_header)
       item.original_pixel_sampling=src.original_live_pixel_shader_header->pixel_sampling;
     item.original_model_hash = src.original_model_hash;
@@ -560,7 +562,8 @@ OriginalXdkResourceIdentity ResourcesAtDraw(
           state.original_rt0_guest_object,
           state.original_depth_guest_object,
           state.original_texture_guest_objects,
-          state.original_vertex_buffer_guest_objects};
+          state.original_vertex_buffer_guest_objects,
+          state.original_vertex_texture_guest_objects};
 }
 namespace {
 bool SameOriginalResources(
@@ -593,6 +596,12 @@ bool SameOriginalResources(
     if(!expected.vertex_buffers[slot] ||
        expected.vertex_buffers[slot]!=observed.vertex_buffers[slot])
       return false;
+  }
+  for(const auto& sampler:native_draw.original_sampler_slots) {
+    if(sampler.stage!=gpu::OriginalSamplerStage::Vertex)continue;
+    if(!gpu::IsOriginalScalarVertexTexture(sampler))return false;
+    const auto slot=sampler.original_fetch_register;
+    if(!expected.vertex_textures[slot] || expected.vertex_textures[slot]!=observed.vertex_textures[slot])return false;
   }
   if(!native_draw.original_sampler_slots.empty() &&
      (!evidence.original_xdk_texture_slot_mapping_verified ||
@@ -802,6 +811,7 @@ std::vector<VerifiedXdkResourceWitness> AttachLiveEorShaderMethodParents(
 static bool MaterialPixelTexturesAgree(
     const xdk::RawDraw& call, const VerifiedXdkResourceWitness& witness,
     const VerifiedDrawSource& source,uint16_t& archive_mask) {
+  if(!aot::ProvesOriginalVertexTextureBindings(call,source.original_sampler_slots,&source.vertex_source_sha256))return false;
   const uint16_t mask=witness.source_verified_texture_slot_mask;
   // This XDK mask describes PIXEL SetTexture bindings only. A material
   // can also sample textures in its vertex shader: those source samplers

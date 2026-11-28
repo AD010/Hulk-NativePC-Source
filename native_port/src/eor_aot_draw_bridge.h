@@ -42,7 +42,39 @@ struct BoundIndexedDraw {
   std::optional<OriginalPixelSamplerControls> original_pixel_sampling{};
   bool original_direct_xdk_runtime=false;
   bool original_point_list=false;
+  std::optional<OriginalVertexSamplerControls> original_vertex_sampling{};
 };
+inline bool ProvesOriginalVertexTextureBindings(const xdk::RawDraw& source,
+    std::span<const gpu::VerifiedEorSampler> samplers,const Digest* expected=nullptr) noexcept {
+  const auto* policy=source.observed_live_vertex_shader_header &&
+      source.observed_live_vertex_shader_header->vertex_sampling ?
+      &*source.observed_live_vertex_shader_header->vertex_sampling : nullptr;
+  if(policy && expected && policy->source!=*expected)return false;
+  uint8_t seen=0;
+  for(const auto& image:samplers) {
+    if(image.stage!=gpu::OriginalSamplerStage::Vertex)continue;
+    if(!gpu::IsOriginalScalarVertexTexture(image) || !policy ||
+       !source.observed_vs_matrices || !source.observed_shader_constants ||
+       !image.original_material_ownership_verified || !image.original_shader_fetch_slot_verified ||
+       !image.original_texture_format_and_mips_verified ||
+       bool(image.original_texture_hash)==bool(image.original_resolved_guest_object))return false;
+    const auto slot=image.original_fetch_register;
+    const auto bit=static_cast<uint8_t>(1u<<slot);
+    const auto bound=source.observed_vs_matrices->original_vertex_texture_guest_objects[slot];
+    if(!bound || (seen&bit) || !(policy->sampled_slots&bit) ||
+       !(source.observed_shader_constants->valid_vertex_fetch&bit))return false;
+    if(image.original_resolved_guest_object) {
+      if(bound!=image.original_resolved_guest_object)return false;
+    } else {
+      const auto& owner=source.original_vertex_texture_owners[slot];
+      if(!owner.asset || !owner.wrapper || owner.xdk!=bound ||
+         owner.hash!=image.original_texture_hash)return false;
+    }
+    seen|=bit;
+  }
+  return seen==(policy?policy->sampled_slots:0u);
+}
+
 // A UI/post-process draw can bind original programs outside the engine's
 // observed material method. The exact device+Draw ordinal is then a
 // transient owner, not an archive hash. Admit only exact original
@@ -71,14 +103,16 @@ inline bool ProvesDirectXdkRuntimeBindings(const xdk::RawDraw& source,
        (!geometry->screen_quad && geometry->index!=live.original_index_buffer_guest_object))
       return false;
   }
+  if(!ProvesOriginalVertexTextureBindings(source,samplers))return false;
   const auto& controls=*source.observed_live_pixel_shader_header->pixel_sampling;
   uint16_t seen=0;
   for(const auto& image:samplers) {
-    if(image.stage!=gpu::OriginalSamplerStage::Pixel || image.original_fetch_register>=16u ||
-       !image.original_runtime_material || image.original_model_hash!=owner ||
+    if(!image.original_runtime_material || image.original_model_hash!=owner ||
        image.original_effect_hash!=source.observed_live_eor_effect_pass->effect_hash ||
        image.original_pass_index!=source.observed_live_eor_effect_pass->pass_index)
       return false;
+    if(image.stage==gpu::OriginalSamplerStage::Vertex)continue;
+    if(image.stage!=gpu::OriginalSamplerStage::Pixel || image.original_fetch_register>=16u)return false;
     const auto slot=image.original_fetch_register;
     const auto bound=live.original_texture_guest_objects[slot];
     if(!bound || bool(image.original_texture_hash)==bool(image.original_resolved_guest_object))return false;

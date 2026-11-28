@@ -58,7 +58,7 @@ void BindUsaFontMainAtlas(Diligent::IRenderDevice* device,
     throw std::invalid_argument("Original single-level font atlas unavailable");
   BindOriginalPixelImage2D(device,bindings,atlas,0,fetch,false);
 }
-void BindOriginalPixelImage2D(Diligent::IRenderDevice* device,
+static void BindOriginalScalarImage2D(OriginalSamplerStage stage,Diligent::IRenderDevice* device,
     Diligent::IShaderResourceBinding* bindings,const UploadedEorTexture& texture,
     uint32_t slot,const std::array<uint32_t,6>& fetch,bool force_point,bool xbox_gamma_lowered,
     int32_t world_anisotropy,Diligent::ITextureView* verified_pc_prompt) {
@@ -68,6 +68,9 @@ void BindOriginalPixelImage2D(Diligent::IRenderDevice* device,
       texture.view_kind!=OriginalTextureViewKind::Native1D &&
       texture.view_kind!=OriginalTextureViewKind::NativeCube))
     throw std::invalid_argument("Missing original scalar pixel shader image");
+  if(stage==OriginalSamplerStage::Vertex && (slot>=4u || texture.view_kind!=OriginalTextureViewKind::Native2D ||
+      force_point || xbox_gamma_lowered || world_anisotropy>=0 || verified_pc_prompt))
+    throw std::invalid_argument("Unsupported original vertex scalar sampler mode");
   const bool one_dimensional=texture.view_kind==OriginalTextureViewKind::Native1D;
   const bool cube=texture.view_kind==OriginalTextureViewKind::NativeCube;
   const auto& image=texture.host_texture->GetDesc();
@@ -143,8 +146,8 @@ void BindOriginalPixelImage2D(Diligent::IRenderDevice* device,
     desc.MinFilter=desc.MagFilter=desc.MipFilter=FILTER_TYPE_ANISOTROPIC;
   }
   const auto suffix=std::to_string(slot);
-  auto* resource=bindings->GetVariableByName(SHADER_TYPE_PIXEL,((cube?"HulkTextureCube_s":one_dimensional?"HulkTexture1D_s":"HulkTexture2D_s")+suffix).c_str());
-  auto* sampler=bindings->GetVariableByName(SHADER_TYPE_PIXEL,("HulkSampler_s"+suffix).c_str());
+  auto* resource=bindings->GetVariableByName(Stage(stage),((cube?"HulkTextureCube_s":one_dimensional?"HulkTexture1D_s":"HulkTexture2D_s")+suffix).c_str());
+  auto* sampler=bindings->GetVariableByName(Stage(stage),("HulkSampler_s"+suffix).c_str());
   if(!resource || !sampler)
     throw std::invalid_argument("Original pixel image or sampler descriptor missing");
   RefCntAutoPtr<ISampler> native;
@@ -162,12 +165,27 @@ void BindOriginalPixelImage2D(Diligent::IRenderDevice* device,
   sampler->Set(native);
 }
 
-void PrepareOriginalResolvedPixelSampler(Diligent::IRenderDevice* device,
+void BindOriginalPixelImage2D(Diligent::IRenderDevice* device,
+    Diligent::IShaderResourceBinding* bindings,const UploadedEorTexture& texture,
+    uint32_t slot,const std::array<uint32_t,6>& fetch,bool force_point,bool xbox_gamma_lowered,
+    int32_t world_anisotropy,Diligent::ITextureView* verified_pc_prompt) {
+  BindOriginalScalarImage2D(OriginalSamplerStage::Pixel,device,bindings,texture,slot,fetch,
+      force_point,xbox_gamma_lowered,world_anisotropy,verified_pc_prompt);
+}
+void BindOriginalVertexImage2D(Diligent::IRenderDevice* device,
+    Diligent::IShaderResourceBinding* bindings,const UploadedEorTexture& texture,
+    uint32_t slot,const std::array<uint32_t,6>& fetch) {
+  BindOriginalScalarImage2D(OriginalSamplerStage::Vertex,device,bindings,texture,slot,fetch,
+      false,false,-1,nullptr);
+}
+
+static void PrepareOriginalResolvedSampler(OriginalSamplerStage stage,Diligent::IRenderDevice* device,
     Diligent::IShaderResourceBinding* bindings,uint32_t slot,
     const std::array<uint32_t,6>& fetch,bool force_point,
     uint32_t width,uint32_t height,bool fp16) {
   using namespace Diligent;
   if(!device || !bindings || slot>=16 || !width || !height ||
+     (stage==OriginalSamplerStage::Vertex && (slot>=4u || force_point)) ||
      (fetch[0]&1023u)!=2u || (fetch[1]&(1u<<10)) ||
      (fetch[1]&63u)!=(fp16?29u:6u) ||
      (fetch[5]>>9&3u)!=1u || (fetch[2]>>26) ||
@@ -191,13 +209,24 @@ void PrepareOriginalResolvedPixelSampler(Diligent::IRenderDevice* device,
   desc.MipFilter=FILTER_TYPE_POINT;
   desc.MinLOD=desc.MaxLOD=0;
   const auto suffix=std::to_string(slot);
-  auto* image=bindings->GetVariableByName(SHADER_TYPE_PIXEL,("HulkTexture2D_s"+suffix).c_str());
-  auto* sampler=bindings->GetVariableByName(SHADER_TYPE_PIXEL,("HulkSampler_s"+suffix).c_str());
+  auto* image=bindings->GetVariableByName(Stage(stage),("HulkTexture2D_s"+suffix).c_str());
+  auto* sampler=bindings->GetVariableByName(Stage(stage),("HulkSampler_s"+suffix).c_str());
   if(!image || !sampler)throw std::invalid_argument("Missing native Resolve SRB variables");
   RefCntAutoPtr<ISampler> native;
   device->CreateSampler(desc,&native);
   if(!native)throw std::runtime_error("Original Resolve sampler allocation failed");
   sampler->Set(native);
+}
+void PrepareOriginalResolvedPixelSampler(Diligent::IRenderDevice* device,
+    Diligent::IShaderResourceBinding* bindings,uint32_t slot,
+    const std::array<uint32_t,6>& fetch,bool force_point,
+    uint32_t width,uint32_t height,bool fp16) {
+  PrepareOriginalResolvedSampler(OriginalSamplerStage::Pixel,device,bindings,slot,fetch,force_point,width,height,fp16);
+}
+void PrepareOriginalResolvedVertexSampler(Diligent::IRenderDevice* device,
+    Diligent::IShaderResourceBinding* bindings,uint32_t slot,
+    const std::array<uint32_t,6>& fetch,uint32_t width,uint32_t height,bool fp16) {
+  PrepareOriginalResolvedSampler(OriginalSamplerStage::Vertex,device,bindings,slot,fetch,false,width,height,fp16);
 }
 void BindVerifiedOriginalEorTextures(
     Diligent::IShaderResourceBinding* srb,

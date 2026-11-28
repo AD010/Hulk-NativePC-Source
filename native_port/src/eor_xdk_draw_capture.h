@@ -574,6 +574,7 @@ struct RawDraw {
   std::optional<UsaVertexDeclaration> vertex_declaration;
   std::optional<OriginalGeometryWrapperOwner> original_geometry_wrapper;
   OriginalPixelStageKind original_pixel_stage=OriginalPixelStageKind::Unknown;
+  std::array<OriginalTextureOwner,4> original_vertex_texture_owners{};
 };
 // This classification is not itself a GPU submission authorization.
 inline bool IsVerifiedVertexOnlyDepthDraw(const RawDraw& draw) noexcept {

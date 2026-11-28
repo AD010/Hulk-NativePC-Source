@@ -516,7 +516,7 @@ static void ValidateSourceOriginalMaterialPass(
                texture.required_view!=view ||
                (texture.identity.original_resolved_guest_object ?
                  (view!=OriginalTextureViewKind::Native2D ||
-                  stage!=aot::Stage::Pixel ||
+                  (stage==aot::Stage::Vertex && !IsOriginalScalarVertexTexture(texture.identity)) ||
                   !formats.original_graph.HasResolve(texture.identity.original_resolved_guest_object)) :
                  (!texture.uploaded || texture.uploaded->view_kind!=view)))
               throw std::invalid_argument("EoR original texture view disagrees with actual SPIR-V image type");
@@ -1407,6 +1407,8 @@ aot::BoundIndexedDraw DiligentEorDirectBackend::StageOriginalRuntimeDraw(
     result.original_point_list=cpu.point_list;
     result.original_direct_xdk_runtime=pass.original_direct_xdk_runtime;
     result.source_nonindexed_linearization_verified=bool(xdk::DecodeOriginalVerticesXdkCall(call));
+    if(call.observed_live_vertex_shader_header)
+      result.original_vertex_sampling=call.observed_live_vertex_shader_header->vertex_sampling;
     if(call.observed_live_pixel_shader_header)
       result.original_pixel_sampling=call.observed_live_pixel_shader_header->pixel_sampling;
     for(const auto& image:material.original_images)result.original_samplers.push_back(image.original_binding);
@@ -1768,9 +1770,32 @@ bool DiligentEorDirectBackend::PreflightOriginalScene(
       pipeline->CreateShaderResourceBinding(&binding,true);
       if(!binding)return false;
       uint16_t bound=0;
+      uint8_t bound_vertex=0;
       for(const auto& texture:textures) {
         const auto& id=texture.identity;
         const auto image=aot::DecodeFixedAotImageSlot(id.exact_shader_variable_name);
+        if(id.stage==OriginalSamplerStage::Vertex) {
+          if(!IsOriginalScalarVertexTexture(id) || !image || !item.original_vertex_sampling ||
+             item.original_vertex_sampling->source!=item.vertex_source_sha256)return false;
+          const auto slot=image->slot;
+          const auto bit=static_cast<uint8_t>(1u<<slot);
+          if((bound_vertex&bit) || !(captured.valid_vertex_fetch&bit) ||
+             !(item.original_vertex_sampling->sampled_slots&bit))return false;
+          if(id.original_resolved_guest_object) {
+            if(!s.format.original_graph.HasResolve(id.original_resolved_guest_object) ||
+               item.draw.guest_vs_matrices->original_vertex_texture_guest_objects[slot]!=id.original_resolved_guest_object)
+              return false;
+            const auto extent=s.format.original_graph.SourceExtent(id.original_resolved_guest_object,s.frame.original_guest);
+            PrepareOriginalResolvedVertexSampler(s.device,binding,slot,captured.vertex_fetch[slot],
+                extent.width,extent.height,
+                s.format.original_graph.ColorFormat(id.original_resolved_guest_object,s.format.color)==NativeColorFormat::Rgba16Float);
+          } else {
+            if(!texture.uploaded)return false;
+            BindOriginalVertexImage2D(s.device,binding,*texture.uploaded,slot,captured.vertex_fetch[slot]);
+          }
+          bound_vertex|=bit;
+          continue;
+        }
         if(id.stage!=OriginalSamplerStage::Pixel || !image || image->dimension==2 || image->dimension>3 ||
            image->slot!=id.original_fetch_register)return false;
         const auto bit=static_cast<uint16_t>(1u<<image->slot);
@@ -1799,7 +1824,8 @@ bool DiligentEorDirectBackend::PreflightOriginalScene(
         }
         bound|=bit;
       }
-      if(bound!=controls.sampled_slots)return false;
+      if(bound!=controls.sampled_slots ||
+         bound_vertex!=(item.original_vertex_sampling?item.original_vertex_sampling->sampled_slots:0u))return false;
     }
   } catch (...) {return false;}
   s.packed_constants=std::move(prepared_constants);
@@ -2087,7 +2113,9 @@ bool DiligentEorDirectBackend::DrawIndexed(const native::IndexedDraw& draw) {
       const auto guest=image.identity.original_resolved_guest_object;
       if(!guest)continue;
       auto* srv=s.scene.IntermediateColorSRV(guest);
-      auto* variable=resources->GetVariableByName(Diligent::SHADER_TYPE_PIXEL,
+      const auto stage=image.identity.stage==OriginalSamplerStage::Vertex ?
+          Diligent::SHADER_TYPE_VERTEX : Diligent::SHADER_TYPE_PIXEL;
+      auto* variable=resources->GetVariableByName(stage,
           image.identity.exact_shader_variable_name.c_str());
       if(!srv || !variable)return false;
       variable->Set(srv,Diligent::SET_SHADER_RESOURCE_FLAG_ALLOW_OVERWRITE);
