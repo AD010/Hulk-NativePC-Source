@@ -41,6 +41,40 @@ def verified_pack(path):
         return data
 
 
+def recover_private_pack(previous_release, output):
+    """Recover only pinned bank bytes from a previous private game ZIP."""
+    output = Path(output)
+    if output.exists():
+        raise ValueError('Refusing to overwrite existing private EoR pack')
+    with zipfile.ZipFile(previous_release) as z:
+        matches = {}
+        expected = {name.casefold(): name for name in BANKS}
+        for info in z.infolist():
+            name = expected.get(info.filename.casefold())
+            if name is None:
+                continue
+            if info.filename != name or name in matches or info.file_size != BANKS[name][0]:
+                raise ValueError('Unexpected or duplicate private bank: ' + info.filename)
+            matches[name] = info
+        if set(matches) != set(BANKS):
+            raise ValueError('Previous private release does not contain all six banks')
+        fd, temp_name = tempfile.mkstemp(prefix='hulk-recovered-', suffix='.zip', dir=output.parent)
+        os.close(fd)
+        tmp = Path(temp_name)
+        try:
+            with zipfile.ZipFile(tmp, 'w', compression=zipfile.ZIP_DEFLATED, compresslevel=6) as out:
+                for name, info in sorted(matches.items()):
+                    payload = z.read(info)
+                    if hashlib.sha256(payload).hexdigest() != BANKS[name][1]:
+                        raise ValueError('Previous release bank fingerprint mismatch: ' + name)
+                    out.writestr(name, payload)
+            verified_pack(tmp)
+            # Hard link is atomic and does not overwrite an existing pack.
+            os.link(tmp, output)
+        finally:
+            tmp.unlink(missing_ok=True)
+
+
 def append_private_pack(release, pack, source_sha=None, source_tree=None):
     if bool(source_sha) != bool(source_tree):
         raise ValueError('Source commit and tree must be recorded together')
@@ -90,9 +124,19 @@ def main():
     parser.add_argument('release', type=Path, nargs='?')
     parser.add_argument('pack', type=Path, nargs='?')
     parser.add_argument('--check-pack', type=Path)
+    parser.add_argument('--recover-from-release', type=Path)
+    parser.add_argument('--output-pack', type=Path)
     parser.add_argument('--source-sha')
     parser.add_argument('--source-tree')
     args = parser.parse_args()
+    if args.recover_from_release:
+        if not args.output_pack:
+            parser.error('--recover-from-release requires --output-pack')
+        recover_private_pack(args.recover_from_release, args.output_pack)
+        print('[HULK/PRIVATE-PACK] Recovered all six authenticated EoR banks')
+        return
+    if args.output_pack:
+        parser.error('--output-pack requires --recover-from-release')
     if args.check_pack:
         verified_pack(args.check_pack)
         print('[HULK/PRIVATE-PACK] All six required banks authenticated before compilation')
