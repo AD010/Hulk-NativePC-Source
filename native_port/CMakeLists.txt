@@ -231,6 +231,7 @@ if(HULK_NATIVE_CORE_ONLY)
         eor_fmod_doppler_test
         eor_fmod_acoustics_test
         eor_reverb_route_test
+        eor_fmod_reverb_room_test
         eor_live_dsp_stream_test
         eor_native_present_contract_test
         eor_exit_confirmation_test

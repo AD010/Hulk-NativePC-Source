@@ -722,6 +722,10 @@ void FinishOriginalFmodUpdate(std::optional<audio::FmodUpdateStamp> stamp,const 
     if(g_native_fmod_shadow_enabled&&g_native_fmod_catalog&&g_native_fmod_index&&!g_native_fmod_wave_arc.empty()){
       // At most one new decode/admission per diagnostic tick. The current
       // snapshot is not a sample-accurate FMOD event scheduler.
+      audio::NativeReverbRoomChoice wet_room;
+      for(const auto& event:*active)for(const auto& cue:event.cues)
+        if(cue.spatial&&cue.spatial->reverb_sends)wet_room.Consider(*cue.spatial->reverb_sends);
+      if(wet_room.room)(void)g_native_fmod_mixer->SetReverbRoom(*wet_room.room);
       g_native_fmod_shadow_voices.Reconcile(*active,
         [&](const audio::LiveFmodEvent& event,const audio::LiveFmodCue& cue)->uint64_t{
           const auto project=g_native_fmod_catalog->projects.find(event.project);

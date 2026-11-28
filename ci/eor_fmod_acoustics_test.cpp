@@ -15,7 +15,7 @@ int main(){
   w=EvaluateOriginalFmodZone(20,10,20,true);assert(w&&w->reflected==0&&w->linear==0);
   w=EvaluateOriginalFmodZone(19.999f,10,20,true);assert(w&&w->reflected>.001f&&w->linear>0);
   w=EvaluateOriginalFmodZone(21,10,20,true);assert(w&&w->reflected==0&&w->linear==0);
-  w=EvaluateOriginalFmodZone(21,10,20,false);assert(w&&w->reflected==1&&w->linear==0);
+  w=EvaluateOriginalFmodZone(21,10,20,false);assert(w&&w->reflected==1&&w->linear==1);
   assert(!EvaluateOriginalFmodZone(1,20,10,true));assert(OriginalFmodZoneSend(.5f,.5f)==.25f);
   std::map<uint32_t,std::byte> mem;
   auto put=[&](uint32_t a,uint32_t v){for(unsigned i=0;i<4;++i)mem[a+i]=std::byte(v>>(24-8*i));};

@@ -118,6 +118,7 @@ struct NativeXAudio2Mixer::State {
   IXAudio2* engine=nullptr;
   IXAudio2MasteringVoice* master=nullptr;
   IXAudio2SubmixVoice* reverb=nullptr;
+  std::optional<OriginalFmodReverbRoom> reverb_room;
   bool com_owned=false;
   X3DAUDIO_HANDLE spatial_handle{};
   bool spatial_ready=false;
@@ -141,6 +142,17 @@ struct NativeXAudio2Mixer::State {
     if(com_owned && GetCurrentThreadId()==owner_thread_id)
       CoUninitialize();
   }
+  bool ApplyReverbRoom(const OriginalFmodReverbRoom& room) noexcept {
+    if(!ValidOriginalFmodReverbRoom(room))return false;
+    if(!reverb){reverb_room=room;return true;}
+    XAUDIO2FX_REVERB_I3DL2_PARAMETERS preset{100.f,room.room,room.room_hf,room.rolloff,
+        room.decay,room.decay_hf,room.reflections,room.reflections_delay,room.reverb,
+        room.reverb_delay,room.diffusion,room.density,room.hf_reference};
+    XAUDIO2FX_REVERB_PARAMETERS params{};
+    ReverbConvertI3DL2ToNative(&preset,&params);
+    if(FAILED(reverb->SetEffectParameters(0,&params,sizeof(params))))return false;
+    reverb_room=room;return true;
+  }
   bool EnsureReverb() noexcept {
     if(reverb)return true;
     XAUDIO2_VOICE_DETAILS details{};master->GetVoiceDetails(&details);
@@ -153,12 +165,8 @@ struct NativeXAudio2Mixer::State {
     const auto hr=engine->CreateSubmixVoice(&reverb,1,details.InputSampleRate,0,0,nullptr,&chain);
     apo->Release();
     if(FAILED(hr)||!reverb){reverb=nullptr;return false;}
-    // Explicit generic environment, not recovered FMOD room parameters.
-    XAUDIO2FX_REVERB_I3DL2_PARAMETERS preset=XAUDIO2FX_I3DL2_PRESET_GENERIC;
-    preset.WetDryMix=100.f;
-    XAUDIO2FX_REVERB_PARAMETERS params{};
-    ReverbConvertI3DL2ToNative(&preset,&params);
-    if(FAILED(reverb->SetEffectParameters(0,&params,sizeof(params)))||
+    // Use the most recent validated room or the explicit generic fallback.
+    if(!ApplyReverbRoom(reverb_room.value_or(OriginalFmodReverbRoom{}))||
        FAILED(reverb->SetVolume(muted?0.f:1.f))){
       reverb->DestroyVoice();reverb=nullptr;return false;
     }
@@ -691,6 +699,12 @@ bool NativeXAudio2Mixer::SetVoiceSpatialState(VoiceId id,const SpatialVoiceState
     voice->spatial=old;return false;
   }
   return false;
+}
+bool NativeXAudio2Mixer::SetReverbRoom(const OriginalFmodReverbRoom& room) noexcept {
+  if(!Ready()||!ValidOriginalFmodReverbRoom(room))return false;
+  std::lock_guard lock(state_->mutex);
+  if(state_->reverb_room&&*state_->reverb_room==room)return true;
+  return state_->ApplyReverbRoom(room);
 }
 bool NativeXAudio2Mixer::SetVoiceReverbSend(VoiceId id,float gain) noexcept {
   if(!Ready()||!id||!ValidGain(gain))return false;

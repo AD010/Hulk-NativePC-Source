@@ -1,5 +1,6 @@
 #pragma once
 #include "eor_fmod_start_trace.h"
+#include "eor_fmod_reverb_room.h"
 #include "eor_spatial_audio.h"
 #include <bit>
 #include <algorithm>
@@ -26,10 +27,10 @@ inline std::optional<float> AdvanceOriginalFmodOcclusion(float current,float tar
   return current;
 }
 // USA 8278CE70: reflected gain is 10^(-3*t), secondary linear weight 1-t.
-// Outside the outer radius both are zero; the non-positional case is 1/0.
+// Outside the outer radius both are zero; the non-positional case is 1/1.
 struct OriginalFmodZoneWeight {float reflected=0.f,linear=0.f;};
 inline std::optional<OriginalFmodZoneWeight> EvaluateOriginalFmodZone(float distance,float minimum,float maximum,bool positional) noexcept {
-  if(!positional)return OriginalFmodZoneWeight{1.f,0.f};
+  if(!positional)return OriginalFmodZoneWeight{1.f,1.f};
   if(!std::isfinite(distance)||!std::isfinite(minimum)||!std::isfinite(maximum)||distance<0.f||minimum<0.f||maximum<minimum)return {};
   if(distance<=minimum)return OriginalFmodZoneWeight{1.f,1.f};
   if(distance>=maximum)return OriginalFmodZoneWeight{};
@@ -59,7 +60,8 @@ std::optional<OriginalFmodAcoustics> ReadOriginalFmodAcoustics(uint32_t channel,
 }
 // Original per-channel reverb send arrays (+152, indexed by channel+28).
 // These are routing weights, NOT the actual reverberated PCM or DSP parameters.
-struct OriginalFmodReverbSend {uint32_t owner=0;float gain=0.f;bool global=false;};
+struct OriginalFmodReverbSend {uint32_t owner=0;float gain=0.f;bool global=false;
+  std::optional<OriginalFmodReverbRoom> room={};};
 struct OriginalFmodReverbSends {std::array<OriginalFmodReverbSend,64> values{};size_t count=0;};
 template<class Read>
 std::optional<OriginalFmodReverbSends> ReadOriginalFmodReverbSends(uint32_t core,uint32_t channel,uint32_t handle,Read&& read) noexcept {
@@ -76,7 +78,7 @@ std::optional<OriginalFmodReverbSends> ReadOriginalFmodReverbSends(uint32_t core
     if(!array||!*array||out.count==out.values.size()||uint64_t(*array)+4ull*(*index)>UINT32_MAX-3u)return false;
     const auto gain=ReadFmodAcousticUnit(*array,4u*(*index),read);
     if(!gain)return false;
-    out.values[out.count++]={node,*gain,global};return true;
+    out.values[out.count++]={node,*gain,global,ReadOriginalFmodReverbRoom(node,read)};return true;
   };
   if(!append(core+36172u,true))return {};
   const uint32_t end=core+36364u;
