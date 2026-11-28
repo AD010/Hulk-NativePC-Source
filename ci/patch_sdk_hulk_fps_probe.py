@@ -42,7 +42,12 @@ FPS_PACER = '''  // HULK/GUEST-FPS-CAP: actual guest submission pacing. This doe
         next_submit = now;
       }
       if (next_submit > now) std::this_thread::sleep_until(next_submit);
-      next_submit = Clock::now() + interval;
+      // Keep the wall-clock phase when the OS wakes slightly late.
+      // A missed whole interval resets the deadline; never emit catch-up
+      // bursts after stalls, Alt-Tab, or a paused game thread.
+      const auto submitted = Clock::now();
+      next_submit += interval;
+      if (next_submit <= submitted) next_submit = submitted + interval;
       previous_limit = fps_limit;
     }
   }
@@ -54,8 +59,8 @@ PRELUDE = '''  // HULK_FRAME_PROBE_V1: wall-clock XDK swap count. The VdSwap exp
     static std::mutex probe_mutex;
     static Clock::time_point last = Clock::now();
     static uint32_t swaps = 0;
-    const auto now = Clock::now();
     std::lock_guard<std::mutex> lock(probe_mutex);
+    const auto now = Clock::now();
     ++swaps;
     const auto span = std::chrono::duration<double>(now - last).count();
     if (span >= 1.0) {
