@@ -76,8 +76,8 @@ class NativeXAudio2Mixer {
       uint32_t layer,uint32_t instance,uint32_t variant,float gain=1.f,VoiceId* started=nullptr,
       VoiceOptions options={});
   // Named-DSP route. Empty bindings select source FEV parameter ordinals
-  // and source-frame volume/pitch/pan scheduling. Explicit moving seeks
-  // require no pre-rendered DSP; 3D controls require actual spatial state.
+  // and source-frame volume/pitch/pan scheduling. Known finite seek/DSP
+  // trajectories are rendered in event order. 3D needs actual spatial state.
   // The caller still supplies parameter snapshots; this is not a guest hook.
   bool PlayEventVariantWithFevDsp(Bus bus,const hulk::eor::Index& index,
       const std::filesystem::path& project_archive,const std::filesystem::path& wave_archive,

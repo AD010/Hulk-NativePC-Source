@@ -3,6 +3,7 @@
 #endif
 #include "eor_native_audio_xaudio2.h"
 #include "eor_event_voice_group.h"
+#include "eor_fev_seek_pcm.h"
 #include "eor_fsb4_pcm.h"
 #include "eor_fsb3_ima.h"
 #include "eor_fmod_project.h"
@@ -381,7 +382,28 @@ bool NativeXAudio2Mixer::PlayEventVariantWithFevDsp(Bus bus,const hulk::eor::Ind
         sample->channels,sample->payload};
     const auto pcm=DecodeOriginalFsb3Sample(source);
     options.dsp_blocks=*blocks;
-    return pcm&&PlayPcm16(bus,*pcm,source.rate,source.channels,gain,started,options);
+    if(!pcm)return false;
+    // The predeclared offset trajectory and DSP must share event time.
+    // Bake only source selection, then run DSP on the continuous playback
+    // sequence, rather than jumping through previously filtered PCM.
+    if(schedule&&HasMovingFevOffset(*schedule)&&
+       std::any_of(blocks->begin(),blocks->end(),[](const auto& b){return b.chain.count!=0;})){
+      const auto rendered=RenderFevSeekPcm(*pcm,source.rate,source.channels,*schedule,kMaxNativePcmSamples);
+      if(!rendered)return false;
+      const size_t frames=rendered->size()/source.channels;
+      const auto voice_end=std::lower_bound(schedule->begin(),schedule->end(),frames,
+          [](const FevVoiceBlock& b,size_t f){return b.first_frame<f;});
+      schedule->erase(voice_end,schedule->end());
+      for(auto& b:*schedule)b.controls.offset_ms.reset();
+      const auto dsp_end=std::lower_bound(blocks->begin(),blocks->end(),frames,
+          [](const DspParameterBlock& b,size_t f){return b.first_frame<f;});
+      options.start_frame=0;
+      options.fev_voice_blocks=*schedule;
+      options.dsp_blocks=std::span<const DspParameterBlock>(*blocks).first(
+          static_cast<size_t>(dsp_end-blocks->begin()));
+      return PlayPcm16(bus,*rendered,source.rate,source.channels,gain,started,options);
+    }
+    return PlayPcm16(bus,*pcm,source.rate,source.channels,gain,started,options);
   } catch (...) {return false;}
 }
 std::optional<std::vector<VoiceId>> NativeXAudio2Mixer::PlayEventGroup(Bus bus,
