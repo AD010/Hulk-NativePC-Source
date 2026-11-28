@@ -12,7 +12,8 @@ int main(){
   assert(!AdvanceOriginalFmodOcclusion(-1.f,.2f,100));
   auto w=EvaluateOriginalFmodZone(5,10,20,true);assert(w&&w->reflected==1&&w->linear==1);
   w=EvaluateOriginalFmodZone(15,10,20,true);assert(w&&std::abs(w->reflected-.0316227766f)<1.e-7f&&w->linear==.5f);
-  w=EvaluateOriginalFmodZone(20,10,20,true);assert(w&&std::abs(w->reflected-.001f)<1.e-8f&&w->linear==0);
+  w=EvaluateOriginalFmodZone(20,10,20,true);assert(w&&w->reflected==0&&w->linear==0);
+  w=EvaluateOriginalFmodZone(19.999f,10,20,true);assert(w&&w->reflected>.001f&&w->linear>0);
   w=EvaluateOriginalFmodZone(21,10,20,true);assert(w&&w->reflected==0&&w->linear==0);
   w=EvaluateOriginalFmodZone(21,10,20,false);assert(w&&w->reflected==1&&w->linear==0);
   assert(!EvaluateOriginalFmodZone(1,20,10,true));assert(OriginalFmodZoneSend(.5f,.5f)==.25f);

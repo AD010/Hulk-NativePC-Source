@@ -32,7 +32,7 @@ inline std::optional<OriginalFmodZoneWeight> EvaluateOriginalFmodZone(float dist
   if(!positional)return OriginalFmodZoneWeight{1.f,0.f};
   if(!std::isfinite(distance)||!std::isfinite(minimum)||!std::isfinite(maximum)||distance<0.f||minimum<0.f||maximum<minimum)return {};
   if(distance<=minimum)return OriginalFmodZoneWeight{1.f,1.f};
-  if(distance>maximum)return OriginalFmodZoneWeight{};
+  if(distance>=maximum)return OriginalFmodZoneWeight{};
   const float width=maximum-minimum;
   if(width<=0.f)return OriginalFmodZoneWeight{1.f,1.f};
   const float t=(distance-minimum)/width;
