@@ -235,6 +235,19 @@ bool NativeXAudio2Mixer::PlayProjectWaveform(Bus bus,const hulk::eor::Index& ind
     return pcm && PlayPcm16(bus,*pcm,source.rate,source.channels,gain,started);
   } catch (...) {return false;}
 }
+bool NativeXAudio2Mixer::PlayEventVariant(Bus bus,const hulk::eor::Index& index,
+    const std::filesystem::path& project_archive,const std::filesystem::path& wave_archive,
+    uint32_t project_hash,std::string_view group,std::string_view event_name,
+    uint32_t layer,uint32_t instance,uint32_t variant,float gain,VoiceId* started) {
+  if(started)*started=0;
+  if(!Ready() || !ValidGain(gain))return false;
+  try {
+    const auto offset=fmod::ResolveEventWaveform(index,project_archive,project_hash,
+        group,event_name,layer,instance,variant);
+    return offset && PlayProjectWaveform(bus,index,project_archive,wave_archive,
+        project_hash,*offset,gain,started);
+  } catch (...) {return false;}
+}
 bool NativeXAudio2Mixer::StopVoice(VoiceId id) noexcept {
   if(!Ready()||!id)return false;
   std::lock_guard lock(state_->mutex);

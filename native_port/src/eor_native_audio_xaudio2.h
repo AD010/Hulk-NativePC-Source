@@ -8,6 +8,7 @@
 #include <filesystem>
 #include <memory>
 #include <span>
+#include <string_view>
 
 namespace hulk::eor {class Index;}
 namespace hulk::eor::audio {
@@ -56,6 +57,12 @@ class NativeXAudio2Mixer {
   bool PlayProjectWaveform(Bus bus,const hulk::eor::Index& index,
       const std::filesystem::path& project_archive,const std::filesystem::path& wave_archive,
       uint32_t project_hash,size_t fev_offset,float gain=1.f,VoiceId* started=nullptr);
+  // Play one explicitly selected original event-layer sound. The guest
+  // event scheduler is responsible for timing, variants and DSP semantics.
+  bool PlayEventVariant(Bus bus,const hulk::eor::Index& index,
+      const std::filesystem::path& project_archive,const std::filesystem::path& wave_archive,
+      uint32_t project_hash,std::string_view group,std::string_view event_name,
+      uint32_t layer,uint32_t instance,uint32_t variant,float gain=1.f,VoiceId* started=nullptr);
   bool StopVoice(VoiceId id) noexcept;
   bool PauseVoice(VoiceId id,bool pause) noexcept;
   bool SetVoiceGain(VoiceId id,float gain) noexcept;

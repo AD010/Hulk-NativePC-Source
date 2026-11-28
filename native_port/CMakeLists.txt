@@ -211,6 +211,7 @@ if(HULK_NATIVE_CORE_ONLY)
         eor_fsb3_codec_test
         eor_fev_waveform_test
         eor_fev_event_table_test
+        eor_fev_event_effect_test
         eor_native_present_contract_test
         eor_exit_confirmation_test
         eor_resource_generation_test

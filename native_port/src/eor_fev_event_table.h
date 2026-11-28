@@ -52,7 +52,7 @@ inline std::optional<FevEventTable> InspectFevEventTable(AudioBytes b,std::strin
           std::vector<uint16_t> refs;refs.reserve(sounds);
           for(uint32_t k=0;k<sounds;++k){refs.push_back(r.u16());r.skip(64);}
           event.layers.push_back(std::move(refs));
-          for(uint32_t k=0;k<effects;++k){r.skip(4);r.str();r.skip(12);r.skip(size_t(r.count(4096))*12+8);}
+          for(uint32_t k=0;k<effects;++k){r.skip(4);r.str();r.skip(8);r.skip(size_t(r.count(4096))*12+8);}
         }
         const auto parameters=r.count(1024);event.has_parameters=parameters!=0;
         for(uint32_t k=0;k<parameters;++k){r.str();r.skip(24);r.skip(size_t(r.count(4096))*4);}
