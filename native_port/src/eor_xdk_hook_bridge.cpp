@@ -4546,8 +4546,34 @@ native_x_renderer::HulkEorPresentResult TryWorkerEorFrame(
           [](const RawDraw& draw) {
             return HasRequiredReplaySnapshot(draw);
           }) ||
-      !ValidateOriginalCommandTimeline(*source_snapshot)))
+      !ValidateOriginalCommandTimeline(*source_snapshot))) {
+    // On the next real test report the actual first blocking Draw,
+    // separately from missing command chronology. Never relax admission.
+    if(source_sequence<=5 || source_sequence%120u==0u) {
+      const auto& calls=source_snapshot->calls;
+      const auto missing=std::find_if(calls.begin(),calls.end(),
+          [](const RawDraw& draw){return !HasRequiredReplaySnapshot(draw);});
+      if(missing!=calls.end()) {
+        REXLOG_WARN("[HULK/EOR-PRESENT-GATE] frame={} first_draw={} kind={} "
+                    "function=0x{:08X} LR=0x{:08X} program={} registers={} "
+                    "vertex_bindings={} declaration={} index_binding={} "
+                    "index_payload={} font_payload={}",
+                    source_sequence,static_cast<size_t>(missing-calls.begin()),
+                    static_cast<unsigned>(missing->kind),missing->function,missing->lr,
+                    HasOriginalDrawProgram(*missing),HasRequiredReplayRegisters(*missing),
+                    missing->captured_vertex_bindings,bool(missing->vertex_declaration),
+                    bool(missing->index_binding),bool(missing->source_ib),
+                    bool(missing->inline_glyphs));
+      } else {
+        REXLOG_WARN("[HULK/EOR-PRESENT-GATE] frame={} draws={} commands={} "
+                    "dropped_draws={} dropped_commands={} timeline={}",
+                    source_sequence,calls.size(),source_snapshot->commands.size(),
+                    source_snapshot->dropped,source_snapshot->dropped_commands,
+                    ValidateOriginalCommandTimeline(*source_snapshot));
+      }
+    }
     return Result::kNotReady;
+  }
   // A valid captured Draw alone is not a complete GPU catalogue.
   // Without a registered source-authenticated material/mesh factory or an
   // already-installed owner, the worker cannot possibly reach Vulkan Present.
