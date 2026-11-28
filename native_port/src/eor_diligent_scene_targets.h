@@ -191,6 +191,32 @@ ResolveOriginalXdkSurfaceFormats(
 // per-Draw device state. No PM4 packet, EDRAM tile or guessed resource hash.
 // Different extents/formats, depth resolves and partial resolves still
 // require independent source descriptor evidence.
+// Both shader stages read the same native target graph. An intermediate
+// image is readable only after its original Resolve in this frame.
+template<size_t N>
+inline bool OriginalSampledTargetsReady(uint32_t mask,uint32_t valid,
+    const std::array<uint32_t,N>& objects,
+    const std::array<std::array<uint32_t,6>,N>& fetches,
+    const std::set<uint32_t>& colors,const std::set<uint32_t>& depths,
+    const std::set<uint32_t>& declared_resolves,const std::set<uint32_t>& completed_resolves,
+    const std::map<uint32_t,xdk::OriginalSurfaceExtent>& extents) {
+  static_assert(N>0 && N<32);
+  if(mask&~((uint32_t{1}<<N)-1u))return false;
+  for(size_t slot=0;slot<N;++slot) {
+    if(!(mask&(1u<<slot)))continue;
+    const auto texture=objects[slot];
+    if(!texture || colors.contains(texture) || depths.contains(texture))return false;
+    if(!declared_resolves.contains(texture))continue;
+    if(!completed_resolves.contains(texture) || !(valid&(1u<<slot)))return false;
+    const auto extent=extents.find(texture);
+    if(extent==extents.end())return false;
+    const auto& fetch=fetches[slot];
+    if((fetch[5]>>9&3u)!=1u || (fetch[2]>>26) ||
+       (fetch[2]&8191u)+1u!=extent->second.width ||
+       ((fetch[2]>>13)&8191u)+1u!=extent->second.height)return false;
+  }
+  return true;
+}
 inline std::optional<OriginalSourceTargetFormat> PlanOriginalNativeTargets(
     const xdk::Frame& source,uint32_t width,uint32_t height) {
   if(!width || !height || !xdk::ValidateOriginalCommandTimeline(source))return {};
@@ -305,25 +331,21 @@ inline std::optional<OriginalSourceTargetFormat> PlanOriginalNativeTargets(
          ((*control&1u) && !initialized_stencil.contains(*active_depth)))return {};
       // Read-after-write is tied to the exact sampled XDK object. A stale
       // SRV from an earlier source frame may not authorize this Draw.
+      const auto& registers=*draw.observed_shader_constants;
       if(draw.observed_live_pixel_shader_header &&
-         draw.observed_live_pixel_shader_header->pixel_sampling) {
-        const auto mask=draw.observed_live_pixel_shader_header->pixel_sampling->sampled_slots;
-        for(uint32_t slot=0;slot<16;++slot) {
-          if(!(mask&(1u<<slot)))continue;
-          const auto texture=gpu.original_texture_guest_objects[slot];
-          if(declared_resolves.contains(texture)) {
-            if(!completed_resolves.contains(texture) ||
-               !draw.observed_shader_constants ||
-               !(draw.observed_shader_constants->valid_pixel_fetch&(1u<<slot)))return {};
-            const auto& fetch=draw.observed_shader_constants->pixel_fetch[slot];
-            const auto extent=graph.extents.at(texture);
-            if((fetch[5]>>9&3u)!=1u || (fetch[2]>>26) ||
-               (fetch[2]&8191u)+1u!=extent.width || ((fetch[2]>>13)&8191u)+1u!=extent.height)
-              return {};
-          }
-          if(colors.contains(texture) || depths.contains(texture))return {};
-        }
-      }
+         draw.observed_live_pixel_shader_header->pixel_sampling &&
+         !OriginalSampledTargetsReady(
+             draw.observed_live_pixel_shader_header->pixel_sampling->sampled_slots,
+             registers.valid_pixel_fetch,gpu.original_texture_guest_objects,
+             registers.pixel_fetch,colors,depths,declared_resolves,completed_resolves,graph.extents))
+        return {};
+      if(draw.observed_live_vertex_shader_header &&
+         draw.observed_live_vertex_shader_header->vertex_sampling &&
+         !OriginalSampledTargetsReady(
+             draw.observed_live_vertex_shader_header->vertex_sampling->sampled_slots,
+             registers.valid_vertex_fetch,gpu.original_vertex_texture_guest_objects,
+             registers.vertex_fetch,colors,depths,declared_resolves,completed_resolves,graph.extents))
+        return {};
       continue;
     }
     switch(cmd.kind) {
