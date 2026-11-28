@@ -102,6 +102,14 @@ std::optional<UsaVertexStreamBinding> ReadUsaVertexStreamBinding(
   return UsaVertexStreamBinding{object,address,bytes,offset,length,
                                 uint32_t(std::to_integer<uint8_t>(stride))*4u};
 }
+void OriginalGuestBufferSnapshots::ReclaimExpiredVersions() noexcept {
+  auto end=std::remove_if(retired_.begin(),retired_.end(),[this](const auto& entry){
+    if(!entry.first.expired())return false;
+    retained_bytes_-=entry.second;
+    return true;
+  });
+  retired_.erase(end,retired_.end());
+}
 std::shared_ptr<const OriginalGuestBufferBytes>
 OriginalGuestBufferSnapshots::Capture(
     uint32_t object,uint32_t address,uint32_t bytes,
@@ -114,7 +122,10 @@ OriginalGuestBufferSnapshots::Capture(
   // A brand new allocation cannot reuse any retained version. Do not
   // allocate scratch or read megabytes from guest memory when there
   // is no budget left to retain this new allocation.
-  if(prior==latest_.end() && bytes>budget_-retained_bytes_)return {};
+  if(prior==latest_.end() && bytes>budget_-retained_bytes_) {
+    ReclaimExpiredVersions();
+    if(bytes>budget_-retained_bytes_)return {};
+  }
   scratch_.resize(bytes);
   // Failed/partial reads cannot fall back to an older cached revision.
   if(!reader(reader_state,address,scratch_.data(),bytes))return {};
@@ -133,22 +144,31 @@ OriginalGuestBufferSnapshots::Capture(
   const size_t recyclable =
       prior!=latest_.end() && prior->second.use_count()==1
           ? prior->second->bytes.size() : 0u;
-  if(recyclable>retained_bytes_ ||
-     bytes>budget_-(retained_bytes_-recyclable))
-    return {};
+  if(recyclable>retained_bytes_)return {};
+  if(bytes>budget_-(retained_bytes_-recyclable)) {
+    ReclaimExpiredVersions();
+    if(bytes>budget_-(retained_bytes_-recyclable))return {};
+  }
   // Complete the new snapshot before replacing a cached version. Allocation
   // failure must preserve the previous valid revision and budget unchanged.
   auto next=std::make_shared<OriginalGuestBufferBytes>();
   next->guest_object=object;
   next->guest_address=address;
   next->guest_size=bytes;
-  next->bytes=scratch_;
-  latest_.insert_or_assign(key,next);
+  // Transfer the completed byte-exact read rather than copy the entire
+  // original allocation a second time. Repeated unchanged reads still
+  // reuse scratch; a failed read never publishes or mutates a revision.
+  next->bytes.swap(scratch_);
+  if(prior!=latest_.end()) {
+    if(!recyclable)retired_.emplace_back(prior->second,prior->second->bytes.size());
+    prior->second=next;
+  } else latest_.emplace(key,next);
   retained_bytes_=retained_bytes_-recyclable+bytes;
   return next;
 }
 void OriginalGuestBufferSnapshots::Reset() noexcept {
   latest_.clear();
+  retired_.clear();
   retained_bytes_=0;
   scratch_.clear();
 }

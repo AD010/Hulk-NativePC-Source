@@ -176,11 +176,19 @@ class OriginalGuestBufferSnapshots {
       uint32_t object,uint32_t address,uint32_t bytes,
       ReadGuestBytes reader,void* reader_state);
   void Reset() noexcept;
-  size_t RetainedBytes() const noexcept {return retained_bytes_;}
+  size_t RetainedBytes() const noexcept {
+    size_t live=retained_bytes_;
+    for(const auto& [owner,bytes]:retired_)if(owner.expired())live-=bytes;
+    return live;
+  }
  private:
+  void ReclaimExpiredVersions() noexcept;
   size_t budget_=0,retained_bytes_=0;
   std::map<std::tuple<uint32_t,uint32_t,uint32_t>,
            std::shared_ptr<const OriginalGuestBufferBytes>> latest_;
+  // Old revisions may outlive their cache entry via an immutable Draw.
+  // Weak ownership lets us recover their budget once the last Draw releases.
+  std::vector<std::pair<std::weak_ptr<const OriginalGuestBufferBytes>,size_t>> retired_;
   std::vector<std::byte> scratch_;
 };
 // Original USA shader/geometry class virtual method slot +16, identified

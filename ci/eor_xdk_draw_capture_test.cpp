@@ -145,6 +145,26 @@ void CheckBufferSnapshots() {
   }
   streaming.Reset();
   assert(streaming.RetainedBytes()==0);
+  // Old versions initially retained by a Draw can become unowned before
+  // Present. Reclaim only those expired revisions; keep live bytes immutable.
+  OriginalGuestBufferSnapshots lifetime(2*bytes);
+  for(uint32_t i=0;i<4096u;++i) {
+    W(guest,address,i);
+    auto a=lifetime.Capture(object,address,bytes,ReadFake,&guest);
+    W(guest,address,i+1u);
+    auto b=lifetime.Capture(object,address,bytes,ReadFake,&guest);
+    assert(a && b && a!=b && lifetime.RetainedBytes()==2*bytes);
+    W(guest,address,i+2u);
+    assert(!lifetime.Capture(object,address,bytes,ReadFake,&guest));
+    a.reset();
+    assert(lifetime.RetainedBytes()==bytes);
+    auto c=lifetime.Capture(object,address,bytes,ReadFake,&guest);
+    assert(c && c!=b && lifetime.RetainedBytes()==2*bytes);
+    b.reset();
+    assert(lifetime.RetainedBytes()==bytes);
+    lifetime.Reset();
+    assert(lifetime.RetainedBytes()==0 && c->bytes.size()==bytes);
+  }
 }
 }
 int main() {
