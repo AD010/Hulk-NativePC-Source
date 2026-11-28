@@ -61,6 +61,7 @@ bool Allowed(std::string_view key, std::string_view value) {
   if (IsHostAudioOption(key)) return IsHostAudioValue(key,value);
   if (key == "vsync" || key == "fullscreen" ||
       key == "hulk_original_havok_catchup" ||
+      key == "hulk_native_pc_saves" ||
       key == "hulk_eor_vulkan_replay" ||
       key == "hulk_eor_xdk_capture" ||
       key == "hulk_eor_xdk_source_mesh_capture" ||
