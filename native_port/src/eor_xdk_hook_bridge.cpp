@@ -3671,9 +3671,13 @@ class ExclusiveEorSession : public std::enable_shared_from_this<ExclusiveEorSess
   AutomaticArchivePaths archives;
   std::filesystem::path root,candidate;
   std::function<bool(std::function<void()>)> post;
-  bool queued=false; // guarded by g_mutex
+  bool queued=false,draining=false,pending=false; // guarded by g_mutex
 
   void NotifyLocked() noexcept {
+    // Coalesce source frames arriving during GPU execution. A window
+    // callback nested by the driver must never run a second Present on
+    // the same exclusive context or mutate its live target owner.
+    if(draining){pending=true;return;}
     if(queued)return;
     try {
       queued=true;
@@ -3692,11 +3696,26 @@ class ExclusiveEorSession : public std::enable_shared_from_this<ExclusiveEorSess
       }
     } catch (...) {}
   }
+  void FinishDrain() noexcept {
+    try {
+      std::lock_guard lock(g_mutex);
+      draining=false;
+      if(std::exchange(pending,false))NotifyLocked();
+    } catch (...) {}
+  }
   void Drain() noexcept {
+    struct Guard {
+      ExclusiveEorSession& self;
+      bool active=false;
+      ~Guard() noexcept {if(active)self.FinishDrain();}
+    } guard{*this};
     std::shared_ptr<const Frame> frame;
-    {
+    try {
       std::lock_guard lock(g_mutex);
       queued=false;
+      if(draining){pending=true;return;}
+      draining=true;
+      guard.active=true;
       const auto latest=g_frames_for_native.Peek();
       if(!latest)return;
       if(latest->dropped || latest->dropped_commands) {
@@ -3705,7 +3724,7 @@ class ExclusiveEorSession : public std::enable_shared_from_this<ExclusiveEorSess
       }
       frame=g_frames_for_native.ClaimLatestIndependentIfSequence(latest->sequence);
       if(!frame)ReportRejected(latest->sequence,"source frame not independently claimable");
-    }
+    } catch (...) {return;}
     if(!frame)return;
     bool staged=false;
     try {
