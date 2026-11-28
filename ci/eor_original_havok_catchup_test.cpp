@@ -61,6 +61,35 @@ int main(){
     }
     check(debt==0);
   }
+  // Exercise the actual accumulator carry across successive frames,
+  // rather than resetting its residual to zero on every presentation.
+  for(unsigned fps:{60u,90u,120u,144u,165u,240u}) {
+    uint32_t debt=0,requested=0,dispatched=0;
+    float residual=0;
+    for(unsigned frame=0;frame<1200;++frame) {
+      const float elapsed=frame%60==0?kOriginalStep*12.25f:1.f/float(fps);
+      const auto whole=uint32_t(std::floor(elapsed/kOriginalStep));
+      const auto base=std::min(whole,3u);
+      const auto plan=PlanOriginalCatchup(elapsed,kOriginalStep,residual,debt);
+      check(bool(plan));
+      const auto baseline=OriginalFractionalCarries(residual,elapsed,kOriginalStep,whole);
+      check(bool(baseline));
+      residual=plan->accumulator+std::max(0.f,std::fma(-kOriginalStep,float(whole),elapsed));
+      uint32_t carry=0;
+      while(residual>=kOriginalStep){
+        residual=std::max(0.f,residual-kOriginalStep);++carry;
+        check(carry<=kCatchupMaxTotalSteps);
+      }
+      check(carry==*baseline+plan->extra);
+      check(base+carry<=kCatchupMaxTotalSteps);
+      requested+=whole+*baseline;
+      dispatched+=base+carry;
+      debt=plan->debt;
+      check(dispatched+debt==requested);
+      check(residual>=0.f&&residual<kOriginalStep);
+    }
+    check(debt==0);
+  }
   check(!PlanOriginalCatchup(0,kOriginalStep,0,1));
   check(!PlanOriginalCatchup(1,kOriginalStep,0,0));
   check(!PlanOriginalCatchup(0.1f,1.0f/30,0,0));
