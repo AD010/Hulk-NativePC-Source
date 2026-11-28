@@ -1,5 +1,7 @@
 #include "../native_port/src/native_pc_save_format.h"
 #include "../native_port/src/native_pc_save_known_tables.h"
+#include "../native_port/src/native_pc_progress_store.h"
+#include <cstdlib>
 #include <cassert>
 #include <stdexcept>
 #include <vector>
@@ -20,6 +22,14 @@ uint32_t Crc(const std::vector<std::byte>& b) {
 }
 }
 int main(int argc,char** argv) {
+  // Test rejection even when CI has no private saves.
+  for(size_t n:{0u,8u,24u,4096u}) {
+    std::vector<std::byte> invalid(n);
+    bool rejected=false;
+    try{(void)DecodeNativeProgress(invalid);}
+    catch(const std::invalid_argument&){rejected=true;}
+    if(!rejected)std::abort();
+  }
   // Optional private owner samples, never required or published by CI.
   if(argc==3) {
     for(int i=1;i<=2;++i) {
@@ -27,6 +37,22 @@ int main(int argc,char** argv) {
       const auto result=Read(argv[i],kind);
       assert(result.verified_table_count==5&&result.verified_field_count==853);
       assert(!result.pc_payload_conversion_ready);
+      std::ifstream input(argv[i],std::ios::binary|std::ios::ate);
+      if(!input)std::abort();
+      const auto length=input.tellg();
+      if(length<=0||static_cast<uint64_t>(length)>known_detail::maximum)std::abort();
+      std::vector<std::byte> source(static_cast<size_t>(length));
+      input.seekg(0);
+      if(!input.read(reinterpret_cast<char*>(source.data()),static_cast<std::streamsize>(length)))std::abort();
+      const auto native=EncodeNativeProgress(DecodeKnownTables(source,kind));
+      if(EncodeKnownTables(DecodeNativeProgress(native))!=source)std::abort();
+      for(size_t j=0;j<native.size();j+=97){
+        auto bad=native;bad[j]^=std::byte{1};
+        bool rejected=false;
+        try{(void)DecodeNativeProgress(bad);}
+        catch(const std::invalid_argument&){rejected=true;}
+        if(!rejected)std::abort();
+      }
     }
   } else assert(argc==1);
   for(bool big:{false,true}) {
