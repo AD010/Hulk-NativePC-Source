@@ -128,6 +128,15 @@ class IncredibleHulkApp : public rex::ReXApp {
   void OnPostSetup() override {
     hulk::InstallCrashReport();
     hulk::InstallAutomaticGpuDiagnostics();
+#if defined(_WIN32) && defined(HULK_NATIVE_X_LINKED)
+    // Opt-in until real event ownership and original-output suppression
+    // are proven. No change to default audio or existing builds.
+    if(const char* opt=std::getenv("HULK_EXPERIMENTAL_NATIVE_FMOD");
+       opt&&opt[0]=='1'&&opt[1]=='\0'){
+      native_fmod_service_=hulk::eor::xdk::StartNativeFmodUpdateService();
+      REXLOG_INFO("[HULK/FMOD-NATIVE] experimental mixer ready={}",native_fmod_service_);
+    }
+#endif
     // Read-only verification of a real 2008 PC save file, if it exists.
     // Never overwrite it or reinterpret PC pointer-valued fields as Xbox.
     // This is not a guest save-load hook or PC-format conversion.
@@ -396,6 +405,9 @@ class IncredibleHulkApp : public rex::ReXApp {
     REXLOG_INFO("[HULK/PCMENU] PC settings registered on F10");
   }
   void OnShutdown() override {
+#if defined(_WIN32) && defined(HULK_NATIVE_X_LINKED)
+    if(native_fmod_service_){hulk::eor::xdk::StopNativeFmodUpdateService();native_fmod_service_=false;}
+#endif
     // Stop new worker callbacks and discard frame ownership before the
     // original offline AOT sources are released; GPU fences remain owned by
     // the active renderer, not by the guest PPC mailbox.
@@ -425,6 +437,7 @@ class IncredibleHulkApp : public rex::ReXApp {
  private:
 #if defined(_WIN32) && defined(HULK_NATIVE_X_LINKED)
   bool exclusive_start_failed_=false;
+  bool native_fmod_service_=false;
 #endif
   std::shared_ptr<hulk::eor::aot::ShaderBank> eor_aot_;
   std::shared_ptr<hulk::eor::aot::EffectCatalog> eor_effects_;

@@ -174,3 +174,5 @@
 # Original EoR indexed/nonindexed mesh submission from 82642A88
 82667648
 826676C0
+# Original FMOD EventSystem update, vtable 82089600 slot +8; call-through.
+82841DB0

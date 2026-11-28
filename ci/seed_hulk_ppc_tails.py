@@ -36,6 +36,8 @@ PINNED_SOURCE_HOOKS = frozenset((
     0x82738B58,
     # Real mesh submission after original per-item virtual preparation.
     0x82667648, 0x826676C0,
+    # Original FMOD EventSystem::update, pinned USA code and vtable.
+    0x82841DB0,
     # Both original settings dispatchers and five widget/property call targets.
     0x825BAAC8, 0x825BAC08, 0x825B8270, 0x825B9528, 0x825B9D98, 0x8271D340, 0x8271AA60,
 ))

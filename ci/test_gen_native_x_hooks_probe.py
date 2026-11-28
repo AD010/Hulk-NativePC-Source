@@ -183,13 +183,18 @@ from unittest.mock import patch
 import hashlib
 expected_hooks = {0x82338A00,0x82338A18,0x82885FF8,0x82886428,
                   0x82339C18,0x82339C90,0x82338AE8,0x82338B20,0x82738B58,
-                  0x825BAAC8,0x825BAC08,0x82667648,0x826676C0}
+                  0x825BAAC8,0x825BAC08,0x82667648,0x826676C0,0x82841DB0}
 # Direct original widget routines must have codegen bodies but must not
 # become XDK hooks. Seed them automatically from the menu dispatcher.
 menu_calls = {0x825B8270,0x825B9528,0x825B9D98,0x8271D340,0x8271AA60}
 expected = expected_hooks | menu_calls
 assert PINNED_SOURCE_HOOKS == expected
 assert {int(x,16) for x in compiled if x} - {int(x,16) for x in registered} <= expected_hooks
+assert "HULK_EOR_FMOD_UPDATE_HOOK(82841DB0)" in cpp
+assert "HULK_NATIVE_X_HOOK(82841DB0," not in cpp
+fmod = cpp[cpp.index("#define HULK_EOR_FMOD_UPDATE_HOOK"):cpp.index("#define HULK_EOR_AUDIO_MENU_HOOK")]
+assert fmod.index("CaptureOriginalFmodUpdate") < fmod.index("__imp__sub_##addr(ctx,base)") < fmod.index("FinishOriginalFmodUpdate")
+assert "native_x_renderer::detail::Enter" not in fmod
 assert "HULK_EOR_PC_MENU_HOOK(825BAAC8)" in cpp
 assert "HULK_NATIVE_X_HOOK(825BAAC8," not in cpp
 assert "HULK_EOR_PC_MENU_HOOK(825BAC08)" in cpp

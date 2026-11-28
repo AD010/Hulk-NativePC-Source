@@ -3,6 +3,7 @@
 #include "eor_original_pause_vm.h"
 #include "eor_original_camera_speed.h"
 #include "eor_original_audio_menu.h"
+#include "eor_fmod_update_clock.h"
 #include "eor_usa_material_textures.h"
 #include "eor_native_draw_geometry.h"
 #include "eor_native_font_geometry.h"
@@ -16,6 +17,12 @@
 namespace hulk::eor::gpu {class DiligentEorDirectBackend;class EorWin32VulkanHost;}
 namespace hulk::eor::world {class NativeWorldStream;class OriginalMaterialCandidateIndex;}
 namespace hulk::eor::xdk {
+// Experimental host mixer lifecycle, only when explicitly enabled.
+// Call-through original FMOD remains authoritative until event ownership is proven.
+bool StartNativeFmodUpdateService() noexcept;
+void StopNativeFmodUpdateService() noexcept;
+std::optional<audio::FmodUpdateStamp> CaptureOriginalFmodUpdate(const PPCContext& ctx,uint8_t* base) noexcept;
+void FinishOriginalFmodUpdate(std::optional<audio::FmodUpdateStamp> stamp,const PPCContext& ctx,uint8_t* base) noexcept;
 void DispatchOriginalPcMenu(PPCContext& ctx,uint8_t* base,PPCFunc* original,bool direct_method);
 // Verified USA EoR script-VM global state_r (original guest 0x8264C798).
 // Its r3 argument is the authentic original VM call context; the

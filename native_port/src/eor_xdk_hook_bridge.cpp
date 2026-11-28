@@ -15,6 +15,7 @@
 #include "eor_diligent_aot_backend.h"
 #ifdef _WIN32
 #include "eor_native_frame_executor.h"
+#include "eor_native_audio_xaudio2.h"
 #endif
 #include "eor_diligent_host_output.h"
 #include "eor_live_material_producer.h"
@@ -96,6 +97,13 @@ namespace {
 std::mutex g_mutex;
 std::mutex g_subtitle_mutex;
 std::mutex g_original_audio_menu_mutex;
+#ifdef _WIN32
+std::mutex g_native_fmod_mutex;
+std::unique_ptr<audio::NativeXAudio2Mixer> g_native_fmod_mixer;
+std::atomic<bool> g_native_fmod_enabled{false};
+uint8_t* g_native_fmod_base=nullptr;
+uint32_t g_native_fmod_owner=0;
+#endif
 std::atomic<uint64_t> g_eor_ready_backbuffers{0};
 std::atomic<uint64_t> g_eor_gpu_failures{0};
 OriginalEorSourceCoverage g_original_source_coverage; // guarded by g_mutex
@@ -486,6 +494,59 @@ void FinishOriginalCameraMenuOption(
   } catch (...) {}
 }
 
+bool StartNativeFmodUpdateService() noexcept {
+#ifdef _WIN32
+  try {
+    std::lock_guard lock(g_native_fmod_mutex);
+    if(g_native_fmod_mixer)return true;
+    auto mixer=std::make_unique<audio::NativeXAudio2Mixer>();
+    if(!mixer->Ready())return false;
+    g_native_fmod_mixer=std::move(mixer);
+    g_native_fmod_enabled.store(true,std::memory_order_release);
+    return true;
+  } catch (...) {}
+#endif
+  return false;
+}
+void StopNativeFmodUpdateService() noexcept {
+#ifdef _WIN32
+  g_native_fmod_enabled.store(false,std::memory_order_release);
+  std::lock_guard lock(g_native_fmod_mutex);
+  g_native_fmod_mixer.reset();
+  g_native_fmod_base=nullptr;g_native_fmod_owner=0;
+#endif
+}
+std::optional<audio::FmodUpdateStamp> CaptureOriginalFmodUpdate(const PPCContext& ctx,uint8_t* base) noexcept {
+#ifdef _WIN32
+  if(!base||!g_native_fmod_enabled.load(std::memory_order_acquire))return {};
+  const auto read=[&](uint32_t address,std::byte* data,size_t size){return ReadGuest(base,address,data,size);};
+  if(!audio::VerifyFmodUpdateBody(read))return {};
+  return audio::CaptureFmodUpdateStamp(ctx.r3.u32,read);
+#else
+  (void)ctx;(void)base;return {};
+#endif
+}
+void FinishOriginalFmodUpdate(std::optional<audio::FmodUpdateStamp> stamp,const PPCContext& ctx,uint8_t* base) noexcept {
+#ifdef _WIN32
+  if(!stamp||!base||!g_native_fmod_enabled.load(std::memory_order_acquire))return;
+  const auto read=[&](uint32_t address,std::byte* data,size_t size){return ReadGuest(base,address,data,size);};
+  const auto after=audio::CaptureFmodUpdateStamp(stamp->owner,read);
+  if(!after)return;
+  const auto delta=audio::FmodUpdateDelta(*stamp,*after,ctx.r3.u32);
+  if(!delta)return;
+  std::lock_guard lock(g_native_fmod_mutex);
+  if(!g_native_fmod_mixer)return;
+  if(!g_native_fmod_owner){
+    g_native_fmod_owner=stamp->owner;g_native_fmod_base=base;
+    REXLOG_INFO("[HULK/FMOD-NATIVE] verified original EventSystem update; native clock connected (original playback retained)");
+  }
+  if(g_native_fmod_owner!=stamp->owner||g_native_fmod_base!=base)return;
+  if(!g_native_fmod_mixer->AdvanceScheduledVoices(*delta))
+    REXLOG_WARN("[HULK/FMOD-NATIVE] native voice update rejected");
+#else
+  (void)stamp;(void)ctx;(void)base;
+#endif
+}
 std::optional<vm::AudioMenuChange> CaptureOriginalAudioMenuOption(
     uint32_t method,const PPCContext& ctx,uint8_t* base) noexcept {
   if(!base)return {};
