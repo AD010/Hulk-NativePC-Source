@@ -68,6 +68,17 @@ bool Allowed(std::string_view key, std::string_view value) {
     return value == "true" || value == "false";
   if (key == "hulk_original_fog_distance_multiplier")
     return value=="1" || value=="2" || value=="3" || value=="4";
+  // Archive distance fields are loaded by the original level/resource
+  // parser. Persist the selected preset for restart, not a fake live update.
+  if (key == "hulk_city_far_plane")
+    return value=="2000.0" || value=="4000.0" || value=="6000.0" ||
+           value=="8000.0" || value=="10000.0";
+  if (key == "hulk_city_zone_buffer")
+    return value=="50.0" || value=="150.0" || value=="300.0" ||
+           value=="500.0" || value=="750.0";
+  if (key == "hulk_city_lod_multiplier")
+    return value=="1.0" || value=="2.0" || value=="3.0" ||
+           value=="4.0" || value=="5.0";
   if (key == "anisotropic_override")
     return value=="-1" || value=="0" || value=="1" || value=="2" ||
            value=="3" || value=="4" || value=="5";
