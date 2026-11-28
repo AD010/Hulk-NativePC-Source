@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <optional>
 #include "eor_dynamic_dsp.h"
+#include "eor_fev_voice_schedule.h"
 namespace hulk::eor::audio {
 enum class VoiceFilter : uint8_t { Bypass, LowPass, HighPass };
 struct VoiceOptions {
@@ -16,6 +17,7 @@ struct VoiceOptions {
   std::span<const DspParameterBlock> dsp_blocks{};
   uint32_t start_frame=0;
   std::optional<float> stereo_pan;
+  std::span<const FevVoiceBlock> fev_voice_blocks{};
 };
 inline bool ValidVoiceFilter(VoiceFilter filter,float frequency,float one_over_q) noexcept {
   return (filter==VoiceFilter::Bypass||filter==VoiceFilter::LowPass||filter==VoiceFilter::HighPass)&&
@@ -31,6 +33,7 @@ inline bool ValidVoiceOptions(const VoiceOptions& o,uint32_t frames) noexcept {
   if(o.static_dsp.count>o.static_dsp.stages.size() ||
      ((o.static_dsp.count||!o.dsp_blocks.empty())&&o.loop_count) ||
      (o.static_dsp.count&&!o.dsp_blocks.empty()))return false;
+  if((!o.fev_voice_blocks.empty()&&o.loop_count)||!ValidFevVoiceSchedule(o.fev_voice_blocks,frames,o.frequency_ratio))return false;
   if(o.start_frame>=frames||(o.start_frame&&o.loop_count)||
      (o.stereo_pan&&(!std::isfinite(*o.stereo_pan)||*o.stereo_pan< -1.f||*o.stereo_pan>1.f)))return false;
   if(!o.loop_count)return !o.loop_begin&&!o.loop_length;

@@ -76,7 +76,8 @@ class NativeXAudio2Mixer {
       uint32_t layer,uint32_t instance,uint32_t variant,float gain=1.f,VoiceId* started=nullptr,
       VoiceOptions options={});
   // Named-DSP route. Empty bindings select source FEV parameter ordinals
-  // and fixed volume/pitch. Variable or unsupported controls are rejected.
+  // and source-frame volume/pitch/pan scheduling. Moving seeks and 3D
+  // controls without actual spatial state are rejected.
   // The caller still supplies parameter snapshots; this is not a guest hook.
   bool PlayEventVariantWithFevDsp(Bus bus,const hulk::eor::Index& index,
       const std::filesystem::path& project_archive,const std::filesystem::path& wave_archive,
@@ -94,6 +95,8 @@ class NativeXAudio2Mixer {
       std::span<const EventCueRequest> cues);
   size_t StopEventVoices(std::span<const VoiceId> voices) noexcept;
   size_t PauseEventVoices(std::span<const VoiceId> voices,bool pause) noexcept;
+  // Caller must tick this on the game audio update path. Control changes
+  // are applied at tick granularity, not guaranteed sample-accurate.
   bool AdvanceScheduledVoices(uint32_t elapsed_ms) noexcept;
   bool SetVoiceFrequencyRatio(VoiceId id,float ratio) noexcept;
   bool SetVoicePan(VoiceId id,float pan) noexcept;
