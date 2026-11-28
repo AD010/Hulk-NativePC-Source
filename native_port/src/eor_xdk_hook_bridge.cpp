@@ -17,6 +17,8 @@
 #include "eor_native_frame_executor.h"
 #include "eor_native_audio_xaudio2.h"
 #include "eor_fmod_live_events.h"
+#include "eor_fmod_live_cues.h"
+#include <cstdlib>
 #include "eor_fmod_project.h"
 #endif
 #include "eor_diligent_host_output.h"
@@ -107,6 +109,10 @@ uint8_t* g_native_fmod_base=nullptr;
 uint32_t g_native_fmod_owner=0;
 std::vector<audio::LiveFmodEvent> g_native_fmod_events;
 std::unique_ptr<fmod::LiveFevCatalog> g_native_fmod_catalog;
+std::unique_ptr<Index> g_native_fmod_index;
+std::filesystem::path g_native_fmod_project_arc,g_native_fmod_wave_arc;
+audio::LiveCueRegistry g_native_fmod_shadow_voices;
+bool g_native_fmod_shadow_enabled=false;
 struct BoundNativeFmodEvent {
   uint32_t owner=0,project_hash=0;
   audio::LiveFevBinding binding;
@@ -513,6 +519,11 @@ bool StartNativeFmodUpdateService() noexcept {
     if(g_native_fmod_mixer)return true;
     auto mixer=std::make_unique<audio::NativeXAudio2Mixer>();
     if(!mixer->Ready())return false;
+    const char* shadow=std::getenv("HULK_EXPERIMENTAL_NATIVE_FMOD_SHADOW");
+    g_native_fmod_shadow_enabled=shadow&&shadow[0]=='1'&&shadow[1]=='\0';
+    // Never output a duplicate of the original FMOD channel. This explicit
+    // diagnostic mode admits native voices but keeps them inaudible.
+    if(g_native_fmod_shadow_enabled)mixer->SetMuted(true);
     g_native_fmod_mixer=std::move(mixer);
     g_native_fmod_enabled.store(true,std::memory_order_release);
     return true;
@@ -538,9 +549,21 @@ void ConfigureNativeFmodSource(const std::filesystem::path& root) noexcept {
           try {
             auto catalog=fmod::LoadLiveFevCatalog(index,archive);
             if(!catalog)continue;
+            std::filesystem::path wave;
+            for(const auto& wave_dir:{dir,base/"USENGLISH",base,xenon/"USENGLISH",xenon,root}){
+              const auto candidate=wave_dir/"WAVEBANK.ARC";
+              if(std::filesystem::is_regular_file(candidate)){wave=candidate;break;}
+            }
+            auto index_owner=std::make_unique<Index>(index);
+            auto project_path=archive;
             std::lock_guard lock(g_native_fmod_mutex);
             if(!g_native_fmod_mixer)return;
             REXLOG_INFO("[HULK/FMOD-NATIVE] loaded {} verified source projects",catalog->projects.size());
+            g_native_fmod_mixer->StopAll();
+            g_native_fmod_shadow_voices.Clear();
+            g_native_fmod_index=std::move(index_owner);
+            g_native_fmod_project_arc=std::move(project_path);
+            g_native_fmod_wave_arc=std::move(wave);
             g_native_fmod_catalog=std::move(catalog);
             g_native_fmod_bound_events.clear();
             return;
@@ -561,6 +584,8 @@ void StopNativeFmodUpdateService() noexcept {
   g_native_fmod_mixer.reset();
   g_native_fmod_base=nullptr;g_native_fmod_owner=0;
   g_native_fmod_events.clear();g_native_fmod_bound_events.clear();g_native_fmod_catalog.reset();
+  g_native_fmod_index.reset();g_native_fmod_project_arc.clear();g_native_fmod_wave_arc.clear();
+  g_native_fmod_shadow_voices.Clear();g_native_fmod_shadow_enabled=false;
   g_native_fmod_last_capture={};g_native_fmod_capture_failed=false;
 #endif
 }
@@ -633,6 +658,37 @@ void FinishOriginalFmodUpdate(std::optional<audio::FmodUpdateStamp> stamp,const 
     }
     if(bound.size()!=g_native_fmod_bound_events.size())
       REXLOG_INFO("[HULK/FMOD-NATIVE] bound {} of {} observed active event roots to original FEV",bound.size(),active->size());
+    if(g_native_fmod_shadow_enabled&&g_native_fmod_catalog&&g_native_fmod_index&&!g_native_fmod_wave_arc.empty()){
+      // At most one new decode/admission per diagnostic tick. The current
+      // snapshot is not a sample-accurate FMOD event scheduler.
+      g_native_fmod_shadow_voices.Reconcile(*active,
+        [&](const audio::LiveFmodEvent& event,const audio::LiveFmodCue& cue)->uint64_t{
+          const auto project=g_native_fmod_catalog->projects.find(event.project);
+          if(project==g_native_fmod_catalog->projects.end())return 0;
+          const auto binding=audio::BindLiveFevEvent(event,project->first,project->second.table);
+          if(!binding)return 0;
+          const auto offset=audio::ResolveLiveFmodCue(project->second.table,*binding,cue);
+          if(!offset)return 0;
+          const auto& definition=project->second.table.events[binding->event_index];
+          audio::VoiceId id=0;
+          bool accepted=false;
+          // Source waveform route checks the archive/index pairing again.
+          // Use current observed parameters, not a fabricated future curve.
+          if(cue.layer<definition.layer_records.size()&&definition.layer_records[cue.layer].effects.empty()){
+            accepted=g_native_fmod_mixer->PlayProjectWaveform(audio::Bus::Sfx,*g_native_fmod_index,
+                g_native_fmod_project_arc,g_native_fmod_wave_arc,project->second.hash,*offset,1.f,&id);
+          }else{
+            const std::array<audio::FevParameterSnapshot,1> snapshots{{{0,std::span<const float>(binding->physical_values)}}};
+            accepted=g_native_fmod_mixer->PlayEventVariantWithFevDsp(audio::Bus::Sfx,*g_native_fmod_index,
+                g_native_fmod_project_arc,g_native_fmod_wave_arc,project->second.hash,event.group,event.name,
+                cue.layer,cue.instance,cue.variant,{},snapshots,1.f,&id);
+          }
+          REXLOG_INFO("[HULK/FMOD-NATIVE] muted shadow cue {} / {} variant={} admitted={} id={}",
+              event.project,cue.definition,cue.variant,accepted,id);
+          return accepted?id:0;
+        },
+        [&](uint64_t id){(void)g_native_fmod_mixer->StopVoice(id);});
+    }
     g_native_fmod_bound_events=std::move(bound);
     g_native_fmod_events=std::move(*active);
   } catch (...) {

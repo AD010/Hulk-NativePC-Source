@@ -61,7 +61,8 @@ std::optional<std::vector<LiveFmodEvent>> CaptureLiveFmodEvents(uint32_t system,
       while(instance&&*instance!=instance_end){
         if(i>=4096||word(*instance,16)!=*layer)return {};
         const auto flags=word(*instance,20),channel=word(*instance,36),parent=word(*instance,76);
-        if(!flags||!channel||!parent)return {};
+        if(!flags||!channel||!parent||*instance>UINT32_MAX-120u||
+           word(*instance,120)!=*instance+120u)return {}; // shared children need separate capture
         if((*flags&8u)&&*channel){
           if(*parent)return {}; // never guess a shared selection
           const auto owner=word(*instance,12),variant=word(*instance,48);

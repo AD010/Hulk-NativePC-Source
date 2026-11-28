@@ -1,0 +1,42 @@
+#include "../native_port/src/eor_fmod_live_cues.h"
+#include <cassert>
+#include <fstream>
+#include <iostream>
+using namespace hulk::eor::audio;
+int main(int argc,char** argv){
+  FevEventTable table;table.events.resize(1);table.events[0].layers={{0}};
+  FevSoundDefinition def;def.name="test";def.weights={50,25,25};def.variants={100,200,std::nullopt};table.definitions.push_back(def);
+  LiveFevBinding binding;LiveFmodCue cue{1000,2000,0,0,1,3,25,"test"};
+  assert(ResolveLiveFmodCue(table,binding,cue)==200u);
+  auto bad=cue;bad.weight=50;assert(!ResolveLiveFmodCue(table,binding,bad));bad=cue;bad.variant=2;assert(!ResolveLiveFmodCue(table,binding,bad));
+  bad=cue;bad.definition="wrong";assert(!ResolveLiveFmodCue(table,binding,bad));bad=cue;bad.layer=1;assert(!ResolveLiveFmodCue(table,binding,bad));
+  LiveFmodEvent e;e.owner=100;e.project_owner=200;e.start_stamp=300;e.cues_complete=true;e.cues={cue};
+  std::array<LiveFmodEvent,1> active{e};LiveCueRegistry registry;unsigned starts=0,stops=0;
+  auto start=[&](const auto&,const auto&){return uint64_t(++starts);};auto stop=[&](uint64_t id){assert(id);++stops;};
+  registry.Reconcile(active,start,stop);registry.Reconcile(active,start,stop);assert(starts==1&&stops==0);
+  active[0].cues_complete=false;active[0].cues.clear();registry.Reconcile(active,start,stop);assert(stops==0);
+  active[0]=e;active[0].cues[0].variant=0;registry.Reconcile(active,start,stop);assert(starts==2&&stops==1);
+  active[0].start_stamp++;registry.Reconcile(active,start,stop);assert(starts==3&&stops==2);
+  registry.Reconcile({},start,stop);assert(stops==3&&registry.Size()==0);
+  auto fail=[&](const auto&,const auto&){++starts;return uint64_t(0);};
+  registry.Reconcile(active,fail,stop);registry.Reconcile(active,fail,stop);assert(starts==4&&stops==3);
+  registry.Reconcile({},start,stop);assert(stops==3);
+  if(argc==1)return 0;
+  assert(argc==2);std::ifstream f(argv[1],std::ios::binary);assert(f);unsigned projects=0;size_t waves=0,nonwaves=0;
+  for(;;){uint32_t h[4];if(!f.read(reinterpret_cast<char*>(h),16)){assert(f.eof()&&!f.gcount());break;}
+    std::vector<std::byte> bytes(h[3]);assert(f.read(reinterpret_cast<char*>(bytes.data()),bytes.size()));if(!h[0])continue;
+    auto text=AudioText(bytes);auto end=text.find('\0');auto parsed=InspectFevEventTable(AudioBytes(bytes).subspan(end+1),text.substr(0,end));assert(parsed);++projects;
+    for(size_t n=0;n<parsed->events.size();++n){
+      const auto& event=parsed->events[n];LiveFevBinding b;b.event_index=n;
+      for(uint32_t l=0;l<event.layers.size();++l)for(uint32_t i=0;i<event.layers[l].size();++i){
+        const auto& d=parsed->definitions[event.layers[l][i]];
+        for(uint32_t v=0;v<d.variants.size();++v){
+          LiveFmodCue c{1,2,l,i,v,static_cast<uint32_t>(d.variants.size()),d.weights[v],std::string(d.name)};
+          assert(ResolveLiveFmodCue(*parsed,b,c)==d.variants[v]);
+          if(d.variants[v])++waves;else ++nonwaves;
+        }
+      }
+    }
+  }
+  std::cout<<projects<<" projects, "<<waves<<" source waveform routes, "<<nonwaves<<" non-wave selections rejected\n";
+}
